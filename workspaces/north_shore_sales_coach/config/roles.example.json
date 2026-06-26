@@ -1,0 +1,12 @@
+{
+  "users": {
+    "LIAM_TELEGRAM_USER_ID": {"display_name": "Liam", "role": "admin", "active": true},
+    "RYAN_TELEGRAM_USER_ID": {"display_name": "Ryan", "role": "manager", "active": true},
+    "SALESPERSON_TELEGRAM_USER_ID": {"display_name": "Example Salesperson", "role": "salesperson", "active": true},
+    "INACTIVE_TELEGRAM_USER_ID": {"display_name": "Inactive Example", "role": "inactive", "active": false}
+  },
+  "groups": {
+    "ADMIN_GROUP_CHAT_ID": {"type": "admin_group", "active": true},
+    "BROADCAST_GROUP_CHAT_ID": {"type": "broadcast_group", "active": true}
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "enabled": false,
+  "enabled_env": "NORTH_SHORE_LLM_ENABLED",
+  "provider": "openai_oauth",
+  "provider_env": "NORTH_SHORE_LLM_PROVIDER",
+  "optional_api_key_env": "NORTH_SHORE_LLM_API_KEY",
+  "models": {
+    "default": "gpt-5.5-instant-or-lower-available-model",
+    "default_env": "NORTH_SHORE_DEFAULT_MODEL",
+    "report": "gpt-5.5-thinking",
+    "report_env": "NORTH_SHORE_REPORT_MODEL"
+  },
+  "reasoning_effort": {
+    "default": "low",
+    "default_env": "NORTH_SHORE_REASONING_EFFORT",
+    "report": "medium",
+    "report_env": "NORTH_SHORE_REPORT_REASONING_EFFORT"
+  },
+  "token_caps": {
+    "per_log": 500,
+    "per_log_env": "NORTH_SHORE_MAX_TOKENS_PER_LOG",
+    "per_report": 1500,
+    "per_report_env": "NORTH_SHORE_MAX_TOKENS_PER_REPORT",
+    "daily_budget": 10000,
+    "daily_budget_env": "NORTH_SHORE_DAILY_TOKEN_BUDGET"
+  },
+  "require_admin_for_reports": true,
+  "require_admin_for_reports_env": "NORTH_SHORE_REQUIRE_ADMIN_FOR_REPORTS"
+}

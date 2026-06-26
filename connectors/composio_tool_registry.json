@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-06-22T12:11:46-07:00",
+  "adapter": "connectors/composio_access_adapter.py",
+  "composio_cli": "/home/liam/.composio/composio",
+  "current_verification": {
+    "state": "verified",
+    "observed_at": "2026-06-22T12:11:46-07:00",
+    "source": "live composio whoami and connections list JSON",
+    "identity": {"account_type":"human","email":"liam@timetorevenue.com","organization":"liam_workspace"},
+    "active_toolkits": ["googlesheets","instagram","google_maps","youtube","googledocs","agent_mail","reddit","linkedin","github","googledrive","googlecalendar","gmail"],
+    "expired_only_toolkits": ["facebook","whatsapp","apollo"],
+    "accounts": [
+      {"toolkit":"agent_mail","account":"account-1","status":"ACTIVE"},
+      {"toolkit":"apollo","account":"account-1","status":"EXPIRED"},
+      {"toolkit":"facebook","account":"account-1","status":"EXPIRED"},
+      {"toolkit":"facebook","account":"account-2","status":"EXPIRED"},
+      {"toolkit":"github","account":"account-1","status":"ACTIVE"},
+      {"toolkit":"gmail","account":"account-1","status":"ACTIVE"},
+      {"toolkit":"google_maps","account":"account-1","status":"ACTIVE"},
+      {"toolkit":"google_maps","account":"account-2","status":"EXPIRED"},
+      {"toolkit":"googlecalendar","account":"account-1","status":"ACTIVE"},
+      {"toolkit":"googledocs","account":"account-1","status":"ACTIVE"},
+      {"toolkit":"googledrive","account":"account-1","status":"ACTIVE"},
+      {"toolkit":"googledrive","account":"account-2","status":"EXPIRED"},
+      {"toolkit":"googlesheets","account":"account-1","status":"ACTIVE"},
+      {"toolkit":"instagram","account":"account-1","status":"ACTIVE"},
+      {"toolkit":"linkedin","account":"account-1","status":"ACTIVE"},
+      {"toolkit":"reddit","account":"account-1","status":"ACTIVE"},
+      {"toolkit":"whatsapp","account":"account-1","status":"EXPIRED"},
+      {"toolkit":"youtube","account":"account-1","status":"ACTIVE"},
+      {"toolkit":"youtube","account":"account-2","status":"EXPIRED"}
+    ]
+  },
+  "policy": {
+    "mode": "operator-command enabled",
+    "normal": ["read", "search", "status", "draft", "prepare"],
+    "explicit_specific_command_required": ["send", "write", "book", "push", "publish", "delete", "mutate"]
+  },
+  "toolkits": [
+    {"slug":"agent_mail","aliases":["agentmail"],"action_prefixes":["AGENT_MAIL"],"connection_evidence":{"source":"live_connections_list","current":true,"accounts":{"ACTIVE":1}},"action_families":["inbox/read/search","draft/send","thread/message management"]},
+    {"slug":"apollo","aliases":[],"action_prefixes":["APOLLO"],"connection_evidence":{"source":"live_connections_list","current":true,"accounts":{"EXPIRED":1}},"action_families":["people/company search","contact enrichment","list management"]},
+    {"slug":"facebook","aliases":[],"action_prefixes":["FACEBOOK"],"connection_evidence":{"source":"live_connections_list","current":true,"accounts":{"EXPIRED":2}},"action_families":["page/content read","post/publish","comment/engagement"]},
+    {"slug":"github","aliases":[],"action_prefixes":["GITHUB"],"connection_evidence":{"source":"live_connections_list","current":true,"accounts":{"ACTIVE":1}},"action_families":["repository/code read","issues/pull requests","branches/commits/releases"]},
+    {"slug":"gmail","aliases":[],"action_prefixes":["GMAIL"],"connection_evidence":{"source":"live_connections_list","current":true,"accounts":{"ACTIVE":1}},"action_families":["email read/search","draft/send/reply","labels/threads/attachments"]},
+    {"slug":"google_maps","aliases":["googlemaps"],"action_prefixes":["GOOGLE_MAPS","GOOGLEMAPS"],"connection_evidence":{"source":"live_connections_list","current":true,"accounts":{"ACTIVE":1,"EXPIRED":1}},"action_families":["place search/details","directions/distance","geocoding"]},
+    {"slug":"googlecalendar","aliases":["google_calendar"],"action_prefixes":["GOOGLECALENDAR","GOOGLE_CALENDAR"],"connection_evidence":{"source":"live_connections_list","current":true,"accounts":{"ACTIVE":1}},"action_families":["calendar/event read","availability/search","event create/update/delete"]},
+    {"slug":"googledocs","aliases":["google_docs"],"action_prefixes":["GOOGLEDOCS","GOOGLE_DOCS"],"connection_evidence":{"source":"live_connections_list","current":true,"accounts":{"ACTIVE":1}},"action_families":["document read/search","document create/update","content formatting"]},
+    {"slug":"googledrive","aliases":["google_drive"],"action_prefixes":["GOOGLEDRIVE","GOOGLE_DRIVE"],"connection_evidence":{"source":"live_connections_list","current":true,"accounts":{"ACTIVE":1,"EXPIRED":1}},"action_families":["file/folder list/search","download/export","upload/share/move/delete"]},
+    {"slug":"googlesheets","aliases":["google_sheets"],"action_prefixes":["GOOGLESHEETS","GOOGLE_SHEETS"],"connection_evidence":{"source":"live_connections_list","current":true,"accounts":{"ACTIVE":1}},"action_families":["spreadsheet read/search","rows/cells append/update","spreadsheet/sheet management"]},
+    {"slug":"instagram","aliases":[],"action_prefixes":["INSTAGRAM"],"connection_evidence":{"source":"live_connections_list","current":true,"accounts":{"ACTIVE":1}},"action_families":["profile/media read","publish media","comments/insights"]},
+    {"slug":"linkedin","aliases":[],"action_prefixes":["LINKEDIN"],"connection_evidence":{"source":"live_connections_list","current":true,"accounts":{"ACTIVE":1}},"action_families":["profile/company read","posts/search","publish/engagement"]},
+    {"slug":"reddit","aliases":[],"action_prefixes":["REDDIT"],"connection_evidence":{"source":"live_connections_list","current":true,"accounts":{"ACTIVE":1}},"action_families":["subreddit/post search","post/comment read","submit/vote/moderate"]},
+    {"slug":"whatsapp","aliases":[],"action_prefixes":["WHATSAPP"],"connection_evidence":{"source":"live_connections_list","current":true,"accounts":{"EXPIRED":1}},"action_families":["message/contact read","send message/media","conversation management"]},
+    {"slug":"youtube","aliases":[],"action_prefixes":["YOUTUBE"],"connection_evidence":{"source":"live_connections_list","current":true,"accounts":{"ACTIVE":1,"EXPIRED":1}},"action_families":["video/channel/search read","upload/update video","comments/playlists/analytics"]}
+  ],
+  "action_catalog": {
+    "state": "pending_validation",
+    "note": "Connection state is current. Use prepare/search and execute --get-schema for exact action slugs and inputs."
+  }
+}

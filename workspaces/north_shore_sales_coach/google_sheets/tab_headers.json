@@ -1,0 +1,19 @@
+{
+  "Config": ["key", "value", "description"],
+  "Users": ["telegram_user_id", "display_name", "role", "active", "salesperson_id"],
+  "Salespeople": ["salesperson_id", "display_name", "active", "telegram_user_id", "created_at", "updated_at"],
+  "Raw_Logs": ["log_id", "submitted_at", "telegram_user_id", "salesperson_id", "source", "raw_text", "customer_type", "customer_name_or_ref", "vehicle_interest", "lead_source", "interaction_type", "appointment_count", "walk_in_count", "people_spoken_to", "test_drive", "worksheet_or_offer_presented", "asked_for_business", "outcome", "next_step", "followup_date", "notes", "missing_fields_json", "coaching_flags_json", "confidence", "status", "llm_used", "llm_tokens_estimate"],
+  "Daily_Team_Summary": ["report_date", "generated_at", "total_updates", "active_salespeople", "people_spoken_to", "appointments", "test_drives", "worksheets_offers", "asks_for_business", "outcomes", "followups_due", "missing_incomplete_updates", "coaching_flags"],
+  "Daily_Salesperson_Scorecard": ["report_date", "generated_at", "salesperson_id", "display_name", "updates", "people_spoken_to", "appointments", "test_drives", "worksheets_offers", "asks_for_business", "outcomes"],
+  "Followups": ["report_date", "followup_status", "salesperson_id", "display_name", "followup_date", "followup_time", "next_step", "log_id"],
+  "Missing_Data": ["report_date", "missing_type", "salesperson_id", "display_name", "log_id", "missing_fields_json", "roster_status", "detail"],
+  "Coaching_Flags": ["report_date", "salesperson_id", "display_name", "flag_code", "detail", "log_id"],
+  "Report_Archive": ["report_id", "generated_at", "report_type", "date", "total_updates", "active_salespeople", "people_spoken_to", "appointments", "test_drives", "worksheets_offers", "asks_for_business", "outcomes", "followups_due", "missing_incomplete_updates", "coaching_flags_count", "flags_json", "llm_used"],
+  "Dashboard_Daily": ["as_of_date", "section", "display_order", "label", "value_formula", "source_tabs", "status_rule", "manager_prompt"],
+  "Team_Scorecard": ["as_of_date", "salesperson", "active", "logs_submitted", "people_spoken_to", "appointments", "test_drives", "worksheets_offers", "asked_for_business_count", "followups_set", "incomplete_updates", "coaching_flags", "test_drive_rate", "offer_worksheet_rate", "asked_for_business_rate", "followup_capture_rate", "process_completion_pct", "incomplete_update_rate", "seven_day_logs_trend", "status", "manager_next_action"],
+  "Rep_Detail": ["selected_salesperson", "selected_date", "section", "display_order", "label", "value_formula", "source_tabs", "manager_next_action"],
+  "Dashboard_Weekly": ["week_start", "week_end", "metric", "value", "display_order", "status", "detail"],
+  "Dashboard_Monthly": ["month", "metric", "value", "display_order", "status", "detail"],
+  "Demo_Data": ["demo_record_id", "entity_type", "display_name", "customer_reference", "scenario", "is_demo"],
+  "QA_Checks": ["checked_at", "check_name", "status", "row_count", "detail"]
+}

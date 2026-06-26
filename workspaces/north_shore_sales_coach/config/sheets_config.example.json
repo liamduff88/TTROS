@@ -1,0 +1,93 @@
+{
+  "enabled": false,
+  "provider_env": "NORTH_SHORE_SHEETS_PROVIDER",
+  "provider": "none",
+  "spreadsheet_id_env": "NORTH_SHORE_GOOGLE_SHEET_ID",
+  "dashboard_url_env": "NORTH_SHORE_DASHBOARD_URL",
+  "worksheet": "Sales Logs",
+  "reads_enabled": false,
+  "writes_enabled": false,
+  "execution_enabled": false,
+  "optional_providers": [
+    "none",
+    "hermes_native",
+    "google_sheets_api",
+    "apps_script_webapp",
+    "composio",
+    "agentic_os_backend"
+  ],
+  "direct_google_route_lock": {
+    "required_provider": "google_sheets_api",
+    "forbidden_providers": [
+      "hermes_native",
+      "composio",
+      "agentic_os_backend",
+      ""
+    ],
+    "status_fields": [
+      "route_locked",
+      "selected_provider",
+      "forbidden_providers_detected",
+      "credential_source",
+      "reason",
+      "error_code"
+    ],
+    "credential_sources": [
+      "package_local_path",
+      "package_local_json",
+      "missing"
+    ]
+  },
+  "direct_google_sheets_api": {
+    "provider_value": "google_sheets_api",
+    "sheet_id_env": "NORTH_SHORE_GOOGLE_SHEET_ID",
+    "credentials_json_env": "NORTH_SHORE_GOOGLE_CREDENTIALS_JSON",
+    "credentials_path_env": "NORTH_SHORE_GOOGLE_CREDENTIALS_PATH",
+    "credentials_path_placeholder": ".runtime/google/north-shore-demo-service-account.json",
+    "credential_validation": "shape_only",
+    "credential_path_scope": "package_local_gitignored_runtime_path_only",
+    "client_builder": "not_configured_in_scaffold",
+    "reads_enabled": false,
+    "writes_enabled": false,
+    "execution_enabled": false
+  },
+  "apps_script_webapp": {
+    "provider_value": "apps_script_webapp",
+    "provider_placeholder": "NORTH_SHORE_SHEETS_PROVIDER=apps_script_webapp",
+    "webapp_url_env": "NORTH_SHORE_SHEETS_WEBAPP_URL",
+    "webapp_secret_env": "NORTH_SHORE_SHEETS_WEBAPP_SECRET",
+    "execution_enabled": false,
+    "reads_enabled": false,
+    "writes_enabled": false,
+    "allowed_actions": [
+      "status",
+      "append_raw_log",
+      "append_objects"
+    ],
+    "allowed_tabs": [
+      "Raw_Logs",
+      "Users",
+      "Salespeople",
+      "Daily_Team_Summary",
+      "Daily_Salesperson_Scorecard",
+      "Followups",
+      "Missing_Data",
+      "Coaching_Flags",
+      "Report_Archive",
+      "QA_Checks"
+    ],
+    "runtime_notes": [
+      "Deploy the Web App from the Gmail account that owns the North Shore demo Sheet.",
+      "Set NORTH_SHORE_SHEETS_PROVIDER=apps_script_webapp and NORTH_SHORE_SHEETS_WEBAPP_URL locally.",
+      "Do not commit the real /exec URL.",
+      "Reads are not required for append actions.",
+      "Writes require provider=apps_script_webapp, execution_enabled=true, writes_enabled=true, HTTPS URL present, and an explicitly supplied HTTP client."
+    ]
+  },
+  "runtime_notes": [
+    "For the North Shore demo, authenticate with a separate demo Google account.",
+    "Share only the target Sheet with that demo account.",
+    "Store any credential or token path under the package-local gitignored .runtime/ directory.",
+    "Do not use Liam's existing Agentic OS Google Drive connector for this package."
+  ]
+}

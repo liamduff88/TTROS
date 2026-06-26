@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "report.schema.json",
+  "title": "Archived Daily Sales Report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["report_id", "generated_at", "report_type", "date", "summary_metrics", "flags", "llm_used"],
+  "properties": {
+    "report_id": {"type": "string", "minLength": 1},
+    "generated_at": {"type": "string", "format": "date-time"},
+    "report_type": {"const": "daily"},
+    "date": {"type": "string", "format": "date"},
+    "summary_metrics": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}},
+    "flags": {"type": "array", "items": {"type": "object"}},
+    "llm_used": {"const": false}
+  }
+}

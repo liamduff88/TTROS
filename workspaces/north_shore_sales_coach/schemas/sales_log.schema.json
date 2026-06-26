@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "sales_log.schema.json",
+  "title": "North Shore Honda Sales Log",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "log_id", "submitted_at", "telegram_user_id", "salesperson_id", "source",
+    "raw_text", "parsed", "missing_fields", "coaching_flags", "confidence",
+    "status", "llm_used", "llm_tokens_estimate"
+  ],
+  "properties": {
+    "log_id": {"type": "string", "minLength": 1},
+    "submitted_at": {"type": "string", "format": "date-time"},
+    "telegram_user_id": {"type": "string", "minLength": 1},
+    "salesperson_id": {"type": "string", "minLength": 1},
+    "source": {"type": "string", "enum": ["telegram_dm", "local", "import"]},
+    "raw_text": {"type": "string", "minLength": 1, "maxLength": 4000},
+    "parsed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "customer_type", "customer_name_or_ref", "vehicle_interest", "lead_source",
+        "interaction_type", "appointment_count", "walk_in_count", "people_spoken_to",
+        "test_drive", "worksheet_or_offer_presented", "asked_for_business", "outcome",
+        "next_step", "followup_date", "notes"
+      ],
+      "properties": {
+        "customer_type": {"type": ["string", "null"]},
+        "customer_name_or_ref": {"type": ["string", "null"], "maxLength": 200},
+        "vehicle_interest": {"type": ["string", "null"], "maxLength": 200},
+        "lead_source": {"type": ["string", "null"]},
+        "interaction_type": {"type": ["string", "null"]},
+        "appointment_count": {"type": ["integer", "null"], "minimum": 0},
+        "walk_in_count": {"type": ["integer", "null"], "minimum": 0},
+        "people_spoken_to": {"type": ["integer", "null"], "minimum": 0},
+        "test_drive": {"type": ["boolean", "null"]},
+        "worksheet_or_offer_presented": {"type": ["boolean", "null"]},
+        "asked_for_business": {"type": ["boolean", "null"]},
+        "outcome": {"type": ["string", "null"], "maxLength": 500},
+        "next_step": {"type": ["string", "null"], "maxLength": 500},
+        "followup_date": {"type": ["string", "null"], "maxLength": 100},
+        "notes": {"type": ["string", "null"], "maxLength": 2000}
+      }
+    },
+    "missing_fields": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "coaching_flags": {"type": "array", "items": {"type": "string"}},
+    "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+    "status": {"type": "string", "enum": ["draft", "complete", "needs_followup"]},
+    "llm_used": {"type": "boolean"},
+    "llm_tokens_estimate": {"type": ["integer", "null"], "minimum": 0}
+  }
+}

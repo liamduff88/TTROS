@@ -1,0 +1,22 @@
+name: north-shore-sales-coach
+version: 0.1.0
+description: Locked-down Hermes profile distribution for the North Shore Sales Coach package.
+author: Time to Revenue
+license: Private
+hermes_requires: ">=0.17.0"
+env_requires:
+  - name: NORTH_SHORE_PACKAGE_ROOT
+    required: true
+    description: Absolute path to the North Shore Sales Coach package root.
+  - name: NORTH_SHORE_TELEGRAM_BOT_TOKEN
+    required: false
+    description: Optional token for the dedicated North Shore Telegram bot.
+  - name: NORTH_SHORE_LLM_API_KEY
+    required: false
+    description: Optional key for the package-local scoped LLM adapter.
+  - name: NORTH_SHORE_SHEETS_SPREADSHEET_ID
+    required: false
+    description: Optional target spreadsheet identifier for a later selected connector.
+  - name: NORTH_SHORE_GOOGLE_CREDENTIALS_JSON
+    required: false
+    description: Optional Google credentials JSON for a later selected connector.

@@ -1,0 +1,26 @@
+{
+  "commands": {
+    "start": {"roles": ["salesperson"], "handler": "start", "context": "dm", "token_free": true},
+    "help": {"roles": ["salesperson", "manager", "admin"], "handler": "help", "context": ["dm", "group"], "token_free": true},
+    "log": {"roles": ["salesperson", "admin"], "handler": "log", "context": "dm", "token_free": true},
+    "today": {"roles": ["manager", "admin"], "handler": "today", "context": "group", "token_free": true},
+    "team": {"roles": ["manager", "admin"], "handler": "team", "context": "group", "token_free": true},
+    "followups": {"roles": ["manager", "admin"], "handler": "followups", "context": "group", "token_free": true},
+    "missing": {"roles": ["manager", "admin"], "handler": "missing", "context": "group", "token_free": true},
+    "coaching": {"roles": ["manager", "admin"], "handler": "coaching", "context": "group", "token_free": true},
+    "dashboard": {"roles": ["manager", "admin"], "handler": "dashboard", "context": "group", "token_free": true},
+    "report": {"roles": ["manager", "admin"], "handler": "report", "context": "group", "token_free": true},
+    "sync_sheets": {"roles": ["manager", "admin"], "handler": "sync_sheets", "context": ["dm", "group"], "token_free": true},
+    "announce": {"roles": ["manager", "admin"], "handler": "announce", "context": "group", "token_free": true, "enabled": false, "mode": "draft_only"},
+    "register_admin_group": {"roles": ["manager", "admin"], "handler": "register_admin_group", "context": "group", "token_free": true},
+    "register_broadcast_group": {"roles": ["manager", "admin"], "handler": "register_broadcast_group", "context": "group", "token_free": true},
+    "register_salesperson": {"roles": ["manager", "admin"], "handler": "register_salesperson", "context": ["dm", "group"], "token_free": true},
+    "list_salespeople": {"roles": ["manager", "admin"], "handler": "list_salespeople", "context": ["dm", "group"], "token_free": true},
+    "deactivate_salesperson": {"roles": ["manager", "admin"], "handler": "deactivate_salesperson", "context": ["dm", "group"], "token_free": true},
+    "invite": {"roles": ["manager", "admin"], "handler": "create_invite", "context": ["dm", "group"], "token_free": true},
+    "create_invite": {"roles": ["manager", "admin"], "handler": "create_invite", "context": ["dm", "group"], "token_free": true},
+    "invites": {"roles": ["manager", "admin"], "handler": "list_invites", "context": ["dm", "group"], "token_free": true},
+    "revoke_invite": {"roles": ["manager", "admin"], "handler": "revoke_invite", "context": ["dm", "group"], "token_free": true},
+    "my_status": {"roles": ["salesperson", "manager", "admin"], "handler": "my_status", "context": ["dm", "group"], "token_free": true}
+  }
+}

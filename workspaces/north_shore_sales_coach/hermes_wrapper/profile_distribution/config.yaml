@@ -1,0 +1,59 @@
+# Safe profile defaults. Installation does not activate any transport or provider.
+model: ""
+providers: {}
+fallback_providers: {}
+toolsets: []
+platform_toolsets: {}
+mcp_servers: {}
+
+memory:
+  enabled: false
+
+skills:
+  external_dirs: []
+
+curator:
+  enabled: false
+
+cron:
+  enabled: false
+
+kanban:
+  gateway_dispatch_enabled: false
+
+stt:
+  enabled: false
+
+streaming: false
+
+telegram:
+  enabled: false
+  polling_enabled: false
+  live_polling_enabled: false
+  token: ""
+  token_env: NORTH_SHORE_TELEGRAM_BOT_TOKEN
+
+plugins: []
+
+north_shore_sales_coach:
+  package_root_env: NORTH_SHORE_PACKAGE_ROOT
+  deterministic_first: true
+  general_hermes_routing: false
+  agentic_os_bridge: false
+  private_operator_route: false
+  telegram:
+    enabled: false
+    live_polling_enabled: false
+  llm:
+    enabled: false
+    api_key_env: NORTH_SHORE_LLM_API_KEY
+    allowed_uses:
+      - scoped_parsing
+      - scoped_reporting
+  sheets:
+    provider: none
+    reads_enabled: false
+    writes_enabled: false
+    execution_enabled: false
+    spreadsheet_id_env: NORTH_SHORE_SHEETS_SPREADSHEET_ID
+    credentials_env: NORTH_SHORE_GOOGLE_CREDENTIALS_JSON

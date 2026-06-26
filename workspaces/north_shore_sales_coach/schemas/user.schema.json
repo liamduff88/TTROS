@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "user.schema.json",
+  "title": "Authorized User",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["user_id", "role", "active"],
+  "properties": {
+    "user_id": {"type": "string", "minLength": 1},
+    "display_name": {"type": "string", "maxLength": 200},
+    "role": {"type": "string", "enum": ["admin", "manager", "salesperson", "inactive"]},
+    "active": {"type": "boolean"}
+  }
+}

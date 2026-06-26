@@ -1,0 +1,27 @@
+{
+  "workspace_id": "north_shore_sales_coach",
+  "roles_path": "config/roles.json",
+  "commands_path": "config/commands.json",
+  "data_directory": "data",
+  "telegram": {
+    "transport": "direct",
+    "enabled": false,
+    "live_polling_enabled": false,
+    "token_env": "NORTH_SHORE_TELEGRAM_BOT_TOKEN"
+  },
+  "dashboard": {
+    "url_env": "NORTH_SHORE_DASHBOARD_URL"
+  },
+  "llm": {
+    "enabled": false,
+    "api_key_env": "NORTH_SHORE_LLM_API_KEY"
+  },
+  "sheets": {
+    "provider": "none",
+    "reads_enabled": false,
+    "writes_enabled": false,
+    "execution_enabled": false,
+    "spreadsheet_id_env": "NORTH_SHORE_SHEETS_SPREADSHEET_ID",
+    "credentials_env": "NORTH_SHORE_GOOGLE_CREDENTIALS_JSON"
+  }
+}

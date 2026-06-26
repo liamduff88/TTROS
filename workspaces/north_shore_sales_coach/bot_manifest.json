@@ -1,0 +1,47 @@
+{
+  "id": "north_shore_sales_coach",
+  "name": "North Shore Sales Coach",
+  "version": "0.1.7",
+  "phase": "1.5",
+  "entrypoint": "src.north_shore_bot_runner:main",
+  "runtime": "python>=3.10",
+  "transport": {
+    "type": "telegram_direct",
+    "enabled": false,
+    "agentic_os_bridge": false
+  },
+  "storage": {
+    "primary": "local_jsonl",
+    "path": "data/sales_logs.jsonl"
+  },
+  "hosting": {
+    "workspace_isolated": true,
+    "hermes_wrapper_ready": true,
+    "general_hermes_os_commands": false
+  },
+  "configuration": {
+    "telegram": "workspace_owned",
+    "roles": "config/roles.json",
+    "local_data": "data/",
+    "sheets_provider": "config_selected_disabled_by_default"
+  },
+  "sheets": {
+    "boundary": "provider_neutral",
+    "provider": null,
+    "provider_options": ["hermes_native", "google_sheets_api", "composio"],
+    "writes_enabled": false
+  },
+  "permissions": [
+    "command_whitelist",
+    "role_map"
+  ],
+  "interaction": {
+    "primary": "natural_language",
+    "slash_commands": "fallback_menu_admin_shortcuts",
+    "deterministic_first": true,
+    "llm_fallback_enabled_by_default": false,
+    "general_operator_capabilities": false,
+    "external_message_forwarding": false
+  },
+  "external_services_enabled": false
+}

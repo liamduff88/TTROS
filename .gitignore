@@ -1,0 +1,74 @@
+# Python caches
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Node dependencies and build outputs
+node_modules/
+dist/
+build/
+
+# Local environment and secrets
+.env
+.env.*
+*.secret
+*.secrets
+secrets/
+
+# Local agent/editor state
+.agents/
+.codex/
+.claude/
+.vscode/
+
+# Telegram bridge secrets/runtime
+connectors/telegram_bridge/.env
+connectors/telegram_bridge/allowed_chats.json
+
+# Local identity/state files
+workspaces/north_shore_sales_coach/config/roles.json
+context/*CONNECTION_MEMORY*.md
+
+# North Shore runtime secrets
+workspaces/north_shore_sales_coach/.runtime/
+workspaces/north_shore_sales_coach/.env
+workspaces/north_shore_sales_coach/.env.*
+
+# Local logs and runtime noise
+*.log
+logs/*.log
+logs/*.jsonl
+logs/*token*
+dashboard/backend/*.log
+
+# Generated handoff/output archives
+archive/
+packets/
+results/
+
+# Runtime logs and local app data
+logs/
+*.jsonl
+workspaces/north_shore_sales_coach/data/
+pilots/*/sales_reports.jsonl
+
+# Local/generated status snapshots
+dashboard/data/tracker.json
+connectors/*status*.json
+connectors/composio_live_connections.txt
+
+# Local DB/state/cache
+*.db
+*.sqlite
+.cache/
+cache/
+
+# Local backup artifacts
+*.bak_*
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+
+# Broken Git backup created during repair
+.git.invalid-empty-*

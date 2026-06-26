@@ -1,0 +1,21 @@
+operations:
+  route_north_shore_message:
+    target: src.message_router:MessageRouter
+    token_free: true
+    network: false
+    starts_service: false
+  route_north_shore_command:
+    target: src.command_router:CommandRouter
+    token_free: true
+    network: false
+    starts_service: false
+  generate_north_shore_report:
+    target: src.report_generator:ReportGenerator
+    token_free: true
+    network: false
+    starts_service: false
+  validate_north_shore_config:
+    target: hermes_wrapper/profile_distribution/scripts/validate_distribution_readiness.py
+    token_free: true
+    network: false
+    starts_service: false

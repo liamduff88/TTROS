@@ -1,0 +1,79 @@
+{
+  "schema_version": "1.0",
+  "workspace": {
+    "id": "north_shore_sales_coach",
+    "display_name": "North Shore Sales Coach",
+    "isolation": "dedicated_workspace",
+    "package_root": "..",
+    "inherits_host_sessions": false,
+    "inherits_host_tools": false,
+    "agentic_os_bridge": false
+  },
+  "entrypoints": {
+    "route_north_shore_message": {
+      "target": "src.message_router:MessageRouter",
+      "purpose": "Route one North Shore message through local allowlisted intents",
+      "token_free": true,
+      "network": false
+    },
+    "route_north_shore_command": {
+      "target": "src.command_router:CommandRouter",
+      "purpose": "Route one allowlisted North Shore slash command",
+      "token_free": true,
+      "network": false
+    },
+    "generate_north_shore_report": {
+      "target": "src.report_generator:ReportGenerator",
+      "purpose": "Generate a report from package-local records",
+      "token_free": true,
+      "network": false
+    },
+    "validate_north_shore_config": {
+      "target": "hermes_wrapper/config.example.json",
+      "purpose": "Validate wrapper configuration without activating services",
+      "token_free": true,
+      "network": false
+    }
+  },
+  "transport": {
+    "telegram": "direct_package_owned",
+    "live_polling_enabled": false,
+    "agentic_os_bridge": false
+  },
+  "sheets": {
+    "provider_neutral": true,
+    "allowed_provider_choices": [
+      "none",
+      "hermes_native",
+      "google_sheets_api",
+      "apps_script_webapp",
+      "composio"
+    ],
+    "default_provider": "none",
+    "reads_enabled": false,
+    "writes_enabled": false,
+    "execution_enabled": false,
+    "composio_required": false
+  },
+  "blocked_capabilities": [
+    "work_command",
+    "general_hermes_commands",
+    "codex",
+    "claude",
+    "arbitrary_tools",
+    "web",
+    "search",
+    "browser",
+    "os_commands",
+    "filesystem_outside_workspace",
+    "google_sheets_writes",
+    "composio_execution",
+    "live_telegram_polling",
+    "agentic_os_backend_routes"
+  ],
+  "dependencies": {
+    "agentic_os_backend_required": false,
+    "composio_required": false,
+    "provider_sdks_required_for_core": false
+  }
+}
