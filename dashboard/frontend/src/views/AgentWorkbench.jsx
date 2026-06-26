@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Copy, ExternalLink, Check, AlertCircle, Wifi, WifiOff, Clock, Play, Terminal } from 'lucide-react'
-import { getEntities, launchEntity, wslStatus, wslHermes, wslClaude, wslCodex , telegramStatus } from '../api'
+import { getEntities, launchEntity, wslStatus, wslHermes, wslClaude, wslCodex, telegramStatus } from '../api'
 
 const STATUS_CONFIG = {
   live_wsl: { color: 'text-champagne', dot: 'bg-champagne', label: 'Live via AgenticOSClean' },
@@ -61,6 +61,7 @@ function AgentCard({ entity, selected, onSelect }) {
 function LaunchButton({ entity, onResult }) {
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState(null)
+  const sc = STATUS_CONFIG[entity.status] || STATUS_CONFIG.not_connected
 
   const handle = async () => {
     setLoading(true)
@@ -102,7 +103,7 @@ function LaunchButton({ entity, onResult }) {
   )
 }
 
-function HermesRunPanel() {
+function HermesRunPanel({ telegram }) {
   const [task, setTask] = useState('')
   const [running, setRunning] = useState(null) // 'status' | 'hermes' | 'claude' | 'codex'
   const [result, setResult] = useState(null)
@@ -135,7 +136,7 @@ function HermesRunPanel() {
 
       <div>
         <label className="block text-xs text-taupe mb-1.5 font-medium">Task text (for Hermes → Codex, Hermes → Claude, or Direct Codex)</label>
-              <div className="rounded-2xl border border-stone-700/40 bg-black/20 p-4">
+        <div className="rounded-2xl border border-stone-700/40 bg-black/20 p-4">
         <div className="text-xs uppercase tracking-[0.2em] text-stone-400">Telegram Bridge</div>
         <div className="mt-2 text-lg font-semibold text-stone-100">{telegram?.running ? 'Running' : 'Stopped'}</div>
         <div className="mt-1 text-sm text-stone-400">Pilot: northshore_honda_sales_demo</div>
@@ -295,7 +296,7 @@ export default function AgentWorkbench() {
             </div>
           )}
 
-          {selected.id === 'hermes' && <HermesRunPanel />}
+          {selected.id === 'hermes' && <HermesRunPanel telegram={telegram} />}
         </div>
       )}
     </div>
