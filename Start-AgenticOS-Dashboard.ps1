@@ -3,8 +3,6 @@
 $workspace = "C:\Users\Admin\Documents\A-Time to revenue\Agentic OS Live"
 $dashboard = Join-Path $workspace "dashboard"
 $frontend = Join-Path $dashboard "frontend"
-$bridgeDir = Join-Path $workspace "connectors\telegram_bridge"
-$bridgeAuto = Join-Path $bridgeDir "Start-Telegram-Bridge-Auto.ps1"
 $logs = Join-Path $workspace "logs"
 
 New-Item -ItemType Directory -Force -Path $logs | Out-Null
@@ -34,26 +32,7 @@ Start-Process -FilePath "cmd.exe" `
   -WorkingDirectory $frontend `
   -ArgumentList "/d /c npm run dev -- --host 127.0.0.1 --port 3010 1>> `"$frontendLog`" 2>>&1"
 
-Start-Sleep -Seconds 5
-
-# Start Telegram bridge hidden if it is not already running. Do not patch the bridge.
-$telegramRunning = Get-CimInstance Win32_Process |
-  Where-Object {
-    $_.CommandLine -like "*telegram_bridge.py*" -and
-    $_.CommandLine -like "*Agentic OS Live*"
-  }
-
-if (-not $telegramRunning -and (Test-Path $bridgeAuto)) {
-  $telegramLog = Join-Path $logs "telegram_bridge_task.log"
-  Start-Process -FilePath "powershell.exe" `
-    -WindowStyle Hidden `
-    -WorkingDirectory $bridgeDir `
-    -ArgumentList @(
-      "-NoProfile",
-      "-ExecutionPolicy", "Bypass",
-      "-File", "`"$bridgeAuto`""
-    )
-}
+# Telegram bridge startup is owned separately by connectors\telegram_bridge\Start-Telegram-Bridge-Auto.ps1.
 
 Start-Sleep -Seconds 6
 Start-Process "http://127.0.0.1:3010"
