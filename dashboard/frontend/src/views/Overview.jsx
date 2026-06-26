@@ -1,24 +1,30 @@
-import { useEffect } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   Activity,
+  AlertCircle,
   Bot,
   Cable,
+  CheckCircle2,
   Clock,
   Code2,
   FileText,
   FolderOpen,
   Gauge,
   LayoutDashboard,
+  Loader2,
   Play,
   Route,
   ScrollText,
+  Server,
   ShieldCheck,
   Sparkles,
   Terminal,
   Wrench,
 } from 'lucide-react'
+import { getHealth, wslStatus } from '../api'
 
 const formatCount = value => Number(value || 0).toLocaleString()
+const TOKEN_UNAVAILABLE_TEXT = 'Token usage: unavailable from current CLI output'
 
 const formatTimestamp = value => {
   if (!value) return 'No timestamp'
@@ -26,11 +32,23 @@ const formatTimestamp = value => {
   return Number.isNaN(date.getTime()) ? 'Unknown time' : date.toLocaleString()
 }
 
-const cleanTokenText = value => value?.replace(/^Token usage:\s*/i, '') || 'unavailable'
+const cleanTokenText = value => {
+  if (!value) return TOKEN_UNAVAILABLE_TEXT
+  if (/no task recorded/i.test(value)) return TOKEN_UNAVAILABLE_TEXT
+  return value.replace(/^Token usage:\s*/i, 'Token usage: ')
+}
+
+const compactStatusDetail = value => {
+  const text = String(value || '').replace(/\s+/g, ' ').trim()
+  if (!text) return ''
+  return text.length > 140 ? `${text.slice(0, 137).trim()}...` : text
+}
 
 const statusTone = {
   ready: { dot: 'bg-champagne', text: 'text-champagne', border: 'border-champagne/40' },
   local: { dot: 'bg-olive', text: 'text-olive', border: 'border-olive/40' },
+  loading: { dot: 'bg-taupe animate-pulse', text: 'text-taupe', border: 'border-softgraph' },
+  error: { dot: 'bg-clay', text: 'text-clay', border: 'border-clay/40' },
   unavailable: { dot: 'bg-taupe', text: 'text-taupe', border: 'border-softgraph' },
 }
 
@@ -86,6 +104,26 @@ const AgentCard = ({ name, role, state, stateLabel, detail, icon: Icon }) => {
   )
 }
 
+const StatusCard = ({ name, role, state, stateLabel, detail, icon: Icon }) => {
+  const sc = statusTone[state] || statusTone.unavailable
+  const StateIcon = state === 'loading' ? Loader2 : state === 'error' ? AlertCircle : state === 'ready' || state === 'local' ? CheckCircle2 : AlertCircle
+
+  return (
+    <div className={`rounded-lg border ${sc.border} bg-graphite p-4`}>
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <Icon size={14} className={sc.text} />
+          <h3 className="text-sm font-semibold text-ivory">{name}</h3>
+        </div>
+        <StateIcon size={14} className={`${sc.text} ${state === 'loading' ? 'animate-spin' : ''}`} />
+      </div>
+      <div className="text-xs text-taupe">{role}</div>
+      <div className={`mt-3 text-[11px] font-mono uppercase tracking-wider ${sc.text}`}>{stateLabel}</div>
+      <div className="mt-1 text-xs leading-snug text-taupe">{detail}</div>
+    </div>
+  )
+}
+
 const QuickLink = ({ label, sub, icon: Icon, onClick }) => (
   <button
     type="button"
@@ -104,8 +142,25 @@ const QuickLink = ({ label, sub, icon: Icon, onClick }) => (
 )
 
 export default function Overview({ overview, onNavigate, onRefresh }) {
+  const [backendState, setBackendState] = useState({ status: 'loading', data: null, error: null })
+  const [wslState, setWslState] = useState({ status: 'loading', data: null, error: null })
+
+  const refreshStatus = () => {
+    setBackendState(current => ({ ...current, status: 'loading', error: null }))
+    setWslState(current => ({ ...current, status: 'loading', error: null }))
+
+    getHealth()
+      .then(data => setBackendState({ status: 'ready', data, error: null }))
+      .catch(error => setBackendState({ status: 'error', data: null, error }))
+
+    wslStatus()
+      .then(data => setWslState({ status: data?.success ? 'ready' : 'error', data, error: null }))
+      .catch(error => setWslState({ status: 'error', data: null, error }))
+  }
+
   useEffect(() => {
     onRefresh?.()
+    refreshStatus()
   }, [])
 
   const tokenUsage = overview?.tokenUsage
@@ -119,32 +174,71 @@ export default function Overview({ overview, onNavigate, onRefresh }) {
   const logs = overview?.totalLogs
   const results = overview?.totalResults
   const estimatedValue = overview?.estimatedValue || 0
+  const overviewLoading = !overview
+  const overviewError = Boolean(overview?.error)
+  const backendReady = backendState.status === 'ready'
+  const wslReady = wslState.status === 'ready'
+  const wslOutput = wslState.data?.output || wslState.error?.response?.data?.detail || wslState.error?.message
+  const routeState = wslState.status === 'loading' ? 'loading' : wslReady ? 'ready' : 'error'
+  const routeLabel = wslState.status === 'loading' ? 'Checking route' : wslReady ? 'Clean WSL route' : 'Route unavailable'
+  const routeDetail = wslState.status === 'loading'
+    ? 'Checking AgenticOSClean through the existing WSL status route.'
+    : wslReady
+      ? 'Targets AgenticOSClean backend routes; launch controls stay in Agent Workbench.'
+      : compactStatusDetail(wslOutput || 'AgenticOSClean route did not respond.')
 
-  const agentCards = [
+  const statusCards = useMemo(() => [
+    {
+      name: 'Backend',
+      role: 'Dashboard API',
+      state: backendState.status === 'loading' ? 'loading' : backendReady ? 'local' : 'error',
+      stateLabel: backendState.status === 'loading' ? 'Checking API' : backendReady ? 'Healthy' : 'Offline',
+      detail: backendState.status === 'loading'
+        ? 'Loading health from /api/health.'
+        : backendReady
+          ? `API ${backendState.data?.version || 'online'} is responding.`
+          : 'Overview data could not be refreshed from the backend.',
+      icon: Server,
+    },
+    {
+      name: 'Clean WSL',
+      role: 'AgenticOSClean availability',
+      state: wslState.status === 'loading' ? 'loading' : wslReady ? 'ready' : 'error',
+      stateLabel: wslState.status === 'loading' ? 'Checking WSL' : wslReady ? 'Available' : 'Unavailable',
+      detail: wslState.status === 'loading'
+        ? 'Checking /api/wsl/status without launching an agent task.'
+        : wslReady
+          ? 'AgenticOSClean responded through the clean WSL status route.'
+          : compactStatusDetail(wslOutput || 'WSL status check failed.'),
+      icon: Terminal,
+    },
     {
       name: 'Hermes',
-      role: 'Router and launch path',
-      state: 'ready',
-      stateLabel: 'Workbench route',
-      detail: 'Use Agent Workbench for Hermes status and routed task execution.',
+      role: 'Coordinator route',
+      state: routeState,
+      stateLabel: routeLabel,
+      detail: routeDetail,
       icon: Sparkles,
     },
     {
       name: 'Codex',
-      role: 'Coding agent',
-      state: 'ready',
-      stateLabel: 'Workbench route',
-      detail: 'Direct run controls live inside the existing Agent Workbench.',
+      role: 'Implementation route',
+      state: routeState,
+      stateLabel: routeLabel,
+      detail: routeDetail,
       icon: Code2,
     },
     {
       name: 'Claude',
-      role: 'Alternate coding agent',
-      state: 'ready',
-      stateLabel: 'Workbench route',
-      detail: 'Available through the existing Hermes run panel when backend supports it.',
+      role: 'Precision route',
+      state: routeState,
+      stateLabel: routeLabel,
+      detail: routeDetail,
       icon: Bot,
     },
+  ], [backendReady, backendState, routeDetail, routeLabel, routeState, wslOutput, wslReady, wslState])
+
+  const agentCards = [
     {
       name: 'Dashboard',
       role: 'Local operator UI',
@@ -173,7 +267,10 @@ export default function Overview({ overview, onNavigate, onRefresh }) {
         </div>
         <button
           type="button"
-          onClick={onRefresh}
+          onClick={() => {
+            onRefresh?.()
+            refreshStatus()
+          }}
           className="inline-flex items-center gap-2 rounded bg-softgraph px-3 py-2 text-xs font-mono text-taupe transition-colors hover:text-stone"
         >
           <Activity size={13} />
@@ -220,11 +317,21 @@ export default function Overview({ overview, onNavigate, onRefresh }) {
         />
       </section>
 
+      <section>
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-taupe">Cockpit Status</h2>
+          <ShieldCheck size={14} className="text-taupe" />
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          {statusCards.map(status => <StatusCard key={status.name} {...status} />)}
+        </div>
+      </section>
+
       <section className="grid gap-4 lg:grid-cols-5">
         <div className="lg:col-span-3">
           <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-xs font-semibold uppercase tracking-wider text-taupe">Agent Status</h2>
-            <ShieldCheck size={14} className="text-taupe" />
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-taupe">Operator Surfaces</h2>
+            <LayoutDashboard size={14} className="text-taupe" />
           </div>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {agentCards.map(agent => <AgentCard key={agent.name} {...agent} />)}
@@ -237,7 +344,15 @@ export default function Overview({ overview, onNavigate, onRefresh }) {
               <Gauge size={14} className="text-champagne" />
               <h2 className="text-xs font-semibold uppercase tracking-wider text-taupe">Token Status</h2>
             </div>
-            {hasTokenData ? (
+            {overviewLoading ? (
+              <div className="rounded border border-softgraph bg-ink px-4 py-5 text-center text-xs font-mono text-taupe">
+                Loading token status from overview.
+              </div>
+            ) : overviewError ? (
+              <div className="rounded border border-clay/40 bg-clay/10 px-4 py-5 text-center text-xs font-mono text-stone">
+                Token usage: unavailable from current CLI output
+              </div>
+            ) : hasTokenData ? (
               <>
                 <div className="text-lg font-mono text-ivory">{lastTokenText}</div>
                 <div className="mt-3 grid grid-cols-3 gap-3 text-xs font-mono">
@@ -261,7 +376,7 @@ export default function Overview({ overview, onNavigate, onRefresh }) {
               </>
             ) : (
               <div className="rounded border border-softgraph bg-ink px-4 py-5 text-center text-xs font-mono text-taupe">
-                Token data unavailable. Connect the backend overview source to populate this panel.
+                Token usage: unavailable from current CLI output
               </div>
             )}
           </div>
