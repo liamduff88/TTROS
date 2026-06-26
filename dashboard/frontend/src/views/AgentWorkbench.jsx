@@ -1,6 +1,18 @@
 import { useState, useEffect } from 'react'
-import { Copy, ExternalLink, Check, AlertCircle, Wifi, WifiOff, Clock, Play, Terminal } from 'lucide-react'
-import { getEntities, launchEntity, wslStatus, wslHermes, wslClaude, wslCodex, telegramStatus } from '../api'
+import {
+  AlertCircle,
+  Check,
+  ClipboardList,
+  Code2,
+  Copy,
+  ExternalLink,
+  Play,
+  RefreshCw,
+  Route,
+  Sparkles,
+  Terminal,
+} from 'lucide-react'
+import { getEntities, launchEntity, wslStatus, wslHermes, wslClaude, wslCodex } from '../api'
 
 const STATUS_CONFIG = {
   live_wsl: { color: 'text-champagne', dot: 'bg-champagne', label: 'Live via AgenticOSClean' },
@@ -15,6 +27,33 @@ const STATUS_CONFIG = {
   installed: { color: 'text-champagne', dot: 'bg-champagne', label: 'Installed' },
 }
 
+const LAUNCH_CHOICES = [
+  {
+    id: 'hermes',
+    label: 'Hermes',
+    routeLabel: 'Coordinator route',
+    buttonLabel: 'Route with Hermes',
+    icon: Route,
+    description: 'Use Hermes for routing, coordinator decisions, multi-step delegation, and tasks where the right agent is not obvious.',
+  },
+  {
+    id: 'codex',
+    label: 'Codex',
+    routeLabel: 'Implementation route',
+    buttonLabel: 'Launch Codex',
+    icon: Code2,
+    description: 'Use Codex for code and file implementation, focused fixes, tests, docs, and repo-local execution.',
+  },
+  {
+    id: 'claude',
+    label: 'Claude',
+    routeLabel: 'Precision route',
+    buttonLabel: 'Launch Claude',
+    icon: Sparkles,
+    description: 'Use Claude for careful refactors, UI polish, review passes, and precision edits where taste and structure matter.',
+  },
+]
+
 function CopyButton({ text }) {
   const [copied, setCopied] = useState(false)
   const handleCopy = () => {
@@ -28,7 +67,7 @@ function CopyButton({ text }) {
     <button
       onClick={handleCopy}
       disabled={!text}
-      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-mono bg-softgraph text-taupe hover:text-stone disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+      className="flex items-center gap-1.5 rounded border border-softgraph bg-ink px-2.5 py-1.5 text-xs font-mono text-taupe transition-colors hover:text-stone disabled:cursor-not-allowed disabled:opacity-30"
       title="Copy to clipboard"
     >
       {copied ? <Check size={11} className="text-olive" /> : <Copy size={11} />}
@@ -42,23 +81,23 @@ function AgentCard({ entity, selected, onSelect }) {
   return (
     <button
       onClick={() => onSelect(entity)}
-      className={`w-full text-left p-4 rounded-lg border transition-colors ${
+      className={`w-full rounded-lg border p-4 text-left transition-colors ${
         selected
           ? 'border-champagne bg-softgraph'
           : 'border-softgraph bg-graphite hover:border-taupe'
       }`}
     >
-      <div className="flex items-start justify-between mb-2">
+      <div className="mb-2 flex items-start justify-between gap-3">
         <span className="text-sm font-semibold text-ivory">{entity.name}</span>
-        <div className={`w-2 h-2 rounded-full mt-1 ${sc.dot}`} />
+        <div className={`mt-1 h-2 w-2 rounded-full ${sc.dot}`} />
       </div>
-      <div className="text-xs text-taupe mb-2">{entity.role}</div>
+      <div className="mb-2 text-xs text-taupe">{entity.role}</div>
       <div className={`text-[10px] font-mono ${sc.color}`}>{sc.label}</div>
     </button>
   )
 }
 
-function LaunchButton({ entity, onResult }) {
+function LaunchButton({ entity }) {
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState(null)
   const sc = STATUS_CONFIG[entity.status] || STATUS_CONFIG.not_connected
@@ -80,22 +119,23 @@ function LaunchButton({ entity, onResult }) {
     <div className="space-y-2">
       <button
         onClick={handle}
-        disabled={loading}
-        className={`flex items-center gap-2 px-4 py-2 rounded text-sm font-medium transition-colors ${
+        disabled={loading || !entity.launchable}
+        className={`flex items-center gap-2 rounded px-4 py-2 text-sm font-medium transition-colors ${
           entity.launchable
             ? 'bg-champagne text-ink hover:bg-stone'
-            : 'bg-softgraph text-taupe cursor-not-allowed'
+            : 'cursor-not-allowed bg-softgraph text-taupe'
         }`}
       >
         <ExternalLink size={13} />
-        {loading ? 'Launching…' : entity.launchable ? `Open ${entity.name}` : entity.commandType === 'wsl' ? 'Use Hermes Run Panel' : entity.statusLabel || sc.label}
+        {loading ? 'Opening...' : entity.launchable ? `Open ${entity.name}` : entity.commandType === 'wsl' ? 'Use command bar' : entity.statusLabel || sc.label}
       </button>
       {result && (
-        <div className={`text-xs font-mono px-3 py-1.5 rounded border ${
+        <div className={`rounded border px-3 py-1.5 text-xs font-mono ${
           result.success
             ? 'border-olive/40 bg-olive/10 text-stone'
             : 'border-clay/40 bg-clay/10 text-stone'
-        }`}>
+        }`}
+        >
           {result.message}
         </div>
       )}
@@ -103,10 +143,45 @@ function LaunchButton({ entity, onResult }) {
   )
 }
 
-function HermesRunPanel({ telegram }) {
+function AgentRouteChoice({ choice, active, onSelect }) {
+  const Icon = choice.icon
+  return (
+    <button
+      onClick={() => onSelect(choice.id)}
+      className={`min-h-[138px] rounded-lg border p-4 text-left transition-colors ${
+        active
+          ? 'border-champagne bg-softgraph'
+          : 'border-softgraph bg-ink/60 hover:border-taupe'
+      }`}
+    >
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <span className={`flex h-8 w-8 items-center justify-center rounded border ${
+            active ? 'border-champagne text-champagne' : 'border-softgraph text-taupe'
+          }`}
+          >
+            <Icon size={16} />
+          </span>
+          <div>
+            <div className="text-sm font-semibold text-ivory">{choice.label}</div>
+            <div className="text-[10px] uppercase tracking-wider text-taupe">{choice.routeLabel}</div>
+          </div>
+        </div>
+        {active && <Check size={15} className="text-champagne" />}
+      </div>
+      <p className="text-xs leading-relaxed text-stone">{choice.description}</p>
+    </button>
+  )
+}
+
+function CommandBar() {
   const [task, setTask] = useState('')
-  const [running, setRunning] = useState(null) // 'status' | 'hermes' | 'claude' | 'codex'
+  const [route, setRoute] = useState('hermes')
+  const [running, setRunning] = useState(null)
   const [result, setResult] = useState(null)
+
+  const selectedChoice = LAUNCH_CHOICES.find(choice => choice.id === route) || LAUNCH_CHOICES[0]
+  const canLaunch = task.trim().length > 0 && !running
 
   const run = async (action) => {
     setRunning(action)
@@ -117,101 +192,124 @@ function HermesRunPanel({ telegram }) {
       else if (action === 'hermes') res = await wslHermes(task)
       else if (action === 'claude') res = await wslClaude(task)
       else if (action === 'codex') res = await wslCodex(task)
-      setResult(res)
+      setResult({
+        action,
+        routeLabel: action === 'status' ? 'Hermes status' : selectedChoice.label,
+        task: action === 'status' ? 'Status check' : task.trim(),
+        ...res,
+      })
     } catch (e) {
-      setResult({ success: false, output: e?.response?.data?.detail || 'Backend unreachable or request failed' })
+      setResult({
+        action,
+        success: false,
+        routeLabel: action === 'status' ? 'Hermes status' : selectedChoice.label,
+        task: action === 'status' ? 'Status check' : task.trim(),
+        output: e?.response?.data?.detail || 'Backend unreachable or request failed',
+      })
     } finally {
       setRunning(null)
     }
   }
 
-  const needsTask = (action) => action !== 'status' && !task.trim()
-
   return (
-    <div className="bg-graphite border border-softgraph rounded-lg p-5 space-y-4">
-      <div className="flex items-center gap-2">
-        <Terminal size={13} className="text-champagne" />
-        <span className="text-xs font-semibold text-taupe uppercase tracking-wider">Hermes Run Panel — AgenticOSClean WSL</span>
-      </div>
-
-      <div>
-        <label className="block text-xs text-taupe mb-1.5 font-medium">Task text (for Hermes → Codex, Hermes → Claude, or Direct Codex)</label>
-        <div className="rounded-2xl border border-stone-700/40 bg-black/20 p-4">
-        <div className="text-xs uppercase tracking-[0.2em] text-stone-400">Telegram Bridge</div>
-        <div className="mt-2 text-lg font-semibold text-stone-100">{telegram?.running ? 'Running' : 'Stopped'}</div>
-        <div className="mt-1 text-sm text-stone-400">Pilot: northshore_honda_sales_demo</div>
-        <div className="mt-1 text-sm text-stone-400">Reports: {telegram?.pilot_report_count ?? 0}</div>
-      </div>
-<textarea
-          value={task}
-          onChange={e => setTask(e.target.value)}
-          placeholder="Describe the coding task…"
-          rows={4}
-          className="w-full bg-ink border border-softgraph rounded px-3 py-2 text-sm text-ivory placeholder-taupe/50 font-mono resize-none focus:outline-none focus:border-taupe"
-        />
-      </div>
-
-      <div className="flex flex-wrap gap-2">
+    <section className="rounded-lg border border-softgraph bg-graphite p-5 shadow-2xl shadow-black/20">
+      <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <div className="mb-2 flex items-center gap-2">
+            <Terminal size={14} className="text-champagne" />
+            <span className="text-xs font-semibold uppercase tracking-wider text-taupe">AgentWorkbench Command Bar</span>
+          </div>
+          <h1 className="text-2xl font-semibold tracking-normal text-ivory">Route operator work from the cockpit.</h1>
+          <p className="mt-2 max-w-2xl text-sm leading-relaxed text-taupe">
+            Describe the task in normal language, choose the right agent surface, and launch inside AgenticOSClean WSL.
+          </p>
+        </div>
         <button
           onClick={() => run('status')}
           disabled={!!running}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-softgraph text-stone hover:text-ivory disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          className="flex items-center gap-2 rounded border border-softgraph bg-ink px-3 py-2 text-xs font-medium text-stone transition-colors hover:border-taupe hover:text-ivory disabled:cursor-not-allowed disabled:opacity-40"
         >
-          <Play size={11} />
-          {running === 'status' ? 'Checking…' : 'Hermes Status'}
-        </button>
-        <button
-          onClick={() => run('hermes')}
-          disabled={!!running || needsTask('hermes')}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-champagne text-ink hover:bg-stone disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-          title={needsTask('hermes') ? 'Enter task text first' : ''}
-        >
-          <Play size={11} />
-          {running === 'hermes' ? 'Running…' : 'Hermes → Codex'}
-        </button>
-        <button
-          onClick={() => run('claude')}
-          disabled={!!running || needsTask('claude')}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-softgraph text-stone hover:text-ivory disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-          title={needsTask('claude') ? 'Enter task text first' : ''}
-        >
-          <Play size={11} />
-          {running === 'claude' ? 'Running…' : 'Hermes → Claude'}
-        </button>
-        <button
-          onClick={() => run('codex')}
-          disabled={!!running || needsTask('codex')}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-softgraph text-stone hover:text-ivory disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-          title={needsTask('codex') ? 'Enter task text first' : ''}
-        >
-          <Play size={11} />
-          {running === 'codex' ? 'Running…' : 'Direct Codex'}
+          <RefreshCw size={13} className={running === 'status' ? 'animate-spin' : ''} />
+          {running === 'status' ? 'Checking' : 'Hermes Status'}
         </button>
       </div>
 
-      {running && (
-        <div className="text-xs font-mono text-taupe animate-pulse px-1">Running inside AgenticOSClean — may take up to 2 min…</div>
-      )}
+      <div className="grid gap-3 lg:grid-cols-3">
+        {LAUNCH_CHOICES.map(choice => (
+          <AgentRouteChoice
+            key={choice.id}
+            choice={choice}
+            active={route === choice.id}
+            onSelect={setRoute}
+          />
+        ))}
+      </div>
 
-      {result && (
-        <div className={`rounded border px-4 py-3 text-xs font-mono whitespace-pre-wrap leading-relaxed ${
-          result.success
-            ? 'border-olive/40 bg-olive/10 text-stone'
-            : 'border-clay/40 bg-clay/10 text-stone'
-        }`}>
-          <div className={`text-[10px] uppercase tracking-wider mb-1 ${result.success ? 'text-olive' : 'text-clay'}`}>
-            {result.success ? 'Success' : 'Error'}
+      <div className="mt-5 rounded-lg border border-softgraph bg-ink p-4">
+        <label className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-taupe">
+          <ClipboardList size={13} />
+          Natural-language task
+        </label>
+        <textarea
+          value={task}
+          onChange={e => setTask(e.target.value)}
+          placeholder="Example: Review the dashboard command bar, tighten the UI, run focused validation, and return a compact closeout."
+          rows={4}
+          className="min-h-[116px] w-full resize-none rounded border border-softgraph bg-black/20 px-3 py-3 text-sm leading-relaxed text-ivory placeholder-taupe/50 focus:border-champagne focus:outline-none"
+        />
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+          <div className="text-xs text-taupe">
+            Selected: <span className="font-medium text-stone">{selectedChoice.label}</span> through clean AgenticOSClean routes.
           </div>
-          {result.output}
+          <button
+            onClick={() => run(route)}
+            disabled={!canLaunch}
+            className="flex items-center gap-2 rounded bg-champagne px-4 py-2 text-sm font-semibold text-ink transition-colors hover:bg-stone disabled:cursor-not-allowed disabled:opacity-40"
+            title={!task.trim() ? 'Enter a task first' : ''}
+          >
+            <Play size={14} />
+            {running && running !== 'status' ? 'Launching...' : selectedChoice.buttonLabel}
+          </button>
+        </div>
+      </div>
+
+      {(running || result) && (
+        <div className="mt-5 rounded-lg border border-softgraph bg-ink">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-softgraph px-4 py-3">
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-wider text-taupe">Task status</div>
+              <div className="mt-1 text-sm text-stone">
+                {running ? 'Running inside AgenticOSClean WSL' : `${result?.routeLabel || 'Agent'} complete`}
+              </div>
+            </div>
+            <div className={`rounded-full px-3 py-1 text-[11px] font-mono ${
+              running
+                ? 'bg-softgraph text-taupe'
+                : result?.success
+                  ? 'bg-olive/20 text-stone'
+                  : 'bg-clay/20 text-stone'
+            }`}
+            >
+              {running ? 'IN PROGRESS' : result?.success ? 'PASS' : 'NEEDS ATTENTION'}
+            </div>
+          </div>
+          <div className="px-4 py-3">
+            {result?.task && (
+              <div className="mb-3 line-clamp-2 text-xs text-taupe">
+                Task: <span className="text-stone">{result.task}</span>
+              </div>
+            )}
+            <pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded border border-softgraph bg-black/20 p-3 text-xs leading-relaxed text-stone">
+              {running ? 'Waiting for compact closeout from AgenticOSClean...' : result?.output || result?.message || '(no output)'}
+            </pre>
+          </div>
         </div>
       )}
-    </div>
+    </section>
   )
 }
 
 export default function AgentWorkbench() {
-  const [telegram, setTelegram] = useState(null);
-  useEffect(() => { telegramStatus().then(setTelegram).catch(() => setTelegram({ status: 'offline', running: false })); }, []);
   const [entities, setEntities] = useState([])
   const [selected, setSelected] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -220,87 +318,87 @@ export default function AgentWorkbench() {
     getEntities()
       .then(d => {
         setEntities(d.entities)
-        setSelected(d.entities[0] || null)
+        setSelected(d.entities.find(entity => entity.id === 'hermes') || d.entities[0] || null)
       })
       .catch(() => {})
       .finally(() => setLoading(false))
   }, [])
 
-  if (loading) return <div className="text-taupe text-sm font-mono">Loading agents…</div>
+  if (loading) return <div className="text-sm font-mono text-taupe">Loading agents...</div>
 
   const sc = selected ? STATUS_CONFIG[selected.status] || STATUS_CONFIG.not_connected : null
 
   return (
-    <div className="flex gap-6 max-w-5xl">
-      <div className="w-56 flex-shrink-0 space-y-2">
-        <h2 className="text-xs font-semibold text-taupe uppercase tracking-wider mb-3">Workbench</h2>
-        {entities.map(e => (
-          <AgentCard
-            key={e.id}
-            entity={e}
-            selected={selected?.id === e.id}
-            onSelect={setSelected}
-          />
-        ))}
-      </div>
+    <div className="mx-auto flex max-w-6xl flex-col gap-5">
+      <CommandBar />
 
-      {selected && (
-        <div className="flex-1 space-y-4">
-          <div className="bg-graphite border border-softgraph rounded-lg p-6">
-            <div className="flex items-start justify-between mb-4">
-              <div>
-                <h1 className="text-xl font-semibold text-ivory mb-1">{selected.name}</h1>
-                <p className="text-sm text-taupe">{selected.role}</p>
+      <div className="grid gap-5 lg:grid-cols-[260px_minmax(0,1fr)]">
+        <aside className="space-y-2">
+          <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-taupe">Operator Surfaces</h2>
+          {entities.map(e => (
+            <AgentCard
+              key={e.id}
+              entity={e}
+              selected={selected?.id === e.id}
+              onSelect={setSelected}
+            />
+          ))}
+        </aside>
+
+        {selected && (
+          <div className="space-y-4">
+            <section className="rounded-lg border border-softgraph bg-graphite p-5">
+              <div className="mb-4 flex flex-wrap items-start justify-between gap-4">
+                <div>
+                  <h2 className="mb-1 text-xl font-semibold text-ivory">{selected.name}</h2>
+                  <p className="text-sm text-taupe">{selected.role}</p>
+                </div>
+                <div className="flex items-center gap-2 rounded-full bg-softgraph px-3 py-1.5">
+                  <div className={`h-2 w-2 rounded-full ${sc.dot}`} />
+                  <span className={`text-xs font-mono ${sc.color}`}>{sc.label}</span>
+                </div>
               </div>
-              <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-softgraph">
-                <div className={`w-2 h-2 rounded-full ${sc.dot}`} />
-                <span className={`text-xs font-mono ${sc.color}`}>{sc.label}</span>
+
+              <p className="mb-5 text-sm leading-relaxed text-stone">{selected.description}</p>
+
+              <div className="mb-5 flex flex-wrap gap-2">
+                {selected.capabilities.map(cap => (
+                  <span key={cap} className="rounded border border-softgraph bg-ink px-2.5 py-1 text-xs text-stone">
+                    {cap}
+                  </span>
+                ))}
               </div>
-            </div>
 
-            <p className="text-sm text-stone leading-relaxed mb-5">{selected.description}</p>
+              <LaunchButton entity={selected} />
+            </section>
 
-            <div className="flex flex-wrap gap-2 mb-5">
-              {selected.capabilities.map(cap => (
-                <span key={cap} className="px-2.5 py-1 rounded bg-softgraph text-xs text-stone border border-softgraph">
-                  {cap}
-                </span>
-              ))}
-            </div>
+            {selected.command && (
+              <section className="rounded-lg border border-softgraph bg-graphite p-5">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-taupe">Fallback command or path</span>
+                  <CopyButton text={selected.command} />
+                </div>
+                <div className="rounded border border-softgraph bg-ink px-4 py-3 font-mono text-sm text-stone">
+                  {selected.command}
+                </div>
+                <p className="mt-2 text-xs leading-relaxed text-taupe">
+                  {selected.commandHint}. Use this only when the cockpit command bar is not the right surface.
+                </p>
+              </section>
+            )}
 
-            <LaunchButton entity={selected} />
-          </div>
-
-          {selected.command && (
-            <div className="bg-graphite border border-softgraph rounded-lg p-5">
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-xs font-semibold text-taupe uppercase tracking-wider">Command / Path</span>
-                <CopyButton text={selected.command} />
-              </div>
-              <div className="bg-ink rounded px-4 py-3 font-mono text-sm text-stone border border-softgraph">
-                {selected.command}
-              </div>
-              <p className="text-xs text-taupe mt-2">{selected.commandHint}</p>
-            </div>
-          )}
-
-          {selected.id !== 'hermes' && (
-            <div className="bg-graphite border border-softgraph rounded-lg p-5">
-              <div className="flex items-center gap-2 mb-3">
+            <section className="rounded-lg border border-softgraph bg-graphite p-5">
+              <div className="mb-3 flex items-center gap-2">
                 <AlertCircle size={13} className="text-taupe" />
-                <span className="text-xs font-semibold text-taupe uppercase tracking-wider">v0.1 Notice</span>
+                <span className="text-xs font-semibold uppercase tracking-wider text-taupe">Runtime boundary</span>
               </div>
-              <p className="text-xs text-taupe leading-relaxed">
-                Agent cards are local operator surfaces. Live execution is available through the Hermes Run Panel inside AgenticOSClean for Codex and Claude. Normal navigation remains zero-token.
+              <p className="text-xs leading-relaxed text-taupe">
+                Agent execution on this page is limited to existing clean WSL AgenticOSClean routes. Browser and folder launchers stay local; live connector calls are not part of this workbench flow.
               </p>
-            </div>
-          )}
-
-          {selected.id === 'hermes' && <HermesRunPanel telegram={telegram} />}
-        </div>
-      )}
+            </section>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
-
-
