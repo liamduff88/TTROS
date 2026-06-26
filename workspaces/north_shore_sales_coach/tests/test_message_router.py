@@ -198,6 +198,10 @@ class MessageRouterTests(unittest.TestCase):
         invite = self.router.state_store.pending_invites()[0]
         self.assertEqual(invite["role"], "manager")
         self.assertEqual(invite["display_name"], "Ryan McVeigh")
+        self.assertEqual(invite["created_by"], "2")
+        self.assertIsNone(invite["used_at"])
+        self.assertIsNone(invite["used_by"])
+        self.assertIsNone(invite["revoked_at"])
 
     def test_admin_creates_salesperson_invite(self):
         reply = self.router.handle_update(update("/create_invite salesperson Sarah Jones", user_id=2))
@@ -232,6 +236,10 @@ class MessageRouterTests(unittest.TestCase):
         self.assertEqual(state["users"]["44"]["role"], "salesperson")
         self.assertEqual(state["users"]["44"]["salesperson_id"], "sarah-jones")
         self.assertEqual(state["salespeople"]["sarah-jones"]["telegram_user_id"], "44")
+        self.assertEqual(state["invites"][code]["used_by"], "44")
+        self.assertIsNotNone(state["invites"][code]["used_at"])
+        self.assertNotIn("redeemed_by", state["invites"][code])
+        self.assertNotIn("redeemed_at", state["invites"][code])
         self.assertEqual(
             self.router.handle_update(update(f"/start {code}", user_id=45)),
             "That invite code has already been used.",
@@ -262,6 +270,7 @@ class MessageRouterTests(unittest.TestCase):
             self.router.handle_update(update(f"/revoke_invite {code}", user_id=2)),
             "Invite revoked for Sarah Jones.",
         )
+        self.assertIsNotNone(self.router.state_store.read()["invites"][code]["revoked_at"])
         self.assertEqual(self.router.handle_update(update(f"/start {code}", user_id=44)), "That invite code is no longer active.")
 
     def test_manager_redemption_creates_manager_user_only(self):
@@ -285,6 +294,8 @@ class MessageRouterTests(unittest.TestCase):
         reply = self.router.handle_update(update("/invites", user_id=3))
         self.assertIn("Pending invites:", reply)
         self.assertIn("Sarah Jones (salesperson): NS-", reply)
+        self.assertNotIn("created_by", reply)
+        self.assertNotIn("user_id", reply)
 
     def test_salesperson_invite_collision_gets_stable_new_id(self):
         self.router.state_store.register_salesperson("Sarah Jones", telegram_user_id=99)

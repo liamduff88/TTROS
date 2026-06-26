@@ -191,6 +191,9 @@ class LocalStateStore:
             "created_by": str(created_by),
             "created_at": now.isoformat().replace("+00:00", "Z"),
             "expires_at": (now + timedelta(days=expires_days)).isoformat().replace("+00:00", "Z"),
+            "used_at": None,
+            "used_by": None,
+            "revoked_at": None,
         }
         invites[code] = record
         self._write(state)
@@ -269,8 +272,8 @@ class LocalStateStore:
         else:
             user.pop("salesperson_id", None)
         record["status"] = "redeemed"
-        record["redeemed_by"] = user_id
-        record["redeemed_at"] = timestamp
+        record["used_by"] = user_id
+        record["used_at"] = timestamp
         self._write(state)
         return "redeemed", dict(user)
 
