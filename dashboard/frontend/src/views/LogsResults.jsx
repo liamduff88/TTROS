@@ -28,8 +28,22 @@ const SOURCE_META = {
 }
 
 const ATTENTION_PATTERN = /\b(error|failed|failure|exception|traceback|needs attention|blocked|denied|unauthorized|timeout)\b/i
+const ATTENTION_MATCHERS = [
+  { label: 'UnicodeDecodeError found', pattern: /UnicodeDecodeError/i },
+  { label: 'Traceback found', pattern: /Traceback \(most recent call last\)|\btraceback\b/i },
+  { label: 'URLError found', pattern: /\bURLError\b/i },
+  { label: 'TimeoutError found', pattern: /\bTimeoutError\b/i },
+  { label: 'Timeout found', pattern: /\btimeout\b/i },
+  { label: 'Exception found', pattern: /\bexception\b/i },
+  { label: 'Failure found', pattern: /\bfailed\b|\bfailure\b/i },
+  { label: 'Blocked found', pattern: /\bblocked\b/i },
+  { label: 'Denied found', pattern: /\bdenied\b|\bunauthorized\b/i },
+  { label: 'Error found', pattern: /\berror\b/i },
+  { label: 'Needs attention', pattern: /needs attention/i },
+]
 const SECRET_LINE_PATTERN = /(secret|token|api[_-]?key|oauth|password|credential|chat[_-]?id|authorization|bearer)/i
 const MAX_PREVIEW_CHARS = 12000
+const STALE_ATTENTION_MS = 24 * 60 * 60 * 1000
 
 const formatTime = value => {
   if (!value) return 'No timestamp'
@@ -50,6 +64,52 @@ const parseContent = content => {
   } catch {
     return null
   }
+}
+
+const sanitizeLine = line => (SECRET_LINE_PATTERN.test(line) ? '[redacted sensitive line]' : line.trim())
+
+const parseLineTimestamp = line => {
+  const match = String(line || '').match(/\b(\d{4}-\d{2}-\d{2})(?:[ T](\d{2}:\d{2}(?::\d{2})?))?/)
+  if (!match) return null
+  const candidate = match[2] ? `${match[1]}T${match[2]}` : match[1]
+  const parsed = new Date(candidate)
+  return Number.isNaN(parsed.getTime()) ? null : parsed
+}
+
+const getAttentionInfo = (content, status, modified) => {
+  const lines = String(content || '').split('\n')
+  const statusLine = String(status || '')
+
+  for (const matcher of ATTENTION_MATCHERS) {
+    const lineIndex = lines.findIndex(line => matcher.pattern.test(line))
+    if (lineIndex !== -1) {
+      const matchedLine = lines[lineIndex]
+      const lineTime = parseLineTimestamp(matchedLine)
+      const fallbackTime = modified ? new Date(modified) : null
+      const sourceTime = lineTime || (fallbackTime && !Number.isNaN(fallbackTime.getTime()) ? fallbackTime : null)
+      const stale = sourceTime ? Date.now() - sourceTime.getTime() > STALE_ATTENTION_MS : false
+      return {
+        reason: matcher.label,
+        line: sanitizeLine(matchedLine),
+        lineNumber: lineIndex + 1,
+        stale,
+        staleLabel: stale ? 'Historical' : 'Recent',
+      }
+    }
+  }
+
+  const statusMatcher = ATTENTION_MATCHERS.find(matcher => matcher.pattern.test(statusLine))
+  if (statusMatcher) {
+    return {
+      reason: statusMatcher.label,
+      line: sanitizeLine(statusLine),
+      lineNumber: null,
+      stale: false,
+      staleLabel: 'Recent',
+    }
+  }
+
+  return null
 }
 
 const getTitle = (item, parsed, source) => {
@@ -84,9 +144,10 @@ const normalizeItems = ({ packets = [], logs = [], results = [] }) => {
     const route = getRoute(parsed, source)
     const created = parsed?.created || parsed?.createdAt || parsed?.timestamp || parsed?.updatedAt
     const modified = item.modified || created
+    const attentionInfo = getAttentionInfo(item.content, status, modified)
     const attention = source === 'log'
-      ? ATTENTION_PATTERN.test(item.content || '') || ATTENTION_PATTERN.test(status)
-      : ATTENTION_PATTERN.test(status) || ATTENTION_PATTERN.test(item.content || '')
+      ? Boolean(attentionInfo) || ATTENTION_PATTERN.test(item.content || '') || ATTENTION_PATTERN.test(status)
+      : ATTENTION_PATTERN.test(status) || Boolean(attentionInfo) || ATTENTION_PATTERN.test(item.content || '')
 
     return {
       id: `${source}:${item.name}`,
@@ -98,6 +159,7 @@ const normalizeItems = ({ packets = [], logs = [], results = [] }) => {
       modified,
       created,
       attention,
+      attentionInfo,
       parsed,
       content: item.content || '',
       size: item.content?.length || 0,
@@ -179,7 +241,7 @@ const HistoryRow = ({ item, selected, onSelect }) => {
               {item.attention ? (
                 <span className="inline-flex items-center gap-1 rounded border border-clay/50 bg-clay/10 px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider text-stone">
                   <AlertTriangle size={10} className="text-clay" />
-                  Attention
+                  {item.attentionInfo?.reason || 'Attention'}
                 </span>
               ) : (
                 <span className="inline-flex items-center gap-1 rounded border border-olive/40 bg-olive/10 px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider text-stone">
@@ -189,10 +251,17 @@ const HistoryRow = ({ item, selected, onSelect }) => {
               )}
             </div>
             <div className="mt-1 truncate text-xs text-taupe">{item.name}</div>
+            {item.attentionInfo?.line && (
+              <div className="mt-2 truncate font-mono text-[11px] text-stone">
+                {item.attentionInfo.lineNumber ? `Line ${item.attentionInfo.lineNumber}: ` : ''}
+                {item.attentionInfo.line}
+              </div>
+            )}
             <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] font-mono uppercase tracking-wider text-taupe">
               <span>{meta.label}</span>
               <span>Route: {item.route}</span>
               <span>{formatTime(item.modified)}</span>
+              {item.attentionInfo && <span>{item.attentionInfo.staleLabel}</span>}
             </div>
           </div>
         </div>
@@ -244,7 +313,7 @@ const DetailPanel = ({ item }) => {
         </div>
         <div className="rounded border border-softgraph bg-ink p-3">
           <div className="font-mono uppercase tracking-wider text-taupe">Status</div>
-          <div className="mt-1 text-stone">{item.attention ? 'Needs attention' : item.status}</div>
+          <div className="mt-1 text-stone">{item.attention ? item.attentionInfo?.reason || 'Needs attention' : item.status}</div>
         </div>
         <div className="rounded border border-softgraph bg-ink p-3">
           <div className="font-mono uppercase tracking-wider text-taupe">Route</div>
@@ -254,6 +323,14 @@ const DetailPanel = ({ item }) => {
           <div className="font-mono uppercase tracking-wider text-taupe">Updated</div>
           <div className="mt-1 text-stone">{formatTime(item.modified)}</div>
         </div>
+        {item.attentionInfo && (
+          <div className="col-span-2 rounded border border-clay/40 bg-clay/10 p-3">
+            <div className="font-mono uppercase tracking-wider text-taupe">
+              Matched {item.attentionInfo.lineNumber ? `line ${item.attentionInfo.lineNumber}` : 'status'} - {item.attentionInfo.staleLabel}
+            </div>
+            <div className="mt-1 font-mono text-[11px] leading-relaxed text-stone">{item.attentionInfo.line}</div>
+          </div>
+        )}
       </div>
 
       <pre className="max-h-[32rem] overflow-auto rounded border border-softgraph bg-ink p-4 text-xs leading-relaxed text-stone whitespace-pre-wrap">

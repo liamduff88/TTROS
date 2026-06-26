@@ -980,7 +980,14 @@ def telegram_connector_status():
             "-Command",
             "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*telegram_bridge.py*' -and $_.CommandLine -like '*Agentic OS Live*' } | Select-Object -First 1 -ExpandProperty ProcessId"
         ]
-        out = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+        out = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=5,
+        )
         running = bool(out.stdout.strip())
     except Exception:
         running = False
@@ -1058,7 +1065,15 @@ def refresh_composio_cli_status():
     for label, cmd in commands:
         sections.append(f"=== {label} ===")
         try:
-            result = subprocess.run(cmd, cwd=str(workspace), capture_output=True, text=True, timeout=120)
+            result = subprocess.run(
+                cmd,
+                cwd=str(workspace),
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=120,
+            )
             if result.stdout:
                 sections.append(result.stdout.strip())
             if result.stderr:
