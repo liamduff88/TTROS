@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Time to Revenue — Sample AI Business Systems Report</title>
+  <style>
+:root {
+  --ttr-executive-graphite: #111315;
+  --ttr-deep-ink: #0D1418;
+  --ttr-soft-graphite: #2B2F32;
+  --ttr-ivory: #F7F3EA;
+  --ttr-warm-stone: #D8D0C2;
+  --ttr-mist-grey: #ECE9E2;
+  --ttr-champagne: #B89B63;
+  --ttr-revenue-gold: #C6A15B;
+  --ttr-font-heading: Geist, system-ui, sans-serif;
+  --ttr-font-body: Inter, system-ui, sans-serif;
+}
+  </style>
+  <style>
+:root {
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--ttr-mist-grey);
+  color: var(--ttr-executive-graphite);
+  font-family: var(--ttr-font-body);
+  font-size: 11pt;
+  line-height: 1.55;
+}
+
+body {
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+.report-shell {
+  max-width: 210mm;
+  margin: 0 auto;
+  background: var(--ttr-ivory);
+}
+
+.cover-page {
+  min-height: 297mm;
+  padding: 34mm 24mm 28mm;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  background:
+    linear-gradient(135deg, rgb(184 155 99 / 18%), transparent 42%),
+    var(--ttr-deep-ink);
+  color: var(--ttr-ivory);
+  page-break-after: always;
+}
+
+.cover-kicker,
+.report-label {
+  color: var(--ttr-champagne);
+  font-family: var(--ttr-font-heading);
+  font-size: 9pt;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.cover-page h1 {
+  max-width: 150mm;
+  margin: 14mm 0 8mm;
+  font-family: var(--ttr-font-heading);
+  font-size: 42pt;
+  font-weight: 300;
+  line-height: 1.05;
+}
+
+.cover-subtitle {
+  max-width: 128mm;
+  margin: 0;
+  color: rgb(247 243 234 / 78%);
+  font-size: 14pt;
+}
+
+.cover-meta {
+  display: flex;
+  gap: 8mm;
+  margin-top: 26mm;
+  padding-top: 7mm;
+  border-top: 1px solid rgb(184 155 99 / 42%);
+  color: rgb(247 243 234 / 68%);
+  font-family: var(--ttr-font-heading);
+  font-size: 8pt;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.report-body {
+  padding: 18mm 22mm 20mm;
+}
+
+.report-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8mm;
+  margin-bottom: 14mm;
+  padding-bottom: 5mm;
+  border-bottom: 1px solid var(--ttr-warm-stone);
+  color: var(--ttr-soft-graphite);
+  font-family: var(--ttr-font-heading);
+}
+
+.brand-wordmark {
+  font-size: 11pt;
+  font-weight: 700;
+}
+
+.markdown-content h1 {
+  margin: 0 0 8mm;
+  color: var(--ttr-deep-ink);
+  font-family: var(--ttr-font-heading);
+  font-size: 25pt;
+  font-weight: 450;
+  line-height: 1.12;
+}
+
+.markdown-content h2 {
+  margin: 13mm 0 4mm;
+  padding-top: 3mm;
+  border-top: 1px solid var(--ttr-warm-stone);
+  color: var(--ttr-deep-ink);
+  font-family: var(--ttr-font-heading);
+  font-size: 17pt;
+  font-weight: 560;
+  line-height: 1.2;
+  page-break-after: avoid;
+}
+
+.markdown-content h3 {
+  margin: 8mm 0 3mm;
+  color: var(--ttr-soft-graphite);
+  font-family: var(--ttr-font-heading);
+  font-size: 12pt;
+  font-weight: 650;
+  page-break-after: avoid;
+}
+
+.markdown-content p,
+.markdown-content ul,
+.markdown-content ol,
+.markdown-content table {
+  margin: 0 0 4.5mm;
+}
+
+.markdown-content strong {
+  color: var(--ttr-deep-ink);
+}
+
+.markdown-content ul,
+.markdown-content ol {
+  padding-left: 6mm;
+}
+
+.markdown-content li {
+  margin-bottom: 1.8mm;
+}
+
+.markdown-content table {
+  width: 100%;
+  border-collapse: collapse;
+  overflow-wrap: anywhere;
+  page-break-inside: avoid;
+}
+
+.markdown-content th,
+.markdown-content td {
+  padding: 3mm;
+  border: 1px solid var(--ttr-warm-stone);
+  vertical-align: top;
+}
+
+.markdown-content th {
+  background: var(--ttr-mist-grey);
+  color: var(--ttr-deep-ink);
+  font-family: var(--ttr-font-heading);
+  font-size: 9pt;
+  text-align: left;
+}
+
+.markdown-content blockquote {
+  margin: 7mm 0;
+  padding: 4mm 5mm;
+  border-left: 3px solid var(--ttr-revenue-gold);
+  background: #fffaf0;
+  color: var(--ttr-soft-graphite);
+}
+
+.markdown-content code {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 0.92em;
+}
+
+.markdown-content pre {
+  padding: 4mm;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  background: var(--ttr-deep-ink);
+  color: var(--ttr-ivory);
+}
+
+@page {
+  size: A4;
+  margin: 16mm 18mm 18mm;
+
+  @bottom-center {
+    content: "Time to Revenue";
+    color: #8d8678;
+    font-family: var(--ttr-font-heading);
+    font-size: 8pt;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+}
+
+@media print {
+  html,
+  body {
+    background: var(--ttr-ivory);
+  }
+
+  .report-shell {
+    max-width: none;
+    margin: 0;
+  }
+
+  .report-body {
+    padding: 0;
+  }
+
+  .report-header {
+    break-after: avoid;
+  }
+
+  h1,
+  h2,
+  h3,
+  table,
+  blockquote {
+    break-inside: avoid;
+  }
+}
+
+  </style>
+</head>
+<body>
+  <article class="report-shell">
+    <section class="cover-page">
+      <div class="cover-kicker">Time to Revenue</div>
+      <h1>Time to Revenue — Sample AI Business Systems Report</h1>
+      <p class="cover-subtitle">Practical AI business systems report for reducing revenue delay and operational drag.</p>
+      <div class="cover-meta">
+        <span>Client-ready report</span>
+        <span>Local render workflow</span>
+      </div>
+    </section>
+
+    <main class="report-body">
+      <header class="report-header">
+        <div class="brand-wordmark">Time to Revenue</div>
+        <div class="report-label">AI Business Systems Report</div>
+      </header>
+      <div class="markdown-content">
+<h1>Time to Revenue — Sample AI Business Systems Report</h1>
+<p>Prepared for: Operating team Prepared by: Time to Revenue Report type: AI business systems assessment</p>
+<h2>Executive Summary</h2>
+<p>The business does not need a larger AI roadmap before it needs cleaner revenue operations. The fastest lift is available in the handoffs between lead capture, qualification, follow-up, proposal creation, and owner visibility.</p>
+<p>This report identifies three practical opportunities:</p>
+<ul><li>Reduce manual re-entry across intake, CRM notes, and follow-up tasks.</li><li>Tighten response time visibility so warm opportunities do not go quiet.</li><li>Standardize the operating rhythm for AI-assisted reporting and next-step generation.</li></ul>
+<p>The recommendation is a focused workflow build, not a broad transformation program. The goal is to remove avoidable delay from the path between qualified demand and booked revenue.</p>
+<h2>Revenue Leakage</h2>
+<p>Revenue is leaking where the team already has buyer intent but lacks a reliable system for turning that intent into timely action.</p>
+<p>| Leakage point | Current risk | Business effect | | --- | --- | --- | | New lead intake | Details arrive in scattered channels | Slow assignment and uneven first response | | Discovery notes | Context stays in calls, chats, or inboxes | Follow-up quality depends on memory | | Proposal follow-up | Next steps are tracked manually | Warm deals age without clear ownership | | Weekly visibility | Reporting is assembled after the fact | Leadership sees lagging signals too late |</p>
+<p>The issue is not effort. The issue is that too much effort is spent reconstructing what the business already knows.</p>
+<h2>Operational Friction</h2>
+<p>The current workflow creates friction in four places:</p>
+<ul><li>**Capture:** useful client context is collected, but not always structured.</li><li>**Routing:** qualified opportunities need clearer ownership and due dates.</li><li>**Follow-up:** teams spend time drafting from scratch when the next action is obvious.</li><li>**Reporting:** leadership review depends on manual summaries instead of live operating data.</li></ul>
+<p>These are good candidates for AI support because the work is repetitive, text-heavy, and tied to clear business rules. They are poor candidates for vague automation because accuracy, handoff clarity, and accountability matter.</p>
+<h2>Recommended Fixes</h2>
+<p>1. Create a single structured intake format for qualified opportunities. 2. Generate first-draft follow-up notes from discovery context using approved templates. 3. Add a daily exception report for stalled high-intent opportunities. 4. Build a weekly revenue operations summary that separates pipeline signal from noise. 5. Keep human approval at the points where tone, pricing, or commitment risk matters.</p>
+<p>The system should make the right action easier to take, while leaving commercial judgment with the team.</p>
+<h2>Implementation Plan</h2>
+<h3>Week 1: Workflow Definition</h3>
+<p>Map the current intake-to-follow-up path, define required fields, and agree on the minimum useful operating report.</p>
+<h3>Week 2: Local Prototype</h3>
+<p>Build the first version of the intake formatter, follow-up draft generator, and exception report using sample data and approved language.</p>
+<h3>Week 3: Controlled Pilot</h3>
+<p>Run the workflow with a small group, compare generated outputs against real team behavior, and tune the prompts, fields, and escalation rules.</p>
+<h3>Week 4: Operating Rhythm</h3>
+<p>Move the workflow into a weekly cadence with clear ownership, review points, and measured business outcomes.</p>
+<h2>Next Step</h2>
+<p>Start with a 60-minute workflow audit. The output should be a short implementation brief: where revenue delay is happening, which data is required, which AI-assisted workflow should ship first, and what result would justify expanding the system.</p>
+<p>Time to Revenue should build the first workflow around one measurable commercial outcome, then expand only after the operating team trusts the result.</p>
+      </div>
+    </main>
+  </article>
+</body>
+</html>

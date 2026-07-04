@@ -73,5 +73,6 @@ Thumbs.db
 # Broken Git backup created during repair
 .git.invalid-empty-*
 .venv/
+.venv-pdf/
 venv/
 dashboard/backend/.venv/

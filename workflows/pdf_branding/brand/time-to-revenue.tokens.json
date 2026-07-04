@@ -1,0 +1,21 @@
+{
+  "colors": {
+    "executiveGraphite": "#111315",
+    "deepInk": "#0D1418",
+    "softGraphite": "#2B2F32",
+    "ivory": "#F7F3EA",
+    "warmStone": "#D8D0C2",
+    "mistGrey": "#ECE9E2",
+    "champagne": "#B89B63",
+    "revenueGold": "#C6A15B"
+  },
+  "fonts": {
+    "heading": "Geist, system-ui, sans-serif",
+    "body": "Inter, system-ui, sans-serif"
+  },
+  "page": {
+    "size": "A4",
+    "widthMm": 210,
+    "heightMm": 297
+  }
+}

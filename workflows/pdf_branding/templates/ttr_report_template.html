@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ title }}</title>
+  <style>
+{{ token_css }}
+  </style>
+  <style>
+{{ print_css }}
+  </style>
+</head>
+<body>
+  <article class="report-shell">
+    <section class="cover-page">
+      <div class="cover-frame">
+        <header class="cover-mark">
+          <div class="brand-wordmark">Time to Revenue</div>
+          <div class="cover-meta">
+            <span>Field Note</span>
+            <span>AI Business Systems</span>
+          </div>
+        </header>
+
+        <div class="cover-title">
+          <p class="eyebrow">Revenue Operations Guide</p>
+          <h1>{{ title }}</h1>
+          <p class="cover-subtitle">A practical Time to Revenue field note on reducing dropped handoffs, copy-paste work, and wasted token spend.</p>
+        </div>
+
+        <footer class="cover-bottom">
+          <span>Client-ready publication</span>
+          <span>Local render workflow</span>
+        </footer>
+      </div>
+    </section>
+
+    <main class="report-body">
+      <header class="report-header">
+        <div class="brand-wordmark">Time to Revenue</div>
+        <div class="report-label">AI Business Systems</div>
+      </header>
+      <div class="markdown-content">
+{{ content }}
+      </div>
+      <footer class="report-footer">
+        <span>Time to Revenue</span>
+        <span>Agentic OS Field Note</span>
+      </footer>
+    </main>
+  </article>
+</body>
+</html>
