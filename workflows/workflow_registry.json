@@ -1,0 +1,86 @@
+{
+  "version": 1,
+  "workflows": [
+    {
+      "id": "linkedin_content",
+      "name": "LinkedIn / Content Workflow",
+      "owner_agent": "Marketing",
+      "summary": "Turns raw ideas, transcripts, client lessons, or website topics into reviewed content drafts and lead magnet outlines.",
+      "source_path": "workflows/linkedin_content/workflow.md",
+      "intake_template_path": null,
+      "intake_reference_path": "workflows/linkedin_content/inbox"
+    },
+    {
+      "id": "pdf_branding",
+      "name": "Time to Revenue PDF Branding Workflow",
+      "owner_agent": "Marketing",
+      "summary": "Locally renders approved Markdown sources into Time to Revenue branded PDF or HTML review files.",
+      "source_path": "workflows/pdf_branding/README.md",
+      "intake_template_path": null,
+      "intake_reference_path": "workflows/pdf_branding/input"
+    },
+    {
+      "id": "marketing_pdf_package",
+      "name": "Marketing PDF Package Workflow",
+      "owner_agent": "Marketing",
+      "summary": "Packages an approved marketing draft into lead magnet source Markdown and a reviewed PDF branding handoff.",
+      "source_path": "workflows/marketing_pdf_package/workflow.md",
+      "intake_template_path": "workflows/marketing_pdf_package/templates/package_brief.md",
+      "intake_reference_path": "workflows/marketing_pdf_package/input"
+    },
+    {
+      "id": "revenue_linkedin_outreach",
+      "name": "Revenue LinkedIn Relationship Outreach Workflow",
+      "owner_agent": "Revenue",
+      "summary": "Drafts relationship-first LinkedIn outreach and follow-up messages without sending or changing records.",
+      "source_path": "workflows/revenue_linkedin_outreach/workflow.md",
+      "intake_template_path": "workflows/revenue_linkedin_outreach/templates/prospect_brief.md",
+      "intake_reference_path": "workflows/revenue_linkedin_outreach/input"
+    },
+    {
+      "id": "delivery_ops_documents",
+      "name": "Delivery / Operations Document Workflow",
+      "owner_agent": "Delivery",
+      "summary": "Turns notes, transcripts, or build outputs into draft internal and client-ready operations documents.",
+      "source_path": "workflows/delivery_ops_documents/workflow.md",
+      "intake_template_path": null,
+      "intake_reference_path": "workflows/delivery_ops_documents/input"
+    },
+    {
+      "id": "revenue_sales_prep",
+      "name": "Revenue Sales Prep Workflow",
+      "owner_agent": "Revenue",
+      "summary": "Turns supplied prospect, website, call, or transcript notes into local sales prep drafts.",
+      "source_path": "workflows/revenue_sales_prep/workflow.md",
+      "intake_template_path": "workflows/revenue_sales_prep/templates/intake_template.md",
+      "intake_reference_path": null
+    },
+    {
+      "id": "marketing_content_repurposing",
+      "name": "Marketing Content Repurposing Workflow",
+      "owner_agent": "Marketing",
+      "summary": "Turns one approved source asset into reusable marketing draft options for review.",
+      "source_path": "workflows/marketing_content_repurposing/workflow.md",
+      "intake_template_path": "workflows/marketing_content_repurposing/templates/intake_template.md",
+      "intake_reference_path": null
+    },
+    {
+      "id": "delivery_client_kickoff",
+      "name": "Delivery Client Kickoff Workflow",
+      "owner_agent": "Delivery",
+      "summary": "Turns signed or likely engagement context into kickoff planning drafts without touching client systems.",
+      "source_path": "workflows/delivery_client_kickoff/workflow.md",
+      "intake_template_path": "workflows/delivery_client_kickoff/templates/intake_template.md",
+      "intake_reference_path": null
+    },
+    {
+      "id": "operations_founder_review",
+      "name": "Operations Founder Review Workflow",
+      "owner_agent": "Operations",
+      "summary": "Turns weekly notes, receipts, results, blockers, and priorities into a concise founder operating review draft.",
+      "source_path": "workflows/operations_founder_review/workflow.md",
+      "intake_template_path": "workflows/operations_founder_review/templates/intake_template.md",
+      "intake_reference_path": null
+    }
+  ]
+}
