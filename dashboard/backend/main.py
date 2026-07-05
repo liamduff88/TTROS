@@ -11,6 +11,13 @@ import os
 import re
 import shlex
 import subprocess
+import sys
+
+TOOLS_DIR = Path(__file__).resolve().parents[2] / "tools"
+if str(TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(TOOLS_DIR))
+
+from aos_paths import AosPathError, aos_root, resolve_root_relative
 
 app = FastAPI(title="Agentic OS API", version="0.1.0")
 
@@ -22,14 +29,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-def _aos_root() -> Path:
-    configured = os.environ.get("AOS_ROOT")
-    if configured:
-        return Path(configured).expanduser().resolve()
-    return Path(__file__).resolve().parents[2]
-
-
-BASE_DIR = _aos_root()
+BASE_DIR = aos_root()
 PACKETS_DIR = BASE_DIR / "packets"
 LOGS_DIR = BASE_DIR / "logs"
 RESULTS_DIR = BASE_DIR / "results"
@@ -989,12 +989,12 @@ def _queue_receipt_artifact(relative_path: str) -> tuple[str, str]:
     path_text = str(relative_path or "").strip()
     if not path_text:
         raise ValueError("receipt path is required")
-    candidate = Path(path_text)
-    if candidate.is_absolute():
-        raise ValueError("receipt path must be root-relative")
 
-    receipts_dir = (BASE_DIR / "queue" / "receipts").resolve()
-    target = (BASE_DIR / candidate).resolve()
+    try:
+        target = resolve_root_relative(path_text, root=BASE_DIR)
+        receipts_dir = resolve_root_relative("queue/receipts", root=BASE_DIR)
+    except AosPathError as exc:
+        raise ValueError(str(exc)) from exc
     try:
         target.relative_to(receipts_dir)
     except ValueError as exc:
