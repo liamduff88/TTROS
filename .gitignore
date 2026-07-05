@@ -76,3 +76,6 @@ Thumbs.db
 .venv-pdf/
 venv/
 dashboard/backend/.venv/
+
+# Legacy harvested archive/quarantine material; not live Agentic OS source.
+legacy_harvest/
