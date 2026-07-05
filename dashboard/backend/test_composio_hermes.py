@@ -67,6 +67,50 @@ class HermesComposioTests(unittest.TestCase):
             result = backend.wsl_hermes(backend.TaskRun(task=task))
         return run.call_args.args[0], result
 
+    def write_queue_items(self, root, items):
+        queue = root / "queue"
+        queue.mkdir(parents=True)
+        (queue / "work_items.jsonl").write_text(
+            "".join(json.dumps(item, sort_keys=True) + "\n" for item in items),
+            encoding="utf-8",
+        )
+
+    def sample_queue_items(self):
+        return [
+            {
+                "id": "AOS-2026-0001",
+                "title": "Triage inbox lead",
+                "status": "inbox",
+                "owner": "unassigned",
+                "priority": 1,
+                "created_at": "2026-07-05T10:00:00Z",
+            },
+            {
+                "id": "AOS-2026-0002",
+                "title": "Codex route test",
+                "status": "agent_todo",
+                "owner": "codex",
+                "priority": 9,
+                "created_at": "2026-07-05T10:01:00Z",
+            },
+            {
+                "id": "AOS-2026-0003",
+                "title": "Blocked connector decision",
+                "status": "blocked",
+                "owner": "hermes",
+                "priority": 4,
+                "created_at": "2026-07-05T10:02:00Z",
+            },
+            {
+                "id": "AOS-2026-0004",
+                "title": "Finished old task",
+                "status": "done",
+                "owner": "claude",
+                "priority": 99,
+                "created_at": "2026-07-05T10:03:00Z",
+            },
+        ]
+
     def test_normal_task_uses_hermes_coordinator(self):
         command, result = self.route("quick search for local micro cement plasterers")
         self.assertIn("aos-hermes-coordinator.sh", command)
@@ -151,6 +195,83 @@ class HermesComposioTests(unittest.TestCase):
         command, result = self.route("Please add this to the queue: have Codex inspect the route")
         self.assertIn("aos-hermes-coordinator.sh", command)
         self.assertEqual(result["selected_route"], "hermes_coordinator")
+
+    def test_queue_status_intent_returns_counts_without_wsl(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_queue_items(root, self.sample_queue_items())
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_run_wsl") as run:
+                result = backend.wsl_hermes(backend.TaskRun(task="  Queue status  "))
+
+        run.assert_not_called()
+        self.assertTrue(result["success"])
+        self.assertEqual(result["selected_route"], "local_queue_status")
+        self.assertIn("PASS\nQueue status:", result["output"])
+        self.assertIn("  - inbox: 1", result["output"])
+        self.assertIn("  - agent_todo: 1", result["output"])
+        self.assertIn("  - blocked: 1", result["output"])
+        self.assertIn("  - cancelled: 0", result["output"])
+        self.assertIn("Needs Liam:\n  - 1", result["output"])
+        self.assertIn("Next action:\n  - Review needs_input, human_review, or blocked items first.", result["output"])
+
+    def test_list_queue_intent_returns_compact_rows_without_wsl(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_queue_items(root, self.sample_queue_items())
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_run_wsl") as run:
+                result = backend.wsl_hermes(backend.TaskRun(task="List queue"))
+
+        run.assert_not_called()
+        self.assertTrue(result["success"])
+        self.assertEqual(result["selected_route"], "local_queue_list")
+        self.assertIn("PASS\nQueue items:", result["output"])
+        self.assertIn("AOS-2026-0002 | agent_todo | codex | Codex route test", result["output"])
+        self.assertIn("AOS-2026-0001 | inbox | unassigned | Triage inbox lead", result["output"])
+        self.assertIn("AOS-2026-0003 | blocked | hermes | Blocked connector decision", result["output"])
+        self.assertNotIn("Finished old task", result["output"])
+        self.assertIn("Next action:\n  - Review needs_input, human_review, or blocked items first.", result["output"])
+
+    def test_list_queue_status_filters_by_status(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_queue_items(root, self.sample_queue_items())
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_run_wsl") as run:
+                result = backend.wsl_hermes(backend.TaskRun(task="List queue: agent_todo"))
+
+        run.assert_not_called()
+        self.assertTrue(result["success"])
+        self.assertIn("AOS-2026-0002 | agent_todo | codex | Codex route test", result["output"])
+        self.assertNotIn("Triage inbox lead", result["output"])
+        self.assertNotIn("Blocked connector decision", result["output"])
+
+    def test_invalid_list_queue_status_returns_attention_without_wsl(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_run_wsl") as run:
+                result = backend.wsl_hermes(backend.TaskRun(task="List queue: waiting"))
+
+        run.assert_not_called()
+        self.assertFalse(result["success"])
+        self.assertEqual(result["selected_route"], "local_queue_list")
+        self.assertIn("NEEDS ATTENTION", result["output"])
+        self.assertIn("Invalid queue status: waiting", result["output"])
+
+    def test_empty_list_queue_returns_none_and_root_relative_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_run_wsl") as run:
+                result = backend.wsl_hermes(backend.TaskRun(task="LIST QUEUE"))
+
+        run.assert_not_called()
+        self.assertTrue(result["success"])
+        self.assertIn("Queue items:\n  - None", result["output"])
+        self.assertIn("Next action:\n  - Add a queue item or continue normal Hermes work.", result["output"])
+        self.assertEqual(backend._queue_items_path(), backend.BASE_DIR / "queue" / "work_items.jsonl")
 
     def test_hermes_coordinator_uses_wsl_path_for_windows_backend_path(self):
         windows_script = PureWindowsPath(r"Z:\workspace\tools\aos-hermes-coordinator.sh")

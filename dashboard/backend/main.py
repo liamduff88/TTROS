@@ -796,6 +796,19 @@ _EXPLICIT_TARGET_RE = {
 }
 _QUEUE_CREATE_PREFIX = "Add this to the queue:"
 _QUEUE_CREATE_RE = re.compile(rf"^{re.escape(_QUEUE_CREATE_PREFIX)}", re.IGNORECASE)
+_QUEUE_LIST_PREFIX = "List queue:"
+_QUEUE_LIST_RE = re.compile(rf"^{re.escape(_QUEUE_LIST_PREFIX)}", re.IGNORECASE)
+_QUEUE_STATUSES = (
+    "inbox",
+    "agent_todo",
+    "agent_working",
+    "needs_input",
+    "human_review",
+    "done",
+    "blocked",
+    "cancelled",
+)
+_ACTIVE_QUEUE_STATUSES = tuple(status for status in _QUEUE_STATUSES if status not in {"done", "cancelled"})
 _QUEUE_OWNER_RE = {
     owner: re.compile(rf"\b{re.escape(owner)}\b", re.IGNORECASE)
     for owner in ("codex", "claude", "revenue", "marketing", "delivery", "operations")
@@ -816,6 +829,159 @@ def _queue_create_text(task: str) -> str | None:
     if not match:
         return None
     return task[match.end():].strip()
+
+
+def _queue_status_filter(task: str) -> tuple[bool, str | None, dict | None]:
+    stripped = task.strip()
+    if stripped.lower() == "list queue":
+        return True, None, None
+    match = _QUEUE_LIST_RE.match(stripped)
+    if not match:
+        return False, None, None
+    status = stripped[match.end():].strip().lower()
+    if status not in _QUEUE_STATUSES:
+        output = "\n".join((
+            "NEEDS ATTENTION",
+            f"Invalid queue status: {status or '(empty)'}",
+            "Next action: Use one of inbox, agent_todo, agent_working, needs_input, human_review, done, blocked, cancelled.",
+        ))
+        return True, None, {
+            "success": False,
+            "output": output,
+            "returncode": 2,
+            "requested_target": "queue",
+            "selected_route": "local_queue_list",
+            "delegation_reason": "invalid exact queue-list status",
+            "codex_forbidden": "no",
+        }
+    return True, status, None
+
+
+def _queue_items_path() -> Path:
+    return BASE_DIR / "queue" / "work_items.jsonl"
+
+
+def _read_queue_items() -> list[dict]:
+    path = _queue_items_path()
+    if not path.exists():
+        return []
+    items = []
+    for line_number, line in enumerate(path.read_text(encoding="utf-8", errors="replace").splitlines(), start=1):
+        if not line.strip():
+            continue
+        try:
+            item = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"Invalid queue JSONL at line {line_number}: {exc.msg}") from exc
+        if isinstance(item, dict):
+            items.append(item)
+    return items
+
+
+def _queue_item_sort_key(item: dict) -> tuple[int, str, str]:
+    try:
+        priority = int(item.get("priority", 0))
+    except (TypeError, ValueError):
+        priority = 0
+    return (-priority, str(item.get("created_at", "")), str(item.get("id", "")))
+
+
+def _queue_next_action(items: list[dict], counts: dict[str, int] | None = None) -> str:
+    counts = counts or {status: sum(1 for item in items if item.get("status") == status) for status in _QUEUE_STATUSES}
+    if counts.get("needs_input", 0) or counts.get("human_review", 0) or counts.get("blocked", 0):
+        return "Review needs_input, human_review, or blocked items first."
+    if counts.get("agent_working", 0):
+        return "Let active agent_working items continue and review new inbox items."
+    if counts.get("agent_todo", 0):
+        return "Claim the next agent_todo item."
+    if counts.get("inbox", 0):
+        return "Triage inbox items into agent_todo or owner-specific work."
+    return "Add a queue item or continue normal Hermes work."
+
+
+def _queue_status_closeout() -> dict:
+    try:
+        items = _read_queue_items()
+    except ValueError as exc:
+        return {
+            "success": False,
+            "output": "\n".join(("NEEDS ATTENTION", f"Queue status unavailable: {exc}", "Next action: Repair queue/work_items.jsonl.")),
+            "returncode": 2,
+            "requested_target": "queue",
+            "selected_route": "local_queue_status",
+            "delegation_reason": "exact queue-status intent",
+            "codex_forbidden": "no",
+        }
+    counts = {status: sum(1 for item in items if item.get("status") == status) for status in _QUEUE_STATUSES}
+    needs_liam = counts["needs_input"] + counts["human_review"] + counts["blocked"]
+    output = "\n".join((
+        "PASS",
+        "Queue status:",
+        *[f"  - {status}: {counts[status]}" for status in _QUEUE_STATUSES],
+        "Needs Liam:",
+        f"  - {needs_liam}",
+        "Next action:",
+        f"  - {_queue_next_action(items, counts)}",
+    ))
+    return {
+        "success": True,
+        "output": output,
+        "returncode": 0,
+        "requested_target": "queue",
+        "selected_route": "local_queue_status",
+        "delegation_reason": "exact queue-status intent",
+        "codex_forbidden": "no",
+    }
+
+
+def _queue_list_closeout(status: str | None = None) -> dict:
+    try:
+        items = _read_queue_items()
+    except ValueError as exc:
+        return {
+            "success": False,
+            "output": "\n".join(("NEEDS ATTENTION", f"Queue list unavailable: {exc}", "Next action: Repair queue/work_items.jsonl.")),
+            "returncode": 2,
+            "requested_target": "queue",
+            "selected_route": "local_queue_list",
+            "delegation_reason": "exact queue-list intent",
+            "codex_forbidden": "no",
+        }
+    filtered = [
+        item for item in items
+        if (item.get("status") == status if status else item.get("status") in _ACTIVE_QUEUE_STATUSES)
+    ]
+    rows = [
+        f"  - {item.get('id', '')} | {item.get('status', '')} | {item.get('owner', 'unassigned')} | {item.get('title', '')}"
+        for item in sorted(filtered, key=_queue_item_sort_key)[:10]
+    ] or ["  - None"]
+    output = "\n".join((
+        "PASS",
+        "Queue items:",
+        *rows,
+        "Next action:",
+        f"  - {_queue_next_action(filtered)}",
+    ))
+    return {
+        "success": True,
+        "output": output,
+        "returncode": 0,
+        "requested_target": "queue",
+        "selected_route": "local_queue_list",
+        "delegation_reason": "exact queue-list intent" if status is None else "exact queue-list status intent",
+        "codex_forbidden": "no",
+    }
+
+
+def _try_queue_read_task(task: str) -> dict | None:
+    if task.strip().lower() == "queue status":
+        return _queue_status_closeout()
+    is_queue_list, status, invalid = _queue_status_filter(task)
+    if invalid is not None:
+        return invalid
+    if is_queue_list:
+        return _queue_list_closeout(status)
+    return None
 
 
 def _infer_queue_owner(text: str) -> str:
@@ -986,6 +1152,9 @@ def wsl_hermes(body: TaskRun):
         if not queue_text:
             raise HTTPException(status_code=422, detail="queue item text must not be empty")
         return _queue_create_closeout(_create_queue_item(queue_text))
+    queue_read = _try_queue_read_task(body.task)
+    if queue_read is not None:
+        return queue_read
     metadata = _select_hermes_entry_route(body.task)
     safe_task = body.task.replace("'", "'\\''")
     selected_route = metadata["selected_route"]
