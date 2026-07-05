@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { AlertCircle, CheckCircle2, Clipboard, ListChecks, Plus, RefreshCw } from 'lucide-react'
 import {
   attachQueueReceipt,
+  closeQueueItemReview,
   createQueueItem,
   getQueueItem,
   getQueueItems,
@@ -101,6 +102,8 @@ export default function Queue() {
   const [receiptSaving, setReceiptSaving] = useState(false)
   const [receiptViewer, setReceiptViewer] = useState({ path: '', content: '', loading: false, error: '' })
   const [statusSaving, setStatusSaving] = useState(false)
+  const [reviewNote, setReviewNote] = useState('')
+  const [reviewSaving, setReviewSaving] = useState(false)
   const [state, setState] = useState({ loading: true, creating: false, error: null, copied: '' })
 
   const selectedFromList = useMemo(
@@ -156,6 +159,7 @@ export default function Queue() {
     setReceiptStatusTouched(false)
     setReceiptFeedback('')
     setReceiptViewer({ path: '', content: '', loading: false, error: '' })
+    setReviewNote('')
   }, [detail?.id])
 
   const updateForm = event => {
@@ -239,6 +243,25 @@ export default function Queue() {
       setState(current => ({ ...current, error, copied: '' }))
     } finally {
       setStatusSaving(false)
+    }
+  }
+
+  const closeReview = async event => {
+    event.preventDefault()
+    if (!detail?.id) return
+    setReviewSaving(true)
+    setState(current => ({ ...current, error: null, copied: '' }))
+    setReceiptFeedback('')
+    try {
+      const result = await closeQueueItemReview(detail.id, { review_note: reviewNote })
+      if (result?.success === false || result?.ok === false) throw new Error(result.reason || 'Review close failed')
+      setReviewNote('')
+      setReceiptFeedback(`Review closed: ${result.receipt_path || 'done'}`)
+      await refreshQueue(detail.id)
+    } catch (error) {
+      setState(current => ({ ...current, error, copied: '' }))
+    } finally {
+      setReviewSaving(false)
     }
   }
 
@@ -462,6 +485,28 @@ export default function Queue() {
                 <DetailRow label="Allowed actions" value={renderList(detail.allowed_actions)} />
                 <DetailRow label="Stop conditions" value={renderList(detail.stop_conditions)} />
               </div>
+              {detail.status === 'human_review' && (
+                <form onSubmit={closeReview} className="rounded border border-champagne/30 bg-champagne/10 p-4">
+                  <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_12rem] md:items-end">
+                    <Field label="Review note optional">
+                      <TextArea
+                        value={reviewNote}
+                        onChange={event => setReviewNote(event.target.value)}
+                        maxLength={500}
+                        placeholder="Short review note"
+                      />
+                    </Field>
+                    <button
+                      type="submit"
+                      disabled={reviewSaving || receiptSaving || statusSaving}
+                      className="inline-flex items-center justify-center gap-2 rounded bg-champagne px-4 py-2 text-sm font-semibold text-ink transition-colors hover:bg-stone disabled:cursor-not-allowed disabled:opacity-70"
+                    >
+                      <CheckCircle2 size={14} />
+                      {reviewSaving ? 'Closing review' : 'Close as done'}
+                    </button>
+                  </div>
+                </form>
+              )}
               <form onSubmit={saveReceipt} className="rounded border border-softgraph bg-ink p-4">
                 <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_13rem]">
                   <Field label="Receipt">

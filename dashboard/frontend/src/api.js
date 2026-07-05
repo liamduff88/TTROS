@@ -22,6 +22,7 @@ export const getQueueReceipt = (path) => api.get('/queue/receipt', { params: { p
 export const createQueueItem = (data) => api.post('/queue/items', data).then(r => r.data)
 export const getQueuePrompt = (id, target) => api.get(`/queue/items/${id}/prompt`, { params: { target } }).then(r => r.data)
 export const attachQueueReceipt = (id, data) => api.post(`/queue/items/${id}/receipt`, data).then(r => r.data)
+export const closeQueueItemReview = (id, data) => api.post(`/queue/items/${id}/review-close`, data).then(r => r.data)
 export const updateQueueItemStatus = (id, status) => api.post(`/queue/items/${id}/status`, { status }).then(r => r.data)
 export const updateTracker = (data) => api.post('/tracker', data).then(r => r.data)
 export const createPacket = (data) => api.post('/packets', data).then(r => r.data)

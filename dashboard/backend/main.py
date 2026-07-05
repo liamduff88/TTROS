@@ -302,6 +302,10 @@ class QueueStatusUpdate(BaseModel):
     status: str
 
 
+class QueueReviewClose(BaseModel):
+    review_note: str = ""
+
+
 @app.post("/api/packets")
 def create_packet(packet: PacketCreate):
     ts = datetime.datetime.utcnow().strftime("%Y%m%d_%H%M%S")
@@ -985,6 +989,24 @@ def _queue_write_receipt(item_id: str, receipt_text: str) -> str:
     return receipt_path
 
 
+def _queue_write_review_receipt(item_id: str, review_note: str) -> str:
+    note = str(review_note or "").strip()
+    if len(note) > 500:
+        raise ValueError("review_note must be 500 characters or fewer")
+    timestamp = datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    lines = [
+        "PASS",
+        "",
+        "Review closeout:",
+        "- Reviewed by: Liam",
+        f"- Reviewed at: {timestamp}",
+        "- Status: done",
+    ]
+    if note:
+        lines.extend(["", "Review note:", note])
+    return _queue_write_receipt(item_id, "\n".join(lines))
+
+
 def _queue_receipt_artifact(relative_path: str) -> tuple[str, str]:
     path_text = str(relative_path or "").strip()
     if not path_text:
@@ -1197,6 +1219,29 @@ def attach_queue_item_receipt(item_id: str, body: QueueReceiptAttach):
         _queue_find_item(item_id)
         receipt_path = _queue_write_receipt(item_id, body.receipt_text)
         item = _load_queue_tool().attach_receipt(BASE_DIR, item_id, receipt_path, status)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="queue item not found")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {
+        "ok": True,
+        "success": True,
+        "item_id": item_id,
+        "receipt_path": receipt_path,
+        "status": item.get("status"),
+        "item": _queue_detail_item(item),
+    }
+
+
+@app.post("/api/queue/items/{item_id}/review-close")
+def close_queue_item_review(item_id: str, body: QueueReviewClose):
+    """Close one human_review queue item as done with an optional local review note."""
+    try:
+        existing = _queue_find_item(item_id)
+        if existing.get("status") != "human_review":
+            raise ValueError("only human_review items can be closed from review")
+        receipt_path = _queue_write_review_receipt(item_id, body.review_note)
+        item = _load_queue_tool().attach_receipt(BASE_DIR, item_id, receipt_path, "done")
     except KeyError:
         raise HTTPException(status_code=404, detail="queue item not found")
     except ValueError as exc:

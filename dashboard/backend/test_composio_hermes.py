@@ -414,6 +414,51 @@ class HermesComposioTests(unittest.TestCase):
             self.assertEqual(item["receipts"][0]["path"], result["receipt_path"])
             self.assertEqual(item["receipts"][0]["status"], "human_review")
 
+    def test_dashboard_queue_review_close_marks_human_review_done_with_note_receipt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            items = self.sample_queue_items()
+            items[1]["status"] = "human_review"
+            self.write_queue_items(root, items)
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_run_wsl") as run:
+                result = backend.close_queue_item_review(
+                    "AOS-2026-0002",
+                    backend.QueueReviewClose(review_note="Looks good after receipt review."),
+                )
+
+            run.assert_not_called()
+            self.assertTrue(result["ok"])
+            self.assertEqual(result["status"], "done")
+            self.assertRegex(result["receipt_path"], r"^queue/receipts/AOS-2026-0002-\d{8}T\d{6}Z\.md$")
+            self.assertFalse(Path(result["receipt_path"]).is_absolute())
+            receipt_file = root / result["receipt_path"]
+            self.assertTrue(receipt_file.exists())
+            receipt_text = receipt_file.read_text(encoding="utf-8")
+            self.assertIn("Review closeout:", receipt_text)
+            self.assertIn("Looks good after receipt review.", receipt_text)
+            item = result["item"]
+            self.assertEqual(item["status"], "done")
+            self.assertEqual(item["receipts"][0]["path"], result["receipt_path"])
+            self.assertEqual(item["receipts"][0]["status"], "done")
+
+    def test_dashboard_queue_review_close_rejects_non_review_items(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_queue_items(root, self.sample_queue_items())
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_run_wsl") as run:
+                with self.assertRaises(backend.HTTPException) as raised:
+                    backend.close_queue_item_review(
+                        "AOS-2026-0002",
+                        backend.QueueReviewClose(review_note="Not ready for review close."),
+                    )
+
+            run.assert_not_called()
+            self.assertEqual(raised.exception.status_code, 400)
+            self.assertIn("only human_review items", raised.exception.detail)
+            self.assertFalse((root / "queue" / "receipts").exists())
+
     def test_dashboard_queue_receipt_rejects_empty_text_and_invalid_status(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
