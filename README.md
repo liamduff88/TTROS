@@ -7,7 +7,9 @@ Local operator cockpit for Liam's AI workbench system.
 - Frontend: http://127.0.0.1:3010
 
 ## Launch
-Double-click: `C:\Users\Admin\Desktop\Agentic OS Dashboard.bat`
+Double-click the desktop icon/file: `C:\Users\Admin\Desktop\Agentic OS Dashboard.bat`
+
+That desktop launcher should run `Start-AgenticOS-Dashboard.ps1` from this folder. The script starts only missing dashboard services and opens the cockpit at http://127.0.0.1:3010.
 
 ## Stack
 - Backend: FastAPI + Python 3.11+

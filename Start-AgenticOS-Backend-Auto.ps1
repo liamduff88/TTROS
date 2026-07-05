@@ -1,6 +1,7 @@
 $ErrorActionPreference = "SilentlyContinue"
 
-$workspace = "C:\Users\Admin\Documents\A-Time to revenue\Agentic OS Live"
+$workspace = $PSScriptRoot
+$env:AOS_ROOT = $workspace
 $dashboard = Join-Path $workspace "dashboard"
 $logsDir = Join-Path $workspace "logs"
 $backendLog = Join-Path $logsDir "dashboard_backend.log"
