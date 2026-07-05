@@ -20,6 +20,8 @@ export const getQueueItem = (id) => api.get(`/queue/items/${id}`).then(r => r.da
 export const getQueueNext = () => api.get('/queue/next').then(r => r.data)
 export const createQueueItem = (data) => api.post('/queue/items', data).then(r => r.data)
 export const getQueuePrompt = (id, target) => api.get(`/queue/items/${id}/prompt`, { params: { target } }).then(r => r.data)
+export const attachQueueReceipt = (id, data) => api.post(`/queue/items/${id}/receipt`, data).then(r => r.data)
+export const updateQueueItemStatus = (id, status) => api.post(`/queue/items/${id}/status`, { status }).then(r => r.data)
 export const updateTracker = (data) => api.post('/tracker', data).then(r => r.data)
 export const createPacket = (data) => api.post('/packets', data).then(r => r.data)
 export const launchEntity = (id) => api.post(`/launchers/${id}/launch`).then(r => r.data)

@@ -293,6 +293,15 @@ class QueueItemCreate(BaseModel):
     stop_conditions: str = "external_send,secrets_exposure,destructive_action_outside_scope"
 
 
+class QueueReceiptAttach(BaseModel):
+    receipt_text: str
+    status: str | None = None
+
+
+class QueueStatusUpdate(BaseModel):
+    status: str
+
+
 @app.post("/api/packets")
 def create_packet(packet: PacketCreate):
     ts = datetime.datetime.utcnow().strftime("%Y%m%d_%H%M%S")
@@ -952,6 +961,30 @@ def _queue_create_dashboard_item(body: QueueItemCreate) -> dict:
     return queue_tool.create_item(BASE_DIR, args)
 
 
+def _queue_validate_status(status: str) -> str:
+    normalized = str(status or "").strip().lower()
+    if normalized not in _QUEUE_STATUSES:
+        raise ValueError("invalid status; use one of inbox, agent_todo, agent_working, needs_input, human_review, done, blocked, cancelled")
+    return normalized
+
+
+def _queue_receipt_path(item_id: str) -> str:
+    safe_id = re.sub(r"[^A-Za-z0-9_-]+", "-", item_id).strip("-") or "receipt"
+    timestamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    return (Path("queue") / "receipts" / f"{safe_id}-{timestamp}.md").as_posix()
+
+
+def _queue_write_receipt(item_id: str, receipt_text: str) -> str:
+    text = receipt_text.strip()
+    if not text:
+        raise ValueError("receipt_text must not be empty")
+    receipt_path = _queue_receipt_path(item_id)
+    target = BASE_DIR / receipt_path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(text.rstrip() + "\n", encoding="utf-8")
+    return receipt_path
+
+
 def _queue_detail_item(item: dict) -> dict:
     public = _queue_public_item(item)
     public.update({
@@ -1120,6 +1153,42 @@ def create_queue_item(body: QueueItemCreate):
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return {"success": True, "item": _queue_detail_item(item)}
+
+
+@app.post("/api/queue/items/{item_id}/status")
+def update_queue_item_status(item_id: str, body: QueueStatusUpdate):
+    """Update one local queue item status; never invoke agents or connectors."""
+    try:
+        status = _queue_validate_status(body.status)
+        _queue_find_item(item_id)
+        item = _load_queue_tool().update_status(BASE_DIR, item_id, status)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="queue item not found")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"ok": True, "success": True, "item_id": item_id, "status": item.get("status"), "item": _queue_detail_item(item)}
+
+
+@app.post("/api/queue/items/{item_id}/receipt")
+def attach_queue_item_receipt(item_id: str, body: QueueReceiptAttach):
+    """Persist a pasted local receipt and attach its root-relative path."""
+    try:
+        status = _queue_validate_status(body.status) if body.status is not None else None
+        _queue_find_item(item_id)
+        receipt_path = _queue_write_receipt(item_id, body.receipt_text)
+        item = _load_queue_tool().attach_receipt(BASE_DIR, item_id, receipt_path, status)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="queue item not found")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {
+        "ok": True,
+        "success": True,
+        "item_id": item_id,
+        "receipt_path": receipt_path,
+        "status": item.get("status"),
+        "item": _queue_detail_item(item),
+    }
 
 
 def _queue_render_list(values: object) -> str:

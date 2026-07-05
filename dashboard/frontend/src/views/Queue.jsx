@@ -1,9 +1,19 @@
 import { useEffect, useMemo, useState } from 'react'
 import { AlertCircle, CheckCircle2, Clipboard, ListChecks, Plus, RefreshCw } from 'lucide-react'
-import { createQueueItem, getQueueItem, getQueueItems, getQueueNext, getQueuePrompt, getQueueStatus } from '../api'
+import {
+  attachQueueReceipt,
+  createQueueItem,
+  getQueueItem,
+  getQueueItems,
+  getQueueNext,
+  getQueuePrompt,
+  getQueueStatus,
+  updateQueueItemStatus,
+} from '../api'
 
 const OWNERS = ['unassigned', 'hermes', 'codex', 'claude', 'revenue', 'marketing', 'delivery', 'operations']
 const PRIORITIES = ['low', 'normal', 'high', 'urgent']
+const QUEUE_STATUSES = ['inbox', 'agent_todo', 'agent_working', 'needs_input', 'human_review', 'done', 'blocked', 'cancelled']
 const DEFAULT_ALLOWED = 'local_read\nlocal_edit\nlocal_test'
 const DEFAULT_STOPS = 'external_send\nsecrets_exposure\ndestructive_action_outside_scope'
 
@@ -83,12 +93,19 @@ export default function Queue() {
   const [selectedId, setSelectedId] = useState(null)
   const [selected, setSelected] = useState(null)
   const [form, setForm] = useState(emptyForm)
+  const [receiptText, setReceiptText] = useState('')
+  const [receiptStatus, setReceiptStatus] = useState('human_review')
+  const [receiptStatusTouched, setReceiptStatusTouched] = useState(false)
+  const [receiptFeedback, setReceiptFeedback] = useState('')
+  const [receiptSaving, setReceiptSaving] = useState(false)
+  const [statusSaving, setStatusSaving] = useState(false)
   const [state, setState] = useState({ loading: true, creating: false, error: null, copied: '' })
 
   const selectedFromList = useMemo(
     () => items.find(item => item.id === selectedId) || null,
     [items, selectedId],
   )
+  const detail = selected || selectedFromList
 
   const refreshQueue = async (preferredId = selectedId) => {
     setState(current => ({ ...current, loading: true, error: null, copied: '' }))
@@ -131,6 +148,13 @@ export default function Queue() {
       .catch(error => setState(current => ({ ...current, error })))
   }, [selectedId])
 
+  useEffect(() => {
+    setReceiptText('')
+    setReceiptStatus(QUEUE_STATUSES.includes(detail?.status) ? detail.status : 'human_review')
+    setReceiptStatusTouched(false)
+    setReceiptFeedback('')
+  }, [detail?.id])
+
   const updateForm = event => {
     const { name, value } = event.target
     setForm(current => ({ ...current, [name]: value }))
@@ -164,9 +188,59 @@ export default function Queue() {
     }
   }
 
+  const updateReceiptText = event => {
+    const value = event.target.value
+    setReceiptText(value)
+    if (receiptStatusTouched) return
+    const upper = value.trimStart().toUpperCase()
+    if (upper.startsWith('PASS')) setReceiptStatus('human_review')
+    if (upper.startsWith('NEEDS ATTENTION')) setReceiptStatus('needs_input')
+  }
+
+  const updateReceiptStatus = event => {
+    setReceiptStatus(event.target.value)
+    setReceiptStatusTouched(true)
+  }
+
+  const saveReceipt = async event => {
+    event.preventDefault()
+    if (!detail?.id) return
+    setReceiptSaving(true)
+    setState(current => ({ ...current, error: null, copied: '' }))
+    setReceiptFeedback('')
+    try {
+      const result = await attachQueueReceipt(detail.id, { receipt_text: receiptText, status: receiptStatus })
+      if (result?.success === false || result?.ok === false) throw new Error(result.reason || 'Receipt save failed')
+      setReceiptText('')
+      setReceiptStatusTouched(false)
+      setReceiptFeedback(`Receipt saved: ${result.receipt_path || 'attached'}`)
+      await refreshQueue(detail.id)
+    } catch (error) {
+      setState(current => ({ ...current, error, copied: '' }))
+    } finally {
+      setReceiptSaving(false)
+    }
+  }
+
+  const saveStatusOnly = async () => {
+    if (!detail?.id) return
+    setStatusSaving(true)
+    setState(current => ({ ...current, error: null, copied: '' }))
+    setReceiptFeedback('')
+    try {
+      const result = await updateQueueItemStatus(detail.id, receiptStatus)
+      if (result?.success === false || result?.ok === false) throw new Error(result.reason || 'Status update failed')
+      setReceiptFeedback(`Status updated: ${formatStatus(result.status || receiptStatus)}`)
+      await refreshQueue(detail.id)
+    } catch (error) {
+      setState(current => ({ ...current, error, copied: '' }))
+    } finally {
+      setStatusSaving(false)
+    }
+  }
+
   const reason = state.error?.response?.data?.detail || state.error?.message
   const counts = status?.counts || {}
-  const detail = selected || selectedFromList
   const ownerPromptAction = promptActionForOwner(detail?.owner)
 
   return (
@@ -371,6 +445,46 @@ export default function Queue() {
                 <DetailRow label="Allowed actions" value={renderList(detail.allowed_actions)} />
                 <DetailRow label="Stop conditions" value={renderList(detail.stop_conditions)} />
               </div>
+              <form onSubmit={saveReceipt} className="rounded border border-softgraph bg-ink p-4">
+                <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_13rem]">
+                  <Field label="Receipt">
+                    <TextArea
+                      value={receiptText}
+                      onChange={updateReceiptText}
+                      placeholder="Paste PASS or NEEDS ATTENTION receipt"
+                      className="min-h-[8rem]"
+                    />
+                  </Field>
+                  <div className="space-y-3">
+                    <Field label="Status">
+                      <Select value={receiptStatus} onChange={updateReceiptStatus}>
+                        {QUEUE_STATUSES.map(queueStatus => (
+                          <option key={queueStatus} value={queueStatus}>{queueStatus}</option>
+                        ))}
+                      </Select>
+                    </Field>
+                    <button
+                      type="button"
+                      onClick={saveStatusOnly}
+                      disabled={statusSaving || receiptSaving}
+                      className="w-full rounded bg-softgraph px-3 py-2 text-xs font-mono text-taupe transition-colors hover:text-stone disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {statusSaving ? 'Updating status' : 'Update status only'}
+                    </button>
+                  </div>
+                </div>
+                <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <button
+                    type="submit"
+                    disabled={receiptSaving || statusSaving || !receiptText.trim()}
+                    className="inline-flex items-center justify-center gap-2 rounded bg-champagne px-4 py-2 text-sm font-semibold text-ink transition-colors hover:bg-stone disabled:cursor-not-allowed disabled:opacity-70"
+                  >
+                    <Clipboard size={14} />
+                    {receiptSaving ? 'Saving receipt' : 'Attach receipt and update status'}
+                  </button>
+                  {receiptFeedback && <div className="font-mono text-xs text-champagne">{receiptFeedback}</div>}
+                </div>
+              </form>
               <div>
                 <div className="text-[11px] font-semibold uppercase tracking-wider text-taupe">Receipts</div>
                 {detail.receipts?.length ? (

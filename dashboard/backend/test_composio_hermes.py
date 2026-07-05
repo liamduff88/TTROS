@@ -387,6 +387,81 @@ class HermesComposioTests(unittest.TestCase):
             self.assertEqual(raised.exception.status_code, 400)
             self.assertIn("invalid target", raised.exception.detail)
 
+    def test_dashboard_queue_receipt_attach_writes_file_and_updates_status(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_queue_items(root, self.sample_queue_items())
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_run_wsl") as run:
+                result = backend.attach_queue_item_receipt(
+                    "AOS-2026-0002",
+                    backend.QueueReceiptAttach(
+                        receipt_text="PASS\n\nFiles touched:\n- dashboard/backend/main.py",
+                        status="human_review",
+                    ),
+                )
+
+            run.assert_not_called()
+            self.assertTrue(result["ok"])
+            self.assertEqual(result["status"], "human_review")
+            self.assertRegex(result["receipt_path"], r"^queue/receipts/AOS-2026-0002-\d{8}T\d{6}Z\.md$")
+            self.assertFalse(Path(result["receipt_path"]).is_absolute())
+            receipt_file = root / result["receipt_path"]
+            self.assertTrue(receipt_file.exists())
+            self.assertIn("PASS", receipt_file.read_text(encoding="utf-8"))
+            item = result["item"]
+            self.assertEqual(item["status"], "human_review")
+            self.assertEqual(item["receipts"][0]["path"], result["receipt_path"])
+            self.assertEqual(item["receipts"][0]["status"], "human_review")
+
+    def test_dashboard_queue_receipt_rejects_empty_text_and_invalid_status(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_queue_items(root, self.sample_queue_items())
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_run_wsl") as run:
+                with self.assertRaises(backend.HTTPException) as empty:
+                    backend.attach_queue_item_receipt(
+                        "AOS-2026-0002",
+                        backend.QueueReceiptAttach(receipt_text="  \n", status="done"),
+                    )
+                with self.assertRaises(backend.HTTPException) as invalid:
+                    backend.attach_queue_item_receipt(
+                        "AOS-2026-0002",
+                        backend.QueueReceiptAttach(receipt_text="PASS", status="waiting"),
+                    )
+
+            run.assert_not_called()
+            self.assertEqual(empty.exception.status_code, 400)
+            self.assertIn("receipt_text must not be empty", empty.exception.detail)
+            self.assertEqual(invalid.exception.status_code, 400)
+            self.assertIn("invalid status", invalid.exception.detail)
+            self.assertFalse((root / "queue" / "receipts").exists())
+
+    def test_dashboard_queue_status_endpoint_updates_item_and_rejects_invalid_status(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_queue_items(root, self.sample_queue_items())
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_run_wsl") as run:
+                result = backend.update_queue_item_status(
+                    "AOS-2026-0001",
+                    backend.QueueStatusUpdate(status="agent_working"),
+                )
+                shown = backend.queue_item("AOS-2026-0001")
+                with self.assertRaises(backend.HTTPException) as invalid:
+                    backend.update_queue_item_status(
+                        "AOS-2026-0001",
+                        backend.QueueStatusUpdate(status="waiting"),
+                    )
+
+            run.assert_not_called()
+            self.assertTrue(result["ok"])
+            self.assertEqual(result["status"], "agent_working")
+            self.assertEqual(shown["item"]["status"], "agent_working")
+            self.assertEqual(invalid.exception.status_code, 400)
+            self.assertIn("invalid status", invalid.exception.detail)
+
     def test_list_queue_status_filters_by_status(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
