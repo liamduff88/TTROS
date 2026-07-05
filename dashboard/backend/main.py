@@ -2,6 +2,8 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from pathlib import Path
+import argparse
+import importlib.util
 import json
 import datetime
 import webbrowser
@@ -20,17 +22,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-BASE_DIR = (
-    Path(r"C:\Users\Admin\Documents\A-Time to revenue\Agentic OS Live")
-    if os.name == "nt"
-    else Path(__file__).resolve().parents[2]
-)
+def _aos_root() -> Path:
+    configured = os.environ.get("AOS_ROOT")
+    if configured:
+        return Path(configured).expanduser().resolve()
+    return Path(__file__).resolve().parents[2]
+
+
+BASE_DIR = _aos_root()
 PACKETS_DIR = BASE_DIR / "packets"
 LOGS_DIR = BASE_DIR / "logs"
 RESULTS_DIR = BASE_DIR / "results"
 CONNECTORS_DIR = BASE_DIR / "connectors"
 CONNECTORS_FILE = CONNECTORS_DIR / "CONNECTORS.md"
 DATA_DIR = BASE_DIR / "dashboard" / "data"
+QUEUE_TOOL = BASE_DIR / "tools" / "aos-queue.py"
 
 for d in [PACKETS_DIR, LOGS_DIR, RESULTS_DIR, CONNECTORS_DIR, DATA_DIR]:
     d.mkdir(parents=True, exist_ok=True)
@@ -318,7 +324,16 @@ WSL_ENV = 'export PATH="$HOME/.local/npm/bin:$HOME/.local/bin:$PATH"'
 WSL_DISTRO = "AgenticOSClean"
 WSL_USER = "liam"
 COMPOSIO_PATH = "/home/liam/.composio:/home/liam/.local/bin:/home/liam/.composio:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/usr/lib/wsl/lib"
-HERMES_COORDINATOR = "/mnt/c/Users/Admin/Documents/A-Time to revenue/Agentic OS Live/tools/aos-hermes-coordinator.sh"
+HERMES_COORDINATOR = BASE_DIR / "tools" / "aos-hermes-coordinator.sh"
+
+
+def _path_for_wsl_command(path) -> str:
+    raw = str(path)
+    match = re.match(r"^([A-Za-z]):[\\/](.*)$", raw)
+    if not match:
+        return raw
+    drive, rest = match.groups()
+    return f"/mnt/{drive.lower()}/{rest.replace(chr(92), '/')}"
 
 
 def _run_wsl(bash_cmd: str, timeout: int = 60) -> dict:
@@ -779,6 +794,79 @@ _EXPLICIT_TARGET_RE = {
     )
     for target in ("codex", "claude", "hermes")
 }
+_QUEUE_CREATE_PREFIX = "Add this to the queue:"
+_QUEUE_CREATE_RE = re.compile(rf"^{re.escape(_QUEUE_CREATE_PREFIX)}", re.IGNORECASE)
+_QUEUE_OWNER_RE = {
+    owner: re.compile(rf"\b{re.escape(owner)}\b", re.IGNORECASE)
+    for owner in ("codex", "claude", "revenue", "marketing", "delivery", "operations")
+}
+
+
+def _load_queue_tool():
+    spec = importlib.util.spec_from_file_location("aos_queue", QUEUE_TOOL)
+    if spec is None or spec.loader is None:
+        raise RuntimeError("Queue tool could not be loaded")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _queue_create_text(task: str) -> str | None:
+    match = _QUEUE_CREATE_RE.match(task)
+    if not match:
+        return None
+    return task[match.end():].strip()
+
+
+def _infer_queue_owner(text: str) -> str:
+    for owner, pattern in _QUEUE_OWNER_RE.items():
+        if pattern.search(text):
+            return owner
+    return "unassigned"
+
+
+def _create_queue_item(text: str) -> dict:
+    queue_tool = _load_queue_tool()
+    owner = _infer_queue_owner(text)
+    args = argparse.Namespace(
+        title=text,
+        requested_by="hermes",
+        owner_type="agent",
+        owner=owner,
+        status="inbox",
+        priority=0,
+        source="dashboard/backend/hermes",
+        tags="hermes,queue",
+        context="",
+        sources="",
+        allowed_actions="",
+        stop_conditions="",
+        definition_of_done="",
+    )
+    return queue_tool.create_item(BASE_DIR, args)
+
+
+def _queue_create_closeout(item: dict) -> dict:
+    output = "\n".join((
+        "PASS",
+        f"Work item ID: {item['id']}",
+        f"Owner: {item['owner']}",
+        f"Status: {item['status']}",
+        "Next action: Review or claim the local queue item",
+    ))
+    return {
+        "success": True,
+        "output": output,
+        "returncode": 0,
+        "work_item_id": item["id"],
+        "owner": item["owner"],
+        "status": item["status"],
+        "next_action": "Review or claim the local queue item",
+        "requested_target": "queue",
+        "selected_route": "local_queue",
+        "delegation_reason": "exact queue-create prefix",
+        "codex_forbidden": "no",
+    }
 
 
 def _select_hermes_entry_route(task: str) -> dict:
@@ -893,6 +981,11 @@ def wsl_hermes(body: TaskRun):
     """Use Hermes by default; bypass it only for explicit agent requests."""
     if not body.task.strip():
         raise HTTPException(status_code=422, detail="task must not be empty")
+    queue_text = _queue_create_text(body.task)
+    if queue_text is not None:
+        if not queue_text:
+            raise HTTPException(status_code=422, detail="queue item text must not be empty")
+        return _queue_create_closeout(_create_queue_item(queue_text))
     metadata = _select_hermes_entry_route(body.task)
     safe_task = body.task.replace("'", "'\\''")
     selected_route = metadata["selected_route"]
@@ -901,7 +994,7 @@ def wsl_hermes(body: TaskRun):
     elif selected_route == "direct_claude":
         command, route, agent = f"aos-hermes claude '{safe_task}'", "claude", "claude"
     else:
-        command = f"{shlex.quote(HERMES_COORDINATOR)} '{safe_task}'"
+        command = f"{shlex.quote(_path_for_wsl_command(HERMES_COORDINATOR))} '{safe_task}'"
         route, agent = "hermes", "hermes"
     result = _run_wsl(command, timeout=120)
     if selected_route == "hermes_coordinator":

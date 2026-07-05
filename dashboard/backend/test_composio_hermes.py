@@ -1,8 +1,11 @@
 import importlib.util
+import json
+import re
 import sys
+import tempfile
 import types
 import unittest
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from unittest.mock import patch
 
 
@@ -102,6 +105,100 @@ class HermesComposioTests(unittest.TestCase):
             command, result = self.route(task)
             self.assertIn("aos-hermes-coordinator.sh", command, task)
             self.assertEqual(result["selected_route"], "hermes_coordinator")
+
+    def test_queue_intent_creates_local_queue_item_without_wsl(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_run_wsl") as run:
+                result = backend.wsl_hermes(backend.TaskRun(task="Add this to the queue: Have Codex inspect the dashboard route"))
+
+            run.assert_not_called()
+            self.assertEqual(result["selected_route"], "local_queue")
+            self.assertEqual(result["owner"], "codex")
+            self.assertEqual(result["status"], "inbox")
+            self.assertIn("Work item ID: AOS-", result["output"])
+            self.assertIn("Owner: codex", result["output"])
+            self.assertIn("Status: inbox", result["output"])
+            self.assertIn("Next action: Review or claim the local queue item", result["output"])
+
+            lines = (root / "queue" / "work_items.jsonl").read_text(encoding="utf-8").splitlines()
+            self.assertEqual(len(lines), 1)
+            item = json.loads(lines[0])
+            self.assertEqual(item["id"], result["work_item_id"])
+            self.assertEqual(item["owner"], "codex")
+            self.assertEqual(item["title"], "Have Codex inspect the dashboard route")
+
+    def test_queue_owner_inference_is_explicit_only(self):
+        cases = (
+            ("Add this to the queue: Claude should polish copy", "claude"),
+            ("add this to the queue: revenue should review offer", "revenue"),
+            ("ADD THIS TO THE QUEUE: marketing campaign brief", "marketing"),
+            ("Add this to the queue: delivery handoff checklist", "delivery"),
+            ("Add this to the queue: operations SOP cleanup", "operations"),
+            ("Add this to the queue: review the plan", "unassigned"),
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_run_wsl") as run:
+                results = [backend.wsl_hermes(backend.TaskRun(task=task)) for task, _ in cases]
+
+            run.assert_not_called()
+            self.assertEqual([result["owner"] for result in results], [owner for _, owner in cases])
+
+    def test_non_prefix_queue_language_falls_through_to_hermes(self):
+        command, result = self.route("Please add this to the queue: have Codex inspect the route")
+        self.assertIn("aos-hermes-coordinator.sh", command)
+        self.assertEqual(result["selected_route"], "hermes_coordinator")
+
+    def test_hermes_coordinator_uses_wsl_path_for_windows_backend_path(self):
+        windows_script = PureWindowsPath(r"Z:\workspace\tools\aos-hermes-coordinator.sh")
+        with patch.object(backend, "HERMES_COORDINATOR", windows_script), \
+             patch.object(backend, "_run_wsl", return_value=self.RUN_RESULT) as run, \
+             patch.object(backend, "_log_token_usage"):
+            result = backend.wsl_hermes(backend.TaskRun(task="summarize the queue"))
+
+        command = run.call_args.args[0]
+        self.assertTrue(command.startswith("/mnt/z/workspace/tools/aos-hermes-coordinator.sh "))
+        self.assertNotIn(r"Z:\workspace", command)
+        self.assertEqual(result["selected_route"], "hermes_coordinator")
+
+    def test_wsl_path_helper_preserves_posix_paths(self):
+        self.assertEqual(
+            backend._path_for_wsl_command("/mnt/c/workspace/tools/aos-hermes-coordinator.sh"),
+            "/mnt/c/workspace/tools/aos-hermes-coordinator.sh",
+        )
+        self.assertEqual(
+            backend._path_for_wsl_command("/home/liam/workspace/tools/aos-hermes-coordinator.sh"),
+            "/home/liam/workspace/tools/aos-hermes-coordinator.sh",
+        )
+
+    def test_no_new_absolute_workspace_literal_in_backend_patch(self):
+        backend_source = MAIN.read_text(encoding="utf-8")
+        windows_workspace = "\\".join(("C:", "Users", "Admin", "Documents", "A-Time to revenue", "Agentic OS Live", "tools", "aos-hermes-coordinator.sh"))
+        wsl_workspace = "/".join(("", "mnt", "c", "Users", "Admin", "Documents", "A-Time to revenue", "Agentic OS Live", "tools", "aos-hermes-coordinator.sh"))
+        self.assertNotIn(windows_workspace, backend_source)
+        self.assertNotIn(wsl_workspace, backend_source)
+
+    def test_queue_closeout_has_required_fields_and_no_secret_like_values(self):
+        secret_patterns = (
+            r"(?i)\b(?:token|secret|oauth|api[_-]?key|telegram|customer)\b",
+            r"\b[A-Za-z]:\\",
+            "/" + r"mnt/[a-z]/",
+            "/" + r"home/[^/\s]+",
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.object(backend, "BASE_DIR", Path(tmp)), \
+                 patch.object(backend, "_run_wsl"):
+                result = backend.wsl_hermes(backend.TaskRun(task="Add this to the queue: review the plan"))
+
+        self.assertRegex(result["output"], r"Work item ID: AOS-\d{4}-\d{4}")
+        self.assertIn("Owner: unassigned", result["output"])
+        self.assertIn("Status: inbox", result["output"])
+        self.assertIn("Next action: Review or claim the local queue item", result["output"])
+        for pattern in secret_patterns:
+            self.assertIsNone(re.search(pattern, result["output"]))
 
     def test_backend_action_route_reuses_shared_helper(self):
         with patch.object(backend, "_run_composio_adapter", return_value={"ok": True, "result": {}}) as adapter:
