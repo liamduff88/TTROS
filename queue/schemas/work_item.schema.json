@@ -1,0 +1,132 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentic-os.local/schemas/work_item.schema.json",
+  "title": "Agentic OS Work Item",
+  "type": "object",
+  "required": [
+    "id",
+    "title",
+    "status",
+    "priority",
+    "requested_by",
+    "owner_type",
+    "owner",
+    "source",
+    "tags",
+    "context",
+    "sources",
+    "allowed_actions",
+    "stop_conditions",
+    "definition_of_done",
+    "claim",
+    "receipts",
+    "created_at",
+    "updated_at"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^AOS-[0-9]{4}-[0-9]{4}$"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "inbox",
+        "agent_todo",
+        "agent_working",
+        "needs_input",
+        "human_review",
+        "done",
+        "blocked",
+        "cancelled"
+      ]
+    },
+    "priority": {
+      "type": "integer"
+    },
+    "requested_by": {
+      "type": "string"
+    },
+    "owner_type": {
+      "type": "string"
+    },
+    "owner": {
+      "type": "string"
+    },
+    "source": {
+      "type": "string"
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "context": {
+      "type": "string"
+    },
+    "sources": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "allowed_actions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "stop_conditions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "definition_of_done": {
+      "type": "string"
+    },
+    "claim": {
+      "type": "object",
+      "required": [
+        "claimed_by",
+        "claimed_at"
+      ],
+      "properties": {
+        "claimed_by": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "claimed_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        }
+      },
+      "additionalProperties": false
+    },
+    "receipts": {
+      "type": "array",
+      "items": {
+        "$ref": "receipt.schema.json"
+      }
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "additionalProperties": true
+}

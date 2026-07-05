@@ -1,0 +1,96 @@
+{
+  "version": 1,
+  "agents": [
+    {
+      "id": "hermes",
+      "name": "Hermes"
+    },
+    {
+      "id": "codex",
+      "name": "Codex"
+    },
+    {
+      "id": "claude",
+      "name": "Claude"
+    },
+    {
+      "id": "revenue",
+      "name": "Revenue",
+      "type": "department_card",
+      "accepts": [
+        "lead research",
+        "prospect briefs",
+        "fit scoring",
+        "discovery prep",
+                "call transcript to opportunity summary",
+                "proposal prep",
+                "CRM-ready summaries",
+                "CRM-ready outreach notes",
+                "LinkedIn prospect research",
+                "LinkedIn relationship outreach drafts",
+                "warm outreach angles",
+                "follow-up message drafts",
+                "follow-up angle drafts"
+            ],
+      "card": "agents/revenue.card.md",
+      "requires_human_launch": true
+    },
+    {
+      "id": "marketing",
+      "name": "Marketing",
+      "type": "department_card",
+      "accepts": [
+                "LinkedIn drafts",
+                "LinkedIn post drafts",
+                "LinkedIn content repurposing",
+                "founder POV posts",
+                "newsletter drafts",
+                "website copy",
+                "offer positioning",
+                "case study outlines",
+                "content sequences",
+                "thought leadership",
+                "thought leadership sequences",
+                "authority-building content",
+                "market education"
+            ],
+      "card": "agents/marketing.card.md",
+      "requires_human_launch": true
+    },
+    {
+      "id": "delivery",
+      "name": "Delivery",
+      "type": "department_card",
+      "accepts": [
+        "client workflow maps",
+        "implementation plans",
+        "SOPs",
+        "automation specs",
+        "training materials",
+        "handoff documents",
+        "QA checklists",
+        "client-ready summaries"
+      ],
+      "card": "agents/delivery.card.md",
+      "requires_human_launch": true
+    },
+    {
+      "id": "operations",
+      "name": "Operations",
+      "type": "department_card",
+      "accepts": [
+        "daily priorities",
+        "weekly operating reviews",
+        "blocker summaries",
+        "task cleanup",
+        "meeting notes",
+        "operating baseline updates",
+        "internal checklists",
+        "queue hygiene",
+        "handoff summaries"
+      ],
+      "card": "agents/operations.card.md",
+      "requires_human_launch": true
+    }
+  ]
+}
