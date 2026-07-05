@@ -281,6 +281,18 @@ class PacketCreate(BaseModel):
     task: str
 
 
+class QueueItemCreate(BaseModel):
+    title: str
+    owner: str = "unassigned"
+    priority: str | int = "normal"
+    tags: str = ""
+    context: str = ""
+    sources: str = ""
+    definition_of_done: str = ""
+    allowed_actions: str = "local_read,local_edit,local_test"
+    stop_conditions: str = "external_send,secrets_exposure,destructive_action_outside_scope"
+
+
 @app.post("/api/packets")
 def create_packet(packet: PacketCreate):
     ts = datetime.datetime.utcnow().strftime("%Y%m%d_%H%M%S")
@@ -861,6 +873,10 @@ def _queue_items_path() -> Path:
     return BASE_DIR / "queue" / "work_items.jsonl"
 
 
+def _queue_templates_dir() -> Path:
+    return BASE_DIR / "queue" / "templates"
+
+
 def _read_queue_items() -> list[dict]:
     path = _queue_items_path()
     if not path.exists():
@@ -876,6 +892,82 @@ def _read_queue_items() -> list[dict]:
         if isinstance(item, dict):
             items.append(item)
     return items
+
+
+def _queue_find_item(item_id: str) -> dict:
+    for item in _read_queue_items():
+        if item.get("id") == item_id:
+            return item
+    raise KeyError(item_id)
+
+
+def _queue_split_text(value: object) -> list[str]:
+    text = str(value or "").strip()
+    if not text:
+        return []
+    parts = []
+    for line in text.splitlines():
+        parts.extend(part.strip() for part in line.split(",") if part.strip())
+    return parts
+
+
+def _queue_priority_value(value: object) -> int:
+    if isinstance(value, bool):
+        return 0
+    if isinstance(value, int):
+        return value
+    text = str(value or "normal").strip().lower()
+    mapping = {"low": 1, "normal": 5, "high": 8, "urgent": 10}
+    if text in mapping:
+        return mapping[text]
+    try:
+        return int(text)
+    except ValueError as exc:
+        raise ValueError("priority must be low, normal, high, urgent, or an integer") from exc
+
+
+def _queue_create_dashboard_item(body: QueueItemCreate) -> dict:
+    title = body.title.strip()
+    if not title:
+        raise ValueError("title must not be empty")
+    owner = body.owner.strip().lower() or "unassigned"
+    if owner not in {"unassigned", "hermes", "codex", "claude", "revenue", "marketing", "delivery", "operations"}:
+        raise ValueError(f"Unknown owner: {owner}")
+    queue_tool = _load_queue_tool()
+    args = argparse.Namespace(
+        title=title,
+        requested_by="Liam",
+        owner_type="agent",
+        owner=owner,
+        status="agent_todo",
+        priority=_queue_priority_value(body.priority),
+        source="dashboard",
+        tags=",".join(_queue_split_text(body.tags)),
+        context=body.context.strip(),
+        sources=",".join(_queue_split_text(body.sources)),
+        allowed_actions=",".join(_queue_split_text(body.allowed_actions)) or "local_read,local_edit,local_test",
+        stop_conditions=",".join(_queue_split_text(body.stop_conditions)) or "external_send,secrets_exposure,destructive_action_outside_scope",
+        definition_of_done=body.definition_of_done.strip(),
+    )
+    return queue_tool.create_item(BASE_DIR, args)
+
+
+def _queue_detail_item(item: dict) -> dict:
+    public = _queue_public_item(item)
+    public.update({
+        "requested_by": item.get("requested_by", ""),
+        "owner_type": item.get("owner_type", ""),
+        "source": item.get("source", ""),
+        "tags": item.get("tags") or [],
+        "context": item.get("context", ""),
+        "sources": item.get("sources") or [],
+        "allowed_actions": item.get("allowed_actions") or [],
+        "stop_conditions": item.get("stop_conditions") or [],
+        "definition_of_done": item.get("definition_of_done", ""),
+        "claim": item.get("claim") or {"claimed_by": None, "claimed_at": None},
+        "receipts": item.get("receipts") or [],
+    })
+    return public
 
 
 def _queue_item_sort_key(item: dict) -> tuple[int, str, str]:
@@ -946,6 +1038,13 @@ def _queue_public_item(item: dict) -> dict:
     }
 
 
+def _queue_active_items(items: list[dict]) -> list[dict]:
+    return sorted(
+        [item for item in items if item.get("status") in _ACTIVE_QUEUE_STATUSES],
+        key=_queue_item_sort_key,
+    )
+
+
 @app.get("/api/queue/summary")
 def queue_summary():
     """Read local queue state for the dashboard without mutating the queue."""
@@ -964,10 +1063,7 @@ def queue_summary():
 
     counts = {status: sum(1 for item in items if item.get("status") == status) for status in _QUEUE_STATUSES}
     needs_liam = counts["needs_input"] + counts["human_review"] + counts["blocked"]
-    active_items = sorted(
-        [item for item in items if item.get("status") in _ACTIVE_QUEUE_STATUSES],
-        key=_queue_item_sort_key,
-    )
+    active_items = _queue_active_items(items)
     return {
         "success": True,
         "counts": counts,
@@ -977,6 +1073,118 @@ def queue_summary():
         "nextItem": _queue_public_item(active_items[0]) if active_items else None,
         "nextAction": _queue_next_action(active_items, counts),
     }
+
+
+@app.get("/api/queue/status")
+def queue_status():
+    """Read-only dashboard queue status."""
+    return queue_summary()
+
+
+@app.get("/api/queue/items")
+def queue_items():
+    """List local queue items without mutating or launching anything."""
+    try:
+        items = sorted(_read_queue_items(), key=_queue_item_sort_key)
+    except ValueError as exc:
+        return {"success": False, "message": "Queue unavailable", "reason": str(exc), "items": []}
+    return {"success": True, "items": [_queue_detail_item(item) for item in items]}
+
+
+@app.get("/api/queue/items/{item_id}")
+def queue_item(item_id: str):
+    """Return one local queue item."""
+    try:
+        return {"success": True, "item": _queue_detail_item(_queue_find_item(item_id))}
+    except KeyError:
+        raise HTTPException(status_code=404, detail="queue item not found")
+    except ValueError as exc:
+        return {"success": False, "message": "Queue unavailable", "reason": str(exc), "item": None}
+
+
+@app.get("/api/queue/next")
+def queue_next():
+    """Return the next active local queue item without claiming it."""
+    try:
+        active_items = _queue_active_items(_read_queue_items())
+    except ValueError as exc:
+        return {"success": False, "message": "Queue unavailable", "reason": str(exc), "item": None}
+    return {"success": True, "item": _queue_detail_item(active_items[0]) if active_items else None}
+
+
+@app.post("/api/queue/items")
+def create_queue_item(body: QueueItemCreate):
+    """Create one local queue item; never invoke agents or connectors."""
+    try:
+        item = _queue_create_dashboard_item(body)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"success": True, "item": _queue_detail_item(item)}
+
+
+def _queue_render_list(values: object) -> str:
+    items = values if isinstance(values, list) else _queue_split_text(values)
+    clean = [str(item).strip() for item in items if str(item).strip()]
+    return "\n".join(f"- {item}" for item in clean) if clean else "- None provided"
+
+
+def _queue_render_prompt(item: dict, target: str) -> str:
+    if target not in {"codex", "claude"}:
+        raise ValueError("invalid target")
+    template_path = _queue_templates_dir() / f"{target}_task.prompt.md"
+    template = template_path.read_text(encoding="utf-8")
+    launch = (
+        'wsl -d AgenticOSClean --user liam -- bash -lc \'export PATH="$HOME/.local/bin:$HOME/.local/npm/bin:$HOME/.composio:$PATH"; command -v codex; codex --version; cd "/mnt/c/Users/Admin/Documents/A-Time to revenue/Agentic OS Live"; codex --sandbox workspace-write --ask-for-approval never\''
+        if target == "codex"
+        else 'wsl -d AgenticOSClean --user liam -- bash -lc \'export PATH="$HOME/.local/bin:$HOME/.local/npm/bin:$HOME/.composio:$PATH"; cd "/mnt/c/Users/Admin/Documents/A-Time to revenue/Agentic OS Live"; aos-claude\''
+    )
+    replacements = {
+        "<WORK_SCOPE>": item.get("title") or "Local queue item",
+        "<AOS-ID>": item.get("id", ""),
+        "<OWNER_OR_AGENT>": item.get("owner", "unassigned"),
+        "<TITLE>": item.get("title", ""),
+        "<CONTEXT>": item.get("context") or "No additional context provided.",
+        "<SOURCE_REFERENCES>": _queue_render_list(item.get("sources") or []),
+        "<ALLOWED_ACTIONS>": _queue_render_list(item.get("allowed_actions") or []),
+        "<STOP_CONDITIONS>": _queue_render_list(item.get("stop_conditions") or []),
+        "<DEFINITION_OF_DONE>": item.get("definition_of_done") or "Complete the scoped queue item and return the required closeout.",
+        "<VALIDATION_COMMANDS_OR_CHECKS>": "Run relevant local validation for the scoped change. Do not call external systems.",
+    }
+    prompt = template
+    for placeholder, value in replacements.items():
+        prompt = prompt.replace(placeholder, str(value))
+    return "\n".join((
+        prompt.rstrip(),
+        "",
+        "## Launch from PowerShell",
+        "",
+        'cd "C:\\Users\\Admin\\Documents\\A-Time to revenue\\Agentic OS Live"',
+        "",
+        launch,
+        "",
+        "## Manual Launch",
+        "",
+        "Paste this prompt into the workbench manually. Do not launch agents automatically.",
+        "",
+    ))
+
+
+@app.get("/api/queue/items/{item_id}/prompt")
+def queue_item_prompt(item_id: str, target: str):
+    """Generate a manual workbench prompt from local templates."""
+    normalized = target.strip().lower()
+    if normalized not in {"codex", "claude"}:
+        raise HTTPException(status_code=400, detail="invalid target; use codex or claude")
+    try:
+        item = _queue_find_item(item_id)
+        prompt = _queue_render_prompt(item, normalized)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="queue item not found")
+    except ValueError as exc:
+        return {"success": False, "message": "Queue unavailable", "reason": str(exc), "prompt": ""}
+    except OSError as exc:
+        return {"success": False, "message": "Queue unavailable", "reason": f"Prompt template unavailable: {exc}", "prompt": ""}
+    return {"success": True, "target": normalized, "item_id": item_id, "prompt": prompt}
 
 
 def _queue_list_closeout(status: str | None = None) -> dict:

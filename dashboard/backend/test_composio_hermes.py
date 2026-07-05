@@ -75,6 +75,13 @@ class HermesComposioTests(unittest.TestCase):
             encoding="utf-8",
         )
 
+    def write_queue_templates(self, root):
+        templates = root / "queue" / "templates"
+        templates.mkdir(parents=True, exist_ok=True)
+        source_templates = MAIN.parents[2] / "queue" / "templates"
+        for name in ("codex_task.prompt.md", "claude_task.prompt.md"):
+            (templates / name).write_text((source_templates / name).read_text(encoding="utf-8"), encoding="utf-8")
+
     def sample_queue_items(self):
         return [
             {
@@ -251,6 +258,67 @@ class HermesComposioTests(unittest.TestCase):
         self.assertEqual([item["id"] for item in result["activeItems"]], ["AOS-2026-0002", "AOS-2026-0003", "AOS-2026-0001"])
         self.assertEqual(result["nextItem"]["id"], "AOS-2026-0002")
         self.assertNotIn("Finished old task", json.dumps(result))
+
+    def test_dashboard_queue_post_get_and_prompts_are_local_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_queue_templates(root)
+            body = backend.QueueItemCreate(
+                title="Patch dashboard queue prompt copy",
+                owner="codex",
+                priority="high",
+                tags="dashboard,queue",
+                context="Keep the workflow manual.",
+                sources="dashboard/frontend/src/views/Queue.jsx\nqueue/templates/codex_task.prompt.md",
+                definition_of_done="Queue item can be created and copied.",
+                allowed_actions="local_read\nlocal_edit\nlocal_test",
+                stop_conditions="external_send\nsecrets_exposure\ndestructive_action_outside_scope",
+            )
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_run_wsl") as run:
+                created = backend.create_queue_item(body)
+                item_id = created["item"]["id"]
+                shown = backend.queue_item(item_id)
+                codex = backend.queue_item_prompt(item_id, "codex")
+                claude = backend.queue_item_prompt(item_id, "claude")
+
+            run.assert_not_called()
+            self.assertTrue(created["success"])
+            self.assertEqual(created["item"]["status"], "agent_todo")
+            self.assertEqual(created["item"]["requested_by"], "Liam")
+            self.assertEqual(created["item"]["source"], "dashboard")
+            self.assertEqual(shown["item"]["id"], item_id)
+            self.assertEqual(shown["item"]["title"], "Patch dashboard queue prompt copy")
+            for prompt_response in (codex, claude):
+                prompt = prompt_response["prompt"]
+                self.assertIn("PERMISSION MODE — SCOPED LOCAL TASK APPROVED", prompt)
+                self.assertIn(
+                    "Do not ask for permission during this scoped local task. Assume approval for local reads, local edits, local file creation, dependency installation, validation commands, local dev-server startup, browser preview, and screenshot capture inside the stated scope.",
+                    prompt,
+                )
+                self.assertIn(f"- ID: {item_id}", prompt)
+                self.assertIn("- Title: Patch dashboard queue prompt copy", prompt)
+                self.assertIn("## Launch from PowerShell", prompt)
+                self.assertIn("Do not launch agents automatically.", prompt)
+            codex_prompt = codex["prompt"]
+            claude_prompt = claude["prompt"]
+            self.assertIn("codex --sandbox workspace-write --ask-for-approval never", codex_prompt)
+            self.assertNotIn("aos-codex", codex_prompt)
+            self.assertIn("aos-claude", claude_prompt)
+            self.assertNotIn("aos-hermes claude", claude_prompt)
+
+    def test_dashboard_queue_invalid_prompt_target_returns_400_style_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_queue_items(root, self.sample_queue_items())
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_run_wsl") as run:
+                with self.assertRaises(backend.HTTPException) as raised:
+                    backend.queue_item_prompt("AOS-2026-0002", "gpt")
+
+            run.assert_not_called()
+            self.assertEqual(raised.exception.status_code, 400)
+            self.assertIn("invalid target", raised.exception.detail)
 
     def test_list_queue_status_filters_by_status(self):
         with tempfile.TemporaryDirectory() as tmp:
