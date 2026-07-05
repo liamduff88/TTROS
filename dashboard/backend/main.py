@@ -985,6 +985,26 @@ def _queue_write_receipt(item_id: str, receipt_text: str) -> str:
     return receipt_path
 
 
+def _queue_receipt_artifact(relative_path: str) -> tuple[str, str]:
+    path_text = str(relative_path or "").strip()
+    if not path_text:
+        raise ValueError("receipt path is required")
+    candidate = Path(path_text)
+    if candidate.is_absolute():
+        raise ValueError("receipt path must be root-relative")
+
+    receipts_dir = (BASE_DIR / "queue" / "receipts").resolve()
+    target = (BASE_DIR / candidate).resolve()
+    try:
+        target.relative_to(receipts_dir)
+    except ValueError as exc:
+        raise ValueError("receipt path must stay under queue/receipts") from exc
+    if target.name == ".gitkeep" or not target.is_file():
+        raise FileNotFoundError(path_text)
+    root_relative = target.relative_to(BASE_DIR.resolve()).as_posix()
+    return root_relative, target.read_text(encoding="utf-8", errors="replace")
+
+
 def _queue_detail_item(item: dict) -> dict:
     public = _queue_public_item(item)
     public.update({
@@ -1189,6 +1209,18 @@ def attach_queue_item_receipt(item_id: str, body: QueueReceiptAttach):
         "status": item.get("status"),
         "item": _queue_detail_item(item),
     }
+
+
+@app.get("/api/queue/receipt")
+def queue_receipt(path: str):
+    """Read one local receipt artifact without mutating queue state."""
+    try:
+        receipt_path, content = _queue_receipt_artifact(path)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="receipt not found")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"success": True, "path": receipt_path, "content": content}
 
 
 def _queue_render_list(values: object) -> str:

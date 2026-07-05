@@ -27,6 +27,14 @@ Access behavior should reference `context/ACCESS_MODEL.md` instead of repeating 
 - `queue/templates/` contains copy/paste Codex, Claude, and receipt templates for scoped queue work.
 - `context/ACCESS_MODEL.md` defines the native access model those templates should reference.
 
+## Receipt artifact policy
+
+- `queue/receipts/*.md` files are local runtime proof trail by default.
+- Smoke-test receipts should not be committed.
+- Real receipts may be committed only when intentionally promoted as durable project proof or handoff.
+- `queue/receipts/.gitkeep` remains tracked so the folder exists.
+- Do not include secrets, tokens, customer private data, raw OAuth values, Telegram IDs, or connector credentials in receipts.
+
 ## CLI
 
 Run from the repository root:

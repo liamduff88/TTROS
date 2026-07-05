@@ -438,6 +438,29 @@ class HermesComposioTests(unittest.TestCase):
             self.assertIn("invalid status", invalid.exception.detail)
             self.assertFalse((root / "queue" / "receipts").exists())
 
+    def test_dashboard_queue_receipt_view_reads_only_receipt_artifacts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            receipt_dir = root / "queue" / "receipts"
+            receipt_dir.mkdir(parents=True)
+            (receipt_dir / "unit.md").write_text("PASS\n\nReceipt body.\n", encoding="utf-8")
+            (root / "queue" / "outside.md").write_text("outside\n", encoding="utf-8")
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_run_wsl") as run:
+                result = backend.queue_receipt("queue/receipts/unit.md")
+                with self.assertRaises(backend.HTTPException) as traversal:
+                    backend.queue_receipt("queue/receipts/../outside.md")
+                with self.assertRaises(backend.HTTPException) as absolute:
+                    backend.queue_receipt(str(receipt_dir / "unit.md"))
+
+            run.assert_not_called()
+            self.assertEqual(result["path"], "queue/receipts/unit.md")
+            self.assertIn("Receipt body.", result["content"])
+            self.assertEqual(traversal.exception.status_code, 400)
+            self.assertIn("queue/receipts", traversal.exception.detail)
+            self.assertEqual(absolute.exception.status_code, 400)
+            self.assertIn("root-relative", absolute.exception.detail)
+
     def test_dashboard_queue_status_endpoint_updates_item_and_rejects_invalid_status(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

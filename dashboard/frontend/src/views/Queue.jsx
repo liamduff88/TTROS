@@ -7,6 +7,7 @@ import {
   getQueueItems,
   getQueueNext,
   getQueuePrompt,
+  getQueueReceipt,
   getQueueStatus,
   updateQueueItemStatus,
 } from '../api'
@@ -98,6 +99,7 @@ export default function Queue() {
   const [receiptStatusTouched, setReceiptStatusTouched] = useState(false)
   const [receiptFeedback, setReceiptFeedback] = useState('')
   const [receiptSaving, setReceiptSaving] = useState(false)
+  const [receiptViewer, setReceiptViewer] = useState({ path: '', content: '', loading: false, error: '' })
   const [statusSaving, setStatusSaving] = useState(false)
   const [state, setState] = useState({ loading: true, creating: false, error: null, copied: '' })
 
@@ -153,6 +155,7 @@ export default function Queue() {
     setReceiptStatus(QUEUE_STATUSES.includes(detail?.status) ? detail.status : 'human_review')
     setReceiptStatusTouched(false)
     setReceiptFeedback('')
+    setReceiptViewer({ path: '', content: '', loading: false, error: '' })
   }, [detail?.id])
 
   const updateForm = event => {
@@ -236,6 +239,20 @@ export default function Queue() {
       setState(current => ({ ...current, error, copied: '' }))
     } finally {
       setStatusSaving(false)
+    }
+  }
+
+  const viewReceipt = async path => {
+    if (!path) return
+    setReceiptViewer({ path, content: '', loading: true, error: '' })
+    setState(current => ({ ...current, error: null, copied: '' }))
+    try {
+      const result = await getQueueReceipt(path)
+      if (result?.success === false) throw new Error(result.reason || 'Receipt unavailable')
+      setReceiptViewer({ path: result.path || path, content: result.content || '', loading: false, error: '' })
+    } catch (error) {
+      const message = error?.response?.data?.detail || error?.message || 'Receipt unavailable'
+      setReceiptViewer({ path, content: '', loading: false, error: message })
     }
   }
 
@@ -491,9 +508,31 @@ export default function Queue() {
                   <div className="mt-2 space-y-2">
                     {detail.receipts.map((receipt, index) => (
                       <div key={`${receipt.path || index}`} className="rounded border border-softgraph bg-ink px-3 py-2 text-xs font-mono text-stone">
-                        {receipt.path || 'Receipt'} {receipt.status ? `(${receipt.status})` : ''}
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                          <span className="break-all">{receipt.path || 'Receipt'} {receipt.status ? `(${receipt.status})` : ''}</span>
+                          {receipt.path && (
+                            <button
+                              type="button"
+                              onClick={() => viewReceipt(receipt.path)}
+                              disabled={receiptViewer.loading && receiptViewer.path === receipt.path}
+                              className="rounded bg-softgraph px-2 py-1 text-[11px] text-taupe transition-colors hover:text-stone disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              {receiptViewer.loading && receiptViewer.path === receipt.path ? 'Loading' : 'View'}
+                            </button>
+                          )}
+                        </div>
                       </div>
                     ))}
+                    {(receiptViewer.content || receiptViewer.error) && (
+                      <div className="rounded border border-softgraph bg-ink p-3">
+                        <div className="mb-2 break-all font-mono text-[11px] text-taupe">{receiptViewer.path}</div>
+                        {receiptViewer.error ? (
+                          <div className="font-mono text-xs text-clay">{receiptViewer.error}</div>
+                        ) : (
+                          <pre className="max-h-96 overflow-auto whitespace-pre-wrap break-words text-xs leading-relaxed text-stone">{receiptViewer.content}</pre>
+                        )}
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <div className="mt-1 text-sm text-stone">None</div>

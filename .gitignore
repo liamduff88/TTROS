@@ -40,6 +40,8 @@ logs/*.log
 logs/*.jsonl
 logs/*token*
 dashboard/backend/*.log
+queue/receipts/*.md
+!queue/receipts/.gitkeep
 
 # Generated handoff/output archives
 archive/
