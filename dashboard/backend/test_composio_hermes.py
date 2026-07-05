@@ -79,8 +79,24 @@ class HermesComposioTests(unittest.TestCase):
         templates = root / "queue" / "templates"
         templates.mkdir(parents=True, exist_ok=True)
         source_templates = MAIN.parents[2] / "queue" / "templates"
-        for name in ("codex_task.prompt.md", "claude_task.prompt.md"):
+        for name in ("codex_task.prompt.md", "claude_task.prompt.md", "department_task.prompt.md", "receipt.prompt.md"):
             (templates / name).write_text((source_templates / name).read_text(encoding="utf-8"), encoding="utf-8")
+
+    def write_agent_cards(self, root):
+        agents = root / "agents"
+        agents.mkdir(parents=True, exist_ok=True)
+        source_agents = MAIN.parents[2] / "agents"
+        for name in ("revenue.card.md", "marketing.card.md", "delivery.card.md", "operations.card.md"):
+            (agents / name).write_text((source_agents / name).read_text(encoding="utf-8"), encoding="utf-8")
+
+    def write_queue_references(self, root):
+        queue = root / "queue"
+        context = root / "context"
+        queue.mkdir(parents=True, exist_ok=True)
+        context.mkdir(parents=True, exist_ok=True)
+        source_root = MAIN.parents[2]
+        (queue / "agent_registry.json").write_text((source_root / "queue" / "agent_registry.json").read_text(encoding="utf-8"), encoding="utf-8")
+        (context / "ACCESS_MODEL.md").write_text((source_root / "context" / "ACCESS_MODEL.md").read_text(encoding="utf-8"), encoding="utf-8")
 
     def sample_queue_items(self):
         return [
@@ -306,6 +322,57 @@ class HermesComposioTests(unittest.TestCase):
             self.assertNotIn("aos-codex", codex_prompt)
             self.assertIn("aos-claude", claude_prompt)
             self.assertNotIn("aos-hermes claude", claude_prompt)
+
+    def test_dashboard_queue_hermes_and_department_prompts_are_local_only(self):
+        owners = ("hermes", "revenue", "marketing", "delivery", "operations")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_queue_templates(root)
+            self.write_agent_cards(root)
+            self.write_queue_references(root)
+            created_ids = {}
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_run_wsl") as run:
+                for owner in owners:
+                    created = backend.create_queue_item(backend.QueueItemCreate(
+                        title=f"{owner.title()} prompt copy",
+                        owner=owner,
+                        context=f"Scoped {owner} context.",
+                        sources=f"agents/{owner}.card.md" if owner != "hermes" else "queue/agent_registry.json",
+                        allowed_actions="local_read\nlocal_edit\nlocal_test",
+                        stop_conditions="external_send\nsecrets_exposure\nautomatic_launch",
+                        definition_of_done=f"{owner} prompt can be copied.",
+                    ))
+                    created_ids[owner] = created["item"]["id"]
+                prompts = {owner: backend.queue_item_prompt(created_ids[owner], owner)["prompt"] for owner in owners}
+
+            run.assert_not_called()
+            for owner, prompt in prompts.items():
+                self.assertIn("PERMISSION MODE — SCOPED LOCAL TASK APPROVED", prompt)
+                self.assertIn(f"- ID: {created_ids[owner]}", prompt)
+                self.assertIn(f"- Title: {owner.title()} prompt copy", prompt)
+                self.assertIn(f"- Owner: {owner}", prompt)
+                self.assertIn("- Status: agent_todo", prompt)
+                self.assertIn("queue/agent_registry.json", prompt)
+                self.assertIn("context/ACCESS_MODEL.md", prompt)
+                self.assertIn("queue/templates/receipt.prompt.md", prompt)
+                self.assertIn("Operating Hermes", prompt)
+                self.assertIn("Do not automatically launch", prompt)
+                self.assertIn("Paste this prompt into Operating Hermes manually", prompt)
+                self.assertIn("Token usage:", prompt)
+                self.assertIn("available / unavailable from current CLI output", prompt)
+            self.assertIn("coordinate directly", prompts["hermes"])
+            expectations = {
+                "revenue": ("agents/revenue.card.md", "Revenue Hermes Agent Card", "`revenue` department card as the scoped lane"),
+                "marketing": ("agents/marketing.card.md", "Marketing Hermes Agent Card", "`marketing` department card as the scoped lane"),
+                "delivery": ("agents/delivery.card.md", "Delivery Hermes Agent Card", "`delivery` department card as the scoped lane"),
+                "operations": ("agents/operations.card.md", "Operations Hermes Agent Card", "`operations` department card as the scoped lane"),
+            }
+            for owner, expected in expectations.items():
+                card_path, card_heading, lane_text = expected
+                self.assertIn(card_path, prompts[owner])
+                self.assertIn(card_heading, prompts[owner])
+                self.assertIn(lane_text, prompts[owner])
 
     def test_dashboard_queue_invalid_prompt_target_returns_400_style_error(self):
         with tempfile.TemporaryDirectory() as tmp:

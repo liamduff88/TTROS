@@ -67,6 +67,15 @@ const renderList = value => {
   return items.length ? items.join('\n') : ''
 }
 
+const promptActionForOwner = owner => {
+  const normalized = String(owner || '').toLowerCase()
+  if (normalized === 'hermes') return { target: 'hermes', label: 'Copy Hermes prompt' }
+  if (['revenue', 'marketing', 'delivery', 'operations'].includes(normalized)) {
+    return { target: normalized, label: 'Copy Department prompt' }
+  }
+  return null
+}
+
 export default function Queue() {
   const [status, setStatus] = useState(null)
   const [items, setItems] = useState([])
@@ -158,6 +167,7 @@ export default function Queue() {
   const reason = state.error?.response?.data?.detail || state.error?.message
   const counts = status?.counts || {}
   const detail = selected || selectedFromList
+  const ownerPromptAction = promptActionForOwner(detail?.owner)
 
   return (
     <div className="max-w-7xl space-y-5">
@@ -309,6 +319,17 @@ export default function Queue() {
               <div className="mt-2 font-mono text-xs text-champagne">{detail?.id || 'No item selected'}</div>
             </div>
             <div className="flex flex-wrap gap-2">
+              {ownerPromptAction && (
+                <button
+                  type="button"
+                  disabled={!detail?.id}
+                  onClick={() => copyPrompt(ownerPromptAction.target)}
+                  className="inline-flex items-center gap-2 rounded bg-softgraph px-3 py-2 text-xs font-mono text-taupe transition-colors hover:text-stone disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Clipboard size={13} />
+                  {ownerPromptAction.label}
+                </button>
+              )}
               <button
                 type="button"
                 disabled={!detail?.id}

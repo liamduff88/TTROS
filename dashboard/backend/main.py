@@ -1128,7 +1128,62 @@ def _queue_render_list(values: object) -> str:
     return "\n".join(f"- {item}" for item in clean) if clean else "- None provided"
 
 
+DEPARTMENT_PROMPT_TARGETS = {"hermes", "revenue", "marketing", "delivery", "operations"}
+
+
+def _queue_read_text(relative_path: str) -> str:
+    return (BASE_DIR / relative_path).read_text(encoding="utf-8")
+
+
+def _queue_department_card_path(owner: str) -> str | None:
+    if owner in {"revenue", "marketing", "delivery", "operations"}:
+        return f"agents/{owner}.card.md"
+    return None
+
+
+def _queue_render_hermes_department_prompt(item: dict, target: str) -> str:
+    template = _queue_read_text("queue/templates/department_task.prompt.md")
+    owner = str(item.get("owner") or "unassigned").strip().lower()
+    card_path = _queue_department_card_path(target)
+    card_content = (
+        _queue_read_text(card_path).strip()
+        if card_path
+        else "No single department card applies. Operating Hermes should inspect queue/card/context as needed."
+    )
+    card_reference = f"- `{card_path}`" if card_path else "- `agents/*.card.md` when routing requires a department lane"
+    if target == "hermes":
+        routing_instruction = (
+            "Operating Hermes should coordinate directly, inspect the queue item, registry, card/context references, "
+            "and source refs as needed, then decide the next route without creating bureaucracy."
+        )
+    else:
+        routing_instruction = (
+            f"Operating Hermes should operate through the `{target}` department card as the scoped lane. "
+            "This is a routing lane, not a separate runtime."
+        )
+    replacements = {
+        "<AOS-ID>": item.get("id", ""),
+        "<TITLE>": item.get("title", ""),
+        "<OWNER_OR_AGENT>": owner,
+        "<STATUS>": item.get("status") or "unavailable",
+        "<CONTEXT>": item.get("context") or "No additional context provided.",
+        "<SOURCE_REFERENCES>": _queue_render_list(item.get("sources") or []),
+        "<ALLOWED_ACTIONS>": _queue_render_list(item.get("allowed_actions") or []),
+        "<STOP_CONDITIONS>": _queue_render_list(item.get("stop_conditions") or []),
+        "<DEFINITION_OF_DONE>": item.get("definition_of_done") or "Complete or route the scoped queue item and return the required closeout.",
+        "<CARD_REFERENCE>": card_reference,
+        "<ROUTING_INSTRUCTION>": routing_instruction,
+        "<CARD_CONTENT>": card_content,
+    }
+    prompt = template
+    for placeholder, value in replacements.items():
+        prompt = prompt.replace(placeholder, str(value))
+    return prompt.rstrip() + "\n"
+
+
 def _queue_render_prompt(item: dict, target: str) -> str:
+    if target in DEPARTMENT_PROMPT_TARGETS:
+        return _queue_render_hermes_department_prompt(item, target)
     if target not in {"codex", "claude"}:
         raise ValueError("invalid target")
     template_path = _queue_templates_dir() / f"{target}_task.prompt.md"
@@ -1173,8 +1228,8 @@ def _queue_render_prompt(item: dict, target: str) -> str:
 def queue_item_prompt(item_id: str, target: str):
     """Generate a manual workbench prompt from local templates."""
     normalized = target.strip().lower()
-    if normalized not in {"codex", "claude"}:
-        raise HTTPException(status_code=400, detail="invalid target; use codex or claude")
+    if normalized not in {"codex", "claude"} | DEPARTMENT_PROMPT_TARGETS:
+        raise HTTPException(status_code=400, detail="invalid target; use codex, claude, hermes, revenue, marketing, delivery, or operations")
     try:
         item = _queue_find_item(item_id)
         prompt = _queue_render_prompt(item, normalized)
