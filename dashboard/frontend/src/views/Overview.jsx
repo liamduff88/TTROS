@@ -11,6 +11,7 @@ import {
   FolderOpen,
   Gauge,
   LayoutDashboard,
+  ListChecks,
   Loader2,
   Play,
   Route,
@@ -387,6 +388,7 @@ export default function Overview({ overview, onNavigate, onRefresh }) {
               <h2 className="text-xs font-semibold uppercase tracking-wider text-taupe">Quick Links</h2>
             </div>
             <QuickLink label="Logs and results" sub={`${logs ?? '-'} logs, ${results ?? '-'} results`} icon={ScrollText} onClick={() => onNavigate?.('logs')} />
+            <QuickLink label="Queue" sub="Review active work items" icon={ListChecks} onClick={() => onNavigate?.('queue')} />
             <QuickLink label="Connector controls" sub="Open status and refresh controls" icon={Cable} onClick={() => onNavigate?.('connectors')} />
             <QuickLink label="Time and value" sub={`Current estimate $${formatCount(estimatedValue)}`} icon={Gauge} onClick={() => onNavigate?.('tracker')} />
           </div>

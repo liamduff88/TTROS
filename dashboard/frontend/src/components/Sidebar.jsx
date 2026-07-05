@@ -1,4 +1,4 @@
-import { LayoutDashboard, Bot, FileText, TrendingUp, ScrollText, Layers } from 'lucide-react'
+import { LayoutDashboard, Bot, FileText, TrendingUp, ScrollText, Layers, ListChecks } from 'lucide-react'
 
 const NAV = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
@@ -6,6 +6,7 @@ const NAV = [
   { id: 'packets', label: 'Packet Creator', icon: FileText },
   { id: 'tracker', label: 'Time & Value', icon: TrendingUp },
   { id: 'logs', label: 'Logs & Results', icon: ScrollText },
+  { id: 'queue', label: 'Queue', icon: ListChecks },
   { id: 'connectors', label: 'Connectors', icon: Layers },
 ]
 

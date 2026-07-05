@@ -934,6 +934,51 @@ def _queue_status_closeout() -> dict:
     }
 
 
+def _queue_public_item(item: dict) -> dict:
+    return {
+        "id": item.get("id", ""),
+        "title": item.get("title", ""),
+        "status": item.get("status", ""),
+        "owner": item.get("owner", "unassigned"),
+        "priority": item.get("priority", 0),
+        "created_at": item.get("created_at"),
+        "updated_at": item.get("updated_at"),
+    }
+
+
+@app.get("/api/queue/summary")
+def queue_summary():
+    """Read local queue state for the dashboard without mutating the queue."""
+    try:
+        items = _read_queue_items()
+    except ValueError as exc:
+        return {
+            "success": False,
+            "message": "Queue unavailable",
+            "reason": str(exc),
+            "counts": {status: 0 for status in _QUEUE_STATUSES},
+            "needsLiam": 0,
+            "activeItems": [],
+            "nextItem": None,
+        }
+
+    counts = {status: sum(1 for item in items if item.get("status") == status) for status in _QUEUE_STATUSES}
+    needs_liam = counts["needs_input"] + counts["human_review"] + counts["blocked"]
+    active_items = sorted(
+        [item for item in items if item.get("status") in _ACTIVE_QUEUE_STATUSES],
+        key=_queue_item_sort_key,
+    )
+    return {
+        "success": True,
+        "counts": counts,
+        "needsLiam": needs_liam,
+        "activeCount": len(active_items),
+        "activeItems": [_queue_public_item(item) for item in active_items[:10]],
+        "nextItem": _queue_public_item(active_items[0]) if active_items else None,
+        "nextAction": _queue_next_action(active_items, counts),
+    }
+
+
 def _queue_list_closeout(status: str | None = None) -> dict:
     try:
         items = _read_queue_items()

@@ -233,6 +233,25 @@ class HermesComposioTests(unittest.TestCase):
         self.assertNotIn("Finished old task", result["output"])
         self.assertIn("Next action:\n  - Review needs_input, human_review, or blocked items first.", result["output"])
 
+    def test_queue_summary_endpoint_returns_dashboard_state_without_wsl(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_queue_items(root, self.sample_queue_items())
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_run_wsl") as run:
+                result = backend.queue_summary()
+
+        run.assert_not_called()
+        self.assertTrue(result["success"])
+        self.assertEqual(result["counts"]["inbox"], 1)
+        self.assertEqual(result["counts"]["agent_todo"], 1)
+        self.assertEqual(result["counts"]["done"], 1)
+        self.assertEqual(result["needsLiam"], 1)
+        self.assertEqual(result["activeCount"], 3)
+        self.assertEqual([item["id"] for item in result["activeItems"]], ["AOS-2026-0002", "AOS-2026-0003", "AOS-2026-0001"])
+        self.assertEqual(result["nextItem"]["id"], "AOS-2026-0002")
+        self.assertNotIn("Finished old task", json.dumps(result))
+
     def test_list_queue_status_filters_by_status(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -7,6 +7,7 @@ import PacketCreator from './views/PacketCreator'
 import Tracker from './views/Tracker'
 import LogsResults from './views/LogsResults'
 import Connectors from './views/Connectors'
+import Queue from './views/Queue'
 import { getHealth, getOverview } from './api'
 
 const VIEWS = {
@@ -16,6 +17,7 @@ const VIEWS = {
   tracker: Tracker,
   logs: LogsResults,
   connectors: Connectors,
+  queue: Queue,
 }
 
 export default function App() {
