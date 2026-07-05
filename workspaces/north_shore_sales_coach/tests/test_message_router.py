@@ -214,7 +214,7 @@ class MessageRouterTests(unittest.TestCase):
     def test_manager_cannot_create_manager_or_admin_invite(self):
         self.assertEqual(
             self.router.handle_update(update("/invite manager Ryan McVeigh", user_id=3, chat_type="group")),
-            "Managers can only invite salespeople.",
+            "Managers can invite salespeople only. Ask an admin to create manager invites.",
         )
         self.assertEqual(
             self.router.handle_update(update("/invite admin Pat Lee", user_id=3, chat_type="group")),
@@ -263,6 +263,22 @@ class MessageRouterTests(unittest.TestCase):
             "That invite code has expired. Ask your manager for a new one.",
         )
 
+    def test_redeemed_access_does_not_expire_with_invite_code(self):
+        created = self.router.handle_update(update("/invite salesperson Sarah Jones", user_id=2))
+        code = self._invite_code_from_reply(created)
+        self.assertEqual(
+            self.router.handle_update(update(f"/start {code}", user_id=44)),
+            "Welcome, Sarah Jones. You are set up as a salesperson.",
+        )
+        state = self.router.state_store.read()
+        state["invites"][code]["expires_at"] = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat().replace("+00:00", "Z")
+        self.router.state_store._write(state)
+        self.assertEqual(self.router.state_store.role_for(44), "salesperson")
+        self.assertEqual(
+            self.router.handle_update(update("/my_status", user_id=44)),
+            "You are registered as Sarah Jones (salesperson).",
+        )
+
     def test_invite_revoke(self):
         created = self.router.handle_update(update("/invite salesperson Sarah Jones", user_id=2))
         code = self._invite_code_from_reply(created)
@@ -282,6 +298,58 @@ class MessageRouterTests(unittest.TestCase):
         self.assertEqual(state["users"]["55"]["role"], "manager")
         self.assertNotIn("salesperson_id", state["users"]["55"])
         self.assertNotIn("ryan-mcveigh", state.get("salespeople", {}))
+
+    def test_existing_admin_is_not_downgraded_by_manager_invite_redemption(self):
+        created = self.router.handle_update(update("/invite manager Liam Duff", user_id=2, chat_type="group"))
+        code = self._invite_code_from_reply(created)
+        reply = self.router.handle_update(update(f"/start {code}", user_id=2, first_name="Liam", last_name="Duff"))
+        self.assertEqual(reply, "Welcome, Liam Duff. You are set up as an admin.")
+        self.assertEqual(self.router.state_store.role_for(2), "admin")
+        self.assertEqual(
+            self.router.handle_update(update("/my_status", user_id=2)),
+            "You are registered as Liam Duff (admin).",
+        )
+
+    def test_existing_manager_is_not_downgraded_by_salesperson_invite_redemption(self):
+        created = self.router.handle_update(update("/invite salesperson Morgan Lee", user_id=2))
+        code = self._invite_code_from_reply(created)
+        reply = self.router.handle_update(update(f"/start {code}", user_id=3))
+        self.assertEqual(reply, "Welcome, Morgan Lee. You are set up as a manager.")
+        state = self.router.state_store.read()
+        self.assertEqual(state["users"]["3"]["role"], "manager")
+        self.assertNotIn("salesperson_id", state["users"]["3"])
+        self.assertEqual(
+            self.router.handle_update(update("/my_status", user_id=3)),
+            "You are registered as Morgan Lee (manager).",
+        )
+
+    def test_existing_salesperson_can_be_upgraded_by_manager_invite_redemption(self):
+        self.router.handle_update(update("/start", user_id=1, first_name="Casey"))
+        created = self.router.handle_update(update("/invite manager Casey Morgan", user_id=2))
+        code = self._invite_code_from_reply(created)
+        reply = self.router.handle_update(update(f"/start {code}", user_id=1))
+        self.assertEqual(reply, "Welcome, Casey Morgan. You are set up as a manager.")
+        self.assertEqual(self.router.state_store.role_for(1), "manager")
+        self.assertEqual(
+            self.router.handle_update(update("/my_status", user_id=1)),
+            "You are registered as Casey Morgan (manager).",
+        )
+
+    def test_static_admin_role_wins_over_lower_local_role_for_my_status_and_invites(self):
+        state = self.router.state_store.read()
+        state.setdefault("users", {})["2"] = {
+            "telegram_user_id": "2",
+            "display_name": "Liam Duff",
+            "role": "manager",
+            "active": True,
+        }
+        self.router.state_store._write(state)
+        self.assertEqual(
+            self.router.handle_update(update("/my_status", user_id=2)),
+            "You are registered as Liam Duff (admin).",
+        )
+        reply = self.router.handle_update(update("/invite manager Ryan McVeigh", user_id=2, chat_type="group"))
+        self.assertIn("Invite ready for Ryan McVeigh (manager).", reply)
 
     def test_natural_language_invite_creation_defaults_to_salesperson(self):
         reply = self.router.handle_update(update("create invite for Sarah Jones", user_id=2, chat_type="group"))

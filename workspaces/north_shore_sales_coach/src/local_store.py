@@ -17,6 +17,8 @@ RUNTIME_DATA_FILES = {
     "local_state": Path("data/local_state.json"),
 }
 
+ROLE_RANK = {"salesperson": 1, "manager": 2, "admin": 3}
+
 
 class LocalJsonlStore:
     def __init__(self, path: str | Path):
@@ -225,7 +227,13 @@ class LocalStateStore:
         self._write(state)
         return dict(record)
 
-    def redeem_invite(self, code: str, telegram_user_id: str | int) -> tuple[str, dict[str, Any] | None]:
+    def redeem_invite(
+        self,
+        code: str,
+        telegram_user_id: str | int,
+        *,
+        existing_role: str | None = None,
+    ) -> tuple[str, dict[str, Any] | None]:
         normalized = self._normalize_invite_code(code)
         state = self.read()
         invites = state.setdefault("invites", {})
@@ -242,28 +250,45 @@ class LocalStateStore:
             return "expired", dict(record)
 
         user_id = str(telegram_user_id)
-        role = record.get("role")
+        invite_role = record.get("role")
         name = str(record.get("display_name") or "").strip()
         timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         users = state.setdefault("users", {})
         user = users.setdefault(user_id, {"telegram_user_id": user_id})
+        current_role = user.get("role")
+        candidate_roles = [
+            role
+            for role in (current_role, existing_role, invite_role)
+            if isinstance(role, str) and role in ROLE_RANK
+        ]
+        role = max(candidate_roles, key=lambda value: ROLE_RANK[value]) if candidate_roles else invite_role
+        current_display_name = user.get("display_name")
+        current_role_rank = ROLE_RANK.get(str(current_role), 0)
+        invite_role_rank = ROLE_RANK.get(str(invite_role), 0)
+        display_name = (
+            current_display_name
+            if isinstance(current_display_name, str)
+            and current_display_name.strip()
+            and current_role_rank > invite_role_rank
+            else name
+        )
         user.update(
             {
                 "telegram_user_id": user_id,
-                "display_name": name,
+                "display_name": display_name,
                 "role": role,
                 "active": True,
                 "updated_at": timestamp,
             }
         )
         if role == "salesperson":
-            salesperson_id = self._unique_salesperson_id(name, state.get("salespeople", {}), user_id)
+            salesperson_id = self._unique_salesperson_id(display_name, state.get("salespeople", {}), user_id)
             user["salesperson_id"] = salesperson_id
             salespeople = state.setdefault("salespeople", {})
             existing = salespeople.get(salesperson_id, {})
             salespeople[salesperson_id] = {
                 "salesperson_id": salesperson_id,
-                "display_name": name,
+                "display_name": display_name,
                 "active": True,
                 "telegram_user_id": user_id,
                 "created_at": existing.get("created_at") or timestamp,

@@ -6,7 +6,7 @@ from datetime import date, datetime, timezone
 from typing import Any, Callable
 
 from .command_router import CommandRouter, CommandRoutingError
-from .local_store import LocalJsonlStore, LocalStateStore
+from .local_store import LocalJsonlStore, LocalStateStore, ROLE_RANK
 from .natural_language_router import NaturalLanguageRouter
 from .report_generator import (
     archive_record,
@@ -183,7 +183,12 @@ class MessageRouter:
     def _role_for(self, user_id: Any) -> str | None:
         if user_id is None:
             return None
-        return self.state_store.role_for(user_id) or self.role_store.role_for(user_id)
+        roles = [
+            role
+            for role in (self.state_store.role_for(user_id), self.role_store.role_for(user_id))
+            if role in ROLE_RANK
+        ]
+        return max(roles, key=lambda value: ROLE_RANK[value]) if roles else None
 
     def _display_name_for(self, user_id: Any) -> str | None:
         status = self.state_store.user_status(user_id)
@@ -248,7 +253,7 @@ class MessageRouter:
         if target_role not in {"manager", "salesperson"}:
             return "Managers can invite salespeople. Admin invites are not available here."
         if actor_role == "manager" and target_role != "salesperson":
-            return "Managers can only invite salespeople."
+            return "Managers can invite salespeople only. Ask an admin to create manager invites."
         if not display_name.strip():
             return "Please include the person's name."
         try:
@@ -272,10 +277,13 @@ class MessageRouter:
             return "For privacy, redeem invite codes in a DM with the bot: /start CODE"
         if user_id is None:
             return "I could not read your Telegram account. Please try again in a DM."
-        status, record = self.state_store.redeem_invite(code, user_id)
+        existing_role = self._role_for(user_id)
+        status, record = self.state_store.redeem_invite(code, user_id, existing_role=existing_role)
         if status == "redeemed" and record is not None:
             role = record.get("role")
             name = record.get("display_name")
+            if role == "admin":
+                return f"Welcome, {name}. You are set up as an admin."
             if role == "manager":
                 return f"Welcome, {name}. You are set up as a manager."
             return f"Welcome, {name}. You are set up as a salesperson."
