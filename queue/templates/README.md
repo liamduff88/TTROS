@@ -9,6 +9,7 @@ Use:
 - `codex_task.prompt.md` for Codex-scoped implementation, inspection, edits, and validation.
 - `claude_task.prompt.md` for Claude-scoped polish, refactors, precision implementation, and complex assigned work.
 - `hermes_dispatcher.prompt.md` for a lightweight Operating Hermes queue inspection and dispatcher recommendation.
+- `revenue_linkedin_outreach.prompt.md` for Revenue-owned LinkedIn relationship outreach prep without external action.
 - `receipt.prompt.md` for the durable work receipt shape.
 
 Receipts should be attached back to the queue with:
