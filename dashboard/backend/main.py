@@ -898,6 +898,11 @@ _QUEUE_CREATE_PREFIX = "Add this to the queue:"
 _QUEUE_CREATE_RE = re.compile(rf"^{re.escape(_QUEUE_CREATE_PREFIX)}", re.IGNORECASE)
 _QUEUE_LIST_PREFIX = "List queue:"
 _QUEUE_LIST_RE = re.compile(rf"^{re.escape(_QUEUE_LIST_PREFIX)}", re.IGNORECASE)
+_QUEUE_STATUS_INTENTS = {"queue status", "show queue status", "show queue summary"}
+_QUEUE_FILTERED_READ_INTENTS = {
+    "what is currently blocked?": ("blocked", "Blocked queue items"),
+    "show queue items needing review": ("human_review", "Queue items needing review"),
+}
 _QUEUE_STATUSES = (
     "inbox",
     "agent_todo",
@@ -1153,6 +1158,8 @@ def _queue_status_closeout() -> dict:
             "selected_route": "local_queue_status",
             "delegation_reason": "exact queue-status intent",
             "codex_forbidden": "no",
+            "token_usage": {"available": False, "no_agent_invocation": True},
+            "token_usage_text": "Token usage: no agent invocation",
         }
     counts = {status: sum(1 for item in items if item.get("status") == status) for status in _QUEUE_STATUSES}
     needs_liam = counts["needs_input"] + counts["human_review"] + counts["blocked"]
@@ -1173,6 +1180,8 @@ def _queue_status_closeout() -> dict:
         "selected_route": "local_queue_status",
         "delegation_reason": "exact queue-status intent",
         "codex_forbidden": "no",
+        "token_usage": {"available": False, "no_agent_invocation": True},
+        "token_usage_text": "Token usage: no agent invocation",
     }
 
 
@@ -1502,9 +1511,65 @@ def _queue_list_closeout(status: str | None = None) -> dict:
     }
 
 
+def _queue_compact_item_row(item: dict) -> str:
+    fields = [
+        str(item.get("id", "")),
+        str(item.get("title", "")),
+        str(item.get("owner", "unassigned")),
+        str(item.get("status", "")),
+    ]
+    next_action = item.get("next_action") or item.get("nextAction")
+    if next_action:
+        fields.append(f"Next action: {next_action}")
+    return "  - " + " | ".join(fields)
+
+
+def _queue_filtered_read_closeout(status: str, heading: str) -> dict:
+    try:
+        items = _read_queue_items()
+    except ValueError as exc:
+        return {
+            "success": False,
+            "output": "\n".join(("NEEDS ATTENTION", f"Queue read unavailable: {exc}", "Next action: Repair queue/work_items.jsonl.")),
+            "returncode": 2,
+            "requested_target": "queue",
+            "selected_route": "local_queue_read",
+            "delegation_reason": "exact queue-read intent",
+            "codex_forbidden": "no",
+            "token_usage": {"available": False, "no_agent_invocation": True},
+            "token_usage_text": "Token usage: no agent invocation",
+        }
+    filtered = [item for item in items if item.get("status") == status]
+    rows = [_queue_compact_item_row(item) for item in sorted(filtered, key=_queue_item_sort_key)[:10]] or ["  - None"]
+    output = "\n".join((
+        "PASS",
+        heading + ":",
+        f"  - {status}: {len(filtered)}",
+        "Items:",
+        *rows,
+        "Next action:",
+        f"  - {_queue_next_action(filtered)}",
+    ))
+    return {
+        "success": True,
+        "output": output,
+        "returncode": 0,
+        "requested_target": "queue",
+        "selected_route": "local_queue_read",
+        "delegation_reason": "exact queue-read intent",
+        "codex_forbidden": "no",
+        "token_usage": {"available": False, "no_agent_invocation": True},
+        "token_usage_text": "Token usage: no agent invocation",
+    }
+
+
 def _try_queue_read_task(task: str) -> dict | None:
-    if task.strip().lower() == "queue status":
+    normalized = task.strip().lower()
+    if normalized in _QUEUE_STATUS_INTENTS:
         return _queue_status_closeout()
+    filtered_intent = _QUEUE_FILTERED_READ_INTENTS.get(normalized)
+    if filtered_intent is not None:
+        return _queue_filtered_read_closeout(*filtered_intent)
     is_queue_list, status, invalid = _queue_status_filter(task)
     if invalid is not None:
         return invalid

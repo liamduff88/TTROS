@@ -237,6 +237,79 @@ class HermesComposioTests(unittest.TestCase):
         self.assertIn("  - cancelled: 0", result["output"])
         self.assertIn("Needs Liam:\n  - 1", result["output"])
         self.assertIn("Next action:\n  - Review needs_input, human_review, or blocked items first.", result["output"])
+        self.assertEqual(result["token_usage"], {"available": False, "no_agent_invocation": True})
+        self.assertEqual(result["token_usage_text"], "Token usage: no agent invocation")
+
+    def test_show_queue_status_and_summary_intents_return_counts_without_wsl(self):
+        for task in ("Show queue status", "Show queue summary"):
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                self.write_queue_items(root, self.sample_queue_items())
+                with patch.object(backend, "BASE_DIR", root), \
+                     patch.object(backend, "_run_wsl") as run:
+                    result = backend.wsl_hermes(backend.TaskRun(task=task))
+
+            run.assert_not_called()
+            self.assertTrue(result["success"], task)
+            self.assertEqual(result["selected_route"], "local_queue_status")
+            self.assertIn("PASS\nQueue status:", result["output"])
+            self.assertIn("  - agent_todo: 1", result["output"])
+            self.assertIn("  - blocked: 1", result["output"])
+            self.assertEqual(result["token_usage"], {"available": False, "no_agent_invocation": True})
+            self.assertEqual(result["token_usage_text"], "Token usage: no agent invocation")
+
+    def test_blocked_queue_intent_returns_compact_items_without_wsl(self):
+        items = self.sample_queue_items()
+        items[2]["next_action"] = "Choose whether connector work remains in scope"
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_queue_items(root, items)
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_run_wsl") as run:
+                result = backend.wsl_hermes(backend.TaskRun(task="What is currently blocked?"))
+
+        run.assert_not_called()
+        self.assertTrue(result["success"])
+        self.assertEqual(result["selected_route"], "local_queue_read")
+        self.assertIn("Blocked queue items:\n  - blocked: 1", result["output"])
+        self.assertIn(
+            "AOS-2026-0003 | Blocked connector decision | hermes | blocked | Next action: Choose whether connector work remains in scope",
+            result["output"],
+        )
+        self.assertNotIn("Codex route test", result["output"])
+        self.assertEqual(result["token_usage"], {"available": False, "no_agent_invocation": True})
+        self.assertEqual(result["token_usage_text"], "Token usage: no agent invocation")
+
+    def test_review_queue_intent_returns_compact_items_without_wsl(self):
+        items = self.sample_queue_items() + [
+            {
+                "id": "AOS-2026-0005",
+                "title": "Review queue closeout",
+                "status": "human_review",
+                "owner": "codex",
+                "priority": 8,
+                "created_at": "2026-07-05T10:04:00Z",
+                "next_action": "Approve or return notes",
+            }
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_queue_items(root, items)
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_run_wsl") as run:
+                result = backend.wsl_hermes(backend.TaskRun(task="Show queue items needing review"))
+
+        run.assert_not_called()
+        self.assertTrue(result["success"])
+        self.assertEqual(result["selected_route"], "local_queue_read")
+        self.assertIn("Queue items needing review:\n  - human_review: 1", result["output"])
+        self.assertIn(
+            "AOS-2026-0005 | Review queue closeout | codex | human_review | Next action: Approve or return notes",
+            result["output"],
+        )
+        self.assertNotIn("Blocked connector decision", result["output"])
+        self.assertEqual(result["token_usage"], {"available": False, "no_agent_invocation": True})
+        self.assertEqual(result["token_usage_text"], "Token usage: no agent invocation")
 
     def test_list_queue_intent_returns_compact_rows_without_wsl(self):
         with tempfile.TemporaryDirectory() as tmp:
