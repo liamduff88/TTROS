@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { AlertCircle, CheckCircle2, ListChecks, RefreshCw } from 'lucide-react'
-import { getQueueItems, getQueueNext, getQueueStatus } from '../api'
+import { AlertCircle, CheckCircle2, Clipboard, ListChecks, RefreshCw } from 'lucide-react'
+import { getQueueItems, getQueueNext, getQueuePrompt, getQueueStatus } from '../api'
 
 const QUEUE_STATUSES = ['inbox', 'agent_todo', 'agent_working', 'needs_input', 'human_review', 'done', 'blocked', 'cancelled']
 
@@ -17,11 +17,45 @@ const renderList = value => {
   return items.length ? items.join('\n') : ''
 }
 
+const receiptLabel = receipt => {
+  if (!receipt) return 'Receipt unavailable'
+  if (typeof receipt === 'string') return receipt
+  return receipt.path || receipt.id || 'Receipt path unavailable'
+}
+
+const copyToClipboard = async text => {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text)
+    return
+  }
+  const node = document.createElement('textarea')
+  node.value = text
+  node.setAttribute('readonly', '')
+  node.style.position = 'fixed'
+  node.style.top = '-1000px'
+  document.body.appendChild(node)
+  node.select()
+  document.execCommand('copy')
+  document.body.removeChild(node)
+}
+
 const DetailRow = ({ label, value }) => (
   <div>
     <div className="text-[11px] font-semibold uppercase tracking-wider text-taupe">{label}</div>
     <div className="mt-1 whitespace-pre-wrap break-words text-sm text-stone">{value || 'None'}</div>
   </div>
+)
+
+const PromptButton = ({ target, busy, onCopy }) => (
+  <button
+    type="button"
+    onClick={() => onCopy(target)}
+    disabled={busy}
+    className="inline-flex items-center gap-2 rounded border border-softgraph bg-ink px-3 py-2 text-xs font-mono text-stone transition-colors hover:border-champagne hover:text-ivory disabled:cursor-not-allowed disabled:opacity-60"
+  >
+    <Clipboard size={13} />
+    {busy ? `Copying ${target}...` : `Copy ${target[0].toUpperCase()}${target.slice(1)} prompt`}
+  </button>
 )
 
 const CountTile = ({ label, value }) => (
@@ -36,6 +70,7 @@ export default function Queue() {
   const [items, setItems] = useState([])
   const [nextItem, setNextItem] = useState(null)
   const [selectedId, setSelectedId] = useState(null)
+  const [promptCopy, setPromptCopy] = useState({ target: null, message: '', error: null })
   const [state, setState] = useState({ loading: true, error: null })
 
   const selected = useMemo(
@@ -71,6 +106,21 @@ export default function Queue() {
   useEffect(() => {
     refreshQueue()
   }, [])
+
+  const copyPrompt = async target => {
+    if (!selected?.id) return
+    setPromptCopy({ target, message: '', error: null })
+    try {
+      const response = await getQueuePrompt(selected.id, target)
+      if (response?.success === false || !response?.prompt) {
+        throw new Error(response?.reason || `Unable to generate ${target} prompt`)
+      }
+      await copyToClipboard(response.prompt)
+      setPromptCopy({ target: null, message: `${target[0].toUpperCase()}${target.slice(1)} prompt copied.`, error: null })
+    } catch (error) {
+      setPromptCopy({ target: null, message: '', error: error?.response?.data?.detail || error?.message || 'Prompt copy failed' })
+    }
+  }
 
   const reason = state.error?.response?.data?.detail || state.error?.message
   const counts = status?.counts || {}
@@ -171,13 +221,31 @@ export default function Queue() {
         </div>
 
         <div className="rounded-lg border border-softgraph bg-graphite p-5">
-          <div className="mb-4">
-            <h2 className="text-xs font-semibold uppercase tracking-wider text-taupe">Selected item</h2>
-            <div className="mt-2 font-mono text-xs text-champagne">{selected?.id || 'No item selected'}</div>
+          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-taupe">Selected item</h2>
+              <div className="mt-2 font-mono text-xs text-champagne">{selected?.id || 'No item selected'}</div>
+            </div>
+            {selected && (
+              <div className="flex flex-wrap gap-2 sm:justify-end">
+                <PromptButton target="codex" busy={promptCopy.target === 'codex'} onCopy={copyPrompt} />
+                <PromptButton target="claude" busy={promptCopy.target === 'claude'} onCopy={copyPrompt} />
+              </div>
+            )}
           </div>
 
           {selected ? (
             <div className="space-y-5">
+              {(promptCopy.message || promptCopy.error) && (
+                <div
+                  className={`rounded border px-3 py-2 text-xs font-mono ${
+                    promptCopy.error ? 'border-clay/40 bg-clay/10 text-clay' : 'border-champagne/30 bg-champagne/10 text-champagne'
+                  }`}
+                >
+                  {promptCopy.error || promptCopy.message}
+                </div>
+              )}
+
               <div>
                 <div className="text-xl font-semibold text-ivory">{selected.title || 'Untitled queue item'}</div>
                 <div className="mt-2 flex flex-wrap gap-2 font-mono text-xs text-taupe">
@@ -200,6 +268,7 @@ export default function Queue() {
                 <DetailRow label="Next action" value={selected.next_action} />
                 <DetailRow label="Tags" value={renderList(selected.tags)} />
                 <DetailRow label="Sources" value={renderList(selected.sources)} />
+                <DetailRow label="Source refs" value={renderList(selected.source_refs)} />
                 <DetailRow label="Context" value={selected.context} />
                 <DetailRow label="Definition of done" value={selected.definition_of_done} />
                 <DetailRow label="Allowed actions" value={renderList(selected.allowed_actions)} />
@@ -211,8 +280,8 @@ export default function Queue() {
                 {selected.receipts?.length ? (
                   <div className="mt-2 space-y-2">
                     {selected.receipts.map((receipt, index) => (
-                      <div key={`${receipt.path || index}`} className="rounded border border-softgraph bg-ink px-3 py-2 text-xs font-mono text-stone">
-                        <div className="break-all">{receipt.path || 'Receipt path unavailable'}</div>
+                      <div key={`${receiptLabel(receipt)}-${index}`} className="rounded border border-softgraph bg-ink px-3 py-2 text-xs font-mono text-stone">
+                        <div className="break-all">{receiptLabel(receipt)}</div>
                         <div className="mt-1 flex flex-wrap gap-2 text-taupe">
                           {receipt.status && <span>{formatStatus(receipt.status)}</span>}
                           {receipt.created_at && <span>{receipt.created_at}</span>}

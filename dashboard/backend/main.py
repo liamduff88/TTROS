@@ -1116,6 +1116,7 @@ def _queue_detail_item(item: dict) -> dict:
         "tags": item.get("tags") or [],
         "context": item.get("context", ""),
         "sources": item.get("sources") or [],
+        "source_refs": item.get("source_refs") or [],
         "allowed_actions": item.get("allowed_actions") or [],
         "stop_conditions": item.get("stop_conditions") or [],
         "definition_of_done": item.get("definition_of_done", ""),
