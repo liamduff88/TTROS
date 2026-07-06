@@ -1119,6 +1119,7 @@ def _queue_detail_item(item: dict) -> dict:
         "allowed_actions": item.get("allowed_actions") or [],
         "stop_conditions": item.get("stop_conditions") or [],
         "definition_of_done": item.get("definition_of_done", ""),
+        "next_action": item.get("next_action", ""),
         "claim": item.get("claim") or {"claimed_by": None, "claimed_at": None},
         "receipts": item.get("receipts") or [],
     })

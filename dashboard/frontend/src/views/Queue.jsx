@@ -1,35 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
-import { AlertCircle, CheckCircle2, Clipboard, ListChecks, Plus, RefreshCw } from 'lucide-react'
-import {
-  attachQueueReceipt,
-  closeQueueItemReview,
-  createQueueItem,
-  getQueueItem,
-  getQueueItems,
-  getQueueNext,
-  getQueuePrompt,
-  getQueueReceipt,
-  getQueueStatus,
-  updateQueueItemStatus,
-} from '../api'
+import { AlertCircle, CheckCircle2, ListChecks, RefreshCw } from 'lucide-react'
+import { getQueueItems, getQueueNext, getQueueStatus } from '../api'
 
-const OWNERS = ['unassigned', 'hermes', 'codex', 'claude', 'revenue', 'marketing', 'delivery', 'operations']
-const PRIORITIES = ['low', 'normal', 'high', 'urgent']
 const QUEUE_STATUSES = ['inbox', 'agent_todo', 'agent_working', 'needs_input', 'human_review', 'done', 'blocked', 'cancelled']
-const DEFAULT_ALLOWED = 'local_read\nlocal_edit\nlocal_test'
-const DEFAULT_STOPS = 'external_send\nsecrets_exposure\ndestructive_action_outside_scope'
-
-const emptyForm = {
-  title: '',
-  owner: 'unassigned',
-  priority: 'normal',
-  tags: '',
-  context: '',
-  sources: '',
-  definition_of_done: '',
-  allowed_actions: DEFAULT_ALLOWED,
-  stop_conditions: DEFAULT_STOPS,
-}
 
 const formatStatus = value => String(value || '').replace(/_/g, ' ')
 
@@ -39,103 +12,59 @@ const compactReason = value => {
   return text.length > 180 ? `${text.slice(0, 177).trim()}...` : text
 }
 
-const Field = ({ label, children }) => (
-  <label className="block">
-    <span className="text-[11px] font-semibold uppercase tracking-wider text-taupe">{label}</span>
-    <div className="mt-1">{children}</div>
-  </label>
-)
-
-const TextInput = props => (
-  <input
-    {...props}
-    className="w-full rounded border border-softgraph bg-ink px-3 py-2 text-sm text-ivory outline-none transition-colors placeholder:text-taupe/70 focus:border-champagne"
-  />
-)
-
-const TextArea = props => (
-  <textarea
-    {...props}
-    className="min-h-[5rem] w-full resize-y rounded border border-softgraph bg-ink px-3 py-2 text-sm text-ivory outline-none transition-colors placeholder:text-taupe/70 focus:border-champagne"
-  />
-)
-
-const Select = props => (
-  <select
-    {...props}
-    className="w-full rounded border border-softgraph bg-ink px-3 py-2 text-sm text-ivory outline-none transition-colors focus:border-champagne"
-  />
-)
-
-const DetailRow = ({ label, value }) => (
-  <div>
-    <div className="text-[11px] font-semibold uppercase tracking-wider text-taupe">{label}</div>
-    <div className="mt-1 whitespace-pre-wrap text-sm text-stone">{value || 'None'}</div>
-  </div>
-)
-
 const renderList = value => {
   const items = Array.isArray(value) ? value : []
   return items.length ? items.join('\n') : ''
 }
 
-const promptActionForOwner = owner => {
-  const normalized = String(owner || '').toLowerCase()
-  if (normalized === 'hermes') return { target: 'hermes', label: 'Copy Hermes prompt' }
-  if (['revenue', 'marketing', 'delivery', 'operations'].includes(normalized)) {
-    return { target: normalized, label: 'Copy Department prompt' }
-  }
-  return null
-}
+const DetailRow = ({ label, value }) => (
+  <div>
+    <div className="text-[11px] font-semibold uppercase tracking-wider text-taupe">{label}</div>
+    <div className="mt-1 whitespace-pre-wrap break-words text-sm text-stone">{value || 'None'}</div>
+  </div>
+)
+
+const CountTile = ({ label, value }) => (
+  <div className="rounded border border-softgraph bg-ink px-3 py-3">
+    <div className="truncate text-[10px] font-mono uppercase text-taupe">{formatStatus(label)}</div>
+    <div className="mt-1 font-mono text-lg text-stone">{value ?? 0}</div>
+  </div>
+)
 
 export default function Queue() {
   const [status, setStatus] = useState(null)
   const [items, setItems] = useState([])
   const [nextItem, setNextItem] = useState(null)
   const [selectedId, setSelectedId] = useState(null)
-  const [selected, setSelected] = useState(null)
-  const [form, setForm] = useState(emptyForm)
-  const [receiptText, setReceiptText] = useState('')
-  const [receiptStatus, setReceiptStatus] = useState('human_review')
-  const [receiptStatusTouched, setReceiptStatusTouched] = useState(false)
-  const [receiptFeedback, setReceiptFeedback] = useState('')
-  const [receiptSaving, setReceiptSaving] = useState(false)
-  const [receiptViewer, setReceiptViewer] = useState({ path: '', content: '', loading: false, error: '' })
-  const [statusSaving, setStatusSaving] = useState(false)
-  const [reviewNote, setReviewNote] = useState('')
-  const [reviewSaving, setReviewSaving] = useState(false)
-  const [state, setState] = useState({ loading: true, creating: false, error: null, copied: '' })
+  const [state, setState] = useState({ loading: true, error: null })
 
-  const selectedFromList = useMemo(
+  const selected = useMemo(
     () => items.find(item => item.id === selectedId) || null,
     [items, selectedId],
   )
-  const detail = selected || selectedFromList
 
   const refreshQueue = async (preferredId = selectedId) => {
-    setState(current => ({ ...current, loading: true, error: null, copied: '' }))
+    setState({ loading: true, error: null })
     try {
       const [statusData, itemsData, nextData] = await Promise.all([getQueueStatus(), getQueueItems(), getQueueNext()])
       if (statusData?.success === false || itemsData?.success === false || nextData?.success === false) {
         throw new Error(statusData?.reason || itemsData?.reason || nextData?.reason || 'Queue unavailable')
       }
+
       const list = itemsData?.items || []
       const next = nextData?.item || null
-      const id = preferredId || next?.id || list[0]?.id || null
+      const preferredExists = preferredId && list.some(item => item.id === preferredId)
       setStatus(statusData)
       setItems(list)
       setNextItem(next)
-      setSelectedId(id)
-      setState(current => ({ ...current, loading: false, error: null }))
-      if (id) {
-        const detail = await getQueueItem(id)
-        setSelected(detail?.item || null)
-      } else {
-        setSelected(null)
-      }
+      setSelectedId(preferredExists ? preferredId : next?.id || list[0]?.id || null)
+      setState({ loading: false, error: null })
     } catch (error) {
-      setState(current => ({ ...current, loading: false, error, copied: '' }))
-      setSelected(null)
+      setStatus(null)
+      setItems([])
+      setNextItem(null)
+      setSelectedId(null)
+      setState({ loading: false, error })
     }
   }
 
@@ -143,145 +72,10 @@ export default function Queue() {
     refreshQueue()
   }, [])
 
-  useEffect(() => {
-    if (!selectedId) {
-      setSelected(null)
-      return
-    }
-    getQueueItem(selectedId)
-      .then(data => setSelected(data?.item || null))
-      .catch(error => setState(current => ({ ...current, error })))
-  }, [selectedId])
-
-  useEffect(() => {
-    setReceiptText('')
-    setReceiptStatus(QUEUE_STATUSES.includes(detail?.status) ? detail.status : 'human_review')
-    setReceiptStatusTouched(false)
-    setReceiptFeedback('')
-    setReceiptViewer({ path: '', content: '', loading: false, error: '' })
-    setReviewNote('')
-  }, [detail?.id])
-
-  const updateForm = event => {
-    const { name, value } = event.target
-    setForm(current => ({ ...current, [name]: value }))
-  }
-
-  const submitForm = async event => {
-    event.preventDefault()
-    setState(current => ({ ...current, creating: true, error: null, copied: '' }))
-    try {
-      const created = await createQueueItem(form)
-      const id = created?.item?.id
-      setForm(emptyForm)
-      await refreshQueue(id)
-    } catch (error) {
-      setState(current => ({ ...current, creating: false, loading: false, error, copied: '' }))
-      return
-    }
-    setState(current => ({ ...current, creating: false }))
-  }
-
-  const copyPrompt = async target => {
-    if (!selected?.id) return
-    setState(current => ({ ...current, error: null, copied: '' }))
-    try {
-      const result = await getQueuePrompt(selected.id, target)
-      if (result?.success === false) throw new Error(result.reason || 'Prompt unavailable')
-      await navigator.clipboard.writeText(result.prompt || '')
-      setState(current => ({ ...current, copied: 'Prompt copied.' }))
-    } catch (error) {
-      setState(current => ({ ...current, error, copied: '' }))
-    }
-  }
-
-  const updateReceiptText = event => {
-    const value = event.target.value
-    setReceiptText(value)
-    if (receiptStatusTouched) return
-    const upper = value.trimStart().toUpperCase()
-    if (upper.startsWith('PASS')) setReceiptStatus('human_review')
-    if (upper.startsWith('NEEDS ATTENTION')) setReceiptStatus('needs_input')
-  }
-
-  const updateReceiptStatus = event => {
-    setReceiptStatus(event.target.value)
-    setReceiptStatusTouched(true)
-  }
-
-  const saveReceipt = async event => {
-    event.preventDefault()
-    if (!detail?.id) return
-    setReceiptSaving(true)
-    setState(current => ({ ...current, error: null, copied: '' }))
-    setReceiptFeedback('')
-    try {
-      const result = await attachQueueReceipt(detail.id, { receipt_text: receiptText, status: receiptStatus })
-      if (result?.success === false || result?.ok === false) throw new Error(result.reason || 'Receipt save failed')
-      setReceiptText('')
-      setReceiptStatusTouched(false)
-      setReceiptFeedback(`Receipt saved: ${result.receipt_path || 'attached'}`)
-      await refreshQueue(detail.id)
-    } catch (error) {
-      setState(current => ({ ...current, error, copied: '' }))
-    } finally {
-      setReceiptSaving(false)
-    }
-  }
-
-  const saveStatusOnly = async () => {
-    if (!detail?.id) return
-    setStatusSaving(true)
-    setState(current => ({ ...current, error: null, copied: '' }))
-    setReceiptFeedback('')
-    try {
-      const result = await updateQueueItemStatus(detail.id, receiptStatus)
-      if (result?.success === false || result?.ok === false) throw new Error(result.reason || 'Status update failed')
-      setReceiptFeedback(`Status updated: ${formatStatus(result.status || receiptStatus)}`)
-      await refreshQueue(detail.id)
-    } catch (error) {
-      setState(current => ({ ...current, error, copied: '' }))
-    } finally {
-      setStatusSaving(false)
-    }
-  }
-
-  const closeReview = async event => {
-    event.preventDefault()
-    if (!detail?.id) return
-    setReviewSaving(true)
-    setState(current => ({ ...current, error: null, copied: '' }))
-    setReceiptFeedback('')
-    try {
-      const result = await closeQueueItemReview(detail.id, { review_note: reviewNote })
-      if (result?.success === false || result?.ok === false) throw new Error(result.reason || 'Review close failed')
-      setReviewNote('')
-      setReceiptFeedback(`Review closed: ${result.receipt_path || 'done'}`)
-      await refreshQueue(detail.id)
-    } catch (error) {
-      setState(current => ({ ...current, error, copied: '' }))
-    } finally {
-      setReviewSaving(false)
-    }
-  }
-
-  const viewReceipt = async path => {
-    if (!path) return
-    setReceiptViewer({ path, content: '', loading: true, error: '' })
-    setState(current => ({ ...current, error: null, copied: '' }))
-    try {
-      const result = await getQueueReceipt(path)
-      if (result?.success === false) throw new Error(result.reason || 'Receipt unavailable')
-      setReceiptViewer({ path: result.path || path, content: result.content || '', loading: false, error: '' })
-    } catch (error) {
-      const message = error?.response?.data?.detail || error?.message || 'Receipt unavailable'
-      setReceiptViewer({ path, content: '', loading: false, error: message })
-    }
-  }
-
   const reason = state.error?.response?.data?.detail || state.error?.message
   const counts = status?.counts || {}
-  const ownerPromptAction = promptActionForOwner(detail?.owner)
+  const activeCount = status?.activeCount ?? items.filter(item => !['done', 'cancelled'].includes(item.status)).length
+  const needsLiam = status?.needsLiam ?? ((counts.needs_input || 0) + (counts.human_review || 0) + (counts.blocked || 0))
 
   return (
     <div className="max-w-7xl space-y-5">
@@ -289,7 +83,7 @@ export default function Queue() {
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.22em] text-champagne">Queue</p>
           <h1 className="mt-1 text-2xl font-semibold text-ivory">Agentic OS Work Queue</h1>
-          <p className="mt-1 text-sm text-taupe">Local queue creation, detail review, and manual workbench prompt copy.</p>
+          <p className="mt-1 text-sm text-taupe">Read-only local queue state from queue/work_items.jsonl.</p>
         </div>
         <button
           type="button"
@@ -306,74 +100,27 @@ export default function Queue() {
         <div className="rounded-lg border border-clay/40 bg-clay/10 p-4">
           <div className="flex items-center gap-2 text-sm font-semibold text-stone">
             <AlertCircle size={15} className="text-clay" />
-            Queue unavailable
+            Queue load failed
           </div>
           <div className="mt-2 text-xs font-mono text-taupe">{compactReason(reason)}</div>
         </div>
       )}
 
       <section className="rounded-lg border border-softgraph bg-graphite p-5">
-        <div className="mb-4 flex items-center gap-2">
-          <Plus size={14} className="text-champagne" />
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-taupe">Create queue item</h2>
+        <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-taupe">Status counts</h2>
+            <div className="mt-1 font-mono text-xs text-taupe">
+              Active {activeCount} / Needs Liam {needsLiam} / Total {items.length}
+            </div>
+          </div>
+          {status?.nextAction && <div className="max-w-xl text-sm text-stone">{status.nextAction}</div>}
         </div>
-        <form onSubmit={submitForm} className="grid gap-4 lg:grid-cols-4">
-          <div className="lg:col-span-2">
-            <Field label="Title">
-              <TextInput name="title" value={form.title} onChange={updateForm} required placeholder="Short work item title" />
-            </Field>
-          </div>
-          <Field label="Owner">
-            <Select name="owner" value={form.owner} onChange={updateForm}>
-              {OWNERS.map(owner => <option key={owner} value={owner}>{owner}</option>)}
-            </Select>
-          </Field>
-          <Field label="Priority">
-            <Select name="priority" value={form.priority} onChange={updateForm}>
-              {PRIORITIES.map(priority => <option key={priority} value={priority}>{priority}</option>)}
-            </Select>
-          </Field>
-          <div className="lg:col-span-2">
-            <Field label="Tags">
-              <TextInput name="tags" value={form.tags} onChange={updateForm} placeholder="dashboard, queue" />
-            </Field>
-          </div>
-          <div className="lg:col-span-2">
-            <Field label="Source references / files">
-              <TextArea name="sources" value={form.sources} onChange={updateForm} placeholder="One source, path, or reference per line" />
-            </Field>
-          </div>
-          <div className="lg:col-span-2">
-            <Field label="Context">
-              <TextArea name="context" value={form.context} onChange={updateForm} placeholder="Relevant local context only" />
-            </Field>
-          </div>
-          <div className="lg:col-span-2">
-            <Field label="Definition of done">
-              <TextArea name="definition_of_done" value={form.definition_of_done} onChange={updateForm} />
-            </Field>
-          </div>
-          <div className="lg:col-span-2">
-            <Field label="Allowed actions">
-              <TextArea name="allowed_actions" value={form.allowed_actions} onChange={updateForm} />
-            </Field>
-          </div>
-          <div className="lg:col-span-2">
-            <Field label="Stop conditions">
-              <TextArea name="stop_conditions" value={form.stop_conditions} onChange={updateForm} />
-            </Field>
-          </div>
-          <div className="lg:col-span-4">
-            <button
-              type="submit"
-              disabled={state.creating}
-              className="inline-flex items-center gap-2 rounded bg-champagne px-4 py-2 text-sm font-semibold text-ink transition-colors hover:bg-stone disabled:cursor-not-allowed disabled:opacity-70"
-            >
-              <Plus size={14} />
-              {state.creating ? 'Creating' : 'Create queue item'}
-            </button>
-          </div>
-        </form>
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
+          {QUEUE_STATUSES.map(queueStatus => (
+            <CountTile key={queueStatus} label={queueStatus} value={counts[queueStatus]} />
+          ))}
+        </div>
       </section>
 
       <section className="grid gap-4 lg:grid-cols-[minmax(22rem,0.9fr)_minmax(0,1.1fr)]">
@@ -381,22 +128,15 @@ export default function Queue() {
           <div className="mb-4 flex items-center justify-between gap-3">
             <div className="flex items-center gap-2">
               <ListChecks size={14} className="text-taupe" />
-              <h2 className="text-xs font-semibold uppercase tracking-wider text-taupe">Items</h2>
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-taupe">Work items</h2>
             </div>
-            <div className="font-mono text-xs text-taupe">Active {status?.activeCount ?? items.length}</div>
+            <div className="font-mono text-xs text-taupe">{items.length} local</div>
           </div>
-          <div className="mb-4 grid grid-cols-4 gap-2">
-            {['inbox', 'agent_todo', 'agent_working', 'blocked'].map(key => (
-              <div key={key} className="rounded border border-softgraph bg-ink px-2 py-2">
-                <div className="truncate text-[10px] font-mono uppercase text-taupe">{formatStatus(key)}</div>
-                <div className="mt-1 font-mono text-sm text-stone">{counts[key] ?? 0}</div>
-              </div>
-            ))}
-          </div>
+
           {state.loading ? (
             <div className="rounded border border-softgraph bg-ink px-4 py-8 text-center text-xs font-mono text-taupe">Loading queue.</div>
           ) : items.length > 0 ? (
-            <div className="max-h-[34rem] space-y-2 overflow-y-auto pr-1">
+            <div className="max-h-[42rem] space-y-2 overflow-y-auto pr-1">
               {items.map(item => (
                 <button
                   type="button"
@@ -408,7 +148,7 @@ export default function Queue() {
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <div className="font-mono text-[11px] text-champagne">{item.id}</div>
+                      <div className="font-mono text-[11px] text-champagne">{item.id || 'No ID'}</div>
                       <div className="mt-1 truncate text-sm font-semibold text-ivory">{item.title || 'Untitled queue item'}</div>
                     </div>
                     {nextItem?.id === item.id && <CheckCircle2 size={14} className="mt-1 flex-shrink-0 text-champagne" />}
@@ -416,168 +156,69 @@ export default function Queue() {
                   <div className="mt-2 flex flex-wrap gap-2 font-mono text-[11px] text-taupe">
                     <span>{formatStatus(item.status)}</span>
                     <span>{item.owner || 'unassigned'}</span>
-                    <span>P{item.priority ?? 0}</span>
+                    <span>Priority {item.priority ?? 0}</span>
+                    {item.source && <span>{item.source}</span>}
                   </div>
                 </button>
               ))}
             </div>
           ) : (
-            <div className="rounded border border-softgraph bg-ink px-4 py-8 text-center text-xs font-mono text-taupe">No queue items yet.</div>
+            <div className="rounded border border-softgraph bg-ink px-4 py-10 text-center">
+              <div className="text-sm font-semibold text-stone">No local queue items found.</div>
+              <div className="mt-2 text-xs font-mono text-taupe">Expected path: queue/work_items.jsonl</div>
+            </div>
           )}
         </div>
 
         <div className="rounded-lg border border-softgraph bg-graphite p-5">
-          <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-            <div>
-              <h2 className="text-xs font-semibold uppercase tracking-wider text-taupe">Item detail</h2>
-              <div className="mt-2 font-mono text-xs text-champagne">{detail?.id || 'No item selected'}</div>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {ownerPromptAction && (
-                <button
-                  type="button"
-                  disabled={!detail?.id}
-                  onClick={() => copyPrompt(ownerPromptAction.target)}
-                  className="inline-flex items-center gap-2 rounded bg-softgraph px-3 py-2 text-xs font-mono text-taupe transition-colors hover:text-stone disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <Clipboard size={13} />
-                  {ownerPromptAction.label}
-                </button>
-              )}
-              <button
-                type="button"
-                disabled={!detail?.id}
-                onClick={() => copyPrompt('codex')}
-                className="inline-flex items-center gap-2 rounded bg-softgraph px-3 py-2 text-xs font-mono text-taupe transition-colors hover:text-stone disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <Clipboard size={13} />
-                Copy Codex prompt
-              </button>
-              <button
-                type="button"
-                disabled={!detail?.id}
-                onClick={() => copyPrompt('claude')}
-                className="inline-flex items-center gap-2 rounded bg-softgraph px-3 py-2 text-xs font-mono text-taupe transition-colors hover:text-stone disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <Clipboard size={13} />
-                Copy Claude prompt
-              </button>
-            </div>
+          <div className="mb-4">
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-taupe">Selected item</h2>
+            <div className="mt-2 font-mono text-xs text-champagne">{selected?.id || 'No item selected'}</div>
           </div>
 
-          {state.copied && <div className="mb-4 rounded border border-champagne/30 bg-champagne/10 px-3 py-2 text-xs font-mono text-champagne">{state.copied}</div>}
-
-          {detail ? (
+          {selected ? (
             <div className="space-y-5">
               <div>
-                <div className="text-xl font-semibold text-ivory">{detail.title || 'Untitled queue item'}</div>
+                <div className="text-xl font-semibold text-ivory">{selected.title || 'Untitled queue item'}</div>
                 <div className="mt-2 flex flex-wrap gap-2 font-mono text-xs text-taupe">
-                  <span>{formatStatus(detail.status)}</span>
-                  <span>{detail.owner || 'unassigned'}</span>
-                  <span>Priority {detail.priority ?? 0}</span>
+                  <span>{formatStatus(selected.status)}</span>
+                  <span>{selected.owner || 'unassigned'}</span>
+                  <span>Priority {selected.priority ?? 0}</span>
+                  {selected.source && <span>{selected.source}</span>}
                 </div>
               </div>
+
               <div className="grid gap-4 md:grid-cols-2">
-                <DetailRow label="Tags" value={renderList(detail.tags)} />
-                <DetailRow label="Sources" value={renderList(detail.sources)} />
-                <DetailRow label="Context" value={detail.context} />
-                <DetailRow label="Definition of done" value={detail.definition_of_done} />
-                <DetailRow label="Allowed actions" value={renderList(detail.allowed_actions)} />
-                <DetailRow label="Stop conditions" value={renderList(detail.stop_conditions)} />
+                <DetailRow label="ID" value={selected.id} />
+                <DetailRow label="Status" value={formatStatus(selected.status)} />
+                <DetailRow label="Owner" value={selected.owner || 'unassigned'} />
+                <DetailRow label="Priority" value={String(selected.priority ?? 0)} />
+                <DetailRow label="Source" value={selected.source} />
+                <DetailRow label="Updated at" value={selected.updated_at} />
+                <DetailRow label="Created at" value={selected.created_at} />
+                <DetailRow label="Requested by" value={selected.requested_by} />
+                <DetailRow label="Next action" value={selected.next_action} />
+                <DetailRow label="Tags" value={renderList(selected.tags)} />
+                <DetailRow label="Sources" value={renderList(selected.sources)} />
+                <DetailRow label="Context" value={selected.context} />
+                <DetailRow label="Definition of done" value={selected.definition_of_done} />
+                <DetailRow label="Allowed actions" value={renderList(selected.allowed_actions)} />
+                <DetailRow label="Stop conditions" value={renderList(selected.stop_conditions)} />
               </div>
-              {detail.status === 'human_review' && (
-                <form onSubmit={closeReview} className="rounded border border-champagne/30 bg-champagne/10 p-4">
-                  <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_12rem] md:items-end">
-                    <Field label="Review note optional">
-                      <TextArea
-                        value={reviewNote}
-                        onChange={event => setReviewNote(event.target.value)}
-                        maxLength={500}
-                        placeholder="Short review note"
-                      />
-                    </Field>
-                    <button
-                      type="submit"
-                      disabled={reviewSaving || receiptSaving || statusSaving}
-                      className="inline-flex items-center justify-center gap-2 rounded bg-champagne px-4 py-2 text-sm font-semibold text-ink transition-colors hover:bg-stone disabled:cursor-not-allowed disabled:opacity-70"
-                    >
-                      <CheckCircle2 size={14} />
-                      {reviewSaving ? 'Closing review' : 'Close as done'}
-                    </button>
-                  </div>
-                </form>
-              )}
-              <form onSubmit={saveReceipt} className="rounded border border-softgraph bg-ink p-4">
-                <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_13rem]">
-                  <Field label="Receipt">
-                    <TextArea
-                      value={receiptText}
-                      onChange={updateReceiptText}
-                      placeholder="Paste PASS or NEEDS ATTENTION receipt"
-                      className="min-h-[8rem]"
-                    />
-                  </Field>
-                  <div className="space-y-3">
-                    <Field label="Status">
-                      <Select value={receiptStatus} onChange={updateReceiptStatus}>
-                        {QUEUE_STATUSES.map(queueStatus => (
-                          <option key={queueStatus} value={queueStatus}>{queueStatus}</option>
-                        ))}
-                      </Select>
-                    </Field>
-                    <button
-                      type="button"
-                      onClick={saveStatusOnly}
-                      disabled={statusSaving || receiptSaving}
-                      className="w-full rounded bg-softgraph px-3 py-2 text-xs font-mono text-taupe transition-colors hover:text-stone disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      {statusSaving ? 'Updating status' : 'Update status only'}
-                    </button>
-                  </div>
-                </div>
-                <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <button
-                    type="submit"
-                    disabled={receiptSaving || statusSaving || !receiptText.trim()}
-                    className="inline-flex items-center justify-center gap-2 rounded bg-champagne px-4 py-2 text-sm font-semibold text-ink transition-colors hover:bg-stone disabled:cursor-not-allowed disabled:opacity-70"
-                  >
-                    <Clipboard size={14} />
-                    {receiptSaving ? 'Saving receipt' : 'Attach receipt and update status'}
-                  </button>
-                  {receiptFeedback && <div className="font-mono text-xs text-champagne">{receiptFeedback}</div>}
-                </div>
-              </form>
+
               <div>
-                <div className="text-[11px] font-semibold uppercase tracking-wider text-taupe">Receipts</div>
-                {detail.receipts?.length ? (
+                <div className="text-[11px] font-semibold uppercase tracking-wider text-taupe">Receipt paths</div>
+                {selected.receipts?.length ? (
                   <div className="mt-2 space-y-2">
-                    {detail.receipts.map((receipt, index) => (
+                    {selected.receipts.map((receipt, index) => (
                       <div key={`${receipt.path || index}`} className="rounded border border-softgraph bg-ink px-3 py-2 text-xs font-mono text-stone">
-                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                          <span className="break-all">{receipt.path || 'Receipt'} {receipt.status ? `(${receipt.status})` : ''}</span>
-                          {receipt.path && (
-                            <button
-                              type="button"
-                              onClick={() => viewReceipt(receipt.path)}
-                              disabled={receiptViewer.loading && receiptViewer.path === receipt.path}
-                              className="rounded bg-softgraph px-2 py-1 text-[11px] text-taupe transition-colors hover:text-stone disabled:cursor-not-allowed disabled:opacity-60"
-                            >
-                              {receiptViewer.loading && receiptViewer.path === receipt.path ? 'Loading' : 'View'}
-                            </button>
-                          )}
+                        <div className="break-all">{receipt.path || 'Receipt path unavailable'}</div>
+                        <div className="mt-1 flex flex-wrap gap-2 text-taupe">
+                          {receipt.status && <span>{formatStatus(receipt.status)}</span>}
+                          {receipt.created_at && <span>{receipt.created_at}</span>}
                         </div>
                       </div>
                     ))}
-                    {(receiptViewer.content || receiptViewer.error) && (
-                      <div className="rounded border border-softgraph bg-ink p-3">
-                        <div className="mb-2 break-all font-mono text-[11px] text-taupe">{receiptViewer.path}</div>
-                        {receiptViewer.error ? (
-                          <div className="font-mono text-xs text-clay">{receiptViewer.error}</div>
-                        ) : (
-                          <pre className="max-h-96 overflow-auto whitespace-pre-wrap break-words text-xs leading-relaxed text-stone">{receiptViewer.content}</pre>
-                        )}
-                      </div>
-                    )}
                   </div>
                 ) : (
                   <div className="mt-1 text-sm text-stone">None</div>
@@ -585,7 +226,9 @@ export default function Queue() {
               </div>
             </div>
           ) : (
-            <div className="rounded border border-softgraph bg-ink px-4 py-10 text-center text-xs font-mono text-taupe">Select an item to inspect details.</div>
+            <div className="rounded border border-softgraph bg-ink px-4 py-10 text-center text-xs font-mono text-taupe">
+              {items.length ? 'Select an item to inspect details.' : 'Queue details will appear when local items exist.'}
+            </div>
           )}
         </div>
       </section>
