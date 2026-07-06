@@ -579,6 +579,107 @@ class HermesComposioTests(unittest.TestCase):
             self.assertEqual(absolute.exception.status_code, 400)
             self.assertIn("root-relative", absolute.exception.detail)
 
+    def test_dashboard_queue_item_includes_latest_receipt_summary(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            items = self.sample_queue_items()
+            items[1]["status"] = "done"
+            items[1]["receipts"] = [
+                {"path": "queue/receipts/old.md", "status": "human_review", "created_at": "2026-07-05T10:05:00Z"},
+                {"path": "queue/receipts/latest.md", "status": "done", "created_at": "2026-07-05T10:06:00Z"},
+            ]
+            self.write_queue_items(root, items)
+            receipt_dir = root / "queue" / "receipts"
+            receipt_dir.mkdir(parents=True)
+            (receipt_dir / "latest.md").write_text(
+                "PASS\n\nFiles touched:\n- dashboard/frontend/src/views/Queue.jsx\n\nValidation:\n- unit tests\n",
+                encoding="utf-8",
+            )
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_run_wsl") as run:
+                result = backend.queue_item("AOS-2026-0002")
+
+            run.assert_not_called()
+            latest = result["item"]["latest_receipt"]
+            self.assertEqual(latest["path"], "queue/receipts/latest.md")
+            self.assertEqual(latest["status"], "done")
+            self.assertIn("PASS", latest["summary"])
+            self.assertIn("dashboard/frontend/src/views/Queue.jsx", latest["summary"])
+
+    def test_dashboard_queue_artifact_reads_safe_local_text_artifacts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            output = root / "workflows" / "revenue_linkedin_outreach" / "output"
+            output.mkdir(parents=True)
+            artifact_file = output / "unit.md"
+            artifact_file.write_text("PASS\n\nToken usage:\n- unavailable from current CLI output\n", encoding="utf-8")
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_run_wsl") as run:
+                result = backend.queue_artifact("workflows/revenue_linkedin_outreach/output/unit.md")
+
+            run.assert_not_called()
+            self.assertTrue(result["success"])
+            self.assertTrue(result["available"])
+            self.assertEqual(result["path"], "workflows/revenue_linkedin_outreach/output/unit.md")
+            self.assertIn("PASS", result["content"])
+            self.assertIn("Token usage:", result["token_usage_lines"])
+            self.assertIn("- unavailable from current CLI output", result["token_usage_lines"])
+            self.assertFalse(Path(result["path"]).is_absolute())
+
+    def test_dashboard_queue_artifact_blocks_secret_and_unsafe_paths(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "logs").mkdir()
+            (root / "logs" / "unit.log").write_text("wrong extension\n", encoding="utf-8")
+            (root / "workflows").mkdir()
+            (root / "workflows" / ".env").write_text("SECRET=value\n", encoding="utf-8")
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_run_wsl") as run:
+                secret = backend.queue_artifact("workflows/.env")
+                traversal = backend.queue_artifact("workflows/../logs/unit.log")
+                missing = backend.queue_artifact("results/missing.md")
+
+            run.assert_not_called()
+            self.assertFalse(secret["success"])
+            self.assertIn("secret", secret["reason"])
+            self.assertFalse(traversal["success"])
+            self.assertTrue("only .md" in traversal["reason"] or "must stay" in traversal["reason"])
+            self.assertFalse(missing["success"])
+            self.assertIn("not found", missing["reason"])
+
+    def test_dashboard_queue_item_exposes_run_artifact_refs_from_latest_receipt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            items = self.sample_queue_items()
+            items[1]["status"] = "human_review"
+            items[1]["receipts"] = [
+                {"path": "queue/receipts/latest.md", "status": "human_review", "created_at": "2026-07-05T10:06:00Z"},
+            ]
+            self.write_queue_items(root, items)
+            receipt_dir = root / "queue" / "receipts"
+            receipt_dir.mkdir(parents=True)
+            artifact_dir = root / "workflows" / "revenue_linkedin_outreach" / "output"
+            artifact_dir.mkdir(parents=True)
+            (artifact_dir / "angles.md").write_text("Draft artifact\n", encoding="utf-8")
+            (receipt_dir / "latest.md").write_text(
+                "PASS\n\nFiles touched:\n- workflows/revenue_linkedin_outreach/output/angles.md\n\nToken usage:\n- unavailable from current CLI output\n",
+                encoding="utf-8",
+            )
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_run_wsl") as run:
+                result = backend.queue_item("AOS-2026-0002")
+
+            run.assert_not_called()
+            item = result["item"]
+            self.assertEqual(item["latest_receipt"]["path"], "queue/receipts/latest.md")
+            self.assertIn("PASS", item["latest_receipt"]["content"])
+            self.assertIn("- unavailable from current CLI output", item["latest_receipt"]["token_usage_lines"])
+            artifact_paths = [artifact["path"] for artifact in item["run_artifacts"]]
+            self.assertIn("queue/receipts/latest.md", artifact_paths)
+            self.assertIn("workflows/revenue_linkedin_outreach/output/angles.md", artifact_paths)
+            output_ref = next(artifact for artifact in item["run_artifacts"] if artifact["path"].endswith("angles.md"))
+            self.assertTrue(output_ref["available"])
+
     def test_dashboard_queue_status_endpoint_updates_item_and_rejects_invalid_status(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -602,6 +703,249 @@ class HermesComposioTests(unittest.TestCase):
             self.assertEqual(shown["item"]["status"], "agent_working")
             self.assertEqual(invalid.exception.status_code, 400)
             self.assertIn("invalid status", invalid.exception.detail)
+
+    def test_queue_item_run_calls_assigned_worker(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_queue_items(root, self.sample_queue_items())
+            self.write_queue_templates(root)
+            worker_result = {
+                "success": True,
+                "output": "PASS\nFiles touched: dashboard/backend/main.py\nValidation: unit tests\nBlockers: None\nNext action: Review",
+                "returncode": 0,
+                "token_usage_text": "Token usage: total 12",
+                "token_usage": {"available": True, "total_tokens": "12"},
+            }
+            review_result = {
+                "success": True,
+                "output": "PASS",
+                "returncode": 0,
+                "token_usage_text": "Token usage: unavailable from current CLI output",
+                "token_usage": {"available": False},
+            }
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_run_wsl", return_value=worker_result) as run, \
+                 patch.object(backend, "wsl_claude") as claude, \
+                 patch.object(backend, "wsl_hermes") as hermes, \
+                 patch.object(backend, "_queue_run_hermes_review", return_value=review_result):
+                result = backend.run_queue_item("AOS-2026-0002")
+
+        run.assert_called_once()
+        self.assertIn("aos-codex", run.call_args.args[0])
+        self.assertEqual(run.call_args.kwargs["timeout"], 300)
+        claude.assert_not_called()
+        hermes.assert_not_called()
+        self.assertTrue(result["success"])
+        self.assertEqual(result["assigned_worker"], "codex")
+        self.assertEqual(result["attempts_used"], 1)
+        self.assertEqual(result["worker_result"]["timeout_seconds"], 300)
+
+    def test_queue_item_run_pass_sets_human_review_and_attaches_receipt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_queue_items(root, self.sample_queue_items())
+            self.write_queue_templates(root)
+            worker_result = {
+                "success": True,
+                "output": "PASS\nFiles touched: dashboard/backend/main.py\nValidation: python tests passed\nBlockers: None\nNext action: Liam review",
+                "returncode": 0,
+                "token_usage_text": "Token usage: unavailable from current CLI output",
+                "token_usage": {"available": False},
+            }
+            review_result = {
+                "success": True,
+                "output": "PASS",
+                "returncode": 0,
+                "token_usage_text": "Token usage: unavailable from current CLI output",
+                "token_usage": {"available": False},
+            }
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_queue_run_worker", return_value=worker_result), \
+                 patch.object(backend, "_queue_run_hermes_review", return_value=review_result):
+                result = backend.run_queue_item("AOS-2026-0002")
+
+            self.assertEqual(result["status"], "human_review")
+            self.assertEqual(result["receipt_path"], "queue/receipts/AOS-2026-0002.md")
+            receipt_file = root / result["receipt_path"]
+            self.assertTrue(receipt_file.exists())
+            receipt_text = receipt_file.read_text(encoding="utf-8")
+            self.assertIn("PASS", receipt_text)
+            self.assertIn("Work item ID: AOS-2026-0002", receipt_text)
+            self.assertIn("Assigned worker: codex", receipt_text)
+            self.assertIn("Hermes review result: PASS", receipt_text)
+            self.assertEqual(result["item"]["receipts"][0]["path"], result["receipt_path"])
+            self.assertEqual(result["item"]["receipts"][0]["status"], "human_review")
+
+    def test_queue_item_run_revise_triggers_exactly_one_retry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_queue_items(root, self.sample_queue_items())
+            self.write_queue_templates(root)
+            worker_result = {
+                "success": True,
+                "output": "PASS\nFiles touched: None\nValidation: local check\nBlockers: None\nNext action: Review",
+                "returncode": 0,
+                "token_usage_text": "Token usage: unavailable from current CLI output",
+                "token_usage": {"available": False},
+            }
+            review_results = [
+                {
+                    "success": True,
+                    "output": "REVISE: include validation evidence",
+                    "returncode": 0,
+                    "token_usage_text": "Token usage: unavailable from current CLI output",
+                    "token_usage": {"available": False},
+                },
+                {
+                    "success": True,
+                    "output": "PASS",
+                    "returncode": 0,
+                    "token_usage_text": "Token usage: unavailable from current CLI output",
+                    "token_usage": {"available": False},
+                },
+            ]
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_queue_run_worker", return_value=worker_result) as worker, \
+                 patch.object(backend, "_queue_run_hermes_review", side_effect=review_results) as review:
+                result = backend.run_queue_item("AOS-2026-0002")
+
+        self.assertEqual(worker.call_count, 2)
+        self.assertEqual(review.call_count, 2)
+        self.assertTrue(result["success"])
+        self.assertEqual(result["attempts_used"], 2)
+        second_prompt = worker.call_args_list[1].args[1]
+        self.assertIn("Hermes Revision Instructions", second_prompt)
+        self.assertIn("include validation evidence", second_prompt)
+
+    def test_queue_item_run_repeated_revise_stops_after_two_attempts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_queue_items(root, self.sample_queue_items())
+            self.write_queue_templates(root)
+            worker_result = {
+                "success": True,
+                "output": "PASS\nFiles touched: None\nValidation: incomplete\nBlockers: Needs detail\nNext action: Revise",
+                "returncode": 0,
+                "token_usage_text": "Token usage: unavailable from current CLI output",
+                "token_usage": {"available": False},
+            }
+            review_result = {
+                "success": True,
+                "output": "REVISE: definition of done is not satisfied",
+                "returncode": 0,
+                "token_usage_text": "Token usage: unavailable from current CLI output",
+                "token_usage": {"available": False},
+            }
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_queue_run_worker", return_value=worker_result) as worker, \
+                 patch.object(backend, "_queue_run_hermes_review", return_value=review_result) as review:
+                result = backend.run_queue_item("AOS-2026-0002")
+
+            self.assertEqual(worker.call_count, 2)
+            self.assertEqual(review.call_count, 2)
+            self.assertFalse(result["success"])
+            self.assertEqual(result["status"], "needs_input")
+            self.assertEqual(result["attempts_used"], 2)
+            receipt_text = (root / result["receipt_path"]).read_text(encoding="utf-8")
+            self.assertIn("NEEDS ATTENTION", receipt_text)
+            self.assertIn("definition of done is not satisfied", receipt_text)
+
+    def test_queue_item_run_timeout_receipt_names_timeout(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_queue_items(root, self.sample_queue_items())
+            self.write_queue_templates(root)
+            timeout_result = {
+                "success": False,
+                "output": "Command timed out after 300s",
+                "stdout": "",
+                "stderr": "Command timed out after 300s",
+                "returncode": -1,
+                "timed_out": True,
+                "timeout_seconds": 300,
+            }
+            review_result = {
+                "success": True,
+                "output": "REVISE: worker timed out before producing the required receipt",
+                "returncode": 0,
+                "token_usage_text": "Token usage: unavailable from current CLI output",
+                "token_usage": {"available": False},
+            }
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_run_wsl", return_value=timeout_result) as run, \
+                 patch.object(backend, "_queue_run_hermes_review", return_value=review_result):
+                result = backend.run_queue_item("AOS-2026-0002")
+
+            self.assertEqual(run.call_count, 2)
+            self.assertEqual(run.call_args_list[0].kwargs["timeout"], 300)
+            self.assertEqual(result["status"], "needs_input")
+            self.assertEqual(result["attempts_used"], 2)
+            self.assertTrue(result["worker_result"]["timed_out"])
+            receipt_text = (root / result["receipt_path"]).read_text(encoding="utf-8")
+            self.assertIn("Agent command timed out after 300s", receipt_text)
+            self.assertIn("Timeout after 300s during local agent run", receipt_text)
+
+    def test_department_queue_runtime_prompt_is_compact(self):
+        item = {
+            "id": "AOS-2026-0019",
+            "title": "Prepare LinkedIn outreach angles for TTR prospects",
+            "owner": "revenue",
+            "context": "Draft three concise angles.",
+            "sources": ["queue/work_items.jsonl"],
+            "allowed_actions": ["Read local files", "Write receipt"],
+            "stop_conditions": ["Do not call connectors"],
+            "definition_of_done": "Return outreach angles and receipt.",
+        }
+
+        prompt = backend._queue_actual_run_prompt(item, "revenue", attempt=2)
+
+        self.assertIn("- ID: AOS-2026-0019", prompt)
+        self.assertIn("- Title: Prepare LinkedIn outreach angles for TTR prospects", prompt)
+        self.assertIn("- Owner: revenue", prompt)
+        self.assertIn("- Current attempt: 2/2", prompt)
+        self.assertIn("Required artifact/receipt shape:", prompt)
+        self.assertNotIn("Department card", prompt)
+        self.assertNotIn("Manual launch", prompt)
+
+    def test_queue_item_run_does_not_touch_connector_or_forbidden_paths(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_queue_items(root, self.sample_queue_items())
+            self.write_queue_templates(root)
+            worker_result = {
+                "success": True,
+                "output": "PASS\nFiles touched: None\nValidation: local only\nBlockers: None\nNext action: Review",
+                "returncode": 0,
+                "token_usage_text": "Token usage: unavailable from current CLI output",
+                "token_usage": {"available": False},
+            }
+            review_result = {
+                "success": True,
+                "output": "PASS",
+                "returncode": 0,
+                "token_usage_text": "Token usage: unavailable from current CLI output",
+                "token_usage": {"available": False},
+            }
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_queue_run_worker", return_value=worker_result), \
+                 patch.object(backend, "_queue_run_hermes_review", return_value=review_result), \
+                 patch.object(backend, "_run_composio_adapter") as composio, \
+                 patch.object(backend, "_run_wsl") as run:
+                result = backend.run_queue_item("AOS-2026-0002")
+
+            composio.assert_not_called()
+            run.assert_not_called()
+            self.assertTrue(result["success"])
+            forbidden = [
+                root / "connectors" / "telegram_bridge",
+                root / "workspaces" / "north_shore_sales_coach",
+                root / ".env",
+                root / "old",
+                root / "ZPC",
+                root / "vault",
+            ]
+            for path in forbidden:
+                self.assertFalse(path.exists(), path)
 
     def test_list_queue_status_filters_by_status(self):
         with tempfile.TemporaryDirectory() as tmp:

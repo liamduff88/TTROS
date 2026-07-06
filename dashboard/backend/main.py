@@ -306,6 +306,22 @@ class QueueReviewClose(BaseModel):
     review_note: str = ""
 
 
+_QUEUE_ARTIFACT_ALLOWED_PREFIXES = (
+    "queue/receipts/",
+    "results/",
+    "workflows/",
+    "packets/",
+    "logs/",
+)
+_QUEUE_ARTIFACT_EXTENSIONS = {".md", ".txt", ".json", ".jsonl"}
+_QUEUE_ARTIFACT_SECRET_RE = re.compile(r"(^|[/.])(\.env|env\.|.*secret.*|.*token.*|.*credential.*|.*password.*)", re.IGNORECASE)
+_QUEUE_ARTIFACT_PATH_RE = re.compile(
+    r"(?P<path>(?:queue/receipts|results|workflows|packets|logs)/[^\s`'\"<>]+?\.(?:md|txt|json|jsonl))",
+    re.IGNORECASE,
+)
+_QUEUE_ARTIFACT_MAX_BYTES = 250_000
+
+
 @app.post("/api/packets")
 def create_packet(packet: PacketCreate):
     ts = datetime.datetime.utcnow().strftime("%Y%m%d_%H%M%S")
@@ -350,6 +366,8 @@ WSL_DISTRO = "AgenticOSClean"
 WSL_USER = "liam"
 COMPOSIO_PATH = "/home/liam/.composio:/home/liam/.local/bin:/home/liam/.composio:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/usr/lib/wsl/lib"
 HERMES_COORDINATOR = BASE_DIR / "tools" / "aos-hermes-coordinator.sh"
+QUEUE_WORKER_TIMEOUT_SECONDS = 300
+QUEUE_HERMES_REVIEW_TIMEOUT_SECONDS = 120
 
 
 def _path_for_wsl_command(path) -> str:
@@ -385,7 +403,15 @@ def _run_wsl(bash_cmd: str, timeout: int = 60) -> dict:
             "returncode": result.returncode,
         }
     except subprocess.TimeoutExpired:
-        return {"success": False, "output": f"Command timed out after {timeout}s", "returncode": -1}
+        return {
+            "success": False,
+            "output": f"Command timed out after {timeout}s",
+            "stdout": "",
+            "stderr": f"Command timed out after {timeout}s",
+            "returncode": -1,
+            "timed_out": True,
+            "timeout_seconds": timeout,
+        }
     except FileNotFoundError:
         return {"success": False, "output": "wsl.exe not found — WSL not available on this machine", "returncode": -1}
     except Exception as e:
@@ -757,15 +783,21 @@ def _compact_agent_closeout(
     raw = str(result.get("output") or "")
     agent_reported_failure = bool(re.search(r"(?im)^\s*NEEDS ATTENTION\s*$", raw))
     passed = bool(result.get("success")) and not agent_reported_failure
+    timed_out = bool(result.get("timed_out"))
+    timeout_seconds = result.get("timeout_seconds")
     token_usage, token_usage_text = _extract_token_usage(
         raw, str(result.get("stdout") or ""), str(result.get("stderr") or "")
     )
     values = {
         "Files touched": _field_from_output(raw, "Files touched") or "None reported",
-        "Validation": _field_from_output(raw, "Validation") or ("Agent command completed" if passed else "Agent command failed"),
+        "Validation": _field_from_output(raw, "Validation") or (
+            f"Agent command timed out after {timeout_seconds}s" if timed_out else ("Agent command completed" if passed else "Agent command failed")
+        ),
         "Connector access": _field_from_output(raw, "Connector access") or "No connector action reported",
         "Token usage": _token_usage_detail(token_usage_text),
-        "Blockers": _field_from_output(raw, "Blockers") or ("None" if passed else "See local agent logs"),
+        "Blockers": _field_from_output(raw, "Blockers") or (
+            f"Timeout after {timeout_seconds}s during local agent run" if timed_out else ("None" if passed else "See local agent logs")
+        ),
         "Next action": _field_from_output(raw, "Next action") or ("None" if passed else "Review the local agent failure"),
     }
     output = "\n".join(_compact_closeout_lines("PASS" if passed else "NEEDS ATTENTION", values))
@@ -782,6 +814,8 @@ def _compact_agent_closeout(
         "returncode": result.get("returncode", -1),
         "token_usage": token_usage,
         "token_usage_text": token_usage_text,
+        "timed_out": timed_out,
+        "timeout_seconds": timeout_seconds,
         **metadata,
     }
 
@@ -1087,28 +1121,197 @@ def _queue_write_review_receipt(item_id: str, review_note: str) -> str:
     return _queue_write_receipt(item_id, "\n".join(lines))
 
 
-def _queue_receipt_artifact(relative_path: str) -> tuple[str, str]:
+def _queue_run_receipt_path(item_id: str) -> str:
+    safe_id = re.sub(r"[^A-Za-z0-9_-]+", "-", item_id).strip("-") or "receipt"
+    return (Path("queue") / "receipts" / f"{safe_id}.md").as_posix()
+
+
+def _queue_write_run_receipt(item_id: str, receipt_text: str) -> str:
+    text = receipt_text.strip()
+    if not text:
+        raise ValueError("receipt_text must not be empty")
+    receipt_path = _queue_run_receipt_path(item_id)
+    target = BASE_DIR / receipt_path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(text.rstrip() + "\n", encoding="utf-8")
+    return receipt_path
+
+
+def _queue_artifact_block_reason(path_text: str) -> str | None:
+    normalized = path_text.replace("\\", "/").lstrip("./")
+    if _QUEUE_ARTIFACT_SECRET_RE.search(normalized):
+        return "path is blocked because it looks like a secret or environment file"
+    if Path(normalized).suffix.lower() not in _QUEUE_ARTIFACT_EXTENSIONS:
+        return "only .md, .txt, .json, and .jsonl artifacts are readable"
+    if not any(normalized.startswith(prefix) for prefix in _QUEUE_ARTIFACT_ALLOWED_PREFIXES):
+        return "artifact path must stay under queue/receipts, results, workflows, packets, or logs"
+    return None
+
+
+def _queue_read_artifact(relative_path: str, *, receipt_only: bool = False) -> dict:
     path_text = str(relative_path or "").strip()
     if not path_text:
-        raise ValueError("receipt path is required")
+        raise ValueError("artifact path is required")
+    if Path(path_text).is_absolute():
+        raise ValueError("artifact path must be root-relative")
+
+    blocked = _queue_artifact_block_reason(path_text)
+    if blocked:
+        raise ValueError(blocked)
 
     try:
         target = resolve_root_relative(path_text, root=BASE_DIR)
-        receipts_dir = resolve_root_relative("queue/receipts", root=BASE_DIR)
     except AosPathError as exc:
         raise ValueError(str(exc)) from exc
+
     try:
-        target.relative_to(receipts_dir)
+        root_relative = target.relative_to(BASE_DIR.resolve()).as_posix()
     except ValueError as exc:
-        raise ValueError("receipt path must stay under queue/receipts") from exc
+        raise ValueError("artifact path must stay inside the workspace") from exc
+    blocked = _queue_artifact_block_reason(root_relative)
+    if blocked:
+        raise ValueError(blocked)
+
+    if receipt_only:
+        try:
+            target.relative_to(resolve_root_relative("queue/receipts", root=BASE_DIR))
+        except ValueError as exc:
+            raise ValueError("receipt path must stay under queue/receipts") from exc
+
     if target.name == ".gitkeep" or not target.is_file():
         raise FileNotFoundError(path_text)
-    root_relative = target.relative_to(BASE_DIR.resolve()).as_posix()
-    return root_relative, target.read_text(encoding="utf-8", errors="replace")
+    stat = target.stat()
+    if stat.st_size > _QUEUE_ARTIFACT_MAX_BYTES:
+        raise ValueError("artifact is too large to display in the dashboard")
+    return {
+        "path": root_relative,
+        "name": target.name,
+        "extension": target.suffix.lower(),
+        "size_bytes": stat.st_size,
+        "modified": datetime.datetime.fromtimestamp(stat.st_mtime, datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
+        "content": target.read_text(encoding="utf-8", errors="replace"),
+    }
+
+
+def _queue_receipt_artifact(relative_path: str) -> tuple[str, str]:
+    artifact = _queue_read_artifact(relative_path, receipt_only=True)
+    return artifact["path"], artifact["content"]
+
+
+def _queue_token_usage_lines(content: str) -> list[str]:
+    lines = content.splitlines()
+    token_lines: list[str] = []
+    capture = False
+    for line in lines:
+        stripped = line.strip()
+        if "token usage" in stripped.lower():
+            capture = True
+            token_lines.append(stripped)
+            continue
+        if capture:
+            if not stripped:
+                if token_lines:
+                    break
+                continue
+            if stripped.startswith("-") or stripped.lower().startswith(("attempt", "total", "input", "output", "cached", "unavailable")):
+                token_lines.append(stripped)
+                continue
+            break
+    return token_lines[:8]
+
+
+def _queue_artifact_candidates_from_text(text: str) -> list[str]:
+    candidates = []
+    for match in _QUEUE_ARTIFACT_PATH_RE.finditer(str(text or "")):
+        path = match.group("path").rstrip(").,;:]")
+        if not _queue_artifact_block_reason(path):
+            candidates.append(path)
+    return candidates
+
+
+def _queue_artifact_refs(item: dict, receipt_content: str = "") -> list[dict]:
+    raw_paths: list[str] = []
+    for field in ("sources", "source_refs", "results", "artifacts"):
+        value = item.get(field)
+        values = value if isinstance(value, list) else _queue_split_text(value)
+        raw_paths.extend(str(entry).strip() for entry in values if str(entry).strip())
+    for receipt in item.get("receipts") or []:
+        if isinstance(receipt, str):
+            raw_paths.append(receipt)
+        elif isinstance(receipt, dict):
+            raw_paths.append(str(receipt.get("path") or "").strip())
+    raw_paths.extend(_queue_artifact_candidates_from_text(receipt_content))
+
+    refs = []
+    seen = set()
+    for path in raw_paths:
+        path = path.strip().strip("`'\"")
+        if not path or path in seen:
+            continue
+        seen.add(path)
+        reason = _queue_artifact_block_reason(path)
+        ref = {"path": path}
+        if reason:
+            ref.update({"available": False, "reason": reason})
+        else:
+            try:
+                artifact = _queue_read_artifact(path)
+                ref.update({
+                    "available": True,
+                    "name": artifact["name"],
+                    "extension": artifact["extension"],
+                    "size_bytes": artifact["size_bytes"],
+                    "modified": artifact["modified"],
+                })
+            except FileNotFoundError:
+                ref.update({"available": False, "reason": "file is listed but missing"})
+            except ValueError as exc:
+                ref.update({"available": False, "reason": str(exc)})
+            except OSError as exc:
+                ref.update({"available": False, "reason": f"file is listed but could not be read: {exc}"})
+        refs.append(ref)
+    return refs
+
+
+def _queue_latest_receipt(item: dict) -> dict | None:
+    receipts = item.get("receipts") or []
+    if not receipts:
+        return None
+    latest = receipts[-1]
+    if isinstance(latest, str):
+        latest = {"path": latest}
+    if not isinstance(latest, dict):
+        return None
+
+    path = str(latest.get("path") or "").strip()
+    summary = ""
+    content = ""
+    metadata = {}
+    if path:
+        try:
+            artifact = _queue_read_artifact(path, receipt_only=True)
+            content = artifact["content"]
+            metadata = {key: artifact[key] for key in ("name", "extension", "size_bytes", "modified")}
+            lines = [line.strip() for line in content.splitlines() if line.strip()]
+            summary = "\n".join(lines[:8])
+        except (FileNotFoundError, ValueError, OSError):
+            summary = "Receipt file is listed but could not be read from queue/receipts."
+
+    return {
+        "path": path,
+        "status": latest.get("status") or item.get("status", ""),
+        "created_at": latest.get("created_at"),
+        "available": bool(content),
+        "content": content,
+        "token_usage_lines": _queue_token_usage_lines(content) if content else [],
+        **metadata,
+        "summary": _bounded_hermes_answer(summary or "Receipt summary unavailable.", 900),
+    }
 
 
 def _queue_detail_item(item: dict) -> dict:
     public = _queue_public_item(item)
+    latest_receipt = _queue_latest_receipt(item)
     public.update({
         "requested_by": item.get("requested_by", ""),
         "owner_type": item.get("owner_type", ""),
@@ -1123,6 +1326,8 @@ def _queue_detail_item(item: dict) -> dict:
         "next_action": item.get("next_action", ""),
         "claim": item.get("claim") or {"claimed_by": None, "claimed_at": None},
         "receipts": item.get("receipts") or [],
+        "latest_receipt": latest_receipt,
+        "run_artifacts": _queue_artifact_refs(item, latest_receipt.get("content", "") if latest_receipt else ""),
     })
     return public
 
@@ -1354,6 +1559,23 @@ def queue_receipt(path: str):
     return {"success": True, "path": receipt_path, "content": content}
 
 
+@app.get("/api/queue/artifact")
+def queue_artifact(path: str):
+    """Read one safe local queue artifact without mutating queue state."""
+    try:
+        artifact = _queue_read_artifact(path)
+    except FileNotFoundError:
+        return {"success": False, "available": False, "path": str(path or ""), "reason": "artifact not found"}
+    except ValueError as exc:
+        return {"success": False, "available": False, "path": str(path or ""), "reason": str(exc)}
+    return {
+        "success": True,
+        "available": True,
+        **artifact,
+        "token_usage_lines": _queue_token_usage_lines(artifact["content"]),
+    }
+
+
 def _queue_render_list(values: object) -> str:
     items = values if isinstance(values, list) else _queue_split_text(values)
     clean = [str(item).strip() for item in items if str(item).strip()]
@@ -1472,6 +1694,322 @@ def queue_item_prompt(item_id: str, target: str):
     except OSError as exc:
         return {"success": False, "message": "Queue unavailable", "reason": f"Prompt template unavailable: {exc}", "prompt": ""}
     return {"success": True, "target": normalized, "item_id": item_id, "prompt": prompt}
+
+
+def _queue_required_receipt_shape() -> str:
+    return "\n".join((
+        "PASS/NEEDS ATTENTION",
+        "",
+        "Files touched:",
+        "- ...",
+        "",
+        "Validation:",
+        "- ...",
+        "",
+        "Blockers:",
+        "- ...",
+        "",
+        "Next action:",
+        "- ...",
+    ))
+
+
+def _queue_actual_department_run_prompt(
+    item: dict,
+    owner: str,
+    attempt: int,
+    revision_instructions: str | None = None,
+) -> str:
+    lines = [
+        "Run this Agentic OS department queue item locally and return only the required receipt.",
+        "",
+        "Work item essentials:",
+        f"- ID: {item.get('id', '')}",
+        f"- Title: {item.get('title', '')}",
+        f"- Owner: {owner}",
+        f"- Current attempt: {attempt}/2",
+        "",
+        "Context:",
+        str(item.get("context") or "No additional context provided.").strip(),
+        "",
+        "Sources:",
+        _queue_render_list(item.get("sources") or []),
+        "",
+        "Allowed actions:",
+        _queue_render_list(item.get("allowed_actions") or []),
+        "",
+        "Stop conditions:",
+        _queue_render_list(item.get("stop_conditions") or []),
+        "",
+        "Definition of done:",
+        str(item.get("definition_of_done") or "Complete or route the scoped queue item and return the required closeout.").strip(),
+        "",
+        "Required artifact/receipt shape:",
+        _queue_required_receipt_shape(),
+    ]
+    if revision_instructions:
+        lines.extend((
+            "",
+            "Hermes revision instructions:",
+            revision_instructions.strip(),
+            "Revise only what is needed to satisfy the queue item, stop conditions, and definition of done.",
+        ))
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _queue_actual_run_prompt(
+    item: dict,
+    owner: str,
+    revision_instructions: str | None = None,
+    attempt: int = 1,
+) -> str:
+    if owner in DEPARTMENT_PROMPT_TARGETS:
+        return _queue_actual_department_run_prompt(item, owner, attempt, revision_instructions)
+    prompt = _queue_render_prompt(item, owner)
+    for marker in ("## Launch from PowerShell", "## Manual Launch", "## Manual launch"):
+        if marker in prompt:
+            prompt = prompt.split(marker, 1)[0].rstrip()
+    prompt = "\n\n".join((
+        prompt.rstrip(),
+        f"Current attempt: {attempt}/2",
+        "Required artifact/receipt shape:",
+        _queue_required_receipt_shape(),
+    ))
+    if revision_instructions:
+        prompt = "\n\n".join((
+            prompt.rstrip(),
+            "## Hermes Revision Instructions",
+            revision_instructions.strip(),
+            "Revise only what is needed to satisfy the queue item, stop conditions, and definition of done.",
+        ))
+    return prompt.rstrip() + "\n"
+
+
+def _queue_worker_owner(item: dict) -> str:
+    owner = str(item.get("owner") or "unassigned").strip().lower()
+    if owner in {"codex", "claude", "hermes", "revenue", "marketing", "delivery", "operations"}:
+        return owner
+    return "unassigned"
+
+
+def _queue_run_worker(owner: str, prompt: str) -> dict:
+    safe_prompt = prompt.replace("'", "'\\''")
+    metadata = {
+        "requested_target": owner,
+        "selected_route": "queue_worker",
+        "delegation_reason": "assigned queue worker",
+        "codex_forbidden": "no",
+        "timeout_seconds": QUEUE_WORKER_TIMEOUT_SECONDS,
+    }
+    if owner == "codex":
+        command = f"aos-codex '{safe_prompt}'"
+        result = _run_wsl(command, timeout=QUEUE_WORKER_TIMEOUT_SECONDS)
+        return _compact_agent_closeout(result, "codex", "codex", prompt, metadata)
+    if owner == "claude":
+        command = f"aos-hermes claude '{safe_prompt}'"
+        result = _run_wsl(command, timeout=QUEUE_WORKER_TIMEOUT_SECONDS)
+        return _compact_agent_closeout(result, "claude", "claude", prompt, metadata)
+    command = f"{shlex.quote(_path_for_wsl_command(HERMES_COORDINATOR))} '{safe_prompt}'"
+    result = _run_wsl(command, timeout=QUEUE_WORKER_TIMEOUT_SECONDS)
+    agent = owner if owner in DEPARTMENT_PROMPT_TARGETS else "hermes"
+    return _compact_agent_closeout(result, agent, agent, prompt, metadata)
+
+
+def _queue_hermes_review_prompt(item: dict, owner: str, attempt: int, worker_result: dict) -> str:
+    return "\n".join((
+        "Review this Agentic OS queue worker result.",
+        "",
+        "Return exactly one review decision:",
+        "PASS",
+        "or",
+        "REVISE: <specific revision instructions>",
+        "",
+        "Check:",
+        "- Did it satisfy the queue item title/context?",
+        "- Did it respect stop conditions?",
+        "- Did it produce the required output/definition of done?",
+        "- Is it good enough to return to Liam?",
+        "",
+        "Queue item:",
+        f"- ID: {item.get('id', '')}",
+        f"- Title: {item.get('title', '')}",
+        f"- Assigned worker: {owner}",
+        f"- Context: {item.get('context') or 'None'}",
+        f"- Definition of done: {item.get('definition_of_done') or 'Complete the scoped queue item and return the required closeout.'}",
+        "Stop conditions:",
+        _queue_render_list(item.get("stop_conditions") or []),
+        "",
+        f"Worker attempt {attempt} result:",
+        _bounded_hermes_answer(str(worker_result.get("output") or worker_result.get("stdout") or ""), 2500),
+    ))
+
+
+def _queue_run_hermes_review(item: dict, owner: str, attempt: int, worker_result: dict) -> dict:
+    prompt = _queue_hermes_review_prompt(item, owner, attempt, worker_result)
+    safe_prompt = prompt.replace("'", "'\\''")
+    command = f"{shlex.quote(_path_for_wsl_command(HERMES_COORDINATOR))} '{safe_prompt}'"
+    result = _run_wsl(command, timeout=QUEUE_HERMES_REVIEW_TIMEOUT_SECONDS)
+    token_usage, token_usage_text = _extract_token_usage(
+        str(result.get("output") or ""), str(result.get("stdout") or ""), str(result.get("stderr") or "")
+    )
+    return {
+        "success": bool(result.get("success")),
+        "output": result.get("output") or result.get("stdout") or result.get("stderr") or "",
+        "stdout": result.get("stdout", ""),
+        "stderr": result.get("stderr", ""),
+        "returncode": result.get("returncode", -1),
+        "token_usage": token_usage,
+        "token_usage_text": token_usage_text,
+    }
+
+
+def _queue_parse_review(review_result: dict) -> tuple[str, str]:
+    output = str(review_result.get("output") or review_result.get("stdout") or "")
+    pass_match = re.search(r"(?im)^\s*PASS\s*$", output)
+    revise_match = re.search(r"(?im)^\s*REVISE\s*:?\s*(.*)$", output)
+    if pass_match and (not revise_match or pass_match.start() < revise_match.start()):
+        return "PASS", "PASS"
+    if revise_match:
+        instructions = revise_match.group(1).strip()
+        if not instructions:
+            after = output[revise_match.end():].strip()
+            instructions = after.splitlines()[0].strip() if after else "Revise to satisfy the queue item and definition of done."
+        return "REVISE", instructions[:1000]
+    if review_result.get("success") and output.strip().upper().startswith("PASS"):
+        return "PASS", "PASS"
+    return "REVISE", "Hermes review did not return PASS. Review the worker result and provide a corrected closeout."
+
+
+def _queue_result_summary(result: dict, limit: int = 900) -> str:
+    text = str(result.get("output") or result.get("stdout") or result.get("stderr") or "").strip()
+    if not text:
+        text = "(no worker output)"
+    return _bounded_hermes_answer(text, limit)
+
+
+def _queue_result_field(result: dict, label: str, default: str = "None reported") -> str:
+    raw = str(result.get("output") or "")
+    return _field_from_output(raw, label) or default
+
+
+def _queue_run_receipt_text(
+    status_label: str,
+    item: dict,
+    owner: str,
+    attempts: list[dict],
+    final_review: dict,
+    final_status: str,
+    reason: str,
+) -> str:
+    last_worker = attempts[-1]["worker_result"] if attempts else {}
+    token_lines = []
+    for attempt in attempts:
+        worker_token = attempt["worker_result"].get("token_usage_text") or "Token usage: unavailable from current CLI output"
+        review_token = attempt["review_result"].get("token_usage_text") or "Token usage: unavailable from current CLI output"
+        token_lines.append(f"- Attempt {attempt['attempt']} worker: {_token_usage_detail(worker_token)}")
+        token_lines.append(f"- Attempt {attempt['attempt']} Hermes review: {_token_usage_detail(review_token)}")
+    if not token_lines:
+        token_lines.append("- unavailable/no agent invocation")
+
+    lines = [
+        status_label,
+        "",
+        f"Work item ID: {item.get('id', '')}",
+        f"Assigned worker: {owner}",
+        f"Attempts used: {len(attempts)}",
+        f"Hermes review result: {final_review.get('decision', 'REVISE')}",
+        "",
+        "Worker result summary:",
+        _queue_result_summary(last_worker),
+        "",
+        "Files touched:",
+        f"- {_queue_result_field(last_worker, 'Files touched')}",
+        "",
+        "Validation:",
+        f"- {_queue_result_field(last_worker, 'Validation')}",
+        "",
+        "Blockers:",
+        f"- {reason or _queue_result_field(last_worker, 'Blockers')}",
+        "",
+        "Next action:",
+        "- Liam review in dashboard." if final_status == "human_review" else "- Liam input needed before another worker run.",
+        "",
+        "Token usage:",
+        *token_lines,
+    ]
+    return "\n".join(lines)
+
+
+@app.post("/api/queue/items/{item_id}/run")
+def run_queue_item(item_id: str):
+    """Run one selected queue item through its assigned worker, then Hermes review."""
+    try:
+        item = _queue_find_item(item_id)
+        owner = _queue_worker_owner(item)
+        started = _load_queue_tool().update_status(BASE_DIR, item_id, "agent_working")
+        attempts = []
+        revision_instructions = None
+        final_review = {"decision": "REVISE", "instructions": "No review completed."}
+        final_status = "needs_input"
+        reason = "Hermes did not pass the worker result."
+
+        for attempt_number in (1, 2):
+            run_item = _queue_find_item(item_id)
+            prompt = _queue_actual_run_prompt(run_item, owner if owner != "unassigned" else "hermes", revision_instructions, attempt_number)
+            worker_result = _queue_run_worker(owner, prompt)
+            review_result = _queue_run_hermes_review(run_item, owner, attempt_number, worker_result)
+            decision, review_text = _queue_parse_review(review_result)
+            final_review = {
+                "decision": decision,
+                "instructions": review_text if decision == "REVISE" else "",
+                "output": review_result.get("output", ""),
+            }
+            attempts.append({
+                "attempt": attempt_number,
+                "worker": owner,
+                "worker_result": worker_result,
+                "review_result": review_result,
+                "review": final_review,
+            })
+            if decision == "PASS":
+                final_status = "human_review"
+                reason = "None"
+                break
+            revision_instructions = review_text
+
+        if final_status != "human_review":
+            reason = final_review.get("instructions") or "Hermes requested revision after 2 attempts."
+
+        receipt_text = _queue_run_receipt_text(
+            "PASS" if final_status == "human_review" else "NEEDS ATTENTION",
+            item,
+            owner,
+            attempts,
+            final_review,
+            final_status,
+            reason,
+        )
+        receipt_path = _queue_write_run_receipt(item_id, receipt_text)
+        updated = _load_queue_tool().attach_receipt(BASE_DIR, item_id, receipt_path, final_status)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="queue item not found")
+    except (ValueError, OSError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    return {
+        "ok": True,
+        "success": final_status == "human_review",
+        "item_id": item_id,
+        "assigned_worker": owner,
+        "attempts_used": len(attempts),
+        "status": updated.get("status"),
+        "started_status": started.get("status"),
+        "receipt_path": receipt_path,
+        "hermes_review": final_review,
+        "worker_result": attempts[-1]["worker_result"] if attempts else {},
+        "attempts": attempts,
+        "item": _queue_detail_item(updated),
+    }
 
 
 def _queue_list_closeout(status: str | None = None) -> dict:
