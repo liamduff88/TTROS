@@ -22,7 +22,7 @@ import {
   Terminal,
   Wrench,
 } from 'lucide-react'
-import { getHealth, wslStatus } from '../api'
+import { getHealth, getQueueSummary, wslStatus } from '../api'
 
 const formatCount = value => Number(value || 0).toLocaleString()
 const TOKEN_UNAVAILABLE_TEXT = 'Token usage: unavailable from current CLI output'
@@ -75,8 +75,8 @@ const LaunchTile = ({ title, description, icon: Icon, action, tone = 'ready', on
   )
 }
 
-const SummaryCard = ({ label, value, sub, icon: Icon, accent = 'text-stone' }) => (
-  <div className="rounded-lg border border-softgraph bg-graphite p-4">
+const SummaryCard = ({ label, value, sub, icon: Icon, accent = 'text-stone', className = '' }) => (
+  <div className={`rounded-lg border border-softgraph bg-graphite p-4 ${className}`}>
     <div className="mb-3 flex items-start justify-between gap-3">
       <span className="text-xs font-medium uppercase tracking-wider text-taupe">{label}</span>
       <Icon size={14} className={accent} />
@@ -142,13 +142,76 @@ const QuickLink = ({ label, sub, icon: Icon, onClick }) => (
   </button>
 )
 
+const QueueOverviewCard = ({ state = {} }) => {
+  const data = state.data || {}
+  const topItem = data.topActiveItem || data.nextItem
+  const hasError = state.status === 'error' || data.success === false
+  const tokenNote = data.token_usage || 'no agent invocation'
+
+  return (
+    <div className="rounded-lg border border-softgraph bg-graphite p-4">
+      <div className="mb-3 flex items-center gap-2">
+        <ListChecks size={14} className="text-champagne" />
+        <div>
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-taupe">Queue Visibility</h2>
+          <div className="mt-0.5 text-[11px] font-mono text-taupe">Local status only; no agent launched.</div>
+        </div>
+      </div>
+
+      {state.status === 'loading' ? (
+        <div className="rounded border border-softgraph bg-ink px-4 py-5 text-center text-xs font-mono text-taupe">
+          Loading local queue.
+        </div>
+      ) : hasError ? (
+        <div className="rounded border border-clay/40 bg-clay/10 px-4 py-5 text-center text-xs font-mono text-stone">
+          Queue unavailable.
+        </div>
+      ) : (
+        <>
+          <div className="text-sm font-medium text-ivory">{data.nextAction || 'Add a queue item or continue normal Hermes work.'}</div>
+          <div className="mt-4 grid grid-cols-3 gap-3 text-xs font-mono">
+            <div>
+              <div className="text-taupe">Active</div>
+              <div className="text-stone">{formatCount(data.activeCount)}</div>
+            </div>
+            <div>
+              <div className="text-taupe">Review</div>
+              <div className="text-stone">{formatCount(data.needsReviewCount ?? ((data.counts?.needs_input || 0) + (data.counts?.human_review || 0)))}</div>
+            </div>
+            <div>
+              <div className="text-taupe">Blocked</div>
+              <div className="text-stone">{formatCount(data.blockedCount ?? data.counts?.blocked)}</div>
+            </div>
+          </div>
+          <div className="mt-4 rounded border border-softgraph bg-ink p-3 text-xs">
+            <div className="font-mono uppercase tracking-wider text-taupe">Top active item</div>
+            {topItem ? (
+              <div className="mt-2 space-y-1">
+                <div className="font-semibold text-ivory">{topItem.id} | {topItem.title || 'Untitled queue item'}</div>
+                <div className="font-mono text-taupe">
+                  {topItem.owner || 'unassigned'} | {String(topItem.status || '').replace(/_/g, ' ')}
+                </div>
+              </div>
+            ) : (
+              <div className="mt-2 font-mono text-taupe">No active queue items.</div>
+            )}
+          </div>
+          <div className="mt-3 text-xs font-mono text-taupe">Token usage: {tokenNote}</div>
+        </>
+      )}
+    </div>
+  )
+}
+
 export default function Overview({ overview, onNavigate, onRefresh }) {
   const [backendState, setBackendState] = useState({ status: 'loading', data: null, error: null })
   const [wslState, setWslState] = useState({ status: 'loading', data: null, error: null })
+  const [queueState, setQueueState] = useState({ status: 'loading', data: null, error: null })
 
   const refreshStatus = () => {
     setBackendState(current => ({ ...current, status: 'loading', error: null }))
     setWslState(current => ({ ...current, status: 'loading', error: null }))
+    setQueueState(current => ({ ...current, status: 'loading', error: null }))
 
     getHealth()
       .then(data => setBackendState({ status: 'ready', data, error: null }))
@@ -157,6 +220,10 @@ export default function Overview({ overview, onNavigate, onRefresh }) {
     wslStatus()
       .then(data => setWslState({ status: data?.success ? 'ready' : 'error', data, error: null }))
       .catch(error => setWslState({ status: 'error', data: null, error }))
+
+    getQueueSummary()
+      .then(data => setQueueState({ status: data?.success === false ? 'error' : 'ready', data, error: null }))
+      .catch(error => setQueueState({ status: 'error', data: null, error }))
   }
 
   useEffect(() => {
@@ -164,19 +231,21 @@ export default function Overview({ overview, onNavigate, onRefresh }) {
     refreshStatus()
   }, [])
 
-  const tokenUsage = overview?.tokenUsage
-  const recentActivity = tokenUsage?.recent_activity || overview?.recent_activity || []
+  const safeOverview = overview || {}
+  const tokenUsage = safeOverview.tokenUsage
+  const recentActivitySource = tokenUsage?.recent_activity || safeOverview.recent_activity
+  const recentActivity = Array.isArray(recentActivitySource) ? recentActivitySource : []
   const lastTokenText = cleanTokenText(tokenUsage?.last_task_token_usage_text)
   const lastRoute = tokenUsage?.last_task_route || 'No route recorded'
   const lastTimestamp = formatTimestamp(tokenUsage?.last_task_timestamp)
   const hasTokenData = Boolean(tokenUsage)
   const hasRecentActivity = recentActivity.length > 0
-  const packets = overview?.totalPackets
-  const logs = overview?.totalLogs
-  const results = overview?.totalResults
-  const estimatedValue = overview?.estimatedValue || 0
+  const packets = safeOverview.totalPackets ?? 0
+  const logs = safeOverview.totalLogs ?? 0
+  const results = safeOverview.totalResults ?? 0
+  const estimatedValue = safeOverview.estimatedValue || 0
   const overviewLoading = !overview
-  const overviewError = Boolean(overview?.error)
+  const overviewError = Boolean(safeOverview.error)
   const backendReady = backendState.status === 'ready'
   const wslReady = wslState.status === 'ready'
   const wslOutput = wslState.data?.output || wslState.error?.response?.data?.detail || wslState.error?.message
@@ -279,6 +348,32 @@ export default function Overview({ overview, onNavigate, onRefresh }) {
         </button>
       </div>
 
+      <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-6">
+        <SummaryCard label="Packets" value={packets} sub="saved locally" icon={FileText} accent="text-champagne" />
+        <SummaryCard label="Logs" value={logs} sub="available in logs/results" icon={ScrollText} />
+        <SummaryCard label="Results" value={results} sub="completed outputs" icon={FolderOpen} />
+        <SummaryCard
+          label="Estimated Value"
+          value={`$${formatCount(estimatedValue)}`}
+          sub="from tracker"
+          icon={Gauge}
+          accent={estimatedValue > 0 ? 'text-champagne' : 'text-taupe'}
+        />
+        <div className="sm:col-span-2 lg:col-span-2">
+          <QueueOverviewCard state={queueState} />
+        </div>
+      </section>
+
+      <section>
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-taupe">Cockpit Status</h2>
+          <ShieldCheck size={14} className="text-taupe" />
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          {statusCards.map(status => <StatusCard key={status.name} {...status} />)}
+        </div>
+      </section>
+
       <section className="grid gap-4 lg:grid-cols-3">
         <LaunchTile
           title="Launch Workbench"
@@ -303,29 +398,6 @@ export default function Overview({ overview, onNavigate, onRefresh }) {
           tone="unavailable"
           onClick={() => onNavigate?.('connectors')}
         />
-      </section>
-
-      <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <SummaryCard label="Packets" value={packets ?? '-'} sub="saved locally" icon={FileText} accent="text-champagne" />
-        <SummaryCard label="Logs" value={logs ?? '-'} sub="available in logs/results" icon={ScrollText} />
-        <SummaryCard label="Results" value={results ?? '-'} sub="completed outputs" icon={FolderOpen} />
-        <SummaryCard
-          label="Estimated Value"
-          value={`$${formatCount(estimatedValue)}`}
-          sub="from tracker"
-          icon={Gauge}
-          accent={estimatedValue > 0 ? 'text-champagne' : 'text-taupe'}
-        />
-      </section>
-
-      <section>
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-taupe">Cockpit Status</h2>
-          <ShieldCheck size={14} className="text-taupe" />
-        </div>
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-          {statusCards.map(status => <StatusCard key={status.name} {...status} />)}
-        </div>
       </section>
 
       <section className="grid gap-4 lg:grid-cols-5">
@@ -387,7 +459,7 @@ export default function Overview({ overview, onNavigate, onRefresh }) {
               <Wrench size={14} className="text-taupe" />
               <h2 className="text-xs font-semibold uppercase tracking-wider text-taupe">Quick Links</h2>
             </div>
-            <QuickLink label="Logs and results" sub={`${logs ?? '-'} logs, ${results ?? '-'} results`} icon={ScrollText} onClick={() => onNavigate?.('logs')} />
+            <QuickLink label="Logs and results" sub={`${logs} logs, ${results} results`} icon={ScrollText} onClick={() => onNavigate?.('logs')} />
             <QuickLink label="Queue" sub="Review active work items" icon={ListChecks} onClick={() => onNavigate?.('queue')} />
             <QuickLink label="Connector controls" sub="Open status and refresh controls" icon={Cable} onClick={() => onNavigate?.('connectors')} />
             <QuickLink label="Time and value" sub={`Current estimate $${formatCount(estimatedValue)}`} icon={Gauge} onClick={() => onNavigate?.('tracker')} />
