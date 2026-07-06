@@ -39,6 +39,18 @@ const cleanTokenText = value => {
   return value.replace(/^Token usage:\s*/i, 'Token usage: ')
 }
 
+const hasKnownPeriodTotal = (tokenUsage, key) => {
+  if (!tokenUsage) return false
+  if (key === 'known_tokens_today') return Boolean(tokenUsage.has_known_tokens_today)
+  if (key === 'known_tokens_this_week') return Boolean(tokenUsage.has_known_tokens_this_week)
+  if (key === 'known_tokens_this_month') return Boolean(tokenUsage.has_known_tokens_this_month)
+  return false
+}
+
+const formatTokenTotal = (tokenUsage, key) => (
+  hasKnownPeriodTotal(tokenUsage, key) ? formatCount(tokenUsage?.[key]) : 'Unavailable'
+)
+
 const compactStatusDetail = value => {
   const text = String(value || '').replace(/\s+/g, ' ').trim()
   if (!text) return ''
@@ -203,6 +215,46 @@ const QueueOverviewCard = ({ state = {} }) => {
   )
 }
 
+const TokenStatusCard = ({ loading, error, tokenUsage, lastTokenText, lastRoute, lastTimestamp }) => (
+  <div className="rounded-lg border border-softgraph bg-graphite p-4">
+    <div className="mb-3 flex items-center gap-2">
+      <Gauge size={14} className="text-champagne" />
+      <h2 className="text-xs font-semibold uppercase tracking-wider text-taupe">Token Burn</h2>
+    </div>
+    {loading ? (
+      <div className="rounded border border-softgraph bg-ink px-4 py-5 text-center text-xs font-mono text-taupe">
+        Loading token status from overview.
+      </div>
+    ) : error || !tokenUsage ? (
+      <div className="rounded border border-softgraph bg-ink px-4 py-5 text-center text-xs font-mono text-taupe">
+        {TOKEN_UNAVAILABLE_TEXT}
+      </div>
+    ) : (
+      <>
+        <div className="text-base font-mono text-ivory">{lastTokenText}</div>
+        <div className="mt-3 grid grid-cols-3 gap-3 text-xs font-mono">
+          <div>
+            <div className="text-taupe">Today</div>
+            <div className="text-stone">{formatTokenTotal(tokenUsage, 'known_tokens_today')}</div>
+          </div>
+          <div>
+            <div className="text-taupe">Week</div>
+            <div className="text-stone">{formatTokenTotal(tokenUsage, 'known_tokens_this_week')}</div>
+          </div>
+          <div>
+            <div className="text-taupe">Month</div>
+            <div className="text-stone">{formatTokenTotal(tokenUsage, 'known_tokens_this_month')}</div>
+          </div>
+        </div>
+        <div className="mt-3 space-y-1 text-xs font-mono text-taupe">
+          <div>Route: <span className="text-stone">{lastRoute}</span></div>
+          <div>Updated: <span className="text-stone">{lastTimestamp}</span></div>
+        </div>
+      </>
+    )}
+  </div>
+)
+
 export default function Overview({ overview, onNavigate, onRefresh }) {
   const [backendState, setBackendState] = useState({ status: 'loading', data: null, error: null })
   const [wslState, setWslState] = useState({ status: 'loading', data: null, error: null })
@@ -238,7 +290,6 @@ export default function Overview({ overview, onNavigate, onRefresh }) {
   const lastTokenText = cleanTokenText(tokenUsage?.last_task_token_usage_text)
   const lastRoute = tokenUsage?.last_task_route || 'No route recorded'
   const lastTimestamp = formatTimestamp(tokenUsage?.last_task_timestamp)
-  const hasTokenData = Boolean(tokenUsage)
   const hasRecentActivity = recentActivity.length > 0
   const packets = safeOverview.totalPackets ?? 0
   const logs = safeOverview.totalLogs ?? 0
@@ -349,6 +400,19 @@ export default function Overview({ overview, onNavigate, onRefresh }) {
       </div>
 
       <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-6">
+        <div className="sm:col-span-2 lg:col-span-3">
+          <TokenStatusCard
+            loading={overviewLoading}
+            error={overviewError}
+            tokenUsage={tokenUsage}
+            lastTokenText={lastTokenText}
+            lastRoute={lastRoute}
+            lastTimestamp={lastTimestamp}
+          />
+        </div>
+        <div className="sm:col-span-2 lg:col-span-2">
+          <QueueOverviewCard state={queueState} />
+        </div>
         <SummaryCard label="Packets" value={packets} sub="saved locally" icon={FileText} accent="text-champagne" />
         <SummaryCard label="Logs" value={logs} sub="available in logs/results" icon={ScrollText} />
         <SummaryCard label="Results" value={results} sub="completed outputs" icon={FolderOpen} />
@@ -359,9 +423,6 @@ export default function Overview({ overview, onNavigate, onRefresh }) {
           icon={Gauge}
           accent={estimatedValue > 0 ? 'text-champagne' : 'text-taupe'}
         />
-        <div className="sm:col-span-2 lg:col-span-2">
-          <QueueOverviewCard state={queueState} />
-        </div>
       </section>
 
       <section>
@@ -412,48 +473,6 @@ export default function Overview({ overview, onNavigate, onRefresh }) {
         </div>
 
         <div className="space-y-4 lg:col-span-2">
-          <div className="rounded-lg border border-softgraph bg-graphite p-5">
-            <div className="mb-3 flex items-center gap-2">
-              <Gauge size={14} className="text-champagne" />
-              <h2 className="text-xs font-semibold uppercase tracking-wider text-taupe">Token Status</h2>
-            </div>
-            {overviewLoading ? (
-              <div className="rounded border border-softgraph bg-ink px-4 py-5 text-center text-xs font-mono text-taupe">
-                Loading token status from overview.
-              </div>
-            ) : overviewError ? (
-              <div className="rounded border border-clay/40 bg-clay/10 px-4 py-5 text-center text-xs font-mono text-stone">
-                Token usage: unavailable from current CLI output
-              </div>
-            ) : hasTokenData ? (
-              <>
-                <div className="text-lg font-mono text-ivory">{lastTokenText}</div>
-                <div className="mt-3 grid grid-cols-3 gap-3 text-xs font-mono">
-                  <div>
-                    <div className="text-taupe">Today</div>
-                    <div className="text-stone">{formatCount(tokenUsage?.known_tokens_today)}</div>
-                  </div>
-                  <div>
-                    <div className="text-taupe">Week</div>
-                    <div className="text-stone">{formatCount(tokenUsage?.known_tokens_this_week)}</div>
-                  </div>
-                  <div>
-                    <div className="text-taupe">Month</div>
-                    <div className="text-stone">{formatCount(tokenUsage?.known_tokens_this_month)}</div>
-                  </div>
-                </div>
-                <div className="mt-3 space-y-1 text-xs font-mono text-taupe">
-                  <div>Route: <span className="text-stone">{lastRoute}</span></div>
-                  <div>Updated: <span className="text-stone">{lastTimestamp}</span></div>
-                </div>
-              </>
-            ) : (
-              <div className="rounded border border-softgraph bg-ink px-4 py-5 text-center text-xs font-mono text-taupe">
-                Token usage: unavailable from current CLI output
-              </div>
-            )}
-          </div>
-
           <div className="rounded-lg border border-softgraph bg-graphite p-5">
             <div className="mb-1 flex items-center gap-2">
               <Wrench size={14} className="text-taupe" />

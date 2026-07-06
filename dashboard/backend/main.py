@@ -516,6 +516,21 @@ def _extract_token_usage(*outputs: str) -> tuple[dict, str]:
     return {"available": True, **ordered_fields}, f"Token usage: {summary}"
 
 
+def _token_usage_detail(token_usage_text: str) -> str:
+    detail = str(token_usage_text or "").removeprefix("Token usage:").strip()
+    return detail or "unavailable from current CLI output"
+
+
+def _compact_closeout_lines(status: str, values: dict[str, str]) -> list[str]:
+    lines = [status]
+    for key in _CLOSEOUT_FIELDS:
+        if key == "Token usage":
+            lines.extend(("Token usage:", f"- {values[key]}"))
+        else:
+            lines.append(f"{key}: {values[key]}")
+    return lines
+
+
 def _parse_record_timestamp(value: object) -> datetime.datetime | None:
     try:
         parsed = datetime.datetime.fromisoformat(str(value).replace("Z", "+00:00"))
@@ -586,6 +601,7 @@ def _token_usage_rollup(records: list[dict] | None = None, now: datetime.datetim
     week_start = today - datetime.timedelta(days=today.weekday())
     month_start = today.replace(day=1)
     totals = {"today": 0, "week": 0, "month": 0, "all_time": 0}
+    known_total_records = {"today": 0, "week": 0, "month": 0, "all_time": 0}
     unavailable_today = 0
     no_agent_today = 0
     dated_records = []
@@ -603,12 +619,16 @@ def _token_usage_rollup(records: list[dict] | None = None, now: datetime.datetim
         if total is None:
             continue
         totals["all_time"] += total
+        known_total_records["all_time"] += 1
         if local_date is not None and month_start <= local_date <= today:
             totals["month"] += total
+            known_total_records["month"] += 1
         if local_date is not None and week_start <= local_date <= today:
             totals["week"] += total
+            known_total_records["week"] += 1
         if local_date == today:
             totals["today"] += total
+            known_total_records["today"] += 1
 
     dated_records.sort(key=lambda item: (item[0] or datetime.datetime.min.replace(tzinfo=datetime.timezone.utc), item[1]), reverse=True)
     task_records = [item for item in dated_records if not (item[2].get("no_agent_invocation") or (item[2].get("token_usage") or {}).get("no_agent_invocation"))]
@@ -634,6 +654,10 @@ def _token_usage_rollup(records: list[dict] | None = None, now: datetime.datetim
         "known_tokens_this_week": totals["week"],
         "known_tokens_this_month": totals["month"],
         "known_tokens_all_time": totals["all_time"],
+        "known_token_record_counts": known_total_records,
+        "has_known_tokens_today": known_total_records["today"] > 0,
+        "has_known_tokens_this_week": known_total_records["week"] > 0,
+        "has_known_tokens_this_month": known_total_records["month"] > 0,
         "unavailable_count_today": unavailable_today,
         "no_agent_invocation_count_today": no_agent_today,
         "recent_activity": recent_activity,
@@ -689,11 +713,11 @@ def _compact_agent_closeout(
         "Files touched": _field_from_output(raw, "Files touched") or "None reported",
         "Validation": _field_from_output(raw, "Validation") or ("Agent command completed" if passed else "Agent command failed"),
         "Connector access": _field_from_output(raw, "Connector access") or "No connector action reported",
-        "Token usage": token_usage_text.removeprefix("Token usage: "),
+        "Token usage": _token_usage_detail(token_usage_text),
         "Blockers": _field_from_output(raw, "Blockers") or ("None" if passed else "See local agent logs"),
         "Next action": _field_from_output(raw, "Next action") or ("None" if passed else "Review the local agent failure"),
     }
-    output = "\n".join(["PASS" if passed else "NEEDS ATTENTION"] + [f"{key}: {values[key]}" for key in _CLOSEOUT_FIELDS])
+    output = "\n".join(_compact_closeout_lines("PASS" if passed else "NEEDS ATTENTION", values))
     metadata = route_metadata or {
         "requested_target": route,
         "selected_route": route,
