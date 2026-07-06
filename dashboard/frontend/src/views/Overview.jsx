@@ -26,6 +26,7 @@ import { getHealth, getQueueSummary, wslStatus } from '../api'
 
 const formatCount = value => Number(value || 0).toLocaleString()
 const TOKEN_UNAVAILABLE_TEXT = 'Token usage: unavailable from current CLI output'
+const TOKEN_NO_AGENT_TEXT = 'Token usage: no agent invocation'
 
 const formatTimestamp = value => {
   if (!value) return 'No timestamp'
@@ -38,6 +39,10 @@ const cleanTokenText = value => {
   if (/no task recorded/i.test(value)) return TOKEN_UNAVAILABLE_TEXT
   return value.replace(/^Token usage:\s*/i, 'Token usage: ')
 }
+
+const routeTokenText = (tokenUsage, route, fallback = TOKEN_UNAVAILABLE_TEXT) => (
+  cleanTokenText(tokenUsage?.by_route?.[route]?.token_usage_text || fallback)
+)
 
 const hasKnownPeriodTotal = (tokenUsage, key) => {
   if (!tokenUsage) return false
@@ -98,7 +103,7 @@ const SummaryCard = ({ label, value, sub, icon: Icon, accent = 'text-stone', cla
   </div>
 )
 
-const AgentCard = ({ name, role, state, stateLabel, detail, icon: Icon }) => {
+const AgentCard = ({ name, role, state, stateLabel, detail, tokenText, icon: Icon }) => {
   const sc = statusTone[state] || statusTone.unavailable
 
   return (
@@ -113,11 +118,12 @@ const AgentCard = ({ name, role, state, stateLabel, detail, icon: Icon }) => {
       <div className="text-xs text-taupe">{role}</div>
       <div className={`mt-3 text-[11px] font-mono uppercase tracking-wider ${sc.text}`}>{stateLabel}</div>
       <div className="mt-1 text-xs leading-snug text-taupe">{detail}</div>
+      <div className="mt-3 border-t border-softgraph pt-3 text-[11px] font-mono leading-snug text-stone">{tokenText}</div>
     </div>
   )
 }
 
-const StatusCard = ({ name, role, state, stateLabel, detail, icon: Icon }) => {
+const StatusCard = ({ name, role, state, stateLabel, detail, tokenText, icon: Icon }) => {
   const sc = statusTone[state] || statusTone.unavailable
   const StateIcon = state === 'loading' ? Loader2 : state === 'error' ? AlertCircle : state === 'ready' || state === 'local' ? CheckCircle2 : AlertCircle
 
@@ -133,6 +139,7 @@ const StatusCard = ({ name, role, state, stateLabel, detail, icon: Icon }) => {
       <div className="text-xs text-taupe">{role}</div>
       <div className={`mt-3 text-[11px] font-mono uppercase tracking-wider ${sc.text}`}>{stateLabel}</div>
       <div className="mt-1 text-xs leading-snug text-taupe">{detail}</div>
+      <div className="mt-3 border-t border-softgraph pt-3 text-[11px] font-mono leading-snug text-stone">{tokenText}</div>
     </div>
   )
 }
@@ -319,6 +326,7 @@ export default function Overview({ overview, onNavigate, onRefresh }) {
         : backendReady
           ? `API ${backendState.data?.version || 'online'} is responding.`
           : 'Overview data could not be refreshed from the backend.',
+      tokenText: cleanTokenText(backendState.data?.token_usage_text || TOKEN_NO_AGENT_TEXT),
       icon: Server,
     },
     {
@@ -331,6 +339,7 @@ export default function Overview({ overview, onNavigate, onRefresh }) {
         : wslReady
           ? 'AgenticOSClean responded through the clean WSL status route.'
           : compactStatusDetail(wslOutput || 'WSL status check failed.'),
+      tokenText: TOKEN_NO_AGENT_TEXT,
       icon: Terminal,
     },
     {
@@ -339,6 +348,7 @@ export default function Overview({ overview, onNavigate, onRefresh }) {
       state: routeState,
       stateLabel: routeLabel,
       detail: routeDetail,
+      tokenText: routeTokenText(tokenUsage, 'hermes'),
       icon: Sparkles,
     },
     {
@@ -347,6 +357,7 @@ export default function Overview({ overview, onNavigate, onRefresh }) {
       state: routeState,
       stateLabel: routeLabel,
       detail: routeDetail,
+      tokenText: routeTokenText(tokenUsage, 'codex'),
       icon: Code2,
     },
     {
@@ -355,9 +366,10 @@ export default function Overview({ overview, onNavigate, onRefresh }) {
       state: routeState,
       stateLabel: routeLabel,
       detail: routeDetail,
+      tokenText: routeTokenText(tokenUsage, 'claude'),
       icon: Bot,
     },
-  ], [backendReady, backendState, routeDetail, routeLabel, routeState, wslOutput, wslReady, wslState])
+  ], [backendReady, backendState, routeDetail, routeLabel, routeState, tokenUsage, wslOutput, wslReady, wslState])
 
   const agentCards = [
     {
@@ -366,6 +378,7 @@ export default function Overview({ overview, onNavigate, onRefresh }) {
       state: 'local',
       stateLabel: 'Active',
       detail: 'This cockpit keeps navigation and read-only local state in one place.',
+      tokenText: TOKEN_NO_AGENT_TEXT,
       icon: LayoutDashboard,
     },
     {
@@ -374,6 +387,7 @@ export default function Overview({ overview, onNavigate, onRefresh }) {
       state: 'unavailable',
       stateLabel: 'Open status route',
       detail: 'Status is checked in Connectors via existing backend routes only.',
+      tokenText: TOKEN_NO_AGENT_TEXT,
       icon: Cable,
     },
   ]

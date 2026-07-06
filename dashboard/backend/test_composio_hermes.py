@@ -636,6 +636,42 @@ class HermesComposioTests(unittest.TestCase):
         self.assertEqual(codex["selected_route"], "direct_codex")
         self.assertEqual(claude["selected_route"], "direct_claude")
 
+    def test_token_rollup_exposes_per_route_last_known_usage(self):
+        records = [
+            {
+                "timestamp": "2026-07-06T01:00:00Z",
+                "route": "codex",
+                "agent": "codex",
+                "token_usage_text": "Token usage: total 1,205",
+                "token_usage": {"available": True, "total_tokens": "1,205"},
+                "unavailable": False,
+            },
+            {
+                "timestamp": "2026-07-06T02:00:00Z",
+                "route": "claude",
+                "agent": "claude",
+                "token_usage_text": "Token usage: unavailable from current CLI output",
+                "token_usage": {"available": False},
+                "unavailable": True,
+            },
+            {
+                "timestamp": "2026-07-06T03:00:00Z",
+                "route": "hermes",
+                "agent": "hermes",
+                "token_usage_text": "Token usage: no agent invocation",
+                "token_usage": {"available": False, "no_agent_invocation": True},
+            },
+        ]
+        with patch.object(backend, "_read_claude_local_usage", return_value={"available": False}):
+            rollup = backend._token_usage_rollup(records=records)
+
+        self.assertEqual(rollup["by_route"]["codex"]["token_usage_text"], "Token usage: total 1,205")
+        self.assertEqual(rollup["by_route"]["codex"]["status"], "completed")
+        self.assertEqual(rollup["by_route"]["claude"]["token_usage_text"], "Token usage: unavailable from current CLI output")
+        self.assertEqual(rollup["by_route"]["claude"]["status"], "unavailable")
+        self.assertEqual(rollup["by_route"]["hermes"]["token_usage_text"], "Token usage: no agent invocation")
+        self.assertEqual(rollup["by_route"]["hermes"]["status"], "no agent invocation")
+
     def test_hermes_useful_answer_is_displayed_and_saved(self):
         useful = "Local plasterers found:\n- North Shore Microcement\n- Metro Finish"
         run_result = {

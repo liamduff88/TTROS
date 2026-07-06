@@ -591,6 +591,56 @@ def _read_claude_local_usage() -> dict:
     }
 
 
+def _record_no_agent_invocation(record: dict) -> bool:
+    return bool(record.get("no_agent_invocation") or (record.get("token_usage") or {}).get("no_agent_invocation"))
+
+
+def _record_unavailable(record: dict) -> bool:
+    return record.get("unavailable") is True or (record.get("token_usage") or {}).get("available") is False
+
+
+def _record_matches_token_route(record: dict, route: str) -> bool:
+    route = route.lower()
+    candidates = (
+        record.get("route"),
+        record.get("agent"),
+        record.get("selected_route"),
+        record.get("requested_target"),
+    )
+    for value in candidates:
+        text = str(value or "").lower()
+        if text == route or text.endswith(f"_{route}") or text.endswith(f"-{route}"):
+            return True
+    return False
+
+
+def _token_route_summary(record: dict) -> dict:
+    no_agent = _record_no_agent_invocation(record)
+    unavailable = _record_unavailable(record)
+    return {
+        "timestamp": record.get("timestamp"),
+        "route": record.get("route"),
+        "agent": record.get("agent"),
+        "status": "no agent invocation" if no_agent else "unavailable" if unavailable else "completed",
+        "token_usage_text": record.get("token_usage_text") or "Token usage: unavailable from current CLI output",
+        "token_usage": record.get("token_usage") or {"available": False},
+    }
+
+
+def _token_usage_by_route(dated_records: list[tuple[datetime.datetime | None, int, dict]]) -> dict:
+    by_route = {}
+    for route in ("hermes", "codex", "claude"):
+        matches = [item for item in dated_records if _record_matches_token_route(item[2], route)]
+        latest_known = next((record for _, _, record in matches if (record.get("token_usage") or {}).get("available") is True), None)
+        latest = latest_known or (matches[0][2] if matches else None)
+        by_route[route] = _token_route_summary(latest) if latest else {
+            "status": "no agent invocation",
+            "token_usage_text": "Token usage: no agent invocation",
+            "token_usage": {"available": False, "no_agent_invocation": True},
+        }
+    return by_route
+
+
 def _token_usage_rollup(records: list[dict] | None = None, now: datetime.datetime | None = None) -> dict:
     records = _read_token_usage_records() if records is None else records
     now = now or datetime.datetime.now().astimezone()
@@ -610,10 +660,10 @@ def _token_usage_rollup(records: list[dict] | None = None, now: datetime.datetim
         timestamp = _parse_record_timestamp(record.get("timestamp"))
         local_date = timestamp.astimezone(local_tz).date() if timestamp else None
         dated_records.append((timestamp, position, record))
-        no_agent = bool(record.get("no_agent_invocation") or (record.get("token_usage") or {}).get("no_agent_invocation"))
+        no_agent = _record_no_agent_invocation(record)
         if local_date == today:
             no_agent_today += int(no_agent)
-            unavailable = record.get("unavailable") is True or (record.get("token_usage") or {}).get("available") is False
+            unavailable = _record_unavailable(record)
             unavailable_today += int(not no_agent and unavailable)
         total = _known_total(record)
         if total is None:
@@ -635,8 +685,8 @@ def _token_usage_rollup(records: list[dict] | None = None, now: datetime.datetim
     latest = task_records[0][2] if task_records else {}
     recent_activity = []
     for _, _, record in dated_records[:10]:
-        no_agent = bool(record.get("no_agent_invocation") or (record.get("token_usage") or {}).get("no_agent_invocation"))
-        unavailable = record.get("unavailable") is True or (record.get("token_usage") or {}).get("available") is False
+        no_agent = _record_no_agent_invocation(record)
+        unavailable = _record_unavailable(record)
         recent_activity.append({
             "timestamp": record.get("timestamp"),
             "route": record.get("route"),
@@ -661,6 +711,7 @@ def _token_usage_rollup(records: list[dict] | None = None, now: datetime.datetim
         "unavailable_count_today": unavailable_today,
         "no_agent_invocation_count_today": no_agent_today,
         "recent_activity": recent_activity,
+        "by_route": _token_usage_by_route(dated_records),
         "claude_local_usage": _read_claude_local_usage(),
     }
 
