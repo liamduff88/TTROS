@@ -107,6 +107,20 @@ class AosQueueTest(unittest.TestCase):
             self.assertEqual(receipt_item["status"], "done")
             self.assertEqual(receipt_item["receipts"][0]["path"], "queue/receipts/unit.md")
 
+    def test_status_and_receipt_help_show_exact_syntax(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            status_help = run_cli(root, "status", "--help")
+            receipt_help = run_cli(root, "receipt", "--help")
+
+        self.assertEqual(status_help.returncode, 0, status_help.stderr)
+        self.assertIn("ITEM_ID STATUS", status_help.stdout)
+        self.assertIn("Approved status value", status_help.stdout)
+        self.assertEqual(receipt_help.returncode, 0, receipt_help.stderr)
+        self.assertIn("ITEM_ID RECEIPT_PATH", receipt_help.stdout)
+        self.assertIn("--status STATUS", receipt_help.stdout)
+        self.assertIn("Optional approved status", receipt_help.stdout)
+
     def test_next_returns_highest_priority_available_item_for_agent(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

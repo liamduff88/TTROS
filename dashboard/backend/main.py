@@ -12,6 +12,7 @@ import re
 import shlex
 import subprocess
 import sys
+import tempfile
 
 TOOLS_DIR = Path(__file__).resolve().parents[2] / "tools"
 if str(TOOLS_DIR) not in sys.path:
@@ -368,6 +369,7 @@ COMPOSIO_PATH = "/home/liam/.composio:/home/liam/.local/bin:/home/liam/.composio
 HERMES_COORDINATOR = BASE_DIR / "tools" / "aos-hermes-coordinator.sh"
 QUEUE_WORKER_TIMEOUT_SECONDS = 300
 QUEUE_HERMES_REVIEW_TIMEOUT_SECONDS = 120
+QUEUE_STUCK_TIMEOUT_SECONDS = QUEUE_WORKER_TIMEOUT_SECONDS + QUEUE_HERMES_REVIEW_TIMEOUT_SECONDS + 180
 
 
 def _path_for_wsl_command(path) -> str:
@@ -416,6 +418,36 @@ def _run_wsl(bash_cmd: str, timeout: int = 60) -> dict:
         return {"success": False, "output": "wsl.exe not found — WSL not available on this machine", "returncode": -1}
     except Exception as e:
         return {"success": False, "output": f"Error: {e}", "returncode": -1}
+
+
+def _write_agent_prompt_file(prompt: str, prefix: str = "aos_prompt_") -> tuple[Path, str]:
+    """Persist one prompt outside the shell command line and return WSL path."""
+    prompt_dir = BASE_DIR / "queue" / "run_prompts"
+    prompt_dir.mkdir(parents=True, exist_ok=True)
+    handle = tempfile.NamedTemporaryFile(
+        "w",
+        encoding="utf-8",
+        prefix=prefix,
+        suffix=".md",
+        dir=prompt_dir,
+        delete=False,
+    )
+    with handle:
+        handle.write(prompt)
+    prompt_path = Path(handle.name)
+    return prompt_path, _path_for_wsl_command(prompt_path)
+
+
+def _run_wsl_prompt_command(command_template: str, prompt: str, timeout: int) -> dict:
+    prompt_path, prompt_wsl_path = _write_agent_prompt_file(prompt)
+    try:
+        command = command_template.format(prompt_file=shlex.quote(prompt_wsl_path))
+        return _run_wsl(command, timeout=timeout)
+    finally:
+        try:
+            prompt_path.unlink()
+        except FileNotFoundError:
+            pass
 
 
 _CLOSEOUT_FIELDS = (
@@ -767,6 +799,7 @@ def _log_token_usage(
         "no_agent_invocation": False,
         **(route_metadata or {}),
     }
+    TOKEN_USAGE_FILE.parent.mkdir(parents=True, exist_ok=True)
     with TOKEN_USAGE_FILE.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(record, ensure_ascii=False) + "\n")
     return record
@@ -1004,6 +1037,137 @@ def _queue_templates_dir() -> Path:
     return BASE_DIR / "queue" / "templates"
 
 
+def _queue_model_routes_path() -> Path:
+    return BASE_DIR / "queue" / "model_routes.json"
+
+
+def _queue_route_fallback(lane: str = "unassigned") -> dict:
+    return {
+        "lane": lane or "unassigned",
+        "profile_requested": "default",
+        "provider": "configured externally",
+        "model": "configured externally",
+        "escalation_profile": "orchestrator_escalated",
+        "escalation_rule": "Use Operating Hermes triage when the queue owner is missing or unknown.",
+        "policy": "Fallback to the single Operating Hermes runtime for triage and safe routing.",
+    }
+
+
+def _load_queue_model_routes() -> dict:
+    path = _queue_model_routes_path()
+    if not path.exists():
+        return {"version": "0", "fallback": _queue_route_fallback(), "routes": {}}
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError("queue/model_routes.json must contain a JSON object")
+    routes = data.get("routes")
+    if not isinstance(routes, dict):
+        raise ValueError("queue/model_routes.json must contain a routes object")
+    fallback = data.get("fallback")
+    if not isinstance(fallback, dict):
+        fallback = _queue_route_fallback()
+    return {"version": str(data.get("version", "0")), "fallback": fallback, "routes": routes}
+
+
+_ROUTE_PLACEHOLDERS = {
+    "",
+    "null",
+    "none",
+    "unavailable",
+    "configured externally",
+    "inherit_default",
+    "default",
+    "—",
+    "-",
+    "tbd",
+}
+_ROUTE_PLACEHOLDER_RE = re.compile(
+    r"(?:^<[^>]+>$|exact[_ -]?(?:provider|model)|placeholder|fake|unit[_ -]?(?:provider|model))",
+    re.IGNORECASE,
+)
+_KNOWN_HERMES_PROVIDERS = {
+    "anthropic",
+    "deepseek",
+    "gemini",
+    "github-copilot",
+    "google",
+    "kilocode",
+    "kimi",
+    "mistral",
+    "moonshot",
+    "nous",
+    "openai",
+    "openai-codex",
+    "opencode-go",
+    "opencode-zen",
+    "openrouter",
+    "qwen-oauth",
+    "xai",
+    "zai",
+}
+
+
+def _queue_route_value(value: object, fallback: str = "configured externally") -> str:
+    if value is None:
+        return fallback
+    text = str(value).strip()
+    return text if text else fallback
+
+
+def _queue_route_value_is_explicit(value: object) -> bool:
+    text = str(value or "").strip()
+    return bool(text) and text.lower() not in _ROUTE_PLACEHOLDERS and not _ROUTE_PLACEHOLDER_RE.search(text)
+
+
+def _queue_provider_value_is_safe(value: object) -> bool:
+    provider = str(value or "").strip().lower()
+    return _queue_route_value_is_explicit(provider) and provider in _KNOWN_HERMES_PROVIDERS
+
+
+def _queue_resolve_route_metadata(owner: object) -> dict:
+    requested_lane = str(owner or "unassigned").strip().lower() or "unassigned"
+    config = _load_queue_model_routes()
+    route = config["routes"].get(requested_lane)
+    if not isinstance(route, dict):
+        route = {**_queue_route_fallback(requested_lane), **config.get("fallback", {})}
+        route["lane"] = requested_lane
+    profile_requested = _queue_route_value(
+        route.get("profile_requested", route.get("profile")),
+        "default",
+    )
+    provider_requested = _queue_route_value(route.get("provider"))
+    model_requested = _queue_route_value(route.get("model"))
+    explicit_route = (
+        _queue_provider_value_is_safe(provider_requested)
+        and _queue_route_value_is_explicit(model_requested)
+    )
+    profile_used = "explicit_model_provider_route" if explicit_route else "default"
+    profile_fallback_reason = "" if explicit_route else "explicit provider/model route missing or placeholder"
+    provider_used = provider_requested if explicit_route else "default"
+    model_used = model_requested if explicit_route else "default"
+    model_confirmed = "configured in queue/model_routes.json" if explicit_route else "unavailable from current CLI output"
+    provider_confirmed = "configured in queue/model_routes.json" if explicit_route else "unavailable from current CLI output"
+    metadata = {
+        "route_config_version": config.get("version", "0"),
+        "lane": str(route.get("lane") or requested_lane),
+        "profile_requested": profile_requested,
+        "profile_used": profile_used,
+        "profile": profile_used,
+        "profile_fallback_reason": profile_fallback_reason,
+        "provider_requested": provider_requested,
+        "provider_used": provider_used,
+        "provider_confirmed": provider_confirmed,
+        "model_requested": model_requested,
+        "model_used": model_used,
+        "model_confirmed": model_confirmed,
+        "explicit_model_provider_route": explicit_route,
+        "escalation_profile": str(route.get("escalation_profile") or ""),
+        "escalation_rule": str(route.get("escalation_rule") or "No escalation rule configured."),
+        "route_policy": str(route.get("policy") or ""),
+    }
+    return metadata
+
+
 def _read_queue_items() -> list[dict]:
     path = _queue_items_path()
     if not path.exists():
@@ -1229,6 +1393,62 @@ def _queue_artifact_candidates_from_text(text: str) -> list[str]:
     return candidates
 
 
+def _queue_unique_artifact_paths(paths: list[str]) -> list[str]:
+    unique = []
+    seen = set()
+    for path in paths:
+        cleaned = str(path or "").strip().strip("`'\"")
+        if not cleaned or cleaned in seen:
+            continue
+        seen.add(cleaned)
+        unique.append(cleaned)
+    return unique
+
+
+def _queue_verified_artifacts_from_worker_result(item: dict, worker_result: dict) -> list[dict]:
+    paths = [_queue_default_artifact_path(item)]
+    paths.extend(_queue_artifact_candidates_from_text(str(worker_result.get("output") or "")))
+    verified = []
+    for path in _queue_unique_artifact_paths(paths):
+        ref = {"path": path}
+        reason = _queue_artifact_block_reason(path)
+        if reason:
+            ref.update({"available": False, "reason": reason})
+        else:
+            try:
+                artifact = _queue_read_artifact(path)
+                ref.update({
+                    "available": True,
+                    "size_bytes": artifact["size_bytes"],
+                    "modified": artifact["modified"],
+                    "content_excerpt": _bounded_hermes_answer(artifact["content"], 900),
+                })
+            except FileNotFoundError:
+                ref.update({"available": False, "reason": "artifact not found at workspace root-relative path"})
+            except ValueError as exc:
+                ref.update({"available": False, "reason": str(exc)})
+            except OSError as exc:
+                ref.update({"available": False, "reason": f"artifact could not be read: {exc}"})
+        verified.append(ref)
+    return verified
+
+
+def _queue_render_verified_artifacts(artifacts: list[dict], *, include_excerpt: bool) -> str:
+    if not artifacts:
+        return "- None detected"
+    lines = []
+    for artifact in artifacts:
+        path = artifact.get("path", "")
+        if artifact.get("available"):
+            lines.append(f"- AVAILABLE: {path} ({artifact.get('size_bytes', 0)} bytes)")
+            if include_excerpt:
+                lines.append("  Content excerpt:")
+                lines.extend(f"  {line}" for line in str(artifact.get("content_excerpt") or "").splitlines()[:20])
+        else:
+            lines.append(f"- MISSING/BLOCKED: {path} ({artifact.get('reason', 'unavailable')})")
+    return "\n".join(lines)
+
+
 def _queue_artifact_refs(item: dict, receipt_content: str = "") -> list[dict]:
     raw_paths: list[str] = []
     for field in ("sources", "source_refs", "results", "artifacts"):
@@ -1328,6 +1548,7 @@ def _queue_detail_item(item: dict) -> dict:
         "receipts": item.get("receipts") or [],
         "latest_receipt": latest_receipt,
         "run_artifacts": _queue_artifact_refs(item, latest_receipt.get("content", "") if latest_receipt else ""),
+        "stuck_recovery": _queue_stuck_recovery(item),
     })
     return public
 
@@ -1700,10 +1921,16 @@ def _queue_required_receipt_shape() -> str:
     return "\n".join((
         "PASS/NEEDS ATTENTION",
         "",
+        "Work item:",
+        "- <AOS-ID>",
+        "",
         "Files touched:",
         "- ...",
         "",
         "Validation:",
+        "- ...",
+        "",
+        "Artifacts:",
         "- ...",
         "",
         "Blockers:",
@@ -1711,7 +1938,23 @@ def _queue_required_receipt_shape() -> str:
         "",
         "Next action:",
         "- ...",
+        "",
+        "Token usage:",
+        "- available / unavailable from current CLI output",
     ))
+
+
+def _queue_slug(value: object, limit: int = 64) -> str:
+    slug = re.sub(r"[^A-Za-z0-9_-]+", "_", str(value or "").strip()).strip("_")
+    return (slug or "queue_artifact")[:limit].strip("_") or "queue_artifact"
+
+
+def _queue_default_artifact_path(item: dict) -> str:
+    return (
+        Path("workflows")
+        / "queue_artifacts"
+        / f"{_queue_slug(item.get('id'))}_{_queue_slug(item.get('title'), 48)}.md"
+    ).as_posix()
 
 
 def _queue_actual_department_run_prompt(
@@ -1744,6 +1987,10 @@ def _queue_actual_department_run_prompt(
         "Definition of done:",
         str(item.get("definition_of_done") or "Complete or route the scoped queue item and return the required closeout.").strip(),
         "",
+        "Required local artifact path:",
+        _queue_default_artifact_path(item),
+        "If this task produces business output, write the durable output to that path and list it under Artifacts.",
+        "",
         "Required artifact/receipt shape:",
         _queue_required_receipt_shape(),
     ]
@@ -1774,6 +2021,8 @@ def _queue_actual_run_prompt(
         f"Current attempt: {attempt}/2",
         "Required artifact/receipt shape:",
         _queue_required_receipt_shape(),
+        f"Required local artifact path: {_queue_default_artifact_path(item)}",
+        "If this task produces business output, write the durable output to that path and list it under Artifacts.",
     ))
     if revision_instructions:
         prompt = "\n\n".join((
@@ -1792,30 +2041,45 @@ def _queue_worker_owner(item: dict) -> str:
     return "unassigned"
 
 
-def _queue_run_worker(owner: str, prompt: str) -> dict:
-    safe_prompt = prompt.replace("'", "'\\''")
+def _queue_token_task_label(item: dict, owner: str) -> str:
+    return f"{item.get('id', '')} | {owner} | {str(item.get('title') or '')[:160]}"
+
+
+def _hermes_coordinator_command_template(route_metadata: dict | None = None) -> str:
+    command = f"{shlex.quote(_path_for_wsl_command(HERMES_COORDINATOR))}"
+    if route_metadata and route_metadata.get("explicit_model_provider_route"):
+        command += f" --provider {shlex.quote(str(route_metadata['provider_requested']))}"
+        command += f" --model {shlex.quote(str(route_metadata['model_requested']))}"
+    return f"{command} --prompt-file {{prompt_file}}"
+
+
+def _queue_run_worker(owner: str, prompt: str, item: dict) -> dict:
+    route_metadata = _queue_resolve_route_metadata(owner)
     metadata = {
         "requested_target": owner,
         "selected_route": "queue_worker",
         "delegation_reason": "assigned queue worker",
         "codex_forbidden": "no",
         "timeout_seconds": QUEUE_WORKER_TIMEOUT_SECONDS,
+        "queue_item_id": item.get("id", ""),
+        "queue_item_title": item.get("title", ""),
+        "queue_lane": route_metadata["lane"],
+        **route_metadata,
     }
     if owner == "codex":
-        command = f"aos-codex '{safe_prompt}'"
-        result = _run_wsl(command, timeout=QUEUE_WORKER_TIMEOUT_SECONDS)
-        return _compact_agent_closeout(result, "codex", "codex", prompt, metadata)
+        result = _run_wsl_prompt_command('aos-codex "$(<{prompt_file})"', prompt, QUEUE_WORKER_TIMEOUT_SECONDS)
+        return _compact_agent_closeout(result, "codex", "codex", _queue_token_task_label(item, owner), metadata)
     if owner == "claude":
-        command = f"aos-hermes claude '{safe_prompt}'"
-        result = _run_wsl(command, timeout=QUEUE_WORKER_TIMEOUT_SECONDS)
-        return _compact_agent_closeout(result, "claude", "claude", prompt, metadata)
-    command = f"{shlex.quote(_path_for_wsl_command(HERMES_COORDINATOR))} '{safe_prompt}'"
-    result = _run_wsl(command, timeout=QUEUE_WORKER_TIMEOUT_SECONDS)
+        result = _run_wsl_prompt_command('aos-hermes claude "$(<{prompt_file})"', prompt, QUEUE_WORKER_TIMEOUT_SECONDS)
+        return _compact_agent_closeout(result, "claude", "claude", _queue_token_task_label(item, owner), metadata)
+    command_template = _hermes_coordinator_command_template(route_metadata)
+    result = _run_wsl_prompt_command(command_template, prompt, QUEUE_WORKER_TIMEOUT_SECONDS)
     agent = owner if owner in DEPARTMENT_PROMPT_TARGETS else "hermes"
-    return _compact_agent_closeout(result, agent, agent, prompt, metadata)
+    return _compact_agent_closeout(result, agent, agent, _queue_token_task_label(item, owner), metadata)
 
 
 def _queue_hermes_review_prompt(item: dict, owner: str, attempt: int, worker_result: dict) -> str:
+    verified_artifacts = _queue_verified_artifacts_from_worker_result(item, worker_result)
     return "\n".join((
         "Review this Agentic OS queue worker result.",
         "",
@@ -1829,6 +2093,11 @@ def _queue_hermes_review_prompt(item: dict, owner: str, attempt: int, worker_res
         "- Did it respect stop conditions?",
         "- Did it produce the required output/definition of done?",
         "- Is it good enough to return to Liam?",
+        "",
+        "Local artifact verification from repo root:",
+        "- Treat AVAILABLE artifacts below as verified by the dashboard-safe workspace path reader.",
+        "- Do not claim an artifact is missing when it is marked AVAILABLE here.",
+        _queue_render_verified_artifacts(verified_artifacts, include_excerpt=True),
         "",
         "Queue item:",
         f"- ID: {item.get('id', '')}",
@@ -1846,9 +2115,9 @@ def _queue_hermes_review_prompt(item: dict, owner: str, attempt: int, worker_res
 
 def _queue_run_hermes_review(item: dict, owner: str, attempt: int, worker_result: dict) -> dict:
     prompt = _queue_hermes_review_prompt(item, owner, attempt, worker_result)
-    safe_prompt = prompt.replace("'", "'\\''")
-    command = f"{shlex.quote(_path_for_wsl_command(HERMES_COORDINATOR))} '{safe_prompt}'"
-    result = _run_wsl(command, timeout=QUEUE_HERMES_REVIEW_TIMEOUT_SECONDS)
+    route_metadata = _queue_resolve_route_metadata("hermes")
+    command_template = _hermes_coordinator_command_template(route_metadata)
+    result = _run_wsl_prompt_command(command_template, prompt, QUEUE_HERMES_REVIEW_TIMEOUT_SECONDS)
     token_usage, token_usage_text = _extract_token_usage(
         str(result.get("output") or ""), str(result.get("stdout") or ""), str(result.get("stderr") or "")
     )
@@ -1858,6 +2127,8 @@ def _queue_run_hermes_review(item: dict, owner: str, attempt: int, worker_result
         "stdout": result.get("stdout", ""),
         "stderr": result.get("stderr", ""),
         "returncode": result.get("returncode", -1),
+        "timed_out": bool(result.get("timed_out")),
+        "timeout_seconds": result.get("timeout_seconds"),
         "token_usage": token_usage,
         "token_usage_text": token_usage_text,
     }
@@ -1892,6 +2163,81 @@ def _queue_result_field(result: dict, label: str, default: str = "None reported"
     return _field_from_output(raw, label) or default
 
 
+def _queue_item_timestamp(item: dict) -> datetime.datetime | None:
+    for key in ("claim", "updated_at", "created_at"):
+        value = item.get(key)
+        if key == "claim" and isinstance(value, dict):
+            value = value.get("claimed_at")
+        parsed = _parse_record_timestamp(value)
+        if parsed:
+            return parsed
+    return None
+
+
+def _queue_stuck_recovery(item: dict, now: datetime.datetime | None = None) -> dict:
+    if item.get("status") != "agent_working":
+        return {"stuck": False}
+    started = _queue_item_timestamp(item)
+    if not started:
+        return {
+            "stuck": True,
+            "age_seconds": None,
+            "timeout_seconds": QUEUE_STUCK_TIMEOUT_SECONDS,
+            "reason": "agent_working item has no readable claim/update timestamp",
+        }
+    now = now or datetime.datetime.now(datetime.timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=datetime.timezone.utc)
+    age = max(0, int((now - started.astimezone(datetime.timezone.utc)).total_seconds()))
+    return {
+        "stuck": age >= QUEUE_STUCK_TIMEOUT_SECONDS,
+        "age_seconds": age,
+        "timeout_seconds": QUEUE_STUCK_TIMEOUT_SECONDS,
+        "reason": f"agent_working for {age}s; recovery threshold is {QUEUE_STUCK_TIMEOUT_SECONDS}s",
+    }
+
+
+def _queue_recovery_receipt_text(item: dict, owner: str, reason: str) -> str:
+    route_metadata = _queue_resolve_route_metadata(owner)
+    return "\n".join((
+        "NEEDS ATTENTION",
+        "",
+        f"Work item ID: {item.get('id', '')}",
+        f"Assigned worker: {owner}",
+        f"Lane: {route_metadata['lane']}",
+        f"Profile requested: {route_metadata['profile_requested']}",
+        f"Profile used: {route_metadata['profile_used']}",
+        f"Profile fallback reason: {route_metadata.get('profile_fallback_reason') or 'None'}",
+        f"Model requested: {route_metadata['model_requested']}",
+        f"Model used: {route_metadata['model_used']}",
+        f"Provider requested: {route_metadata['provider_requested']}",
+        f"Provider used: {route_metadata['provider_used']}",
+        f"Model confirmed: {route_metadata['model_confirmed']}",
+        f"Provider confirmed: {route_metadata['provider_confirmed']}",
+        f"Escalation rule: {route_metadata['escalation_rule']}",
+        "Attempts used: 0",
+        "Hermes review result: not run; recovered locally from stuck agent_working state",
+        "",
+        "Files touched:",
+        "- queue/work_items.jsonl",
+        "",
+        "Validation:",
+        "- Local stuck-item recovery wrote this durable receipt and moved the item to blocked.",
+        "",
+        "Artifacts:",
+        f"- Required output path: {_queue_default_artifact_path(item)} (not produced during recovery)",
+        "",
+        "Blockers:",
+        f"- {reason}",
+        "",
+        "Next action:",
+        "- Review the blocker, then rerun the assigned worker when ready.",
+        "",
+        "Token usage:",
+        "- no agent invocation during local stuck-item recovery",
+    ))
+
+
 def _queue_run_receipt_text(
     status_label: str,
     item: dict,
@@ -1902,6 +2248,13 @@ def _queue_run_receipt_text(
     reason: str,
 ) -> str:
     last_worker = attempts[-1]["worker_result"] if attempts else {}
+    route_metadata = _queue_resolve_route_metadata(owner)
+    revised_once = any(attempt.get("review", {}).get("decision") == "REVISE" for attempt in attempts[:1])
+    escalation_policy_applied = (
+        "escalation-eligible retry after one REVISE; real provider/model switching not applied"
+        if revised_once and len(attempts) > 1
+        else "not applied"
+    )
     token_lines = []
     for attempt in attempts:
         worker_token = attempt["worker_result"].get("token_usage_text") or "Token usage: unavailable from current CLI output"
@@ -1910,12 +2263,25 @@ def _queue_run_receipt_text(
         token_lines.append(f"- Attempt {attempt['attempt']} Hermes review: {_token_usage_detail(review_token)}")
     if not token_lines:
         token_lines.append("- unavailable/no agent invocation")
+    verified_artifacts = _queue_verified_artifacts_from_worker_result(item, last_worker)
 
     lines = [
         status_label,
         "",
         f"Work item ID: {item.get('id', '')}",
         f"Assigned worker: {owner}",
+        f"Lane: {route_metadata['lane']}",
+        f"Profile requested: {route_metadata['profile_requested']}",
+        f"Profile used: {route_metadata['profile_used']}",
+        f"Profile fallback reason: {route_metadata.get('profile_fallback_reason') or 'None'}",
+        f"Model requested: {route_metadata['model_requested']}",
+        f"Model used: {route_metadata['model_used']}",
+        f"Provider requested: {route_metadata['provider_requested']}",
+        f"Provider used: {route_metadata['provider_used']}",
+        f"Model confirmed: {route_metadata['model_confirmed']}",
+        f"Provider confirmed: {route_metadata['provider_confirmed']}",
+        f"Escalation rule: {route_metadata['escalation_rule']}",
+        f"Escalation policy applied: {escalation_policy_applied}",
         f"Attempts used: {len(attempts)}",
         f"Hermes review result: {final_review.get('decision', 'REVISE')}",
         "",
@@ -1927,6 +2293,9 @@ def _queue_run_receipt_text(
         "",
         "Validation:",
         f"- {_queue_result_field(last_worker, 'Validation')}",
+        "",
+        "Artifacts:",
+        _queue_render_verified_artifacts(verified_artifacts, include_excerpt=False),
         "",
         "Blockers:",
         f"- {reason or _queue_result_field(last_worker, 'Blockers')}",
@@ -1946,7 +2315,32 @@ def run_queue_item(item_id: str):
     try:
         item = _queue_find_item(item_id)
         owner = _queue_worker_owner(item)
-        started = _load_queue_tool().update_status(BASE_DIR, item_id, "agent_working")
+        recovery = _queue_stuck_recovery(item)
+        if item.get("status") == "agent_working":
+            if not recovery.get("stuck"):
+                raise HTTPException(status_code=409, detail="queue item is already agent_working; refresh before rerun")
+            receipt_text = _queue_recovery_receipt_text(item, owner, recovery.get("reason") or "agent_working item exceeded local timeout")
+            receipt_path = _queue_write_run_receipt(item_id, receipt_text)
+            updated = _load_queue_tool().attach_receipt(BASE_DIR, item_id, receipt_path, "blocked")
+            updated = _load_queue_tool().release_item(BASE_DIR, item_id, "blocked")
+            return {
+                "ok": True,
+                "success": False,
+                "recovered_stuck": True,
+                "item_id": item_id,
+                "assigned_worker": owner,
+                "attempts_used": 0,
+                "status": updated.get("status"),
+                "started_status": "agent_working",
+                "receipt_path": receipt_path,
+                "hermes_review": {"decision": "RECOVERED", "output": recovery.get("reason", "")},
+                "worker_result": {"success": False, "output": recovery.get("reason", "")},
+                "attempts": [],
+                "item": _queue_detail_item(updated),
+            }
+
+        claim_owner = owner if owner != "unassigned" else "hermes"
+        started = _load_queue_tool().claim_item(BASE_DIR, item_id, claim_owner)
         attempts = []
         revision_instructions = None
         final_review = {"decision": "REVISE", "instructions": "No review completed."}
@@ -1956,9 +2350,21 @@ def run_queue_item(item_id: str):
         for attempt_number in (1, 2):
             run_item = _queue_find_item(item_id)
             prompt = _queue_actual_run_prompt(run_item, owner if owner != "unassigned" else "hermes", revision_instructions, attempt_number)
-            worker_result = _queue_run_worker(owner, prompt)
+            worker_result = _queue_run_worker(owner, prompt, run_item)
             review_result = _queue_run_hermes_review(run_item, owner, attempt_number, worker_result)
-            decision, review_text = _queue_parse_review(review_result)
+            if worker_result.get("timed_out"):
+                final_status = "blocked"
+                decision = "REVISE"
+                review_text = f"Worker timed out after {worker_result.get('timeout_seconds')}s."
+                review_result["output"] = f"REVISE: {review_text}\n\nHermes review output:\n{review_result.get('output', '')}"
+            else:
+                decision, review_text = _queue_parse_review(review_result)
+                if review_result.get("timed_out"):
+                    final_status = "blocked"
+                    review_text = f"Hermes review timed out after {review_result.get('timeout_seconds')}s."
+                    review_result["output"] = f"REVISE: {review_text}"
+            if final_status != "blocked":
+                decision, review_text = _queue_parse_review(review_result)
             final_review = {
                 "decision": decision,
                 "instructions": review_text if decision == "REVISE" else "",
@@ -1974,6 +2380,9 @@ def run_queue_item(item_id: str):
             if decision == "PASS":
                 final_status = "human_review"
                 reason = "None"
+                break
+            if final_status == "blocked":
+                reason = review_text
                 break
             revision_instructions = review_text
 
@@ -1991,9 +2400,23 @@ def run_queue_item(item_id: str):
         )
         receipt_path = _queue_write_run_receipt(item_id, receipt_text)
         updated = _load_queue_tool().attach_receipt(BASE_DIR, item_id, receipt_path, final_status)
+        updated = _load_queue_tool().release_item(BASE_DIR, item_id, final_status)
     except KeyError:
         raise HTTPException(status_code=404, detail="queue item not found")
+    except HTTPException:
+        raise
     except (ValueError, OSError) as exc:
+        try:
+            failed_item = _queue_find_item(item_id)
+            failed_owner = _queue_worker_owner(failed_item)
+            receipt_path = _queue_write_run_receipt(
+                item_id,
+                _queue_recovery_receipt_text(failed_item, failed_owner, f"Queue run failed before completion: {exc}"),
+            )
+            _load_queue_tool().attach_receipt(BASE_DIR, item_id, receipt_path, "blocked")
+            _load_queue_tool().release_item(BASE_DIR, item_id, "blocked")
+        except Exception:
+            pass
         raise HTTPException(status_code=400, detail=str(exc))
 
     return {
@@ -2290,16 +2713,18 @@ def wsl_hermes(body: TaskRun):
     if queue_read is not None:
         return queue_read
     metadata = _select_hermes_entry_route(body.task)
-    safe_task = body.task.replace("'", "'\\''")
     selected_route = metadata["selected_route"]
     if selected_route == "direct_codex":
-        command, route, agent = f"aos-codex '{safe_task}'", "codex", "codex"
+        result = _run_wsl_prompt_command('aos-codex "$(<{prompt_file})"', body.task, 120)
+        route, agent = "codex", "codex"
     elif selected_route == "direct_claude":
-        command, route, agent = f"aos-hermes claude '{safe_task}'", "claude", "claude"
+        result = _run_wsl_prompt_command('aos-hermes claude "$(<{prompt_file})"', body.task, 120)
+        route, agent = "claude", "claude"
     else:
-        command = f"{shlex.quote(_path_for_wsl_command(HERMES_COORDINATOR))} '{safe_task}'"
+        metadata = {**metadata, **_queue_resolve_route_metadata("hermes")}
+        command_template = _hermes_coordinator_command_template(metadata)
+        result = _run_wsl_prompt_command(command_template, body.task, 120)
         route, agent = "hermes", "hermes"
-    result = _run_wsl(command, timeout=120)
     if selected_route == "hermes_coordinator":
         return _hermes_coordinator_closeout(result, body.task, metadata)
     return _compact_agent_closeout(result, route, agent, body.task, metadata)
@@ -2310,9 +2735,8 @@ def wsl_claude(body: TaskRun):
     """Route a task through aos-hermes to Claude inside AgenticOSClean."""
     if not body.task.strip():
         raise HTTPException(status_code=422, detail="task must not be empty")
-    safe_task = body.task.replace("'", "'\\''")
     return _compact_agent_closeout(
-        _run_wsl(f"aos-hermes claude '{safe_task}'", timeout=120),
+        _run_wsl_prompt_command('aos-hermes claude "$(<{prompt_file})"', body.task, 120),
         "claude", "claude", body.task,
         {
             "requested_target": "claude",
@@ -2328,9 +2752,8 @@ def wsl_codex(body: TaskRun):
     """Call aos-codex directly inside AgenticOSClean."""
     if not body.task.strip():
         raise HTTPException(status_code=422, detail="task must not be empty")
-    safe_task = body.task.replace("'", "'\\''")
     return _compact_agent_closeout(
-        _run_wsl(f"aos-codex '{safe_task}'", timeout=120),
+        _run_wsl_prompt_command('aos-codex "$(<{prompt_file})"', body.task, 120),
         "codex", "codex", body.task,
         {
             "requested_target": "codex",

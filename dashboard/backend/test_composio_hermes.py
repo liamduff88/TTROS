@@ -67,9 +67,27 @@ class HermesComposioTests(unittest.TestCase):
             result = backend.wsl_hermes(backend.TaskRun(task=task))
         return run.call_args.args[0], result
 
+    def route_with_prompt_file(self, task):
+        seen = {}
+
+        def capture(command, timeout=60):
+            seen["command"] = command
+            match = re.search(r"(?:--prompt-file\s+|<)(?P<quote>['\"]?)(?P<path>[^'\")]+)(?P=quote)", command)
+            if match:
+                prompt_path = Path(match.group("path"))
+                seen["prompt"] = prompt_path.read_text(encoding="utf-8")
+                seen["prompt_exists_during_run"] = prompt_path.exists()
+            return self.RUN_RESULT
+
+        with patch.object(backend, "_run_wsl", side_effect=capture), \
+             patch.object(backend, "_log_token_usage"):
+            result = backend.wsl_hermes(backend.TaskRun(task=task))
+        seen["prompt_exists_after_run"] = Path(match.group("path")).exists() if (match := re.search(r"(?:--prompt-file\s+|<)(?P<quote>['\"]?)(?P<path>[^'\")]+)(?P=quote)", seen["command"])) else None
+        return seen, result
+
     def write_queue_items(self, root, items):
         queue = root / "queue"
-        queue.mkdir(parents=True)
+        queue.mkdir(parents=True, exist_ok=True)
         (queue / "work_items.jsonl").write_text(
             "".join(json.dumps(item, sort_keys=True) + "\n" for item in items),
             encoding="utf-8",
@@ -96,7 +114,34 @@ class HermesComposioTests(unittest.TestCase):
         context.mkdir(parents=True, exist_ok=True)
         source_root = MAIN.parents[2]
         (queue / "agent_registry.json").write_text((source_root / "queue" / "agent_registry.json").read_text(encoding="utf-8"), encoding="utf-8")
+        (queue / "model_routes.json").write_text((source_root / "queue" / "model_routes.json").read_text(encoding="utf-8"), encoding="utf-8")
+        (queue / "lane_profiles.json").write_text((source_root / "queue" / "lane_profiles.json").read_text(encoding="utf-8"), encoding="utf-8")
         (context / "ACCESS_MODEL.md").write_text((source_root / "context" / "ACCESS_MODEL.md").read_text(encoding="utf-8"), encoding="utf-8")
+
+    def write_model_routes(self, root, routes=None):
+        queue = root / "queue"
+        queue.mkdir(parents=True, exist_ok=True)
+        data = routes or json.loads((MAIN.parents[2] / "queue" / "model_routes.json").read_text(encoding="utf-8"))
+        (queue / "model_routes.json").write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+    def write_lane_profiles(self, root, lanes=None):
+        queue = root / "queue"
+        queue.mkdir(parents=True, exist_ok=True)
+        data = {
+            "version": "unit",
+            "fallback_profile": "default",
+            "lanes": lanes or {
+                "revenue": {
+                    "lane": "revenue",
+                    "profile_requested": "aos-revenue",
+                    "fallback_profile": "default",
+                    "enabled_only_when_model_configured": True,
+                    "purpose": "unit revenue",
+                    "escalation_note": "unit escalation",
+                }
+            },
+        }
+        (queue / "lane_profiles.json").write_text(json.dumps(data, indent=2), encoding="utf-8")
 
     def sample_queue_items(self):
         return [
@@ -137,7 +182,8 @@ class HermesComposioTests(unittest.TestCase):
     def test_normal_task_uses_hermes_coordinator(self):
         command, result = self.route("quick search for local micro cement plasterers")
         self.assertIn("aos-hermes-coordinator.sh", command)
-        self.assertIn("'quick search for local micro cement plasterers'", command)
+        self.assertIn("--prompt-file", command)
+        self.assertNotIn("quick search for local micro cement plasterers", command)
         self.assertEqual(result["selected_route"], "hermes_coordinator")
 
     def test_explicit_hermes_uses_coordinator(self):
@@ -148,6 +194,7 @@ class HermesComposioTests(unittest.TestCase):
             command, result = self.route(task)
             self.assertIn("aos-hermes-coordinator.sh", command)
             self.assertNotIn("aos-hermes codex", command)
+            self.assertIn("--prompt-file", command)
             self.assertEqual(result["selected_route"], "hermes_coordinator")
 
     def test_codex_forbidden_forces_hermes(self):
@@ -159,13 +206,389 @@ class HermesComposioTests(unittest.TestCase):
 
     def test_explicit_codex_is_direct(self):
         command, result = self.route("get Codex to inspect dashboard files")
-        self.assertTrue(command.startswith("aos-codex '"))
+        self.assertTrue(command.startswith('aos-codex "$(<'))
         self.assertEqual(result["selected_route"], "direct_codex")
 
     def test_explicit_claude_is_direct(self):
         command, result = self.route("get Claude to polish the dashboard UI")
-        self.assertTrue(command.startswith("aos-hermes claude '"))
+        self.assertTrue(command.startswith('aos-hermes claude "$(<'))
         self.assertEqual(result["selected_route"], "direct_claude")
+
+    def test_adversarial_prompts_use_temp_file_not_shell_text(self):
+        task = "\n".join((
+            "Markdown with `backticks` and $(touch /tmp/bad)",
+            "Use $VARS and \"quotes\" and 'single quotes'",
+            r"Windows path: C:\Users\Admin\Documents\A-Time to revenue\Agentic OS Live",
+            "```bash",
+            "echo should not run",
+            "```",
+            "x" * 5000,
+        ))
+        seen, result = self.route_with_prompt_file(task)
+
+        self.assertEqual(result["selected_route"], "hermes_coordinator")
+        self.assertIn("aos-hermes-coordinator.sh", seen["command"])
+        self.assertIn("--prompt-file", seen["command"])
+        self.assertNotIn("$(touch /tmp/bad)", seen["command"])
+        self.assertNotIn("$VARS", seen["command"])
+        self.assertNotIn("`backticks`", seen["command"])
+        self.assertEqual(seen["prompt"], task)
+        self.assertTrue(seen["prompt_exists_during_run"])
+        self.assertFalse(seen["prompt_exists_after_run"])
+
+    def test_queue_run_uses_prompt_files_and_redacted_token_task(self):
+        adversarial_title = "Build output with `ticks`, $(bad), $VARS, quotes, and C:\\Users\\Admin\\A Time"
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_queue_items(root, [{
+                "id": "AOS-2026-0099",
+                "title": adversarial_title,
+                "status": "inbox",
+                "owner": "codex",
+                "priority": 5,
+                "created_at": "2026-07-05T10:00:00Z",
+                "updated_at": "2026-07-05T10:00:00Z",
+                "claim": {"claimed_by": None, "claimed_at": None},
+                "receipts": [],
+                "context": "multi-line\nmarkdown with `code` and $(still bad)",
+                "allowed_actions": ["local_read"],
+                "stop_conditions": ["external_send"],
+                "definition_of_done": "Write a concrete local artifact.",
+            }])
+            self.write_queue_templates(root)
+            self.write_queue_references(root)
+            commands = []
+            prompts = []
+            token_tasks = []
+
+            def run_capture(command, timeout=60):
+                commands.append(command)
+                match = re.search(r"(?:--prompt-file\s+|<)(?P<quote>['\"]?)(?P<path>[^'\")]+)(?P=quote)", command)
+                if match:
+                    prompts.append(Path(match.group("path")).read_text(encoding="utf-8"))
+                if len(commands) == 1:
+                    return {
+                        "success": True,
+                        "output": "PASS\nFiles touched: workflows/queue_artifacts/AOS-2026-0099_output.md\nValidation: local check\nBlockers: None\nNext action: Liam review\nToken usage: unavailable from current CLI output",
+                        "stdout": "PASS\nFiles touched: workflows/queue_artifacts/AOS-2026-0099_output.md\nValidation: local check\nBlockers: None\nNext action: Liam review",
+                        "stderr": "",
+                        "returncode": 0,
+                    }
+                return {"success": True, "output": "PASS", "stdout": "PASS", "stderr": "", "returncode": 0}
+
+            def log_capture(route, agent, task, token_usage, token_usage_text, route_metadata=None):
+                token_tasks.append(task)
+                return {}
+
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_run_wsl", side_effect=run_capture), \
+                 patch.object(backend, "_log_token_usage", side_effect=log_capture):
+                result = backend.run_queue_item("AOS-2026-0099")
+
+            self.assertTrue(result["success"])
+            self.assertEqual(result["status"], "human_review")
+            prompt_commands = [command for command in commands if "--prompt-file" in command]
+            self.assertGreaterEqual(len(prompt_commands), 1)
+            for command in prompt_commands:
+                self.assertNotIn("$(bad)", command)
+                self.assertNotIn("$VARS", command)
+                self.assertNotIn("`ticks`", command)
+            self.assertIn(adversarial_title, prompts[0])
+            self.assertIn("Required local artifact path:", prompts[0])
+            self.assertEqual(token_tasks, [f"AOS-2026-0099 | codex | {adversarial_title[:160]}"])
+            self.assertNotIn("multi-line\nmarkdown", token_tasks[0])
+
+            item = json.loads((root / "queue" / "work_items.jsonl").read_text(encoding="utf-8").splitlines()[0])
+            self.assertEqual(item["status"], "human_review")
+            self.assertEqual(item["claim"], {"claimed_by": None, "claimed_at": None})
+            receipt_path = root / item["receipts"][-1]["path"]
+            receipt = receipt_path.read_text(encoding="utf-8")
+            self.assertIn("Work item ID: AOS-2026-0099", receipt)
+            self.assertIn("Lane: codex", receipt)
+            self.assertIn("Profile requested: default", receipt)
+            self.assertIn("Profile used: default", receipt)
+            self.assertIn("Profile fallback reason: explicit provider/model route missing or placeholder", receipt)
+            self.assertIn("Model requested: configured externally", receipt)
+            self.assertIn("Model used: default", receipt)
+            self.assertIn("Provider requested: configured externally", receipt)
+            self.assertIn("Provider used: default", receipt)
+            self.assertIn("Model confirmed: unavailable from current CLI output", receipt)
+            self.assertIn("Provider confirmed: unavailable from current CLI output", receipt)
+            self.assertIn("Token usage:", receipt)
+            self.assertIn("Artifacts:", receipt)
+
+    def test_queue_model_routes_load_from_json_and_known_lanes_resolve(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_model_routes(root, {
+                "version": "unit",
+                "fallback": {
+                    "lane": "fallback",
+                        "profile_requested": "fallback_profile",
+                        "provider": "configured externally",
+                        "model": "configured externally",
+                        "escalation_rule": "fallback rule",
+                    },
+                "routes": {
+                    "revenue": {
+                        "lane": "revenue",
+                        "profile_requested": "aos-revenue",
+                        "provider": "configured externally",
+                        "model": "configured externally",
+                        "escalation_rule": "unit revenue rule",
+                    }
+                },
+            })
+            with patch.object(backend, "BASE_DIR", root):
+                loaded = backend._load_queue_model_routes()
+                revenue = backend._queue_resolve_route_metadata("revenue")
+                unknown = backend._queue_resolve_route_metadata("unknown")
+
+            self.assertEqual(loaded["version"], "unit")
+            self.assertEqual(revenue["profile_used"], "default")
+            self.assertEqual(revenue["profile_requested"], "aos-revenue")
+            self.assertEqual(revenue["model_requested"], "configured externally")
+            self.assertEqual(revenue["model_used"], "default")
+            self.assertEqual(revenue["provider_requested"], "configured externally")
+            self.assertEqual(revenue["provider_used"], "default")
+            self.assertFalse(revenue["explicit_model_provider_route"])
+            self.assertEqual(revenue["escalation_rule"], "unit revenue rule")
+            self.assertEqual(unknown["lane"], "unknown")
+            self.assertEqual(unknown["profile"], "default")
+            self.assertEqual(unknown["model_confirmed"], "unavailable from current CLI output")
+
+        expected_profiles = {
+            "hermes": "default",
+            "revenue": "default",
+            "marketing": "default",
+            "delivery": "default",
+            "operations": "default",
+            "codex": "default",
+            "claude": "default",
+        }
+        for lane, profile in expected_profiles.items():
+            self.assertEqual(backend._queue_resolve_route_metadata(lane)["profile"], profile)
+
+    def test_model_routes_source_profile_metadata_and_unknown_lane_defaults(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_model_routes(root, {
+                "version": "unit",
+                "fallback": {
+                    "lane": "fallback",
+                    "profile_requested": "default",
+                    "provider": "configured externally",
+                    "model": "configured externally",
+                },
+                "routes": {
+                    "revenue": {
+                        "lane": "revenue",
+                        "profile_requested": "aos-revenue",
+                        "provider": "configured externally",
+                        "model": "configured externally",
+                    }
+                },
+            })
+            with patch.object(backend, "BASE_DIR", root):
+                revenue = backend._queue_resolve_route_metadata("revenue")
+                missing = backend._queue_resolve_route_metadata("unknown")
+
+        self.assertEqual(revenue["profile_requested"], "aos-revenue")
+        self.assertEqual(revenue["profile_used"], "default")
+        self.assertEqual(revenue["profile_fallback_reason"], "explicit provider/model route missing or placeholder")
+        self.assertEqual(missing["profile_requested"], "default")
+        self.assertEqual(missing["profile_used"], "default")
+        self.assertEqual(missing["profile_fallback_reason"], "explicit provider/model route missing or placeholder")
+
+    def test_explicit_model_provider_route_builds_hermes_flags(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_model_routes(root, {
+                "version": "unit",
+                "fallback": {"lane": "fallback", "profile_requested": "default", "provider": "configured externally", "model": "configured externally"},
+                "routes": {
+                    "revenue": {
+                        "lane": "revenue",
+                        "profile_requested": "aos-revenue",
+                        "provider": "anthropic",
+                        "model": "claude-sonnet-4",
+                        "escalation_rule": "unit revenue rule",
+                    }
+                },
+            })
+            self.write_queue_items(root, [{
+                "id": "AOS-2026-0101",
+                "title": "Revenue explicit provider model command",
+                "status": "inbox",
+                "owner": "revenue",
+                "priority": 5,
+                "created_at": "2026-07-05T10:00:00Z",
+                "updated_at": "2026-07-05T10:00:00Z",
+                "claim": {"claimed_by": None, "claimed_at": None},
+                "receipts": [],
+            }])
+            self.write_queue_templates(root)
+            commands = []
+
+            def run_capture(command, timeout=60):
+                commands.append(command)
+                return {
+                    "success": True,
+                    "output": "PASS\nFiles touched: None\nValidation: local check\nBlockers: None\nNext action: Review",
+                    "stdout": "PASS",
+                    "stderr": "",
+                    "returncode": 0,
+                }
+
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_run_wsl", side_effect=run_capture), \
+                 patch.object(backend, "_queue_run_hermes_review", return_value={"success": True, "output": "PASS", "token_usage": {"available": False}, "token_usage_text": "Token usage: unavailable from current CLI output"}):
+                result = backend.run_queue_item("AOS-2026-0101")
+
+        self.assertTrue(result["success"])
+        self.assertIn("--provider anthropic --model claude-sonnet-4 --prompt-file", commands[0])
+        self.assertNotIn("--profile", commands[0])
+        worker = result["worker_result"]
+        self.assertEqual(worker["profile_requested"], "aos-revenue")
+        self.assertEqual(worker["profile_used"], "explicit_model_provider_route")
+        self.assertEqual(worker["profile_fallback_reason"], "")
+        self.assertEqual(worker["model_requested"], "claude-sonnet-4")
+        self.assertEqual(worker["model_used"], "claude-sonnet-4")
+        self.assertEqual(worker["provider_requested"], "anthropic")
+        self.assertEqual(worker["provider_used"], "anthropic")
+        self.assertEqual(worker["model_confirmed"], "configured in queue/model_routes.json")
+        self.assertEqual(worker["provider_confirmed"], "configured in queue/model_routes.json")
+
+    def test_placeholder_model_provider_route_falls_back_without_flags(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_model_routes(root, {
+                "version": "unit",
+                "fallback": {"lane": "fallback", "profile_requested": "default", "provider": "configured externally", "model": "configured externally"},
+                "routes": {
+                    "revenue": {
+                        "lane": "revenue",
+                        "profile_requested": "aos-revenue",
+                        "provider": "configured externally",
+                        "model": "TBD",
+                    }
+                },
+            })
+            with patch.object(backend, "BASE_DIR", root):
+                metadata = backend._queue_resolve_route_metadata("revenue")
+
+        self.assertEqual(metadata["profile_requested"], "aos-revenue")
+        self.assertEqual(metadata["profile_used"], "default")
+        self.assertEqual(metadata["profile_fallback_reason"], "explicit provider/model route missing or placeholder")
+        self.assertEqual(metadata["model_requested"], "TBD")
+        self.assertEqual(metadata["model_used"], "default")
+        self.assertEqual(metadata["provider_requested"], "configured externally")
+        self.assertEqual(metadata["provider_used"], "default")
+        self.assertEqual(metadata["model_confirmed"], "unavailable from current CLI output")
+        self.assertFalse(metadata["explicit_model_provider_route"])
+        command = backend._hermes_coordinator_command_template(metadata)
+        self.assertNotIn("--provider", command)
+        self.assertNotIn("--model", command)
+
+    def test_exact_and_fake_provider_values_fall_back_without_flags(self):
+        cases = (
+            ("<EXACT_PROVIDER>", "claude-sonnet-4"),
+            ("fake-provider", "claude-sonnet-4"),
+            ("unit-provider", "unit-model"),
+            ("not-a-hermes-provider", "claude-sonnet-4"),
+            ("anthropic", "<EXACT_MODEL>"),
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for provider, model in cases:
+                self.write_model_routes(root, {
+                    "version": "unit",
+                    "fallback": {"lane": "fallback", "profile_requested": "default", "provider": "configured externally", "model": "configured externally"},
+                    "routes": {"revenue": {"lane": "revenue", "profile_requested": "aos-revenue", "provider": provider, "model": model}},
+                })
+                with patch.object(backend, "BASE_DIR", root):
+                    metadata = backend._queue_resolve_route_metadata("revenue")
+                    command = backend._hermes_coordinator_command_template(metadata)
+                self.assertFalse(metadata["explicit_model_provider_route"], provider)
+                self.assertEqual(metadata["provider_used"], "default", provider)
+                self.assertEqual(metadata["model_used"], "default", provider)
+                self.assertNotIn("--provider", command, provider)
+                self.assertNotIn("--model", command, provider)
+
+    def test_queue_run_receipt_and_token_ledger_include_route_metadata_without_prompt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_queue_items(root, [{
+                "id": "AOS-2026-0100",
+                "title": "Revenue route metadata",
+                "status": "inbox",
+                "owner": "revenue",
+                "priority": 5,
+                "created_at": "2026-07-05T10:00:00Z",
+                "updated_at": "2026-07-05T10:00:00Z",
+                "claim": {"claimed_by": None, "claimed_at": None},
+                "receipts": [],
+                "context": "FULL PROMPT SENTINEL should stay out of the token ledger metadata",
+                "allowed_actions": ["local_read"],
+                "stop_conditions": ["external_send"],
+                "definition_of_done": "Write a concrete local artifact.",
+            }])
+            self.write_queue_templates(root)
+            self.write_queue_references(root)
+            token_file = root / "logs" / "token_usage.jsonl"
+
+            def run_capture(command, timeout=60):
+                if "aos-hermes-coordinator.sh" in command and "--prompt-file" in command:
+                    if not hasattr(run_capture, "calls"):
+                        run_capture.calls = 0
+                    run_capture.calls += 1
+                    if run_capture.calls == 1:
+                        return {
+                            "success": True,
+                            "output": "PASS\nFiles touched: workflows/queue_artifacts/AOS-2026-0100_output.md\nValidation: local check\nBlockers: None\nNext action: Liam review\nToken usage: unavailable from current CLI output",
+                            "stdout": "PASS\nFiles touched: workflows/queue_artifacts/AOS-2026-0100_output.md\nValidation: local check\nBlockers: None\nNext action: Liam review",
+                            "stderr": "",
+                            "returncode": 0,
+                        }
+                    return {"success": True, "output": "PASS", "stdout": "PASS", "stderr": "", "returncode": 0}
+                return {"success": True, "output": "PASS", "stdout": "PASS", "stderr": "", "returncode": 0}
+
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "TOKEN_USAGE_FILE", token_file), \
+                 patch.object(backend, "_run_wsl", side_effect=run_capture):
+                result = backend.run_queue_item("AOS-2026-0100")
+
+            self.assertTrue(result["success"])
+            item = json.loads((root / "queue" / "work_items.jsonl").read_text(encoding="utf-8").splitlines()[0])
+            receipt = (root / item["receipts"][-1]["path"]).read_text(encoding="utf-8")
+            self.assertIn("Lane: revenue", receipt)
+            self.assertIn("Profile requested: aos-revenue", receipt)
+            self.assertIn("Profile used: default", receipt)
+            self.assertIn("Profile fallback reason: explicit provider/model route missing or placeholder", receipt)
+            self.assertIn("Model requested: configured externally", receipt)
+            self.assertIn("Model used: default", receipt)
+            self.assertIn("Provider requested: configured externally", receipt)
+            self.assertIn("Provider used: default", receipt)
+            self.assertIn("Model confirmed: unavailable from current CLI output", receipt)
+            self.assertIn("Provider confirmed: unavailable from current CLI output", receipt)
+            self.assertIn("Escalation rule: Escalate for direct prospect-facing copy", receipt)
+            self.assertIn("Token usage:", receipt)
+            self.assertIn("- Attempt 1 worker: unavailable from current CLI output", receipt)
+
+            records = [json.loads(line) for line in token_file.read_text(encoding="utf-8").splitlines()]
+            self.assertEqual(len(records), 1)
+            record_text = json.dumps(records[0], sort_keys=True)
+            self.assertEqual(records[0]["lane"], "revenue")
+            self.assertEqual(records[0]["profile_requested"], "aos-revenue")
+            self.assertEqual(records[0]["profile_used"], "default")
+            self.assertEqual(records[0]["profile_fallback_reason"], "explicit provider/model route missing or placeholder")
+            self.assertEqual(records[0]["profile"], "default")
+            self.assertEqual(records[0]["model_requested"], "configured externally")
+            self.assertEqual(records[0]["model_used"], "default")
+            self.assertEqual(records[0]["provider_requested"], "configured externally")
+            self.assertEqual(records[0]["provider_used"], "default")
+            self.assertEqual(records[0]["model_confirmed"], "unavailable from current CLI output")
+            self.assertNotIn("FULL PROMPT SENTINEL", record_text)
 
     def test_search_firecrawl_and_composio_decisions_stay_with_hermes(self):
         for task in ("search the web", "scrape this page", "use Firecrawl", "use Composio to check mail"):
@@ -680,6 +1103,31 @@ class HermesComposioTests(unittest.TestCase):
             output_ref = next(artifact for artifact in item["run_artifacts"] if artifact["path"].endswith("angles.md"))
             self.assertTrue(output_ref["available"])
 
+    def test_hermes_review_prompt_uses_dashboard_artifact_path_verification(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            item = {
+                "id": "AOS-2026-0021",
+                "title": "Revenue artifact path check",
+                "owner": "revenue",
+                "context": "Verify output exists before review.",
+                "definition_of_done": "Produce the artifact.",
+                "stop_conditions": ["external_send"],
+            }
+            artifact_path = root / "workflows" / "revenue_linkedin_outreach" / "output"
+            artifact_path.mkdir(parents=True)
+            (artifact_path / "AOS-2026-0021_ttr_sme_outreach_angle_pack.md").write_text("Revenue artifact body\n", encoding="utf-8")
+            worker_result = {
+                "output": "PASS\nFiles touched: workflows/revenue_linkedin_outreach/output/AOS-2026-0021_ttr_sme_outreach_angle_pack.md\nValidation: local check\nBlockers: None\nNext action: Liam review",
+            }
+            with patch.object(backend, "BASE_DIR", root):
+                prompt = backend._queue_hermes_review_prompt(item, "revenue", 1, worker_result)
+
+        self.assertIn("Local artifact verification from repo root", prompt)
+        self.assertIn("AVAILABLE: workflows/revenue_linkedin_outreach/output/AOS-2026-0021_ttr_sme_outreach_angle_pack.md", prompt)
+        self.assertIn("Revenue artifact body", prompt)
+        self.assertIn("Do not claim an artifact is missing", prompt)
+
     def test_dashboard_queue_status_endpoint_updates_item_and_rejects_invalid_status(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -876,14 +1324,14 @@ class HermesComposioTests(unittest.TestCase):
                  patch.object(backend, "_queue_run_hermes_review", return_value=review_result):
                 result = backend.run_queue_item("AOS-2026-0002")
 
-            self.assertEqual(run.call_count, 2)
+            self.assertEqual(run.call_count, 1)
             self.assertEqual(run.call_args_list[0].kwargs["timeout"], 300)
-            self.assertEqual(result["status"], "needs_input")
-            self.assertEqual(result["attempts_used"], 2)
+            self.assertEqual(result["status"], "blocked")
+            self.assertEqual(result["attempts_used"], 1)
             self.assertTrue(result["worker_result"]["timed_out"])
             receipt_text = (root / result["receipt_path"]).read_text(encoding="utf-8")
             self.assertIn("Agent command timed out after 300s", receipt_text)
-            self.assertIn("Timeout after 300s during local agent run", receipt_text)
+            self.assertIn("Worker timed out after 300s", receipt_text)
 
     def test_department_queue_runtime_prompt_is_compact(self):
         item = {
@@ -1048,8 +1496,10 @@ class HermesComposioTests(unittest.TestCase):
             codex_command = run.call_args.args[0]
             claude = backend.wsl_claude(backend.TaskRun(task="polish UI"))
             claude_command = run.call_args.args[0]
-        self.assertEqual(codex_command, "aos-codex 'inspect files'")
-        self.assertEqual(claude_command, "aos-hermes claude 'polish UI'")
+        self.assertTrue(codex_command.startswith('aos-codex "$(<'))
+        self.assertTrue(claude_command.startswith('aos-hermes claude "$(<'))
+        self.assertNotIn("inspect files", codex_command)
+        self.assertNotIn("polish UI", claude_command)
         self.assertEqual(codex["selected_route"], "direct_codex")
         self.assertEqual(claude["selected_route"], "direct_claude")
 

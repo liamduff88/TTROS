@@ -1,0 +1,63 @@
+{
+  "version": "0",
+  "description": "Thin Agentic OS lane to Hermes profile map. Profiles live in the single Operating Hermes runtime; this file does not create Hermes installs, switch global defaults, or store secrets.",
+  "fallback_profile": "default",
+  "lanes": {
+    "orchestrator": {
+      "lane": "orchestrator",
+      "profile_requested": "aos-orchestrator",
+      "fallback_profile": "default",
+      "enabled_only_when_model_configured": true,
+      "purpose": "Queue triage, cross-lane coordination, review, and escalation judgment.",
+      "escalation_note": "Escalate unclear ownership, cross-lane conflicts, or high-risk operator decisions to the default Operating Hermes route."
+    },
+    "hermes": {
+      "lane": "hermes",
+      "profile_requested": "aos-orchestrator",
+      "fallback_profile": "default",
+      "enabled_only_when_model_configured": true,
+      "purpose": "Operating Hermes coordinator lane for dashboard and queue review work.",
+      "escalation_note": "Use default Operating Hermes when the orchestrator profile is not model-configured."
+    },
+    "revenue": {
+      "lane": "revenue",
+      "profile_requested": "aos-revenue",
+      "fallback_profile": "default",
+      "enabled_only_when_model_configured": true,
+      "purpose": "Prospect research, outreach drafts, sales prep, and CRM-ready summaries.",
+      "escalation_note": "Escalate direct prospect-facing copy, pricing/scope decisions, unsupported claims, or repeated revision to Operating Hermes."
+    },
+    "marketing": {
+      "lane": "marketing",
+      "profile_requested": "aos-marketing",
+      "fallback_profile": "default",
+      "enabled_only_when_model_configured": true,
+      "purpose": "LinkedIn drafts, positioning, founder voice, website copy, and thought leadership.",
+      "escalation_note": "Escalate core positioning, public founder voice, offer messaging, or repeated revision to Operating Hermes."
+    },
+    "delivery": {
+      "lane": "delivery",
+      "profile_requested": "aos-delivery",
+      "fallback_profile": "default",
+      "enabled_only_when_model_configured": true,
+      "purpose": "Client workflow maps, SOPs, implementation plans, QA, and acceptance criteria.",
+      "escalation_note": "Escalate ambiguous client scope, client-facing deliverables, and acceptance-risk decisions to Operating Hermes."
+    },
+    "operations": {
+      "lane": "operations",
+      "profile_requested": "aos-ops",
+      "fallback_profile": "default",
+      "enabled_only_when_model_configured": true,
+      "purpose": "Queue hygiene, startup checks, internal planning, blocker summaries, and operating reviews.",
+      "escalation_note": "Use deterministic/local handling first; escalate only when judgment or cross-lane coordination is required."
+    },
+    "ops": {
+      "lane": "ops",
+      "profile_requested": "aos-ops",
+      "fallback_profile": "default",
+      "enabled_only_when_model_configured": true,
+      "purpose": "Alias for operations lane work.",
+      "escalation_note": "Same escalation posture as operations."
+    }
+  }
+}

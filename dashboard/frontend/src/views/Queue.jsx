@@ -63,6 +63,25 @@ const receiptLabel = receipt => {
   return receipt.path || receipt.id || 'Receipt path unavailable'
 }
 
+const artifactCategory = artifact => {
+  if (artifact?.category) return artifact.category
+  if (artifact?.path?.startsWith('queue/receipts/')) return 'Receipt'
+  if (artifact?.extension) return `Artifact ${artifact.extension}`
+  return 'Artifact'
+}
+
+const fileTypeText = preview => {
+  if (!preview?.path) return 'No file selected'
+  const extension = preview.extension || ''
+  return [preview.category, extension].filter(Boolean).join(' / ') || 'Text file'
+}
+
+const scrollFilePreviewIntoView = () => {
+  window.requestAnimationFrame(() => {
+    document.getElementById('queue-file-preview')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  })
+}
+
 const REVIEW_OR_COMPLETE_STATUSES = new Set(['human_review', 'done', 'blocked', 'needs_input'])
 
 const emptyCreateForm = {
@@ -134,9 +153,14 @@ export default function Queue() {
   const [createState, setCreateState] = useState({ submitting: false, message: '', error: null })
   const [promptCopy, setPromptCopy] = useState({ target: null, message: '', error: null })
   const [runState, setRunState] = useState({ running: false, result: null, error: null })
-  const [selectedReceiptPath, setSelectedReceiptPath] = useState('')
-  const [receiptState, setReceiptState] = useState({ loading: false, content: '', error: null })
-  const [artifactState, setArtifactState] = useState({ path: '', loading: false, artifact: null, error: null })
+  const [filePreview, setFilePreview] = useState({
+    path: '',
+    category: '',
+    extension: '',
+    loading: false,
+    content: '',
+    error: null,
+  })
   const [state, setState] = useState({ loading: true, error: null })
 
   const selected = useMemo(
@@ -150,9 +174,10 @@ export default function Queue() {
   const hasProducedArtifact = selectedStatus === 'human_review' && runArtifacts.some(artifact => artifact.available && artifact.path !== receiptLabel(latestReceipt))
   const isReviewOrComplete = REVIEW_OR_COMPLETE_STATUSES.has(selectedStatus)
   const isWorkerRunning = selectedStatus === 'agent_working'
+  const isStuckWorker = Boolean(selected?.stuck_recovery?.stuck)
   const showPersistedRunState = Boolean(selected && (hasReceipt || isReviewOrComplete || isWorkerRunning) && !runState.result && !runState.error && !runState.running)
   const runButtonLabel = isWorkerRunning
-    ? 'Worker running / refresh for status'
+    ? isStuckWorker ? 'Recover stuck worker' : 'Worker running / refresh for status'
     : hasReceipt || isReviewOrComplete
       ? 'Rerun assigned worker'
       : 'Run assigned worker'
@@ -187,9 +212,7 @@ export default function Queue() {
   }, [])
 
   useEffect(() => {
-    setSelectedReceiptPath('')
-    setReceiptState({ loading: false, content: '', error: null })
-    setArtifactState({ path: '', loading: false, artifact: null, error: null })
+    setFilePreview({ path: '', category: '', extension: '', loading: false, content: '', error: null })
     setRunState({ running: false, result: null, error: null })
   }, [selectedId])
 
@@ -249,16 +272,26 @@ export default function Queue() {
 
   const viewReceipt = async receipt => {
     const path = receiptLabel(receipt)
-    setSelectedReceiptPath(path)
-    setReceiptState({ loading: true, content: '', error: null })
+    setFilePreview({ path, category: 'Receipt history', extension: '.md', loading: true, content: '', error: null })
+    scrollFilePreviewIntoView()
     try {
       const response = await getQueueReceipt(path)
       if (response?.success === false) {
         throw new Error(response?.reason || response?.message || 'Receipt unavailable')
       }
-      setReceiptState({ loading: false, content: response?.content || '', error: null })
+      setFilePreview({
+        path: response?.path || path,
+        category: 'Receipt history',
+        extension: '.md',
+        loading: false,
+        content: response?.content || '',
+        error: null,
+      })
     } catch (error) {
-      setReceiptState({
+      setFilePreview({
+        path,
+        category: 'Receipt history',
+        extension: '.md',
         loading: false,
         content: '',
         error: error?.response?.data?.detail || error?.message || 'Receipt view failed',
@@ -268,19 +301,43 @@ export default function Queue() {
 
   const viewArtifact = async artifact => {
     const path = artifact?.path || ''
-    setArtifactState({ path, loading: true, artifact: null, error: null })
+    const category = artifactCategory(artifact)
+    const extension = artifact?.extension || ''
+    if (!artifact?.available) {
+      setFilePreview({
+        path,
+        category,
+        extension,
+        loading: false,
+        content: '',
+        error: artifact?.reason || 'File is listed but is not available to preview.',
+      })
+      scrollFilePreviewIntoView()
+      return
+    }
+    setFilePreview({ path, category, extension, loading: true, content: '', error: null })
+    scrollFilePreviewIntoView()
     try {
       const response = await fetch(`/api/queue/artifact?path=${encodeURIComponent(path)}`)
       const data = await response.json().catch(() => ({}))
       if (!response.ok || data?.success === false) {
         throw new Error(data?.detail || data?.reason || data?.message || 'Artifact unavailable')
       }
-      setArtifactState({ path: data.path || path, loading: false, artifact: data, error: null })
-    } catch (error) {
-      setArtifactState({
-        path,
+      setFilePreview({
+        path: data.path || path,
+        category,
+        extension: data.extension || extension,
         loading: false,
-        artifact: null,
+        content: data.content || '',
+        error: null,
+      })
+    } catch (error) {
+      setFilePreview({
+        path,
+        category,
+        extension,
+        loading: false,
+        content: '',
         error: error?.message || 'Artifact view failed',
       })
     }
@@ -292,7 +349,7 @@ export default function Queue() {
   }
 
   const runAssignedWorker = async () => {
-    if (!selected?.id || runState.running || selected.status === 'agent_working') return
+    if (!selected?.id || runState.running || (selected.status === 'agent_working' && !isStuckWorker)) return
     setRunState({ running: true, result: null, error: null })
     try {
       const response = await fetch(`/api/queue/items/${encodeURIComponent(selected.id)}/run`, { method: 'POST' })
@@ -315,6 +372,8 @@ export default function Queue() {
   const counts = status?.counts || {}
   const activeCount = status?.activeCount ?? items.filter(item => !['done', 'cancelled'].includes(item.status)).length
   const needsLiam = status?.needsLiam ?? ((counts.needs_input || 0) + (counts.human_review || 0) + (counts.blocked || 0))
+  const latestReceiptPath = receiptLabel(latestReceipt)
+  const primaryOutputPath = runArtifacts.find(artifact => artifact.available && artifact.path !== latestReceiptPath)?.path || ''
 
   return (
     <div className="max-w-7xl space-y-5">
@@ -497,7 +556,7 @@ export default function Queue() {
                 <button
                   type="button"
                   onClick={runAssignedWorker}
-                  disabled={runState.running || isWorkerRunning}
+                  disabled={runState.running || (isWorkerRunning && !isStuckWorker)}
                   className="inline-flex items-center gap-2 rounded bg-champagne px-3 py-2 text-xs font-mono font-semibold text-ink transition-colors hover:bg-stone disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   <RefreshCw size={13} className={runState.running ? 'animate-spin' : ''} />
@@ -535,7 +594,9 @@ export default function Queue() {
                         {latestReceipt?.created_at && <span>{latestReceipt.created_at}</span>}
                       </div>
                       {isWorkerRunning ? (
-                        <div className="text-taupe">Worker running / refresh for status.</div>
+                        <div className="text-taupe">
+                          {isStuckWorker ? `Stuck recovery available: ${selected.stuck_recovery?.reason || 'agent_working exceeded timeout.'}` : 'Worker running / refresh for status.'}
+                        </div>
                       ) : hasReceipt ? (
                         <>
                           <div className="break-all text-champagne">Receipt: {receiptLabel(latestReceipt)}</div>
@@ -606,11 +667,11 @@ export default function Queue() {
                 <DetailRow label="Stop conditions" value={renderList(selected.stop_conditions)} />
               </div>
 
-              <div className="rounded border border-softgraph bg-ink">
+              <div id="queue-file-preview" className="rounded border border-softgraph bg-ink">
                 <div className="flex flex-col gap-2 border-b border-softgraph px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
                   <div className="text-[11px] font-semibold uppercase tracking-wider text-taupe">Run / artifacts</div>
                   {hasReceipt && (
-                    <div className="break-all text-xs font-mono text-champagne">Latest receipt: {receiptLabel(latestReceipt)}</div>
+                    <div className="break-all text-xs font-mono text-champagne">Latest receipt: {latestReceiptPath}</div>
                   )}
                 </div>
                 <div className="space-y-3 px-3 py-3">
@@ -634,12 +695,42 @@ export default function Queue() {
                     <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-taupe">Artifact / result files</div>
                     {runArtifacts.length ? (
                       <div className="space-y-2">
-                        {runArtifacts.map((artifact, index) => (
-                          <div key={`${artifact.path}-${index}`} className="rounded border border-softgraph bg-graphite px-3 py-2 text-xs font-mono text-stone">
+                        {runArtifacts.map((artifact, index) => {
+                          const isSelected = filePreview.path === artifact.path
+                          const isPrimaryOutput = artifact.path === primaryOutputPath
+                          return (
+                          <div
+                            key={`${artifact.path}-${index}`}
+                            role="button"
+                            tabIndex={0}
+                            onClick={() => viewArtifact(artifact)}
+                            onKeyDown={event => {
+                              if (event.key === 'Enter' || event.key === ' ') {
+                                event.preventDefault()
+                                viewArtifact(artifact)
+                              }
+                            }}
+                            className={`cursor-pointer rounded border px-3 py-2 text-xs font-mono text-stone transition-colors ${
+                              isSelected ? 'border-champagne bg-champagne/10' : 'border-softgraph bg-graphite hover:border-taupe'
+                            }`}
+                          >
                             <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                               <div className="min-w-0">
-                                <div className="break-all text-champagne">{artifact.path}</div>
+                                <div className="flex flex-wrap gap-2">
+                                  {isPrimaryOutput && (
+                                    <span className="rounded bg-champagne px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-ink">
+                                      Work output / what was done
+                                    </span>
+                                  )}
+                                  {isSelected && (
+                                    <span className="rounded border border-champagne/40 px-2 py-0.5 text-[10px] uppercase tracking-wider text-champagne">
+                                      Open
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="mt-1 break-all text-champagne">{artifact.path}</div>
                                 <div className="mt-1 flex flex-wrap gap-2 text-taupe">
+                                  <span>{artifactCategory(artifact)}</span>
                                   <span>{artifact.available ? 'readable' : 'unavailable'}</span>
                                   {artifact.size_bytes !== undefined && <span>{artifact.size_bytes} bytes</span>}
                                   {artifact.modified && <span>{artifact.modified}</span>}
@@ -649,7 +740,10 @@ export default function Queue() {
                               <div className="flex flex-shrink-0 flex-wrap gap-2">
                                 <button
                                   type="button"
-                                  onClick={() => copyPath(artifact.path)}
+                                  onClick={event => {
+                                    event.stopPropagation()
+                                    copyPath(artifact.path)
+                                  }}
                                   className="inline-flex items-center gap-2 rounded border border-softgraph px-2 py-1 text-[11px] text-taupe transition-colors hover:border-champagne hover:text-stone"
                                 >
                                   <Clipboard size={12} />
@@ -657,9 +751,11 @@ export default function Queue() {
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={() => viewArtifact(artifact)}
-                                  disabled={!artifact.available}
-                                  className="inline-flex items-center gap-2 rounded border border-softgraph px-2 py-1 text-[11px] text-taupe transition-colors hover:border-champagne hover:text-stone disabled:cursor-not-allowed disabled:opacity-50"
+                                  onClick={event => {
+                                    event.stopPropagation()
+                                    viewArtifact(artifact)
+                                  }}
+                                  className="inline-flex items-center gap-2 rounded border border-softgraph px-2 py-1 text-[11px] text-taupe transition-colors hover:border-champagne hover:text-stone"
                                 >
                                   <FileText size={12} />
                                   View
@@ -667,7 +763,8 @@ export default function Queue() {
                               </div>
                             </div>
                           </div>
-                        ))}
+                          )
+                        })}
                       </div>
                     ) : (
                       <div className="text-sm text-stone">No artifact paths found in the current receipt or work item.</div>
@@ -676,18 +773,87 @@ export default function Queue() {
                 </div>
               </div>
 
+              <div className="rounded border border-softgraph bg-ink">
+                <div className="flex flex-col gap-2 border-b border-softgraph px-3 py-2 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <div className="text-[11px] font-semibold uppercase tracking-wider text-taupe">File preview</div>
+                    <div className="mt-1 text-xs font-mono text-taupe">{fileTypeText(filePreview)}</div>
+                  </div>
+                  {filePreview.path && (
+                    <div className="flex flex-wrap gap-2 sm:justify-end">
+                      <button
+                        type="button"
+                        onClick={() => copyPath(filePreview.path)}
+                        className="inline-flex items-center gap-2 rounded border border-softgraph px-2 py-1 text-[11px] font-mono text-taupe transition-colors hover:border-champagne hover:text-stone"
+                      >
+                        <Clipboard size={12} />
+                        Copy path
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setFilePreview({ path: '', category: '', extension: '', loading: false, content: '', error: null })}
+                        className="inline-flex items-center gap-2 rounded border border-softgraph px-2 py-1 text-[11px] font-mono text-taupe transition-colors hover:border-champagne hover:text-stone"
+                      >
+                        Close
+                      </button>
+                    </div>
+                  )}
+                </div>
+                {filePreview.path ? (
+                  <>
+                    <div className="border-b border-softgraph px-3 py-2 text-xs font-mono text-champagne break-all">{filePreview.path}</div>
+                    {filePreview.loading ? (
+                      <div className="px-3 py-5 text-xs font-mono text-taupe">Loading file preview.</div>
+                    ) : filePreview.error ? (
+                      <div className="px-3 py-5 text-xs font-mono text-clay">{compactReason(filePreview.error)}</div>
+                    ) : (
+                      <pre className="max-h-96 overflow-auto whitespace-pre-wrap break-words px-3 py-3 text-xs leading-5 text-stone">{filePreview.content || 'File is empty.'}</pre>
+                    )}
+                  </>
+                ) : (
+                  <div className="px-3 py-5 text-xs font-mono text-taupe">Click any artifact, result, or receipt row to preview it here.</div>
+                )}
+              </div>
+
               <div>
                 <div className="text-[11px] font-semibold uppercase tracking-wider text-taupe">Receipt history</div>
                 {selected.receipts?.length ? (
                   <div className="mt-2 space-y-2">
-                    {selected.receipts.map((receipt, index) => (
-                      <div key={`${receiptLabel(receipt)}-${index}`} className="rounded border border-softgraph bg-ink px-3 py-2 text-xs font-mono text-stone">
+                    {selected.receipts.map((receipt, index) => {
+                      const path = receiptLabel(receipt)
+                      const isSelected = filePreview.path === path
+                      return (
+                      <div
+                        key={`${path}-${index}`}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => viewReceipt(receipt)}
+                        onKeyDown={event => {
+                          if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault()
+                            viewReceipt(receipt)
+                          }
+                        }}
+                        className={`cursor-pointer rounded border px-3 py-2 text-xs font-mono text-stone transition-colors ${
+                          isSelected ? 'border-champagne bg-champagne/10' : 'border-softgraph bg-ink hover:border-taupe'
+                        }`}
+                      >
                         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                          <div className="break-all">{receiptLabel(receipt)}</div>
+                          <div className="min-w-0">
+                            {isSelected && (
+                              <div className="mb-1 inline-flex rounded border border-champagne/40 px-2 py-0.5 text-[10px] uppercase tracking-wider text-champagne">
+                                Open
+                              </div>
+                            )}
+                            <div className="break-all">{path}</div>
+                          </div>
                           <div className="flex flex-shrink-0 flex-wrap gap-2">
                             <button
                               type="button"
-                              onClick={() => copyPath(receiptLabel(receipt))}
+                              onClick={event => {
+                                event.stopPropagation()
+                                copyPath(path)
+                              }}
                               className="inline-flex items-center gap-2 rounded border border-softgraph px-2 py-1 text-[11px] text-taupe transition-colors hover:border-champagne hover:text-stone"
                             >
                               <Clipboard size={12} />
@@ -695,7 +861,10 @@ export default function Queue() {
                             </button>
                             <button
                               type="button"
-                              onClick={() => viewReceipt(receipt)}
+                              onClick={event => {
+                                event.stopPropagation()
+                                viewReceipt(receipt)
+                              }}
                               className="inline-flex items-center gap-2 rounded border border-softgraph px-2 py-1 text-[11px] text-taupe transition-colors hover:border-champagne hover:text-stone"
                             >
                               <FileText size={12} />
@@ -704,48 +873,18 @@ export default function Queue() {
                           </div>
                         </div>
                         <div className="mt-1 flex flex-wrap gap-2 text-taupe">
+                          <span>Receipt</span>
                           {receipt.status && <span>{formatStatus(receipt.status)}</span>}
                           {receipt.created_at && <span>{receipt.created_at}</span>}
                         </div>
                       </div>
-                    ))}
+                      )
+                    })}
                   </div>
                 ) : (
                   <div className="mt-1 text-sm text-stone">None</div>
                 )}
               </div>
-
-              {selectedReceiptPath && (
-                <div>
-                  <div className="text-[11px] font-semibold uppercase tracking-wider text-taupe">Receipt viewer</div>
-                  <div className="mt-2 rounded border border-softgraph bg-ink">
-                    <div className="border-b border-softgraph px-3 py-2 text-xs font-mono text-champagne break-all">{selectedReceiptPath}</div>
-                    {receiptState.loading ? (
-                      <div className="px-3 py-5 text-xs font-mono text-taupe">Loading receipt.</div>
-                    ) : receiptState.error ? (
-                      <div className="px-3 py-5 text-xs font-mono text-clay">{compactReason(receiptState.error)}</div>
-                    ) : (
-                      <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words px-3 py-3 text-xs leading-5 text-stone">{receiptState.content || 'Receipt is empty.'}</pre>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {artifactState.path && (
-                <div>
-                  <div className="text-[11px] font-semibold uppercase tracking-wider text-taupe">Artifact viewer</div>
-                  <div className="mt-2 rounded border border-softgraph bg-ink">
-                    <div className="border-b border-softgraph px-3 py-2 text-xs font-mono text-champagne break-all">{artifactState.path}</div>
-                    {artifactState.loading ? (
-                      <div className="px-3 py-5 text-xs font-mono text-taupe">Loading artifact.</div>
-                    ) : artifactState.error ? (
-                      <div className="px-3 py-5 text-xs font-mono text-clay">{compactReason(artifactState.error)}</div>
-                    ) : (
-                      <pre className="max-h-96 overflow-auto whitespace-pre-wrap break-words px-3 py-3 text-xs leading-5 text-stone">{artifactState.artifact?.content || 'Artifact is empty.'}</pre>
-                    )}
-                  </div>
-                </div>
-              )}
             </div>
           ) : (
             <div className="rounded border border-softgraph bg-ink px-4 py-10 text-center text-xs font-mono text-taupe">

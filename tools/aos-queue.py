@@ -305,14 +305,14 @@ def build_parser() -> argparse.ArgumentParser:
     release.add_argument("item_id")
     release.add_argument("--status", default="agent_todo")
 
-    receipt = subparsers.add_parser("receipt", help="Attach a receipt path")
-    receipt.add_argument("item_id")
-    receipt.add_argument("receipt_path")
-    receipt.add_argument("--status")
+    receipt = subparsers.add_parser("receipt", help="Attach a receipt path: receipt ITEM_ID RECEIPT_PATH [--status STATUS]")
+    receipt.add_argument("item_id", metavar="ITEM_ID")
+    receipt.add_argument("receipt_path", metavar="RECEIPT_PATH")
+    receipt.add_argument("--status", metavar="STATUS", help="Optional approved status to set after attaching the receipt")
 
-    status = subparsers.add_parser("status", help="Update item status")
-    status.add_argument("item_id")
-    status.add_argument("status")
+    status = subparsers.add_parser("status", help="Update item status: status ITEM_ID STATUS")
+    status.add_argument("item_id", metavar="ITEM_ID")
+    status.add_argument("status", metavar="STATUS", help="Approved status value such as human_review, done, or blocked")
 
     next_parser = subparsers.add_parser("next", help="Show the highest-priority available item for an agent")
     next_parser.add_argument("agent_id")

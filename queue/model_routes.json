@@ -1,0 +1,87 @@
+{
+  "version": "0",
+  "description": "Lightweight Agentic OS Work Queue route metadata. This file describes requested lane/profile/model policy only; it does not create Hermes runtimes or force provider switches.",
+  "fallback": {
+    "lane": "unassigned",
+    "profile_requested": "default",
+    "provider": "configured externally",
+    "model": "configured externally",
+    "escalation_profile": "orchestrator_escalated",
+    "escalation_rule": "Use Operating Hermes triage when the queue owner is missing or unknown.",
+    "policy": "Fallback to the single Operating Hermes runtime for triage and safe routing."
+  },
+  "routes": {
+    "orchestrator": {
+      "lane": "orchestrator",
+      "profile_requested": "aos-orchestrator",
+      "provider": "configured externally",
+      "model": "configured externally",
+      "escalation_profile": "orchestrator_escalated",
+      "escalation_rule": "Strongest reasoning route for triage, review, and escalation judgment.",
+      "policy": "Use the single Operating Hermes runtime for cross-lane triage, review, and escalation decisions."
+    },
+    "hermes": {
+      "lane": "hermes",
+      "profile_requested": "aos-orchestrator",
+      "provider": "configured externally",
+      "model": "configured externally",
+      "escalation_profile": "orchestrator_escalated",
+      "escalation_rule": "Strongest reasoning route for triage, review, and escalation judgment.",
+      "policy": "Hermes is the one Operating Hermes runtime; this is metadata for the orchestrator lane, not a separate install."
+    },
+    "revenue": {
+      "lane": "revenue",
+      "profile_requested": "aos-revenue",
+      "provider": "configured externally",
+      "model": "configured externally",
+      "escalation_profile": "revenue_escalated",
+      "escalation_rule": "Escalate for direct prospect-facing copy, pricing/scope, unsupported claims, or after one REVISE.",
+      "policy": "Cheap/fast default for routine revenue queue work; escalate only for judgment-heavy or externally visible work."
+    },
+    "marketing": {
+      "lane": "marketing",
+      "profile_requested": "aos-marketing",
+      "provider": "configured externally",
+      "model": "configured externally",
+      "escalation_profile": "marketing_escalated",
+      "escalation_rule": "Escalate for core positioning, public founder voice, offer messaging, or after one REVISE.",
+      "policy": "Cheap/fast default for routine marketing production; escalate for public positioning or founder-voice decisions."
+    },
+    "delivery": {
+      "lane": "delivery",
+      "profile_requested": "aos-delivery",
+      "provider": "configured externally",
+      "model": "configured externally",
+      "escalation_profile": "delivery_escalated",
+      "escalation_rule": "Escalate for ambiguous client scope or client-facing deliverables.",
+      "policy": "Mid/strong default for delivery work where correctness and client context matter."
+    },
+    "operations": {
+      "lane": "operations",
+      "profile_requested": "aos-ops",
+      "provider": "configured externally",
+      "model": "configured externally",
+      "escalation_profile": "operations_escalated",
+      "escalation_rule": "Use deterministic/local first, cheap model second, and escalate rarely.",
+      "policy": "Prefer local deterministic handling for operational queue work before model assistance."
+    },
+    "codex": {
+      "lane": "codex",
+      "profile_requested": "default",
+      "provider": "configured externally",
+      "model": "configured externally",
+      "escalation_profile": "codex_workbench_escalated",
+      "escalation_rule": "Workbench metadata only; Hermes model_routes does not control Codex model selection.",
+      "policy": "Codex remains an implementation workbench. This metadata is stamped for receipts and ledgers only."
+    },
+    "claude": {
+      "lane": "claude",
+      "profile_requested": "default",
+      "provider": "configured externally",
+      "model": "configured externally",
+      "escalation_profile": "claude_workbench_escalated",
+      "escalation_rule": "Workbench metadata only; Hermes model_routes does not control Claude Code model selection.",
+      "policy": "Claude Code remains an implementation workbench. This metadata is stamped for receipts and ledgers only."
+    }
+  }
+}
