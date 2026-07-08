@@ -1,0 +1,57 @@
+{
+  "version": 1,
+  "revisit": "when a goal is added, retired, or its predicate/on-violation/retire-when changes",
+  "last_touched": "2026-07-07",
+  "registered_by": "aos-orchestrator",
+  "registered_at": "2026-07-07",
+  "contracts": [
+    {
+      "name": "business_brain_pointer_valid.goal.md",
+      "path": "goals/business_brain_pointer_valid.goal.md",
+      "predicate": "the TTROS Business Brain path this OS points to\n(`C:\\Users\\Admin\\Documents\\A-Time to revenue\\TTROS Business Brain`,\n`_substrate.wiki/schema.md` readable) exists and is readable \u2014 not moved,\nnot renamed, not silently pointing at an old vault",
+      "on_violation": "wake Liam. Do not auto-fix and do not fall back to an old\nvault path \u2014 that is exactly the drift this goal exists to catch.",
+      "retire_when": "the Business Brain is migrated to a new canonical location\non purpose, and this predicate is rewritten to match. Retirement is a\nhuman decision, logged.",
+      "source_file_status": "satisfied"
+    },
+    {
+      "name": "no_external_action_without_approval.goal.md",
+      "path": "goals/no_external_action_without_approval.goal.md",
+      "predicate": "no entry in queue/run_ledger.jsonl shows a gated verb (send,\nwrite/publish/post, push, mutate, delete/archive/move, connect/grant\nscope, spend) executed without a matching `approved_external_action:\n<verb>` flag recorded for that same item",
+      "on_violation": "wake Liam immediately \u2014 this is the highest-severity goal\nin this repo. Do not auto-fix, do not roll back silently; the exposure\nitself needs eyes on it first.",
+      "retire_when": "never, while any external-action capability exists in this\nOS. Not retirable by drift \u2014 only by removing the capability entirely.",
+      "source_file_status": "satisfied"
+    },
+    {
+      "name": "no_old_runtime_references.goal.md",
+      "path": "goals/no_old_runtime_references.goal.md",
+      "predicate": "grep -rIl -e 'C:\\\\AI-Vault' -e 'AI Native Source of Truth' -e 'old Ubuntu' -e 'legacy_harvest' -e 'ZPC' . --exclude-dir=.git returns nothing outside goals/ and operating_context/old_vault_archive_plan (the archive-plan doc itself is allowed to name what it archives)",
+      "on_violation": "wake Liam. Do not auto-fix \u2014 a new reference to a legacy\npath is a routing bug (something pointing at a dead system), not a\ntypo to quietly correct.",
+      "retire_when": "the old vaults are fully decommissioned and even the\narchive-plan doc is retired. Retirement is a human decision, logged.",
+      "source_file_status": "satisfied"
+    },
+    {
+      "name": "os_startup_health.goal.md",
+      "path": "goals/os_startup_health.goal.md",
+      "predicate": "test -f soul.md && test -f CLAUDE.md && test -f AGENTS.md && test -f CODEX.md && test -f ANTIGRAVITY.md && test -f ROT.md && test -f rules/always.md && test -f rules/never.md && test -d hooks && test -d goals",
+      "on_violation": "wake Liam. Do not auto-fix \u2014 a missing root file means the\nrepo is mid-edit or corrupted, not something to patch blind.",
+      "retire_when": "the root identity layer is restructured on purpose and this\npredicate is rewritten to match. Retirement is a human decision, logged.",
+      "source_file_status": "satisfied"
+    },
+    {
+      "name": "queue_receipts_visible.goal.md",
+      "path": "goals/queue_receipts_visible.goal.md",
+      "predicate": "every done-transition in queue/run_ledger.jsonl has a matching\nreceipt path that exists on disk",
+      "on_violation": "wake Liam. Do not auto-fix \u2014 a missing receipt means the\nwork may not actually be done, not just unlogged.",
+      "retire_when": "the receipt model is replaced by something else. Retirement\nis a human decision, logged.",
+      "source_file_status": "satisfied"
+    },
+    {
+      "name": "token_ledger_current.goal.md",
+      "path": "goals/token_ledger_current.goal.md",
+      "predicate": "the most recent entry in queue/token_ledger.jsonl has a date\nwithin the current active session window (never silently stale across\na session that reported token usage)",
+      "on_violation": "wake Liam. Do not auto-fix \u2014 an unavailable token count is\nreported as \"unavailable,\" never estimated or backfilled.",
+      "retire_when": "token reporting moves to a different mechanism entirely.\nRetirement is a human decision, logged.",
+      "source_file_status": "satisfied"
+    }
+  ]
+}
