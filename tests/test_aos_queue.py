@@ -1,3 +1,4 @@
+import builtins
 import importlib.util
 import json
 import subprocess
@@ -9,10 +10,18 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 TOOL = ROOT / "tools" / "aos-queue.py"
+ROLLUP = ROOT / "scripts" / "token_rollup.py"
 
 
 def load_tool_module():
     spec = importlib.util.spec_from_file_location("aos_queue", TOOL)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def load_rollup_module():
+    spec = importlib.util.spec_from_file_location("token_rollup", ROLLUP)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -165,6 +174,57 @@ class AosQueueTest(unittest.TestCase):
 
             self.assertEqual(second["id"][-4:], "0002")
             self.assertEqual(module.find_item(module.load_items(root), first["id"])["title"], "One")
+
+    def test_jsonschema_absence_blocks_module_load(self):
+        original_import = builtins.__import__
+        original_jsonschema = sys.modules.pop("jsonschema", None)
+
+        def blocked_import(name, *args, **kwargs):
+            if name == "jsonschema":
+                raise ModuleNotFoundError("No module named 'jsonschema'")
+            return original_import(name, *args, **kwargs)
+
+        try:
+            builtins.__import__ = blocked_import
+            with self.assertRaises(ModuleNotFoundError):
+                load_tool_module()
+        finally:
+            builtins.__import__ = original_import
+            if original_jsonschema is not None:
+                sys.modules["jsonschema"] = original_jsonschema
+
+    def test_receipt_and_rollup_cost_use_model_confirmed_for_orchestrator(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            module = load_tool_module()
+            rollup = load_rollup_module()
+            item = parse_json(run_cli(root, "create", "--title", "Price confirmed model", "--owner", "codex").stdout)
+            usage = {
+                "orchestrator": {"input": 1_000_000, "output": 0},
+                "subagents": [
+                    {"role": "codex/oneshot", "model": "claude-haiku-4-5", "input": 1_000_000, "output": 0}
+                ],
+                "workbenches": [],
+                "unavailable": [],
+            }
+
+            record = module.finalize_done(
+                root,
+                item,
+                token_usage_json=usage,
+                model_confirmed="claude-sonnet-5",
+            )
+            receipt_usage = json.loads((root / record["token_usage_sidecar"]).read_text(encoding="utf-8"))["token_usage"]
+            ledger_line = json.loads((root / "queue" / "token_ledger.jsonl").read_text(encoding="utf-8"))
+            prices = rollup.load_prices()
+            week = rollup.iso_week_key(ledger_line["timestamp"])
+            rolled = rollup.rollup_week(week, [ledger_line], prices)
+
+            self.assertEqual(ledger_line["model_confirmed"], "claude-sonnet-5")
+            self.assertEqual(receipt_usage["est_cost_usd"], 3.8)
+            self.assertEqual(ledger_line["token_usage"]["est_cost_usd"], 3.8)
+            self.assertEqual(rolled["totals"]["est_cost_usd"], 3.8)
+            self.assertEqual(rolled["by_model"]["claude-sonnet-5"]["est_cost_usd"], 3.0)
 
 
 if __name__ == "__main__":

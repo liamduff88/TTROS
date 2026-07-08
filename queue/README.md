@@ -46,6 +46,10 @@ Access behavior should reference `context/ACCESS_MODEL.md` instead of repeating 
 Run from the repository root:
 
 ```bash
+python3 -m pip install -r requirements.txt
+```
+
+```bash
 python3 tools/aos-queue.py create --title "Review packet" --requested-by liam --owner codex
 python3 tools/aos-queue.py list
 python3 tools/aos-queue.py show AOS-2026-0001

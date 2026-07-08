@@ -16,6 +16,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import jsonschema
+
 TOOLS_DIR = Path(__file__).resolve().parent
 REPO_DIR = TOOLS_DIR.parent
 if str(TOOLS_DIR) not in sys.path:
@@ -443,18 +445,13 @@ def _latest_receipt_path(item: dict, override: str | None) -> str | None:
 
 
 def _validate_against_schema(line: dict, schema_path: Path) -> str | None:
-    """Best-effort JSON Schema validation. Returns an error string, or None if
-    valid or if jsonschema is unavailable (dependency-optional by design)."""
-    try:
-        import jsonschema  # type: ignore
-    except Exception:
-        return None
+    """Validate against JSON Schema. Returns an error string, or None if valid."""
     schema = _read_json_or(None, schema_path)
     if not isinstance(schema, dict):
         return None
     try:
         jsonschema.validate(line, schema)
-    except jsonschema.ValidationError as exc:  # type: ignore[attr-defined]
+    except jsonschema.ValidationError as exc:
         return exc.message
     return None
 
@@ -530,6 +527,7 @@ def finalize_done(
     routes_meta = load_model_routes(root).get("routes", {}).get(route["lane"], {})
     resolved_model_requested = model_requested or routes_meta.get("model") or "configured externally"
     resolved_model_confirmed = model_confirmed or confirmed or "unavailable"
+    block = _recompute_totals_and_cost(block, load_prices(), resolved_model_confirmed)
     timestamp = now_iso()
     # The sidecar path is deterministic from item id alone, so it can be used
     # in run_line for schema validation before the file is actually written.
