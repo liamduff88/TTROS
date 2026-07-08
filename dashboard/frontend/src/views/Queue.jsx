@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { AlertCircle, CheckCircle2, Clipboard, FileText, ListChecks, Plus, RefreshCw } from 'lucide-react'
-import { createQueueItem, getQueueItems, getQueueNext, getQueuePrompt, getQueueReceipt, getQueueStatus } from '../api'
+import { closeQueueItemReview, createQueueItem, getQueueArtifact, getQueueItems, getQueueNext, getQueuePrompt, getQueueReceipt, getQueueStatus } from '../api'
 
 const QUEUE_STATUSES = ['inbox', 'agent_todo', 'agent_working', 'needs_input', 'human_review', 'done', 'blocked', 'cancelled']
 const QUEUE_OWNERS = ['unassigned', 'hermes', 'codex', 'claude', 'revenue', 'marketing', 'delivery', 'operations']
@@ -89,8 +89,16 @@ const emptyCreateForm = {
   owner: 'unassigned',
   priority: 'normal',
   tags: '',
+  source: 'dashboard',
   context: '',
+  sources: '',
+  source_refs: '',
+  allowed_actions: 'local_read, local_edit, local_test',
+  stop_conditions: 'external_send, secrets_exposure, destructive_action_outside_scope',
+  definition_of_done: '',
 }
+
+const emptyReviewState = { submitting: null, note: '', message: '', error: null }
 
 const copyToClipboard = async text => {
   if (navigator.clipboard?.writeText) {
@@ -153,6 +161,7 @@ export default function Queue() {
   const [createState, setCreateState] = useState({ submitting: false, message: '', error: null })
   const [promptCopy, setPromptCopy] = useState({ target: null, message: '', error: null })
   const [runState, setRunState] = useState({ running: false, result: null, error: null })
+  const [reviewState, setReviewState] = useState(emptyReviewState)
   const [filePreview, setFilePreview] = useState({
     path: '',
     category: '',
@@ -214,6 +223,7 @@ export default function Queue() {
   useEffect(() => {
     setFilePreview({ path: '', category: '', extension: '', loading: false, content: '', error: null })
     setRunState({ running: false, result: null, error: null })
+    setReviewState(emptyReviewState)
   }, [selectedId])
 
   const updateCreateField = (field, value) => {
@@ -238,7 +248,13 @@ export default function Queue() {
         owner: createForm.owner || 'unassigned',
         priority: createForm.priority || 'normal',
         tags: createForm.tags,
+        source: createForm.source,
         context: createForm.context,
+        sources: createForm.sources,
+        source_refs: createForm.source_refs,
+        allowed_actions: createForm.allowed_actions,
+        stop_conditions: createForm.stop_conditions,
+        definition_of_done: createForm.definition_of_done,
       })
       if (response?.success === false || !response?.item?.id) {
         throw new Error(response?.reason || response?.message || 'Queue item was not created')
@@ -318,10 +334,9 @@ export default function Queue() {
     setFilePreview({ path, category, extension, loading: true, content: '', error: null })
     scrollFilePreviewIntoView()
     try {
-      const response = await fetch(`/api/queue/artifact?path=${encodeURIComponent(path)}`)
-      const data = await response.json().catch(() => ({}))
-      if (!response.ok || data?.success === false) {
-        throw new Error(data?.detail || data?.reason || data?.message || 'Artifact unavailable')
+      const data = await getQueueArtifact(path)
+      if (data?.success === false) {
+        throw new Error(data?.reason || data?.message || 'Artifact unavailable')
       }
       setFilePreview({
         path: data.path || path,
@@ -365,6 +380,33 @@ export default function Queue() {
         result: null,
         error: error?.message || 'Queue item run failed',
       })
+    }
+  }
+
+  const updateReviewNote = value => {
+    setReviewState(current => ({ ...current, note: value, message: '', error: null }))
+  }
+
+  const markReviewStatus = async status => {
+    if (!selected?.id || selected.status !== 'human_review' || reviewState.submitting) return
+    setReviewState(current => ({ ...current, submitting: status, message: '', error: null }))
+    try {
+      const response = await closeQueueItemReview(selected.id, {
+        status,
+        review_note: reviewState.note,
+      })
+      if (response?.success === false || response?.ok === false) {
+        throw new Error(response?.reason || response?.message || 'Review update failed')
+      }
+      await refreshQueue(selected.id)
+      setReviewState({ submitting: null, note: '', message: `Marked ${formatStatus(status)}.`, error: null })
+    } catch (error) {
+      setReviewState(current => ({
+        ...current,
+        submitting: null,
+        message: '',
+        error: error?.response?.data?.detail || error?.message || 'Review update failed',
+      }))
     }
   }
 
@@ -475,12 +517,66 @@ export default function Queue() {
                 />
               </FieldLabel>
 
+              <FieldLabel label="Source">
+                <input
+                  className={fieldBase}
+                  value={createForm.source}
+                  onChange={event => updateCreateField('source', event.target.value)}
+                  placeholder="dashboard"
+                />
+              </FieldLabel>
+
               <FieldLabel label="Context">
                 <textarea
                   className={`${fieldBase} min-h-[5rem] resize-y`}
                   value={createForm.context}
                   onChange={event => updateCreateField('context', event.target.value)}
                   placeholder="Local details for the queued work"
+                />
+              </FieldLabel>
+
+              <FieldLabel label="Sources / files">
+                <textarea
+                  className={`${fieldBase} min-h-[4rem] resize-y`}
+                  value={createForm.sources}
+                  onChange={event => updateCreateField('sources', event.target.value)}
+                  placeholder={'queue/work_items.jsonl\ndashboard/frontend/src/views/Queue.jsx'}
+                />
+              </FieldLabel>
+
+              <FieldLabel label="Source refs / artifact refs">
+                <textarea
+                  className={`${fieldBase} min-h-[4rem] resize-y`}
+                  value={createForm.source_refs}
+                  onChange={event => updateCreateField('source_refs', event.target.value)}
+                  placeholder={'workflows/.../output.md\nqueue/receipts/...md'}
+                />
+              </FieldLabel>
+
+              <FieldLabel label="Allowed actions">
+                <textarea
+                  className={`${fieldBase} min-h-[4rem] resize-y`}
+                  value={createForm.allowed_actions}
+                  onChange={event => updateCreateField('allowed_actions', event.target.value)}
+                  placeholder="local_read, local_edit, local_test"
+                />
+              </FieldLabel>
+
+              <FieldLabel label="Stop conditions">
+                <textarea
+                  className={`${fieldBase} min-h-[4rem] resize-y`}
+                  value={createForm.stop_conditions}
+                  onChange={event => updateCreateField('stop_conditions', event.target.value)}
+                  placeholder="external_send, secrets_exposure"
+                />
+              </FieldLabel>
+
+              <FieldLabel label="Definition of done">
+                <textarea
+                  className={`${fieldBase} min-h-[4rem] resize-y`}
+                  value={createForm.definition_of_done}
+                  onChange={event => updateCreateField('definition_of_done', event.target.value)}
+                  placeholder="Concrete acceptance criteria for this queue item"
                 />
               </FieldLabel>
             </div>
@@ -666,6 +762,44 @@ export default function Queue() {
                 <DetailRow label="Allowed actions" value={renderList(selected.allowed_actions)} />
                 <DetailRow label="Stop conditions" value={renderList(selected.stop_conditions)} />
               </div>
+
+              {selected.status === 'human_review' && (
+                <div className="rounded border border-softgraph bg-ink">
+                  <div className="border-b border-softgraph px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-taupe">Human review controls</div>
+                  <div className="space-y-3 px-3 py-3">
+                    <FieldLabel label="Review note optional">
+                      <textarea
+                        className={`${fieldBase} min-h-[4rem] resize-y`}
+                        maxLength={500}
+                        value={reviewState.note}
+                        onChange={event => updateReviewNote(event.target.value)}
+                        placeholder="Short local note to attach to the review receipt"
+                      />
+                    </FieldLabel>
+                    <div className="flex flex-wrap gap-2">
+                      {['done', 'needs_input', 'blocked'].map(reviewStatus => (
+                        <button
+                          key={reviewStatus}
+                          type="button"
+                          onClick={() => markReviewStatus(reviewStatus)}
+                          disabled={Boolean(reviewState.submitting)}
+                          className={`inline-flex items-center gap-2 rounded px-3 py-2 text-xs font-mono font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
+                            reviewStatus === 'done' ? 'bg-champagne text-ink hover:bg-stone' : 'border border-softgraph bg-graphite text-stone hover:border-champagne'
+                          }`}
+                        >
+                          {reviewState.submitting === reviewStatus ? `Marking ${formatStatus(reviewStatus)}...` : `Mark ${formatStatus(reviewStatus)}`}
+                        </button>
+                      ))}
+                    </div>
+                    {(reviewState.message || reviewState.error) && (
+                      <div className={`rounded border px-3 py-2 text-xs font-mono ${reviewState.error ? 'border-clay/40 bg-clay/10 text-clay' : 'border-champagne/30 bg-champagne/10 text-champagne'}`}>
+                        {reviewState.error || reviewState.message}
+                      </div>
+                    )}
+                    <div className="text-xs font-mono text-taupe">These controls only update local queue status and attach a local review receipt. They do not launch agents.</div>
+                  </div>
+                </div>
+              )}
 
               <div id="queue-file-preview" className="rounded border border-softgraph bg-ink">
                 <div className="flex flex-col gap-2 border-b border-softgraph px-3 py-2 sm:flex-row sm:items-center sm:justify-between">

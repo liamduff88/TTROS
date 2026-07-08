@@ -780,8 +780,10 @@ class HermesComposioTests(unittest.TestCase):
                 owner="codex",
                 priority="high",
                 tags="dashboard,queue",
+                source="operator_daily_queue",
                 context="Keep the workflow manual.",
                 sources="dashboard/frontend/src/views/Queue.jsx\nqueue/templates/codex_task.prompt.md",
+                source_refs="workflows/revenue_linkedin_outreach/output/AOS-2026-0021_ttr_sme_outreach_angle_pack.md\nqueue/receipts/AOS-2026-0002.md",
                 definition_of_done="Queue item can be created and copied.",
                 allowed_actions="local_read\nlocal_edit\nlocal_test",
                 stop_conditions="external_send\nsecrets_exposure\ndestructive_action_outside_scope",
@@ -798,7 +800,11 @@ class HermesComposioTests(unittest.TestCase):
             self.assertTrue(created["success"])
             self.assertEqual(created["item"]["status"], "agent_todo")
             self.assertEqual(created["item"]["requested_by"], "Liam")
-            self.assertEqual(created["item"]["source"], "dashboard")
+            self.assertEqual(created["item"]["source"], "operator_daily_queue")
+            self.assertEqual(created["item"]["source_refs"], [
+                "workflows/revenue_linkedin_outreach/output/AOS-2026-0021_ttr_sme_outreach_angle_pack.md",
+                "queue/receipts/AOS-2026-0002.md",
+            ])
             self.assertEqual(shown["item"]["id"], item_id)
             self.assertEqual(shown["item"]["title"], "Patch dashboard queue prompt copy")
             for prompt_response in (codex, claude):
@@ -937,6 +943,30 @@ class HermesComposioTests(unittest.TestCase):
             self.assertEqual(item["status"], "done")
             self.assertEqual(item["receipts"][0]["path"], result["receipt_path"])
             self.assertEqual(item["receipts"][0]["status"], "done")
+
+    def test_dashboard_queue_review_close_can_mark_needs_input_or_blocked_with_note_receipt(self):
+        for review_status in ("needs_input", "blocked"):
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                items = self.sample_queue_items()
+                items[1]["status"] = "human_review"
+                self.write_queue_items(root, items)
+                with patch.object(backend, "BASE_DIR", root), \
+                     patch.object(backend, "_run_wsl") as run:
+                    result = backend.close_queue_item_review(
+                        "AOS-2026-0002",
+                        backend.QueueReviewClose(status=review_status, review_note=f"Set {review_status} from dashboard."),
+                    )
+
+                run.assert_not_called()
+                self.assertTrue(result["ok"])
+                self.assertEqual(result["status"], review_status)
+                receipt_file = root / result["receipt_path"]
+                receipt_text = receipt_file.read_text(encoding="utf-8")
+                self.assertIn(f"- Status: {review_status}", receipt_text)
+                self.assertIn(f"Set {review_status} from dashboard.", receipt_text)
+                self.assertEqual(result["item"]["status"], review_status)
+                self.assertEqual(result["item"]["receipts"][0]["status"], review_status)
 
     def test_dashboard_queue_review_close_rejects_non_review_items(self):
         with tempfile.TemporaryDirectory() as tmp:

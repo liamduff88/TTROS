@@ -1,0 +1,17 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "goal_ledger.schema.json",
+  "title": "Goal Ledger Line",
+  "description": "One line per daily re-verification of a goals/*.goal.md contract. Goals graduate, they do not close — this ledger is the record that a finished thing is still true. A VIOLATED entry names the goal; the fix goes through the normal queue, not a shortcut here.",
+  "type": "object",
+  "required": ["goal_id", "date", "checked_by", "status", "predicate"],
+  "properties": {
+    "goal_id": {"type": "string", "description": "Matches a file in goals/, e.g. queue_receipts_visible.goal.md"},
+    "date": {"type": "string", "format": "date"},
+    "checked_by": {"type": "string", "enum": ["aos-orchestrator", "aos-revenue", "aos-marketing", "aos-delivery", "aos-ops"]},
+    "status": {"type": "string", "enum": ["PASS", "VIOLATED", "UNVERIFIABLE"]},
+    "predicate": {"type": "string", "description": "The deterministic check that was run — must be shell/script-checkable, not a judgment call."},
+    "evidence": {"type": "string"},
+    "notes": {"type": "string"}
+  }
+}

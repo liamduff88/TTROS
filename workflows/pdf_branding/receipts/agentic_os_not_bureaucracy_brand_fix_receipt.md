@@ -9,7 +9,8 @@ migration correction only: the existing Markdown input and renderer shape were p
 
 ## Brand Source Used
 
-- `legacy_harvest/pdf_branding_workflow/PDF_BRANDING_WORKFLOW_MANIFEST.md`
+- Legacy harvest source retired; no current equivalent brand asset path was found in the live Business Brain pointer
+  (`C:\Users\Admin\Documents\A-Time to revenue\TTROS Business Brain`). Brand assets must be re-sourced from the live Business Brain before reuse.
 - `C:\Users\Admin\Code\ttr-publication-engine\brand\time-to-revenue.tokens.json`
 - `C:\Users\Admin\Code\ttr-publication-engine\styles\base.css`
 

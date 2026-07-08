@@ -1,10 +1,10 @@
 # Approved Draft: Agentic OS Is Not Bureaucracy
 
-Source: workflows/linkedin_content/output/2026-07-03_agentic_os_not_bureaucracy_result.md
+Source: workflows/linkedin\_content/output/2026-07-03\_agentic\_os\_not\_bureaucracy\_result.md
 Status: reviewed, ready for Liam's final sign-off before anything posts
-Reviewed against: agents/marketing.md, workflows/linkedin_content/workflow.md
+Reviewed against: agents/marketing.md, workflows/linkedin\_content/workflow.md
 
-## 1. Final recommended LinkedIn post
+## 1\. Final recommended LinkedIn post
 
 I spent the last few weeks rebuilding our internal AI operations system.
 Here is the thing nobody tells you before you start.
@@ -35,7 +35,7 @@ usually why.
 
 DM "SYSTEM" and I will tell you the one handoff I would fix first.
 
-## 2. Shorter alternate LinkedIn post
+## 2\. Shorter alternate LinkedIn post
 
 Most businesses do not need a bigger AI system. They need a working one.
 
@@ -47,7 +47,7 @@ It is fewer dropped handoffs.
 
 DM "SYSTEM" and I will tell you where I would look first in yours.
 
-## 3. Instagram caption
+## 3\. Instagram caption
 
 Rebuilt our internal AI system this month and learned the obvious thing
 the hard way.
@@ -61,40 +61,40 @@ If it does not do that, it is not a system. It is a science project.
 
 Comment "SYSTEM" and I will send you the one-page check we use.
 
-## 4. Carousel outline (6 slides)
+## 4\. Carousel outline (6 slides)
 
 1. Hook: "We rebuilt our AI system. Here's what actually mattered."
 2. The trap: most businesses chase more architecture. More agents, more
-   dashboards, more automation layers.
+dashboards, more automation layers.
 3. The real job: a working system only needs to do four things. Capture,
-   route, act, return a receipt.
+route, act, return a receipt.
 4. The lesson: value does not come from adding more. It comes from
-   removing dropped handoffs and keeping the work visible.
+removing dropped handoffs and keeping the work visible.
 5. The tell: if you cannot see where a task is right now, or nobody
-   checks it happened, that is the real gap. Not "not enough AI."
+checks it happened, that is the real gap. Not "not enough AI."
 6. CTA: "Where does work drop in your business? DM me 'SYSTEM' and I'll
-   tell you what I'd fix first."
+tell you what I'd fix first."
 
-## 5. CTA
+## 5\. CTA
 
 DM "SYSTEM" for a plain-English read on where your business is dropping
 handoffs, and what a working, not bigger, fix would look like.
 
-## 6. PDF lead magnet outline (tightened, feeds pdf_branding later)
+## 6\. PDF lead magnet outline (tightened, feeds pdf\_branding later)
 
 Working title: "The One-Page AI Operations Check"
 
-- Cover: title plus one-line promise. "Find the handoff costing you time
-  before you buy any more software."
-- Page 1: the 4 questions that reveal a broken handoff. Capture, route,
-  act, receipt.
-- Page 2: a simple self-score grid, 0 to 2 per question, 8 max.
-- Page 3: what each score range means, in plain terms.
-- Page 4: what fixed looks like, one example from a real handoff.
-- Back page: CTA to book a short call with Time to Revenue.
+* Cover: title plus one-line promise. "Find the handoff costing you time
+before you buy any more software."
+* Page 1: the 4 questions that reveal a broken handoff. Capture, route,
+act, receipt.
+* Page 2: a simple self-score grid, 0 to 2 per question, 8 max.
+* Page 3: what each score range means, in plain terms.
+* Page 4: what fixed looks like, one example from a real handoff.
+* Back page: CTA to book a short call with Time to Revenue.
 
 Content structure only. Not a design brief. Design and branding stay in
-workflows/pdf_branding, which this workflow does not touch.
+workflows/pdf\_branding, which this workflow does not touch.
 
 ## Why this angle works commercially
 
@@ -107,3 +107,4 @@ enough to stop the scroll among operators who are already skeptical of
 who DMs "SYSTEM" is already sold on the premise before the call happens.
 The CTA is low-friction (a DM, not a form) and gives Liam a warm reason to
 start a real conversation instead of a cold pitch.
+

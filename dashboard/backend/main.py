@@ -287,8 +287,10 @@ class QueueItemCreate(BaseModel):
     owner: str = "unassigned"
     priority: str | int = "normal"
     tags: str = ""
+    source: str = "dashboard"
     context: str = ""
     sources: str = ""
+    source_refs: str = ""
     definition_of_done: str = ""
     allowed_actions: str = "local_read,local_edit,local_test"
     stop_conditions: str = "external_send,secrets_exposure,destructive_action_outside_scope"
@@ -304,6 +306,7 @@ class QueueStatusUpdate(BaseModel):
 
 
 class QueueReviewClose(BaseModel):
+    status: str = "done"
     review_note: str = ""
 
 
@@ -1217,6 +1220,15 @@ def _queue_priority_value(value: object) -> int:
         raise ValueError("priority must be low, normal, high, urgent, or an integer") from exc
 
 
+def _queue_apply_source_refs(queue_tool, item_id: str, source_refs: list[str]) -> dict:
+    items = queue_tool.load_items(BASE_DIR)
+    item = queue_tool.find_item(items, item_id)
+    item["source_refs"] = source_refs
+    item["updated_at"] = queue_tool.now_iso()
+    queue_tool.save_items(BASE_DIR, items)
+    return item
+
+
 def _queue_create_dashboard_item(body: QueueItemCreate) -> dict:
     title = body.title.strip()
     if not title:
@@ -1225,6 +1237,7 @@ def _queue_create_dashboard_item(body: QueueItemCreate) -> dict:
     if owner not in {"unassigned", "hermes", "codex", "claude", "revenue", "marketing", "delivery", "operations"}:
         raise ValueError(f"Unknown owner: {owner}")
     queue_tool = _load_queue_tool()
+    source_refs = _queue_split_text(body.source_refs)
     args = argparse.Namespace(
         title=title,
         requested_by="Liam",
@@ -1232,7 +1245,7 @@ def _queue_create_dashboard_item(body: QueueItemCreate) -> dict:
         owner=owner,
         status="agent_todo",
         priority=_queue_priority_value(body.priority),
-        source="dashboard",
+        source=body.source.strip() or "dashboard",
         tags=",".join(_queue_split_text(body.tags)),
         context=body.context.strip(),
         sources=",".join(_queue_split_text(body.sources)),
@@ -1240,7 +1253,10 @@ def _queue_create_dashboard_item(body: QueueItemCreate) -> dict:
         stop_conditions=",".join(_queue_split_text(body.stop_conditions)) or "external_send,secrets_exposure,destructive_action_outside_scope",
         definition_of_done=body.definition_of_done.strip(),
     )
-    return queue_tool.create_item(BASE_DIR, args)
+    item = queue_tool.create_item(BASE_DIR, args)
+    if source_refs:
+        item = _queue_apply_source_refs(queue_tool, item["id"], source_refs)
+    return item
 
 
 def _queue_validate_status(status: str) -> str:
@@ -1267,7 +1283,7 @@ def _queue_write_receipt(item_id: str, receipt_text: str) -> str:
     return receipt_path
 
 
-def _queue_write_review_receipt(item_id: str, review_note: str) -> str:
+def _queue_write_review_receipt(item_id: str, review_note: str, status: str = "done") -> str:
     note = str(review_note or "").strip()
     if len(note) > 500:
         raise ValueError("review_note must be 500 characters or fewer")
@@ -1278,7 +1294,7 @@ def _queue_write_review_receipt(item_id: str, review_note: str) -> str:
         "Review closeout:",
         "- Reviewed by: Liam",
         f"- Reviewed at: {timestamp}",
-        "- Status: done",
+        f"- Status: {status}",
     ]
     if note:
         lines.extend(["", "Review note:", note])
@@ -1747,13 +1763,16 @@ def attach_queue_item_receipt(item_id: str, body: QueueReceiptAttach):
 
 @app.post("/api/queue/items/{item_id}/review-close")
 def close_queue_item_review(item_id: str, body: QueueReviewClose):
-    """Close one human_review queue item as done with an optional local review note."""
+    """Close one human_review queue item with an optional local review note."""
     try:
+        status = _queue_validate_status(body.status)
+        if status not in {"done", "needs_input", "blocked"}:
+            raise ValueError("review status must be done, needs_input, or blocked")
         existing = _queue_find_item(item_id)
         if existing.get("status") != "human_review":
             raise ValueError("only human_review items can be closed from review")
-        receipt_path = _queue_write_review_receipt(item_id, body.review_note)
-        item = _load_queue_tool().attach_receipt(BASE_DIR, item_id, receipt_path, "done")
+        receipt_path = _queue_write_review_receipt(item_id, body.review_note, status)
+        item = _load_queue_tool().attach_receipt(BASE_DIR, item_id, receipt_path, status)
     except KeyError:
         raise HTTPException(status_code=404, detail="queue item not found")
     except ValueError as exc:

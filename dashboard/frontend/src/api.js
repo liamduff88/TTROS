@@ -19,6 +19,7 @@ export const getQueueItems = () => api.get('/queue/items').then(r => r.data)
 export const getQueueItem = (id) => api.get(`/queue/items/${id}`).then(r => r.data)
 export const getQueueNext = () => api.get('/queue/next').then(r => r.data)
 export const getQueueReceipt = (path) => api.get('/queue/receipt', { params: { path } }).then(r => r.data)
+export const getQueueArtifact = (path) => api.get('/queue/artifact', { params: { path } }).then(r => r.data)
 export const createQueueItem = (data) => api.post('/queue/items', data).then(r => r.data)
 export const getQueuePrompt = (id, target) => api.get(`/queue/items/${id}/prompt`, { params: { target } }).then(r => r.data)
 export const attachQueueReceipt = (id, data) => api.post(`/queue/items/${id}/receipt`, data).then(r => r.data)
@@ -35,4 +36,3 @@ export const wslClaude = (task) => apiWsl.post('/wsl/claude', { task }).then(r =
 export const wslCodex = (task) => apiWsl.post('/wsl/codex', { task }).then(r => r.data)
 
 export const telegramStatus = () => api.get('/connectors/telegram/status').then(r => r.data)
-

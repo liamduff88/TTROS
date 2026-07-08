@@ -1,0 +1,23 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "skill_trust.schema.json",
+  "title": "Skill Trust Ledger Line",
+  "description": "One line per skill invocation, per SKILL_GRADUATION_POLICY.md. Evidence base for /maintain-os graduation (v0 marker removal after 3 real uses) and demotion checks. Never a vibe — mechanical read of this ledger only.",
+  "type": "object",
+  "required": ["skill", "version", "date", "item_id", "lane", "profile", "outcome", "escalated", "real_use"],
+  "properties": {
+    "skill": {"type": "string"},
+    "version": {"type": "string", "enum": ["v0", "earned"]},
+    "date": {"type": "string", "format": "date"},
+    "item_id": {"type": "string", "pattern": "^Q-[0-9]{4}-[0-9]{4}$"},
+    "lane": {"type": "string", "enum": ["revenue", "marketing", "delivery", "ops"]},
+    "profile": {"type": "string", "enum": ["aos-orchestrator", "aos-revenue", "aos-marketing", "aos-delivery", "aos-ops"]},
+    "outcome": {"type": "string", "enum": ["ACCEPT", "REVISE"]},
+    "escalated": {"type": "boolean"},
+    "real_use": {
+      "type": "boolean",
+      "description": "true = completed queue item with a full receipt; false = dry run or test call. Only real_use:true counts toward the 3-use graduation threshold."
+    },
+    "notes": {"type": "string"}
+  }
+}
