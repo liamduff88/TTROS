@@ -1,3 +1,11 @@
+---
+workflow: marketing_pdf_package
+skill: skills/content_draft/SKILL.md
+path: workflows/marketing_pdf_package/workflow.md
+lane: marketing
+profile: aos-marketing
+trust: earned
+---
 # Marketing PDF Package Workflow
 
 Purpose: turn an approved Marketing draft into a polished lead magnet package without changing runtime systems or publishing anything automatically.

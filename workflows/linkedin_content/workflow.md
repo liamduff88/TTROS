@@ -1,3 +1,11 @@
+---
+workflow: linkedin_content
+skill: skills/content_draft/SKILL.md
+path: workflows/linkedin_content/workflow.md
+lane: marketing
+profile: aos-marketing
+trust: earned
+---
 # LinkedIn / Content Workflow
 
 Raw idea, transcript, client lesson, or website topic → LinkedIn post →

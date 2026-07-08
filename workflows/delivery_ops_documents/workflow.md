@@ -1,3 +1,11 @@
+---
+workflow: delivery_ops_documents
+skill: skills/delivery_ops_documents/SKILL.md
+path: workflows/delivery_ops_documents/workflow.md
+lane: delivery
+profile: aos-delivery
+trust: watch
+---
 # Delivery / Operations Document Workflow
 
 Purpose: turn notes, transcripts, or build outputs into useful internal and client-ready documents while keeping final delivery under Liam approval.

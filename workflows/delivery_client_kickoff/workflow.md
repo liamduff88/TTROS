@@ -1,3 +1,11 @@
+---
+workflow: delivery_client_kickoff
+skill: skills/client_hub/SKILL.md
+path: workflows/delivery_client_kickoff/workflow.md
+lane: delivery
+profile: aos-delivery
+trust: watch
+---
 # Delivery Client Kickoff Workflow
 
 Purpose: turn a signed or likely engagement into kickoff planning documents without sending client deliverables, requesting credentials in plain text, or touching live client systems.

@@ -1,3 +1,11 @@
+---
+workflow: marketing_content_repurposing
+skill: skills/content_draft/SKILL.md
+path: workflows/marketing_content_repurposing/workflow.md
+lane: marketing
+profile: aos-marketing
+trust: earned
+---
 # Marketing Content Repurposing Workflow
 
 Purpose: turn one approved source asset, transcript, opinion, delivery lesson, PDF, or offer note into reusable marketing draft options without publishing or making unsupported claims.

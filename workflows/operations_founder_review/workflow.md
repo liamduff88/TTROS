@@ -1,3 +1,11 @@
+---
+workflow: operations_founder_review
+skill: skills/weekly_review/SKILL.md
+path: workflows/operations_founder_review/workflow.md
+lane: ops
+profile: aos-ops
+trust: earned
+---
 # Operations Founder Review Workflow
 
 Purpose: turn weekly notes, receipts, results, blockers, and priorities into a concise founder operating review without booking meetings, sending emails, moving broad folders, or creating bureaucracy.

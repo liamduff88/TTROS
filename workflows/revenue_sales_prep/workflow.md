@@ -1,3 +1,11 @@
+---
+workflow: revenue_sales_prep
+skill: skills/fit_call_prep/SKILL.md
+path: workflows/revenue_sales_prep/workflow.md
+lane: revenue
+profile: aos-revenue
+trust: watch
+---
 # Revenue Sales Prep Workflow
 
 Purpose: turn provided prospect notes, website notes, call notes, or transcript snippets into sales preparation documents without sending outreach, mutating CRM records, or inventing company facts.

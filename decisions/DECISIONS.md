@@ -46,3 +46,10 @@ Tests: `tests.test_aos_queue`, `tests.test_aos_paths`,
 sandbox that a schema-invalid done-transition on all three paths (`status`,
 `receipt`, `done`) leaves the item's status/receipts unchanged and appends
 nothing to either ledger.
+
+## 2026-07-07 — Created delivery_ops_documents skill
+Created `skills/delivery_ops_documents` — closes AOS-2026-0042 gap, approved by
+Liam directly, overrides default 3-repeat rule.
+
+Files touched: `skills/delivery_ops_documents/SKILL.md`,
+`workflows/delivery_ops_documents/workflow.md`, `decisions/DECISIONS.md`.

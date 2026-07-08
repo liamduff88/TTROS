@@ -1,3 +1,11 @@
+---
+workflow: revenue_linkedin_outreach
+skill: skills/linkedin_outreach_prep/SKILL.md
+path: workflows/revenue_linkedin_outreach/workflow.md
+lane: revenue
+profile: aos-revenue
+trust: watch
+---
 # Revenue LinkedIn Relationship Outreach Workflow
 
 Purpose: draft relationship-first LinkedIn outreach and follow-up messages without sending anything, automating LinkedIn, scraping private data, or mutating CRM records.
