@@ -71,3 +71,10 @@ breakdown, including against older ledger data.
 ## Enforcement
 Hooks: token_budget_check.md, receipt-completeness-check. Mirrored in
 rules/always.md #1, rules/token_budget.md, rules/never.md #7.
+
+## Known gaps
+- Done-transition writes the token_usage block and the ledger append as
+  two separate steps, not one atomic operation (accepted tradeoff,
+  audit #2 finding #3, 2026-07-05). A crash between the two could leave
+  a receipt without a matching ledger line. Not fixed this phase —
+  revisit if ledger/receipt drift is ever observed in practice.
