@@ -1,0 +1,14 @@
+{
+  "$comment": "Deterministic est_cost source for the token ledger (TOKEN_POLICY.md). Rates are USD per 1,000,000 tokens. THESE ARE PLACEHOLDERS — Liam fills real provider rates. Placeholder prices are sanctioned; token COUNTS are never invented (never.md #7).",
+  "revisit": "Monthly provider pricing check, or on any provider price change or model-generation jump. Last touched: 2026-07-07.",
+  "currency": "USD",
+  "unit": "per_million_tokens",
+  "rates_are_placeholders": true,
+  "models": {
+    "default": {"input_per_mtok": 0.0, "output_per_mtok": 0.0, "note": "placeholder — used when a model has no explicit rate"},
+    "gpt-5.5": {"input_per_mtok": 2.50, "output_per_mtok": 10.00, "note": "PLACEHOLDER rate"},
+    "claude-opus-4-8": {"input_per_mtok": 15.00, "output_per_mtok": 75.00, "note": "PLACEHOLDER rate"},
+    "claude-sonnet-5": {"input_per_mtok": 3.00, "output_per_mtok": 15.00, "note": "PLACEHOLDER rate"},
+    "claude-haiku-4-5": {"input_per_mtok": 0.80, "output_per_mtok": 4.00, "note": "PLACEHOLDER rate"}
+  }
+}

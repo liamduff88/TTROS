@@ -1,5 +1,5 @@
 # TOKEN_POLICY.md — visible spend on every unit of work
-> Revisit: on a Hermes release (usage-metadata fields can reshape) or monthly pricing check. · Last touched: 2026-07-07.
+> Revisit: on a Hermes release (usage-metadata fields can reshape) or monthly pricing check. · Last touched: 2026-07-07 (model_prices path moved to scripts/; ledger back end wired).
 
 ## Purpose
 Clear token usage on every task, subagent, the orchestrator, and every
@@ -45,9 +45,10 @@ harness writes usage to local logs, a deterministic parser script is
 preferred over self-report. Where nothing is exposed: `"source": "unavailable"`.
 
 ## Cost
-`est_cost_usd` is computed by a deterministic script from `queue/model_prices.json`
+`est_cost_usd` is computed by a deterministic script from `scripts/model_prices.json`
 — a rotting file with its own Revisit line, checked monthly for provider
-pricing changes.
+pricing changes. Rates there are placeholders until Liam fills real provider
+pricing.
 
 ## Rollups
 `scripts/token_rollup.py` (no model calls): daily/weekly totals by lane,

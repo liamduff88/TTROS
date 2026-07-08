@@ -1,0 +1,60 @@
+{
+  "week": "2026-W28",
+  "generated_from": "queue/token_ledger.jsonl",
+  "model_prices": "scripts/model_prices.json (placeholder rates until filled)",
+  "line_count": 1,
+  "totals": {
+    "input": 20500,
+    "output": 5840,
+    "est_cost_usd": 0.0
+  },
+  "by_lane": {
+    "delivery": {
+      "input": 20500,
+      "output": 5840,
+      "est_cost_usd": 0.0,
+      "count": 1
+    }
+  },
+  "by_model": {
+    "claude-sonnet-5": {
+      "input": 20500,
+      "output": 5840,
+      "est_cost_usd": 0.1491,
+      "count": 2
+    },
+    "unavailable": {
+      "input": 0,
+      "output": 0,
+      "est_cost_usd": 0.0,
+      "count": 1
+    }
+  },
+  "by_budget_class": {
+    "standard": {
+      "input": 20500,
+      "output": 5840,
+      "est_cost_usd": 0.0,
+      "count": 1
+    }
+  },
+  "escalation": {
+    "escalated_cost_usd": 0.0,
+    "total_cost_usd": 0.0,
+    "escalated_share": 0.0
+  },
+  "top_items": [
+    {
+      "item_id": "Q-2026-0001",
+      "lane": "delivery",
+      "budget_class": "standard",
+      "escalated": false,
+      "input": 20500,
+      "output": 5840,
+      "est_cost_usd": 0.0
+    }
+  ],
+  "unavailable_components": {
+    "claude-code session totals": 1
+  }
+}

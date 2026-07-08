@@ -9,12 +9,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
+import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 TOOLS_DIR = Path(__file__).resolve().parent
+REPO_DIR = TOOLS_DIR.parent
 if str(TOOLS_DIR) not in sys.path:
     sys.path.insert(0, str(TOOLS_DIR))
 
@@ -27,6 +30,18 @@ REGISTRY_PATH = QUEUE_DIR / "agent_registry.json"
 RECEIPTS_DIR = QUEUE_DIR / "receipts"
 LOCKS_DIR = QUEUE_DIR / "locks"
 SCHEMAS_DIR = QUEUE_DIR / "schemas"
+ROLLUPS_DIR = QUEUE_DIR / "rollups"
+LANE_PROFILES_PATH = QUEUE_DIR / "lane_profiles.json"
+MODEL_ROUTES_PATH = QUEUE_DIR / "model_routes.json"
+RUN_LEDGER_PATH = QUEUE_DIR / "run_ledger.jsonl"
+TOKEN_LEDGER_PATH = QUEUE_DIR / "token_ledger.jsonl"
+RUN_LEDGER_SCHEMA_PATH = QUEUE_DIR / "run_ledger_schema.json"
+TOKEN_LEDGER_SCHEMA_PATH = QUEUE_DIR / "token_ledger_schema.json"
+# Pricing and schemas are repo assets, resolved from the tool location (not --root),
+# so a temporary --root (tests/sandboxes) still finds the canonical files.
+MODEL_PRICES_PATH = REPO_DIR / "scripts" / "model_prices.json"
+HERMES_PROBE_TIMEOUT_S = 20
+DONE_STATUS = "done"
 
 APPROVED_STATUSES = {
     "inbox",
@@ -147,6 +162,428 @@ def split_csv(value: str | None) -> list[str]:
     return [part.strip() for part in value.split(",") if part.strip()]
 
 
+# ---------------------------------------------------------------------------
+# Coordinator done-transition: lane->profile resolution, dual ledger write,
+# and token metering. Everything here is best-effort with respect to queue
+# liveness: a metering problem is surfaced (NEEDS ATTENTION on stderr) but the
+# token_usage block is always assemblable ("unavailable" where a component did
+# not report), so the transition is never blocked for missing tokens. Numbers
+# come from harness/API usage fields only — never estimated (never.md #7).
+# ---------------------------------------------------------------------------
+
+DEFAULT_PROFILE = "default"
+DEFAULT_BUDGET_CLASS = "standard"
+BUDGET_CLASSES = {"light", "standard", "heavy"}
+
+
+def _read_json_or(default: Any, path: Path) -> Any:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return default
+
+
+def load_lane_profiles(root: Path) -> dict:
+    return _read_json_or({}, root / LANE_PROFILES_PATH)
+
+
+def load_model_routes(root: Path) -> dict:
+    return _read_json_or({}, root / MODEL_ROUTES_PATH)
+
+
+def load_prices() -> dict:
+    prices = _read_json_or({}, MODEL_PRICES_PATH)
+    return prices.get("models", {}) if isinstance(prices, dict) else {}
+
+
+def resolve_route(root: Path, owner: str | None) -> dict:
+    """Map a queue owner to its lane, requested profile, and fallback profile.
+
+    Owners are looked up as lane keys in lane_profiles.json. Owners with no lane
+    entry (workbenches like codex/claude, or unassigned) resolve to the default
+    Hermes route, matching model_routes.json.
+    """
+    owner = owner or "unassigned"
+    lanes = load_lane_profiles(root).get("lanes", {})
+    entry = lanes.get(owner)
+    if isinstance(entry, dict):
+        return {
+            "owner": owner,
+            "lane": entry.get("lane", owner),
+            "profile_requested": entry.get("profile_requested", DEFAULT_PROFILE),
+            "fallback_profile": entry.get("fallback_profile", DEFAULT_PROFILE),
+        }
+    return {
+        "owner": owner,
+        "lane": owner,
+        "profile_requested": DEFAULT_PROFILE,
+        "fallback_profile": DEFAULT_PROFILE,
+    }
+
+
+def probe_profile_invocation(profile_requested: str, fallback_profile: str) -> dict:
+    """Attempt a REAL, read-only resolution of the requested Hermes profile and
+    record honestly whether native profile switching can be performed.
+
+    This never runs `hermes profile use` (prohibited for queue routing by
+    queue/profiles/README.md) and never runs a model. It queries
+    `hermes profile show`, which HERMES_CAPABILITIES.md sanctions as the
+    inspection surface, and reports the evidence. No invocation is simulated:
+    when native switching cannot occur, the reason is recorded, not faked.
+    """
+    result: dict[str, Any] = {
+        "requested_profile": profile_requested,
+        "fallback_profile": fallback_profile,
+        "invoked": False,
+        "native_invocation": "unavailable",
+        "resolved_profile": fallback_profile,
+        "evidence": None,
+        "reason": None,
+    }
+
+    hermes = shutil.which("hermes")
+    if profile_requested in (DEFAULT_PROFILE, "", None):
+        result["resolved_profile"] = DEFAULT_PROFILE
+        result["reason"] = "Owner routes to the default Hermes runtime; no aos-* profile switch requested."
+        result["native_invocation"] = "not_applicable"
+
+    if not hermes:
+        result["evidence"] = "hermes CLI not found on PATH"
+        result["reason"] = "Cannot resolve Hermes profile: `hermes` not on PATH."
+        return result
+
+    try:
+        proc = subprocess.run(
+            [hermes, "profile", "show", profile_requested],
+            capture_output=True,
+            text=True,
+            timeout=HERMES_PROBE_TIMEOUT_S,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        result["evidence"] = f"`hermes profile show {profile_requested}` failed: {exc}"
+        result["reason"] = "Cannot resolve Hermes profile: probe command failed."
+        return result
+
+    out = (proc.stdout or "") + (proc.stderr or "")
+    result["evidence"] = f"`hermes profile show {profile_requested}` rc={proc.returncode}"
+    if proc.returncode != 0:
+        result["reason"] = (
+            f"Profile '{profile_requested}' not resolvable via `hermes profile show`; "
+            f"fell back to '{fallback_profile}' route."
+        )
+        return result
+
+    has_model = any(line.strip().lower().startswith("model:") for line in out.splitlines())
+    if profile_requested == DEFAULT_PROFILE:
+        # Default route confirmed present; still no switch performed here.
+        result["resolved_profile"] = DEFAULT_PROFILE
+        result["evidence"] += "; profile present"
+        result["reason"] = "Default Hermes route confirmed present; no profile switch needed."
+        return result
+
+    if has_model:
+        result["resolved_profile"] = profile_requested
+        result["evidence"] += "; profile present WITH configured model"
+        result["reason"] = (
+            f"Profile '{profile_requested}' has a configured model, but `hermes profile use` is "
+            "prohibited for queue routing (queue/profiles/README.md); the queue does not switch "
+            "the sticky default. Native switching intentionally not performed."
+        )
+    else:
+        result["resolved_profile"] = fallback_profile
+        result["evidence"] += "; profile present WITHOUT configured model (no Model: line)"
+        result["reason"] = (
+            f"Profile '{profile_requested}' exists but has no configured model "
+            "(HERMES_CAPABILITIES.md; enabled_only_when_model_configured=true), and "
+            "`hermes profile use` is prohibited for queue routing; fell back to "
+            f"'{fallback_profile}' route."
+        )
+    return result
+
+
+def _coerce_int(value: Any) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def _coerce_num(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
+    return float(value) if isinstance(value, (int, float)) else None
+
+
+def cost_for(model: str | None, inp: int, outp: int, prices: dict) -> float | None:
+    """Deterministic USD cost for a component, or None when the model has no rate."""
+    rate = prices.get(model) if model else None
+    if not isinstance(rate, dict):
+        return None
+    return round(inp / 1_000_000 * rate.get("input_per_mtok", 0.0)
+                 + outp / 1_000_000 * rate.get("output_per_mtok", 0.0), 6)
+
+
+def _empty_token_usage(unavailable: list[str]) -> dict:
+    return {
+        "orchestrator": {"input": 0, "output": 0},
+        "subagents": [],
+        "workbenches": [],
+        "totals": {"input": 0, "output": 0},
+        "est_cost_usd": 0.0,
+        "unavailable": list(unavailable),
+    }
+
+
+def _recompute_totals_and_cost(block: dict, prices: dict, provided_cost: float | None) -> dict:
+    orch = block.get("orchestrator", {"input": 0, "output": 0})
+    subs = block.get("subagents", [])
+    works = block.get("workbenches", [])
+    total_in = int(orch.get("input", 0)) + sum(int(s.get("input", 0)) for s in subs) + sum(int(w.get("input", 0)) for w in works)
+    total_out = int(orch.get("output", 0)) + sum(int(s.get("output", 0)) for s in subs) + sum(int(w.get("output", 0)) for w in works)
+    block["totals"] = {"input": total_in, "output": total_out}
+    if provided_cost is not None:
+        block["est_cost_usd"] = round(provided_cost, 6)
+    else:
+        cost = 0.0
+        for s in subs:
+            c = cost_for(s.get("model"), int(s.get("input", 0)), int(s.get("output", 0)), prices)
+            if c is not None:
+                cost += c
+        for w in works:
+            if w.get("source") == "reported":
+                c = cost_for(w.get("model"), int(w.get("input", 0)), int(w.get("output", 0)), prices)
+                if c is not None:
+                    cost += c
+        block["est_cost_usd"] = round(cost, 6)
+    return block
+
+
+def build_token_usage(route: dict, *, usage_file: str | None, token_usage_json: dict | None) -> tuple[dict, str]:
+    """Assemble the token_usage block and the confirmed model.
+
+    Priority of sources (all harness/API-derived — never estimated):
+      1. token_usage_json: a pre-assembled block (e.g. from the orchestrator).
+      2. usage_file: a Hermes one-shot `--usage-file` JSON (HERMES_CAPABILITIES.md).
+      3. neither: a fully-"unavailable" block.
+    """
+    prices = load_prices()
+
+    if token_usage_json is not None:
+        block = _empty_token_usage([])
+        for key in ("orchestrator", "subagents", "workbenches", "unavailable"):
+            if key in token_usage_json:
+                block[key] = token_usage_json[key]
+        provided_cost = _coerce_num(token_usage_json.get("est_cost_usd"))
+        block = _recompute_totals_and_cost(block, prices, provided_cost)
+        model_confirmed = "unavailable"
+        subs = block.get("subagents", [])
+        if subs and subs[0].get("model"):
+            model_confirmed = subs[0]["model"]
+        return block, model_confirmed
+
+    if usage_file:
+        usage = _read_json_or(None, Path(usage_file))
+        if not isinstance(usage, dict):
+            return _empty_token_usage([f"usage file unreadable: {usage_file}"]), "unavailable"
+        inp = _coerce_int(usage.get("input_tokens"))
+        outp = _coerce_int(usage.get("output_tokens"))
+        model = usage.get("model") or "unavailable"
+        unavailable: list[str] = []
+        role = f"{route['profile_requested']}/oneshot"
+        if inp is None:
+            unavailable.append(f"{role} input tokens")
+        if outp is None:
+            unavailable.append(f"{role} output tokens")
+        block = _empty_token_usage(unavailable)
+        block["subagents"] = [{"role": role, "model": model, "input": inp or 0, "output": outp or 0}]
+        # orchestrator and workbench are not carried by a one-shot usage file.
+        block["unavailable"].extend(["orchestrator tokens", "workbench session totals"])
+        provided_cost = _coerce_num(usage.get("estimated_cost_usd"))
+        block = _recompute_totals_and_cost(block, prices, provided_cost)
+        if provided_cost is None and cost_for(model, inp or 0, outp or 0, prices) is None:
+            block["unavailable"].append(f"cost for model {model}")
+        return block, (model if model != "unavailable" else "unavailable")
+
+    return _empty_token_usage(["orchestrator tokens", "subagent tokens", "workbench session totals"]), "unavailable"
+
+
+def _derive_budget_class(item: dict, override: str | None) -> str:
+    if override in BUDGET_CLASSES:
+        return override
+    for tag in item.get("tags", []):
+        if tag.startswith("budget:"):
+            candidate = tag.split(":", 1)[1]
+            if candidate in BUDGET_CLASSES:
+                return candidate
+    return DEFAULT_BUDGET_CLASS
+
+
+def _derive_skill(item: dict, override: str | None) -> str:
+    if override:
+        return override
+    for tag in item.get("tags", []):
+        if tag.startswith(("budget:", "hermes")) or tag in {"queue", "synthetic", "test"}:
+            continue
+        return tag
+    return "unspecified"
+
+
+def _latest_receipt_path(item: dict, override: str | None) -> str | None:
+    if override:
+        return override
+    receipts = item.get("receipts", [])
+    if receipts:
+        return receipts[-1].get("path")
+    return None
+
+
+def _validate_against_schema(line: dict, schema_path: Path) -> str | None:
+    """Best-effort JSON Schema validation. Returns an error string, or None if
+    valid or if jsonschema is unavailable (dependency-optional by design)."""
+    try:
+        import jsonschema  # type: ignore
+    except Exception:
+        return None
+    schema = _read_json_or(None, schema_path)
+    if not isinstance(schema, dict):
+        return None
+    try:
+        jsonschema.validate(line, schema)
+    except jsonschema.ValidationError as exc:  # type: ignore[attr-defined]
+        return exc.message
+    return None
+
+
+def _append_jsonl(path: Path, line: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(line, separators=(",", ":")) + "\n")
+
+
+def _write_receipt_token_usage(root: Path, item_id: str, receipt_path: str | None, block: dict, invocation: dict) -> str:
+    """Attach the token_usage block to the item's receipt.
+
+    If a markdown receipt exists, append a fenced block (idempotent per id).
+    Always also write a machine-readable sidecar so the receipt-completeness
+    hook and the dashboard have a deterministic source.
+    """
+    payload = {"token_usage": block, "profile_invocation": invocation}
+    sidecar = root / RECEIPTS_DIR / f"{item_id}.token_usage.json"
+    sidecar.parent.mkdir(parents=True, exist_ok=True)
+    sidecar.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+    if receipt_path:
+        md = root / receipt_path
+        marker = f"<!-- token_usage:{item_id} -->"
+        if md.exists() and md.suffix.lower() == ".md":
+            existing = md.read_text(encoding="utf-8")
+            if marker not in existing:
+                block_md = (
+                    f"\n\n{marker}\n## token_usage\n```json\n"
+                    + json.dumps(payload, indent=2)
+                    + "\n```\n"
+                )
+                md.write_text(existing + block_md, encoding="utf-8")
+    return str(sidecar.relative_to(root)) if sidecar.is_relative_to(root) else str(sidecar)
+
+
+def finalize_done(
+    root: Path,
+    item: dict,
+    *,
+    receipt_path: str | None = None,
+    usage_file: str | None = None,
+    token_usage_json: dict | None = None,
+    budget_class: str | None = None,
+    escalated: bool = False,
+    review: str | None = None,
+    model_requested: str | None = None,
+    model_confirmed: str | None = None,
+    skill: str | None = None,
+) -> dict:
+    """Run the coordinator side-effects for a real transition into `done`:
+    profile resolution/invocation, dual ledger write, and token metering.
+
+    Returns a close record (for stdout). Raises QueueError only if the
+    token_usage block cannot be constructed with the required keys — the one
+    condition the receipt-completeness hook refuses a done-transition on.
+    """
+    route = resolve_route(root, item.get("owner"))
+    invocation = probe_profile_invocation(route["profile_requested"], route["fallback_profile"])
+
+    block, confirmed = build_token_usage(route, usage_file=usage_file, token_usage_json=token_usage_json)
+    required_keys = {"orchestrator", "subagents", "workbenches", "totals", "est_cost_usd", "unavailable"}
+    if not required_keys.issubset(block):
+        raise QueueError("token_usage block incomplete; refusing done-transition (hooks/token_budget_check.md)")
+
+    resolved_budget = _derive_budget_class(item, budget_class)
+    resolved_skill = _derive_skill(item, skill)
+    resolved_receipt = _latest_receipt_path(item, receipt_path)
+    routes_meta = load_model_routes(root).get("routes", {}).get(route["lane"], {})
+    resolved_model_requested = model_requested or routes_meta.get("model") or "configured externally"
+    resolved_model_confirmed = model_confirmed or confirmed or "unavailable"
+    timestamp = now_iso()
+
+    sidecar_path = _write_receipt_token_usage(root, item["id"], resolved_receipt, block, invocation)
+
+    run_line = {
+        "item_id": item["id"],
+        "lane": route["lane"],
+        "profile": route["profile_requested"],
+        "skill": resolved_skill,
+        "created": item.get("created_at", timestamp),
+        "done": timestamp,
+        "status": DONE_STATUS,
+        "escalated": bool(escalated),
+        "review": review or "pending",
+        "budget_class": resolved_budget,
+        "receipt": resolved_receipt or sidecar_path,
+        "memory_promotion": [],
+    }
+    token_line = {
+        "item_id": item["id"],
+        "lane": route["lane"],
+        "profile": route["profile_requested"],
+        "timestamp": timestamp,
+        "escalated": bool(escalated),
+        "model_requested": resolved_model_requested,
+        "model_confirmed": resolved_model_confirmed,
+        "budget_class": resolved_budget,
+        "token_usage": block,
+    }
+
+    warnings = []
+    run_err = _validate_against_schema(run_line, root / RUN_LEDGER_SCHEMA_PATH)
+    if run_err:
+        warnings.append(f"run_ledger line failed schema: {run_err}")
+    token_err = _validate_against_schema(token_line, root / TOKEN_LEDGER_SCHEMA_PATH)
+    if token_err:
+        warnings.append(f"token_ledger line failed schema: {token_err}")
+
+    _append_jsonl(root / RUN_LEDGER_PATH, run_line)
+    _append_jsonl(root / TOKEN_LEDGER_PATH, token_line)
+
+    return {
+        "item_id": item["id"],
+        "route": route,
+        "profile_invocation": invocation,
+        "run_ledger_line": run_line,
+        "token_ledger_line": token_line,
+        "token_usage_sidecar": sidecar_path,
+        "warnings": warnings,
+    }
+
+
+def _load_json_arg(value: str | None) -> dict | None:
+    """Parse a JSON argument that may be inline JSON or @path/to/file.json."""
+    if not value:
+        return None
+    if value.startswith("@"):
+        return _read_json_or(None, Path(value[1:]))
+    try:
+        return json.loads(value)
+    except json.JSONDecodeError as exc:
+        raise QueueError(f"Invalid JSON argument: {exc}") from exc
+
+
 def create_item(root: Path, args: argparse.Namespace) -> dict:
     validate_status(args.status)
     if args.owner and args.owner_type == "agent" and args.owner != "unassigned":
@@ -216,13 +653,28 @@ def release_item(root: Path, item_id: str, status: str) -> dict:
     return item
 
 
+def _run_finalize_safely(root: Path, item: dict, **kwargs: Any) -> None:
+    """Run the coordinator done-transition without letting a metering problem
+    strand the item. Errors and schema warnings are surfaced on stderr; the
+    already-saved status change stands (queue liveness)."""
+    try:
+        record = finalize_done(root, item, **kwargs)
+        for warning in record.get("warnings", []):
+            print(f"NEEDS ATTENTION (metering): {warning}", file=sys.stderr)
+    except (QueueError, OSError, json.JSONDecodeError) as exc:
+        print(f"NEEDS ATTENTION (metering): {exc}", file=sys.stderr)
+
+
 def update_status(root: Path, item_id: str, status: str) -> dict:
     validate_status(status)
     items = load_items(root)
     item = find_item(items, item_id)
+    previous_status = item.get("status")
     item["status"] = status
     item["updated_at"] = now_iso()
     save_items(root, items)
+    if status == DONE_STATUS and previous_status != DONE_STATUS:
+        _run_finalize_safely(root, item)
     return item
 
 
@@ -231,6 +683,7 @@ def attach_receipt(root: Path, item_id: str, receipt_path: str, status: str | No
         validate_status(status)
     items = load_items(root)
     item = find_item(items, item_id)
+    previous_status = item.get("status")
     timestamp = now_iso()
     receipt = {"path": receipt_path, "created_at": timestamp}
     if status:
@@ -239,7 +692,51 @@ def attach_receipt(root: Path, item_id: str, receipt_path: str, status: str | No
     item.setdefault("receipts", []).append(receipt)
     item["updated_at"] = timestamp
     save_items(root, items)
+    if status == DONE_STATUS and previous_status != DONE_STATUS:
+        _run_finalize_safely(root, item, receipt_path=receipt_path)
     return item
+
+
+def done_item(root: Path, args: argparse.Namespace) -> dict:
+    """Explicit coordinator close: attach an optional receipt, set status done,
+    and run the metering/ledger side-effects with full metadata. Unlike the
+    status/receipt paths, a token_usage block that cannot be built raises."""
+    items = load_items(root)
+    item = find_item(items, args.item_id)
+    previous_status = item.get("status")
+    timestamp = now_iso()
+    if args.receipt:
+        item.setdefault("receipts", []).append(
+            {"path": args.receipt, "created_at": timestamp, "status": DONE_STATUS}
+        )
+    item["status"] = DONE_STATUS
+    item["updated_at"] = timestamp
+    save_items(root, items)
+
+    if previous_status == DONE_STATUS and not args.reclose:
+        print(
+            f"NEEDS ATTENTION: {args.item_id} was already done; skipped ledger append "
+            "(pass --reclose to force).",
+            file=sys.stderr,
+        )
+        return item
+
+    record = finalize_done(
+        root,
+        item,
+        receipt_path=args.receipt,
+        usage_file=args.usage_file,
+        token_usage_json=_load_json_arg(args.token_usage),
+        budget_class=args.budget_class,
+        escalated=args.escalated,
+        review=args.review,
+        model_requested=args.model_requested,
+        model_confirmed=args.model_confirmed,
+        skill=args.skill,
+    )
+    for warning in record.get("warnings", []):
+        print(f"NEEDS ATTENTION (metering): {warning}", file=sys.stderr)
+    return record
 
 
 def item_is_available_for(item: dict, agent_id: str) -> bool:
@@ -316,6 +813,22 @@ def build_parser() -> argparse.ArgumentParser:
 
     next_parser = subparsers.add_parser("next", help="Show the highest-priority available item for an agent")
     next_parser.add_argument("agent_id")
+
+    done = subparsers.add_parser(
+        "done",
+        help="Close an item: resolve lane->profile, write run+token ledgers, meter tokens",
+    )
+    done.add_argument("item_id", metavar="ITEM_ID")
+    done.add_argument("--receipt", metavar="RECEIPT_PATH", help="Receipt path to attach on close")
+    done.add_argument("--usage-file", metavar="PATH", help="Hermes one-shot --usage-file JSON (harness usage source)")
+    done.add_argument("--token-usage", metavar="JSON", help="Pre-assembled token_usage block: inline JSON or @path.json")
+    done.add_argument("--budget-class", choices=sorted(BUDGET_CLASSES), help="Override budget class (else derived from tags)")
+    done.add_argument("--skill", help="Skill name for the run ledger (else derived from tags)")
+    done.add_argument("--review", choices=["ACCEPT", "REVISE", "pending"], help="Review outcome for the run ledger")
+    done.add_argument("--model-requested", help="Model requested for the token ledger")
+    done.add_argument("--model-confirmed", help="Model confirmed for the token ledger")
+    done.add_argument("--escalated", action="store_true", help="Mark the run as escalated")
+    done.add_argument("--reclose", action="store_true", help="Force ledger append even if already done")
     return parser
 
 
@@ -343,6 +856,8 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "next":
             item = next_item(root, args.agent_id)
             print_json(item if item else {})
+        elif args.command == "done":
+            print_json(done_item(root, args))
         else:
             parser.error(f"Unknown command: {args.command}")
     except (QueueError, json.JSONDecodeError, OSError) as exc:
