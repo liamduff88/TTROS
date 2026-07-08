@@ -1,6 +1,36 @@
 # DECISIONS.md — log of decisions that change system behavior
 > One entry per behavior-affecting change. Newest first.
 
+## 2026-07-08 — Dashboard v1 ACCEPTED: startup + close-hook closeout
+Run 4 closed Dashboard v1 acceptance with startup hardening and live
+close-hook validation.
+
+PID misattribution note from AOS-2026-0049: uvicorn reload on Windows can
+orphan a multiprocessing child serving stale code. Windows' TCP table can
+attribute the `:8010` listener to a dead parent PID, making it look
+unkillable. Diagnosis: find the real child via parent_pid lookup. Prevention:
+the hardened launcher now does evidence-based cleanup with
+`Stop-StaleAgenticOSBackend.ps1` before every start.
+
+Startup/jsonschema root cause and fix: the launcher previously used plain
+`python`, which allowed mixed interpreters and no provisioning, so backend
+dependency state drifted from `dashboard/backend/.venv`. Fixed:
+`Start-AgenticOS-Backend-Auto.ps1` now pins
+`.venv\Scripts\python.exe`, creates the venv if missing, import-checks
+`jsonschema`, installs `requirements.txt` only on failure, launches uvicorn
+persistently, logs to `logs/backend-auto-stdout.log` and
+`logs/backend-auto-stderr.log`, and health-checks `/api/queue/summary`.
+Validated live, including across a full Windows reboot on 2026-07-08.
+
+Queue guardrail worth knowing: `POST /api/queue/items/{id}/review-close` only
+accepts items in `human_review` status; move items there first via `/status`.
+This was hit during live testing.
+
+Telegram close-hook was live-validated end to end on 2026-07-08: API
+review-close on test item AOS-2026-0047 (`source: telegram`) ->
+`_telegram_reply_on_close` -> bridge send -> message received on Liam's phone.
+Dashboard v1 is ACCEPTED as of this date.
+
 ## 2026-07-08 — Token metering hardening (fix pass on commit 315a3a9)
 Codex audit of the token-metering back end (commit 315a3a9) found four
 issues; resolved as follows in `tools/aos-queue.py` and

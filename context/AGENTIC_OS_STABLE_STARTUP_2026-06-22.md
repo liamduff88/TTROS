@@ -49,6 +49,28 @@ logs\telegram_bridge.stderr.log
 Do not make Start-Telegram-Bridge-Auto.ps1 kill processes matching Start-Telegram-Bridge-Auto.ps1. It can kill itself.
 It should only manage actual bridge worker processes matching telegram_bridge.py.
 
+## Stale-backend preflight cleanup (added 2026-07-08)
+
+A stale/orphaned uvicorn worker previously survived on :8010 after its parent
+process disappeared, and kept serving old backend code because startup only
+checked "is the port already listening" and skipped starting if so.
+
+Fix: `Stop-StaleAgenticOSBackend.ps1` (workspace root) defines
+`Stop-StaleAgenticOSBackend -Port 8010`, dot-sourced by
+`Start-AgenticOS-Backend-Auto.ps1`. Every backend startup now:
+1. Finds any process listening on 8010.
+2. Stops it only if there is clear evidence it is this backend
+   (python/py process whose command line contains `uvicorn`,
+   `backend.main:app`, and `--port 8010`). If the PID from the TCP table
+   can't be enumerated directly, it falls back to searching all
+   python/uvicorn processes for the same command-line evidence.
+   Anything without that evidence is left untouched.
+3. Starts exactly one fresh backend process.
+
+`Start-AgenticOS-Dashboard.ps1` no longer starts the backend itself — it
+calls `Start-AgenticOS-Backend-Auto.ps1` so both entry points share one
+cleanup+start path and can never leave two backends running.
+
 ## Working behavior
 
 Telegram /status works.

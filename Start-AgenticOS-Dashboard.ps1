@@ -17,16 +17,12 @@ function Test-LocalPort {
   return [bool]$listener
 }
 
-# Start only missing dashboard services, then open the cockpit.
-$backendLog = Join-Path $logs "dashboard_backend.log"
-if (-not (Test-LocalPort 8010)) {
-  Start-Process -FilePath "cmd.exe" `
-    -WindowStyle Hidden `
-    -WorkingDirectory $dashboard `
-    -ArgumentList "/d /c python -m uvicorn backend.main:app --host 127.0.0.1 --port 8010 1>> `"$backendLog`" 2>>&1"
-
-  Start-Sleep -Seconds 4
-}
+# Backend: delegate to Start-AgenticOS-Backend-Auto.ps1, which runs the
+# stale-worker preflight cleanup and then starts a single fresh instance.
+# Always run it (not gated on Test-LocalPort) so a stale/orphaned worker
+# from a prior session can't be mistaken for a healthy one and skipped.
+& (Join-Path $workspace "Start-AgenticOS-Backend-Auto.ps1")
+Start-Sleep -Seconds 4
 
 $frontendLog = Join-Path $logs "dashboard_frontend.log"
 if (-not (Test-LocalPort 3010)) {

@@ -84,6 +84,14 @@ const scrollFilePreviewIntoView = () => {
 
 const REVIEW_OR_COMPLETE_STATUSES = new Set(['human_review', 'done', 'blocked', 'needs_input'])
 
+const itemLane = item => item?.lane || item?.owner || 'unassigned'
+
+const matchesFilters = (item, filters) =>
+  (!filters.status || item.status === filters.status) &&
+  (!filters.workbench || item.owner === filters.workbench) &&
+  (!filters.lane || itemLane(item) === filters.lane) &&
+  (!filters.source || String(item.source || '').toLowerCase() === String(filters.source).toLowerCase())
+
 const emptyCreateForm = {
   title: '',
   owner: 'unassigned',
@@ -152,11 +160,12 @@ const FieldLabel = ({ label, children }) => (
   </label>
 )
 
-export default function Queue() {
+export default function Queue({ initialFilters = {} }) {
   const [status, setStatus] = useState(null)
   const [items, setItems] = useState([])
   const [nextItem, setNextItem] = useState(null)
   const [selectedId, setSelectedId] = useState(null)
+  const [filters, setFilters] = useState(initialFilters)
   const [createForm, setCreateForm] = useState(emptyCreateForm)
   const [createState, setCreateState] = useState({ submitting: false, message: '', error: null })
   const [promptCopy, setPromptCopy] = useState({ target: null, message: '', error: null })
@@ -172,6 +181,10 @@ export default function Queue() {
   })
   const [state, setState] = useState({ loading: true, error: null })
 
+  const filteredItems = useMemo(
+    () => items.filter(item => matchesFilters(item, filters)),
+    [items, filters],
+  )
   const selected = useMemo(
     () => items.find(item => item.id === selectedId) || null,
     [items, selectedId],
@@ -219,6 +232,13 @@ export default function Queue() {
   useEffect(() => {
     refreshQueue()
   }, [])
+
+  useEffect(() => setFilters(initialFilters), [JSON.stringify(initialFilters)])
+
+  useEffect(() => {
+    if (filteredItems.some(item => item.id === selectedId)) return
+    setSelectedId(filteredItems[0]?.id || null)
+  }, [filteredItems])
 
   useEffect(() => {
     setFilePreview({ path: '', category: '', extension: '', loading: false, content: '', error: null })
@@ -598,14 +618,25 @@ export default function Queue() {
                 <ListChecks size={14} className="text-taupe" />
                 <h2 className="text-xs font-semibold uppercase tracking-wider text-taupe">Work items</h2>
               </div>
-              <div className="font-mono text-xs text-taupe">{items.length} local</div>
+              <div className="flex items-center gap-2">
+                {(filters.status || filters.workbench || filters.lane || filters.source) && (
+                  <button
+                    type="button"
+                    onClick={() => setFilters({})}
+                    className="inline-flex items-center gap-1.5 rounded border border-champagne/40 bg-champagne/10 px-2 py-1 text-[11px] font-mono text-champagne transition-colors hover:bg-champagne/20"
+                  >
+                    Filtered: {[filters.status && formatStatus(filters.status), filters.workbench, filters.lane, filters.source].filter(Boolean).join(' / ')} ×
+                  </button>
+                )}
+                <div className="font-mono text-xs text-taupe">{filteredItems.length} of {items.length}</div>
+              </div>
             </div>
 
             {state.loading ? (
               <div className="rounded border border-softgraph bg-ink px-4 py-8 text-center text-xs font-mono text-taupe">Loading queue.</div>
-            ) : items.length > 0 ? (
+            ) : filteredItems.length > 0 ? (
               <div className="max-h-[42rem] space-y-2 overflow-y-auto pr-1">
-                {items.map(item => (
+                {filteredItems.map(item => (
                   <button
                     type="button"
                     key={item.id}
@@ -629,6 +660,11 @@ export default function Queue() {
                     </div>
                   </button>
                 ))}
+              </div>
+            ) : items.length > 0 ? (
+              <div className="rounded border border-softgraph bg-ink px-4 py-10 text-center">
+                <div className="text-sm font-semibold text-stone">No queue items match this filter.</div>
+                <button type="button" onClick={() => setFilters({})} className="mt-2 text-xs font-mono text-champagne hover:text-stone">Clear filter</button>
               </div>
             ) : (
               <div className="rounded border border-softgraph bg-ink px-4 py-10 text-center">

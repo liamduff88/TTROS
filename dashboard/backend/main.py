@@ -44,6 +44,13 @@ for d in [PACKETS_DIR, LOGS_DIR, RESULTS_DIR, CONNECTORS_DIR, DATA_DIR]:
 
 TRACKER_FILE = DATA_DIR / "tracker.json"
 TOKEN_USAGE_FILE = LOGS_DIR / "token_usage.jsonl"
+QUEUE_DIR = BASE_DIR / "queue"
+TOKEN_LEDGER_FILE = QUEUE_DIR / "token_ledger.jsonl"
+SKILL_TRUST_FILE = QUEUE_DIR / "skill_trust.jsonl"
+WORKFLOWS_DIR = BASE_DIR / "workflows"
+SKILLS_DIR = BASE_DIR / "skills"
+MEMORY_INDEX_DIR = BASE_DIR / "memory_index"
+PROMPT_LIBRARY_DIRS = [QUEUE_DIR / "templates", WORKFLOWS_DIR / "prompt_templates"]
 CLAUDE_USAGE_READER_WSL = "/mnt/c/Users/Admin/Documents/A-Time to revenue/Agentic OS Live/dashboard/backend/claude_usage.py"
 
 ENTITIES = [
@@ -308,6 +315,30 @@ class QueueStatusUpdate(BaseModel):
 class QueueReviewClose(BaseModel):
     status: str = "done"
     review_note: str = ""
+
+
+class DashboardTaskCreate(BaseModel):
+    title: str
+    owner: str = "hermes"
+    priority: str | int = "normal"
+    tags: str = "dashboard"
+    context: str = ""
+    sources: str = ""
+    definition_of_done: str = ""
+    allowed_actions: str = "local_read,local_edit,local_test"
+    stop_conditions: str = "external_send,secrets_exposure,destructive_action_outside_scope"
+
+
+class DashboardSkillSave(BaseModel):
+    path: str
+    name: str = ""
+    description: str = ""
+    body: str = ""
+
+
+class DashboardOpenPath(BaseModel):
+    path: str
+    kind: str = "file"
 
 
 _QUEUE_ARTIFACT_ALLOWED_PREFIXES = (
@@ -628,6 +659,438 @@ def _read_token_usage_records() -> list[dict]:
     except OSError:
         return []
     return records
+
+
+def _read_jsonl_file(path: Path) -> list[dict]:
+    if not path.exists():
+        return []
+    records = []
+    try:
+        for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            if not line.strip():
+                continue
+            try:
+                value = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(value, dict):
+                records.append(value)
+    except OSError:
+        return []
+    return records
+
+
+def _safe_relative(path: Path) -> str:
+    try:
+        return path.resolve().relative_to(BASE_DIR.resolve()).as_posix()
+    except ValueError:
+        return path.name
+
+
+def _redacted_preview(text: str, limit: int = 4000) -> str:
+    safe_lines = []
+    secret_re = re.compile(r"(secret|token|api[_-]?key|oauth|password|credential|authorization|bearer)", re.IGNORECASE)
+    for line in str(text or "").splitlines():
+        safe_lines.append("[redacted sensitive line]" if secret_re.search(line) else line)
+    return "\n".join(safe_lines)[:limit]
+
+
+_DASHBOARD_MARKDOWN_BLOCK_RE = re.compile(
+    r"(^|[/.])(\.env|.*secret.*|.*credential.*|.*password.*|.*token.*)|"
+    r"north[\s_-]*shore|old[\s_-]*(?:ubuntu|hermes|vault|runtime)|legacy[_-]?harvest|old[_-]?zpc|\bzpc\b|"
+    r"connectors?/.*(?:secret|credential|token|\.env)",
+    re.IGNORECASE,
+)
+
+
+def _parse_frontmatter_value(value: str) -> object:
+    text = value.strip()
+    if len(text) >= 2 and text[0] == text[-1] and text[0] in {"'", '"'}:
+        text = text[1:-1]
+    if text.lower() in {"true", "false"}:
+        return text.lower() == "true"
+    return text
+
+
+def _parse_markdown_frontmatter(text: str) -> dict:
+    lines = str(text or "").splitlines()
+    if not lines or lines[0].strip() != "---":
+        return {"frontmatter": {}, "frontmatter_lines": [], "body": str(text or "")}
+    closing = None
+    for index, line in enumerate(lines[1:], start=1):
+        if line.strip() == "---":
+            closing = index
+            break
+    if closing is None:
+        return {"frontmatter": {}, "frontmatter_lines": [], "body": str(text or "")}
+
+    metadata = {}
+    frontmatter_lines = lines[1:closing]
+    for line in frontmatter_lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or ":" not in stripped:
+            continue
+        key, value = stripped.split(":", 1)
+        key = key.strip()
+        if not key:
+            continue
+        metadata[key] = _parse_frontmatter_value(value)
+    return {
+        "frontmatter": metadata,
+        "frontmatter_lines": frontmatter_lines,
+        "body": "\n".join(lines[closing + 1:]).lstrip("\n"),
+    }
+
+
+def _frontmatter_text_value(metadata: dict, key: str, default: str = "") -> str:
+    value = metadata.get(key)
+    if value is None:
+        return default
+    return str(value).strip()
+
+
+def _skill_lane_from_metadata(metadata: dict, fallback: str) -> str:
+    lane = _frontmatter_text_value(metadata, "lane")
+    if lane:
+        return lane
+    source = _frontmatter_text_value(metadata, "source")
+    if source:
+        return source
+    when = _frontmatter_text_value(metadata, "when-to-use")
+    owner = re.search(r"Owner:\s*aos-([A-Za-z_-]+)", when)
+    return owner.group(1).replace("_", "-") if owner else fallback
+
+
+def _skill_trust_from_metadata(metadata: dict, fallback: str = "") -> str:
+    trust = _frontmatter_text_value(metadata, "trust")
+    if trust:
+        return trust
+    when = _frontmatter_text_value(metadata, "when-to-use")
+    found = re.search(r"Trust:\s*([^.;]+)", when)
+    return found.group(1).strip() if found else fallback
+
+
+def _render_markdown_frontmatter(frontmatter_lines: list[str], name: str, description: str, body: str) -> str:
+    lines = list(frontmatter_lines or [])
+    seen = set()
+
+    def replace_or_append(key: str, value: str) -> None:
+        safe_value = str(value or "").strip()
+        serialized = json.dumps(safe_value) if any(ch in safe_value for ch in (":", "#", '"', "'")) else safe_value
+        pattern = re.compile(rf"^\s*{re.escape(key)}\s*:")
+        for index, line in enumerate(lines):
+            if pattern.match(line):
+                lines[index] = f"{key}: {serialized}"
+                seen.add(key)
+                return
+        seen.add(key)
+        lines.append(f"{key}: {serialized}")
+
+    replace_or_append("name", name)
+    replace_or_append("description", description)
+    clean_body = str(body or "").strip("\n")
+    return "---\n" + "\n".join(lines).rstrip() + "\n---\n" + clean_body + "\n"
+
+
+def _safe_dashboard_markdown_path(path_value: str, *, require_writable: bool = False) -> Path:
+    raw = str(path_value or "").strip().replace("\\", "/")
+    if not raw:
+        raise ValueError("path must not be empty")
+    if Path(raw).is_absolute() or re.match(r"^[A-Za-z]:/", raw):
+        raise ValueError("path must be workspace root-relative")
+    if _DASHBOARD_MARKDOWN_BLOCK_RE.search(raw):
+        raise ValueError("path is blocked by dashboard safety policy")
+    target = (BASE_DIR / raw).resolve()
+    try:
+        rel = target.relative_to(BASE_DIR.resolve()).as_posix()
+    except ValueError as exc:
+        raise ValueError("path must stay inside the live workspace") from exc
+    if _DASHBOARD_MARKDOWN_BLOCK_RE.search(rel):
+        raise ValueError("path is blocked by dashboard safety policy")
+    if target.suffix.lower() != ".md":
+        raise ValueError("only markdown files are allowed")
+    allowed = rel.startswith("skills/") or rel.startswith("workflows/")
+    if require_writable and not allowed:
+        raise ValueError("saves are limited to skills/ and workflows/ markdown files")
+    if rel.startswith("skills/") and not rel.endswith("/SKILL.md"):
+        raise ValueError("skill saves are limited to skills/*/SKILL.md")
+    return target
+
+
+def _markdown_title(text: str, fallback: str) -> str:
+    for line in str(text or "").splitlines():
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            return stripped.lstrip("#").strip() or fallback
+        if stripped:
+            return stripped[:90]
+    return fallback
+
+
+def _token_component_total(record: dict) -> tuple[int | None, int | None]:
+    usage = record.get("token_usage") if isinstance(record.get("token_usage"), dict) else {}
+    totals = usage.get("totals") if isinstance(usage.get("totals"), dict) else {}
+    try:
+        input_tokens = int(totals.get("input", 0))
+        output_tokens = int(totals.get("output", 0))
+        return input_tokens, output_tokens
+    except (TypeError, ValueError):
+        return None, None
+
+
+def _read_token_ledger_records() -> list[dict]:
+    return _read_jsonl_file(TOKEN_LEDGER_FILE)
+
+
+def _dashboard_token_summary() -> dict:
+    records = _read_token_ledger_records()
+    now = datetime.datetime.now().astimezone()
+    today = now.date()
+    week_start = today - datetime.timedelta(days=today.weekday())
+    month_start = today.replace(day=1)
+    periods = {
+        "today": {"tokens": 0, "cost": 0.0, "known": 0, "unavailable": 0},
+        "week": {"tokens": 0, "cost": 0.0, "known": 0, "unavailable": 0},
+        "month": {"tokens": 0, "cost": 0.0, "known": 0, "unavailable": 0},
+    }
+    by_tool: dict[str, dict] = {}
+    chart_days: dict[str, int] = {}
+    highest = None
+
+    def add_tool(name: str, input_tokens: int, output_tokens: int, cost: float | None = None):
+        total = input_tokens + output_tokens
+        entry = by_tool.setdefault(name, {"tool": name, "tokens": 0, "cost": 0.0, "flat_rate": name in {"codex", "claude-code", "antigravity"}, "unavailable": 0})
+        entry["tokens"] += total
+        if cost is not None and not entry["flat_rate"]:
+            entry["cost"] += float(cost)
+
+    for record in records:
+        timestamp = _parse_record_timestamp(record.get("timestamp"))
+        local_date = timestamp.astimezone(now.tzinfo).date() if timestamp else None
+        input_tokens, output_tokens = _token_component_total(record)
+        unavailable = record.get("token_usage", {}).get("unavailable") if isinstance(record.get("token_usage"), dict) else []
+        is_unavailable = bool(unavailable) or input_tokens is None or output_tokens is None
+        total_tokens = (input_tokens or 0) + (output_tokens or 0)
+        cost = record.get("token_usage", {}).get("est_cost_usd") if isinstance(record.get("token_usage"), dict) else record.get("est_cost_usd")
+        try:
+            cost_float = float(cost)
+        except (TypeError, ValueError):
+            cost_float = 0.0
+
+        for name, start in (("today", today), ("week", week_start), ("month", month_start)):
+            in_period = local_date == today if name == "today" else local_date is not None and start <= local_date <= today
+            if not in_period:
+                continue
+            periods[name]["unavailable"] += int(is_unavailable)
+            if not is_unavailable:
+                periods[name]["tokens"] += total_tokens
+                periods[name]["cost"] += cost_float
+                periods[name]["known"] += 1
+
+        if local_date is not None:
+            chart_days.setdefault(local_date.isoformat(), 0)
+            chart_days[local_date.isoformat()] += total_tokens
+
+        if local_date == today:
+            usage = record.get("token_usage") if isinstance(record.get("token_usage"), dict) else {}
+            orch = usage.get("orchestrator") if isinstance(usage.get("orchestrator"), dict) else {}
+            if is_unavailable:
+                by_tool.setdefault("hermes", {"tool": "hermes", "tokens": 0, "cost": 0.0, "flat_rate": False, "unavailable": 0})["unavailable"] += 1
+            else:
+                add_tool("hermes", int(orch.get("input") or 0), int(orch.get("output") or 0), cost_float)
+            for subagent in usage.get("subagents") or []:
+                if isinstance(subagent, dict):
+                    role = str(subagent.get("role") or "subagent").split("/")[0]
+                    if is_unavailable:
+                        by_tool.setdefault(role, {"tool": role, "tokens": 0, "cost": 0.0, "flat_rate": role in {"codex", "claude-code", "antigravity"}, "unavailable": 0})["unavailable"] += 1
+                    else:
+                        add_tool(role, int(subagent.get("input") or 0), int(subagent.get("output") or 0), None)
+            for workbench in usage.get("workbenches") or []:
+                if isinstance(workbench, dict):
+                    name = str(workbench.get("tool") or "workbench")
+                    if is_unavailable or str(workbench.get("source") or "") == "unavailable":
+                        by_tool.setdefault(name, {"tool": name, "tokens": 0, "cost": 0.0, "flat_rate": True, "unavailable": 0})["unavailable"] += 1
+                    else:
+                        add_tool(name, int(workbench.get("input") or 0), int(workbench.get("output") or 0), None)
+
+        if total_tokens and (highest is None or total_tokens > highest["tokens"]):
+            highest = {
+                "item_id": record.get("item_id"),
+                "lane": record.get("lane"),
+                "profile": record.get("profile"),
+                "tokens": total_tokens,
+                "timestamp": record.get("timestamp"),
+            }
+
+    for value in periods.values():
+        value["cost"] = round(value["cost"], 4)
+
+    return {
+        "available": TOKEN_LEDGER_FILE.exists(),
+        "path": _safe_relative(TOKEN_LEDGER_FILE),
+        "periods": periods,
+        "by_tool": sorted(by_tool.values(), key=lambda row: row["tokens"], reverse=True),
+        "highest_task": highest,
+        "unavailable_count": sum(row.get("unavailable", 0) for row in by_tool.values()) + periods["today"]["unavailable"],
+        "records": records[-100:],
+        "chart": [{"date": day, "tokens": tokens} for day, tokens in sorted(chart_days.items())[-14:]],
+    }
+
+
+def _recent_file_items() -> list[dict]:
+    roots = [QUEUE_DIR / "receipts", RESULTS_DIR, LOGS_DIR]
+    items = []
+    for root in roots:
+        if not root.exists():
+            continue
+        for path in root.rglob("*"):
+            if not path.is_file() or path.suffix.lower() not in {".md", ".txt", ".json", ".jsonl"}:
+                continue
+            rel = _safe_relative(path)
+            if _QUEUE_ARTIFACT_SECRET_RE.search(rel):
+                continue
+            try:
+                content = path.read_text(encoding="utf-8", errors="replace")
+                items.append({
+                    "id": rel,
+                    "path": rel,
+                    "title": _markdown_title(content, path.name),
+                    "source": "receipt" if "queue/receipts" in rel or "/receipts/" in rel else ("result" if rel.startswith("results/") else "log"),
+                    "modified": datetime.datetime.fromtimestamp(path.stat().st_mtime).isoformat(),
+                    "preview": _redacted_preview(content, 2400),
+                })
+            except OSError:
+                continue
+    return sorted(items, key=lambda item: item.get("modified") or "", reverse=True)
+
+
+def _dashboard_backend_log(event: dict) -> None:
+    payload = {
+        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
+        **event,
+    }
+    with (LOGS_DIR / "dashboard_backend.log").open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
+
+
+def _telegram_configured_operator_chat() -> str | None:
+    allowed_file = BASE_DIR / "connectors" / "telegram_bridge" / "allowed_chats.json"
+    try:
+        data = json.loads(allowed_file.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    raw_ids = data.get("operator_chat_ids")
+    if isinstance(raw_ids, list) and raw_ids:
+        candidate = str(raw_ids[0]).strip()
+        return candidate if re.fullmatch(r"-?\d+", candidate) else None
+    candidate = str(data.get("operator_chat_id") or "").strip()
+    return candidate if re.fullmatch(r"-?\d+", candidate) else None
+
+
+def _telegram_reply_to(item: dict) -> str | None:
+    reply_to = item.get("reply_to") or item.get("chat_id") or item.get("telegram_chat_id")
+    if reply_to:
+        return str(reply_to)
+    for ref in item.get("source_refs") or []:
+        match = re.search(r"(?:reply_to|chat_id|telegram_chat_id)[:=](-?\d+)", str(ref))
+        if match:
+            return match.group(1)
+    return _telegram_configured_operator_chat()
+
+
+def _load_telegram_bridge_module():
+    bridge_path = BASE_DIR / "connectors" / "telegram_bridge" / "telegram_bridge.py"
+    spec = importlib.util.spec_from_file_location("aos_telegram_bridge", bridge_path)
+    if spec is not None and spec.loader is not None:
+        try:
+            bridge = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(bridge)
+            return bridge
+        except RuntimeError as exc:
+            if ".env file not found" not in str(exc):
+                raise
+
+    source = bridge_path.read_text(encoding="utf-8")
+    source = re.sub(
+        r"^WORKSPACE = .*$",
+        f"WORKSPACE = Path({str(BASE_DIR)!r})",
+        source,
+        count=1,
+        flags=re.MULTILINE,
+    )
+    bridge = importlib.util.module_from_spec(
+        importlib.util.spec_from_loader("aos_telegram_bridge_wsl", loader=None)
+    )
+    exec(compile(source, str(bridge_path), "exec"), bridge.__dict__)
+    return bridge
+
+
+def _telegram_reply_on_close(item: dict, status: str, note: str, receipt_path: str) -> dict | None:
+    if str(item.get("source") or "").lower() != "telegram":
+        return None
+    reply_to = _telegram_reply_to(item)
+    if not reply_to:
+        _dashboard_backend_log({
+            "event": "telegram_close_hook",
+            "item_id": item.get("id"),
+            "status": status,
+            "result": "skipped",
+            "reason": "chat_id_unavailable",
+        })
+        return {
+            "mode": "live_bridge_send",
+            "bridge_function": "connectors.telegram_bridge.telegram_bridge.send",
+            "sent": False,
+            "reason": "chat_id_unavailable",
+        }
+
+    message = f"Queue item {item.get('id')} closed as {status}. {note}".strip()
+    event = {
+        "mode": "live_bridge_send",
+        "bridge_function": "connectors.telegram_bridge.telegram_bridge.send",
+        "item_id": item.get("id"),
+        "status": status,
+        "receipt_path": receipt_path,
+        "message": message,
+    }
+    _dashboard_backend_log({"event": "telegram_close_hook", **event, "result": "send_invoked"})
+    try:
+        bridge = _load_telegram_bridge_module()
+        send_result = {"ok": True, "error": None}
+        bridge_api = bridge.api
+
+        def tracking_api(method, data=None, timeout=60):
+            try:
+                return bridge_api(method, data, timeout)
+            except Exception as exc:
+                send_result["ok"] = False
+                send_result["error"] = type(exc).__name__
+                raise
+
+        bridge.api = tracking_api
+        bridge.send(reply_to, message, preserve_format=True)
+        if not send_result["ok"]:
+            bridge.log(
+                f"dashboard_close_hook_send_failed item={item.get('id')} status={status} "
+                f"error={send_result['error']}"
+            )
+            _dashboard_backend_log({
+                "event": "telegram_close_hook",
+                **event,
+                "result": "send_failed",
+                "error": send_result["error"],
+            })
+            return {**event, "sent": False, "error": send_result["error"]}
+        bridge.log(f"dashboard_close_hook_send item={item.get('id')} status={status}")
+    except Exception as exc:
+        _dashboard_backend_log({
+            "event": "telegram_close_hook",
+            **event,
+            "result": "send_failed",
+            "error": type(exc).__name__,
+        })
+        raise RuntimeError(f"Telegram bridge send failed: {type(exc).__name__}") from exc
+    return {**event, "sent": True}
 
 
 def _read_claude_local_usage() -> dict:
@@ -995,8 +1458,107 @@ def _load_queue_tool():
     if spec is None or spec.loader is None:
         raise RuntimeError("Queue tool could not be loaded")
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    try:
+        spec.loader.exec_module(module)
+    except ModuleNotFoundError as exc:
+        if exc.name != "jsonschema":
+            raise
+        return _QueueToolFallback()
     return module
+
+
+class _QueueToolFallback:
+    """Small dashboard fallback when aos-queue.py's optional jsonschema import is absent."""
+
+    @staticmethod
+    def _refuse_done_transition(status: str | None):
+        if status == "done":
+            raise ValueError(
+                "queue done-transition requires tools/aos-queue.py finalize_done(); "
+                "jsonschema is unavailable, so the dashboard fallback refuses status=done"
+            )
+
+    @staticmethod
+    def now_iso():
+        return datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+    @staticmethod
+    def load_items(root: Path):
+        return _read_queue_items()
+
+    @staticmethod
+    def save_items(root: Path, items: list[dict]):
+        _queue_items_path().write_text("".join(json.dumps(item, sort_keys=True, separators=(",", ":")) + "\n" for item in items), encoding="utf-8")
+
+    @staticmethod
+    def find_item(items: list[dict], item_id: str):
+        for item in items:
+            if item.get("id") == item_id:
+                return item
+        raise ValueError(f"Work item not found: {item_id}")
+
+    @staticmethod
+    def _next_id(items: list[dict], created_at: str):
+        prefix = f"AOS-{created_at[:4]}-"
+        max_number = 0
+        for item in items:
+            item_id = str(item.get("id", ""))
+            if item_id.startswith(prefix):
+                try:
+                    max_number = max(max_number, int(item_id.rsplit("-", 1)[1]))
+                except ValueError:
+                    continue
+        return f"{prefix}{max_number + 1:04d}"
+
+    def create_item(self, root: Path, args):
+        items = self.load_items(root)
+        now = self.now_iso()
+        item = {
+            "id": self._next_id(items, now),
+            "title": args.title,
+            "requested_by": args.requested_by,
+            "owner_type": args.owner_type,
+            "owner": args.owner,
+            "status": args.status,
+            "priority": args.priority,
+            "source": args.source,
+            "tags": _queue_split_text(args.tags),
+            "context": args.context,
+            "sources": _queue_split_text(args.sources),
+            "source_refs": [],
+            "allowed_actions": _queue_split_text(args.allowed_actions),
+            "stop_conditions": _queue_split_text(args.stop_conditions),
+            "definition_of_done": args.definition_of_done,
+            "receipts": [],
+            "claim": {"claimed_by": None, "claimed_at": None},
+            "created_at": now,
+            "updated_at": now,
+        }
+        items.append(item)
+        self.save_items(root, items)
+        return item
+
+    def update_status(self, root: Path, item_id: str, status: str):
+        self._refuse_done_transition(status)
+        items = self.load_items(root)
+        item = self.find_item(items, item_id)
+        item["status"] = status
+        item["updated_at"] = self.now_iso()
+        self.save_items(root, items)
+        return item
+
+    def attach_receipt(self, root: Path, item_id: str, receipt_path: str, status: str | None = None):
+        self._refuse_done_transition(status)
+        items = self.load_items(root)
+        item = self.find_item(items, item_id)
+        receipt = {"path": receipt_path, "created_at": self.now_iso()}
+        if status:
+            receipt["status"] = status
+            item["status"] = status
+        item.setdefault("receipts", []).append(receipt)
+        item["updated_at"] = self.now_iso()
+        self.save_items(root, items)
+        return item
 
 
 def _queue_create_text(task: str) -> str | None:
@@ -1773,6 +2335,7 @@ def close_queue_item_review(item_id: str, body: QueueReviewClose):
             raise ValueError("only human_review items can be closed from review")
         receipt_path = _queue_write_review_receipt(item_id, body.review_note, status)
         item = _load_queue_tool().attach_receipt(BASE_DIR, item_id, receipt_path, status)
+        telegram_reply = _telegram_reply_on_close(existing, status, body.review_note, receipt_path)
     except KeyError:
         raise HTTPException(status_code=404, detail="queue item not found")
     except ValueError as exc:
@@ -1784,6 +2347,7 @@ def close_queue_item_review(item_id: str, body: QueueReviewClose):
         "receipt_path": receipt_path,
         "status": item.get("status"),
         "item": _queue_detail_item(item),
+        "telegram_reply": telegram_reply,
     }
 
 
@@ -1814,6 +2378,290 @@ def queue_artifact(path: str):
         **artifact,
         "token_usage_lines": _queue_token_usage_lines(artifact["content"]),
     }
+
+
+@app.get("/api/dashboard/cockpit")
+def dashboard_cockpit():
+    try:
+        items = [_queue_detail_item(item) for item in _read_queue_items()]
+    except ValueError as exc:
+        return {"success": False, "message": "Queue unavailable", "reason": str(exc)}
+    counts = {status: 0 for status in _QUEUE_STATUSES}
+    for item in items:
+        status = item.get("status", "inbox")
+        counts[status] = counts.get(status, 0) + 1
+    needs_me_statuses = {"human_review", "needs_input", "blocked"}
+    needs_me = [item for item in items if item.get("status") in needs_me_statuses]
+    needs_me.sort(key=lambda item: item.get("updated_at") or item.get("created_at") or "", reverse=True)
+    token_summary = _dashboard_token_summary()
+    workbenches = []
+    for name in ("hermes", "codex", "claude", "claude-code", "antigravity", "connectors", "graphify"):
+        tool = next((row for row in token_summary["by_tool"] if row["tool"] == name), None)
+        open_items = [item for item in items if str(item.get("owner") or "").lower() in {name, name.replace("-code", "")} and item.get("status") not in {"done", "cancelled"}]
+        workbenches.append({
+            "id": name,
+            "name": name.replace("-", " ").title(),
+            "status": "Unavailable" if name in {"antigravity", "graphify"} and not open_items else ("Needs Me" if any(item.get("status") in needs_me_statuses for item in open_items) else "Ready"),
+            "last_task": open_items[0].get("title") if open_items else "No active task",
+            "tokens_today": "unavailable" if not tool or tool.get("unavailable") else tool.get("tokens"),
+            "unavailable": name in {"antigravity", "graphify"} and not open_items,
+        })
+    return {
+        "success": True,
+        "counts": counts,
+        "needs_me": needs_me[:8],
+        "queue_items": items,
+        "recent_output": _recent_file_items()[:8],
+        "tokens": token_summary,
+        "workbenches": workbenches,
+    }
+
+
+@app.get("/api/dashboard/tokens")
+def dashboard_tokens():
+    return _dashboard_token_summary()
+
+
+@app.get("/api/dashboard/results")
+def dashboard_results():
+    return {"items": _recent_file_items()[:200]}
+
+
+@app.get("/api/dashboard/workflows")
+def dashboard_workflows():
+    workflows = []
+    if WORKFLOWS_DIR.exists():
+        for path in sorted(WORKFLOWS_DIR.glob("*/workflow.md")):
+            try:
+                content = path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            slug = path.parent.name
+            lane = "operations" if any(part in slug for part in ("ops", "weekly", "ai_operations")) else "marketing" if "marketing" in slug or "content" in slug else "revenue" if any(part in slug for part in ("lead", "sales", "fit")) else "delivery"
+            receipts_dir = path.parent / "receipts"
+            receipts = sorted(receipts_dir.glob("*")) if receipts_dir.exists() else []
+            workflows.append({
+                "id": slug,
+                "name": _markdown_title(content, slug.replace("_", " ").title()),
+                "lane": lane,
+                "path": _safe_relative(path),
+                "last_run": datetime.datetime.fromtimestamp(receipts[-1].stat().st_mtime).isoformat() if receipts else None,
+                "receipt_count": len(receipts),
+                "avg_tokens": "unavailable",
+                "content": _redacted_preview(content, 6000),
+            })
+    return {"workflows": workflows}
+
+
+@app.get("/api/dashboard/skills")
+def dashboard_skills():
+    trust = _read_jsonl_file(SKILL_TRUST_FILE)
+    by_skill: dict[str, dict] = {}
+    for row in trust:
+        slug = str(row.get("skill") or "").replace("-", "_")
+        if not slug:
+            continue
+        entry = by_skill.setdefault(slug, {"uses": 0, "real_uses": 0, "last_used": None, "rows": []})
+        entry["rows"].append(row)
+        entry["uses"] += 1
+        entry["real_uses"] += int(bool(row.get("real_use")))
+        date = row.get("date")
+        if date and (entry["last_used"] is None or str(date) > str(entry["last_used"])):
+            entry["last_used"] = date
+    skills = []
+    if SKILLS_DIR.exists():
+        for path in sorted(SKILLS_DIR.glob("*/SKILL.md")):
+            slug = path.parent.name
+            try:
+                content = path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            parsed = _parse_markdown_frontmatter(content)
+            metadata = parsed["frontmatter"]
+            body = parsed["body"]
+            trust_entry = by_skill.get(slug, {"uses": 0, "real_uses": 0, "last_used": None, "rows": []})
+            core_offer = slug in {"build_speed_to_lead", "build_voice_agent", "build_client_memory", "build_lead_gen_agent"}
+            real_uses = trust_entry["real_uses"]
+            state = "v0" if core_offer and real_uses < 3 else "earned" if real_uses >= 3 else "earning" if real_uses else "v0"
+            name = _frontmatter_text_value(metadata, "name", slug.replace("_", " ").title())
+            description = _frontmatter_text_value(metadata, "description")
+            lane = _skill_lane_from_metadata(metadata, trust_entry["rows"][-1].get("lane") if trust_entry["rows"] else "delivery")
+            skills.append({
+                "id": slug,
+                "name": name,
+                "title": name,
+                "description": description,
+                "lane": lane,
+                "state": state,
+                "status": _frontmatter_text_value(metadata, "status", state),
+                "source": _frontmatter_text_value(metadata, "source"),
+                "trust": _skill_trust_from_metadata(metadata),
+                "version": _frontmatter_text_value(metadata, "version"),
+                "metadata": {key: metadata.get(key) for key in ("name", "description", "lane", "status", "source", "trust", "version") if key in metadata},
+                "uses": trust_entry["uses"],
+                "real_uses": real_uses,
+                "last_used": trust_entry["last_used"],
+                "avg_tokens": "unavailable",
+                "core_offer": core_offer,
+                "path": _safe_relative(path),
+                "body": _redacted_preview(body, 20000),
+                "content": _redacted_preview(body, 6000),
+                "preview": _redacted_preview(body, 1200),
+            })
+    return {"skills": skills}
+
+
+@app.post("/api/dashboard/skills/save")
+def dashboard_save_skill(body: DashboardSkillSave):
+    try:
+        path = _safe_dashboard_markdown_path(body.path, require_writable=True)
+        existing = path.read_text(encoding="utf-8", errors="replace") if path.exists() else ""
+        parsed = _parse_markdown_frontmatter(existing)
+        existing_name = _frontmatter_text_value(parsed["frontmatter"], "name", path.parent.name)
+        name = body.name.strip() or existing_name
+        description = body.description.strip()
+        if not name:
+            raise ValueError("name must not be empty")
+        path.write_text(_render_markdown_frontmatter(parsed["frontmatter_lines"], name, description, body.body), encoding="utf-8")
+        updated = path.read_text(encoding="utf-8", errors="replace")
+        updated_parsed = _parse_markdown_frontmatter(updated)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="skill file not found")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {
+        "success": True,
+        "path": _safe_relative(path),
+        "name": _frontmatter_text_value(updated_parsed["frontmatter"], "name", name),
+        "description": _frontmatter_text_value(updated_parsed["frontmatter"], "description", description),
+        "body": _redacted_preview(updated_parsed["body"], 20000),
+    }
+
+
+@app.post("/api/dashboard/open-path")
+def dashboard_open_path(body: DashboardOpenPath):
+    try:
+        path = _safe_dashboard_markdown_path(body.path)
+        target = path.parent if body.kind == "folder" else path
+        if not target.exists():
+            raise FileNotFoundError(str(target))
+        if hasattr(os, "startfile"):
+            os.startfile(str(target))
+        else:
+            subprocess.Popen(["powershell.exe", "-NoProfile", "-Command", "Start-Process", str(target)])
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="path not found")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"local open failed: {exc}")
+    return {"success": True, "path": _safe_relative(target)}
+
+
+@app.get("/api/dashboard/memory")
+def dashboard_memory():
+    roots = [MEMORY_INDEX_DIR, BASE_DIR / "decisions", BASE_DIR / "operating_context"]
+    files = []
+    blocked = 0
+    for root in roots:
+        if not root.exists():
+            continue
+        for path in root.rglob("*.md"):
+            rel = _safe_relative(path)
+            if "old_vault" in rel.lower() or "legacy" in rel.lower():
+                blocked += 1
+                continue
+            try:
+                content = path.read_text(encoding="utf-8", errors="replace")
+                files.append({
+                    "path": rel,
+                    "title": _markdown_title(content, path.name),
+                    "modified": datetime.datetime.fromtimestamp(path.stat().st_mtime).isoformat(),
+                    "preview": _redacted_preview(content, 3000),
+                    "revisit": next((line.strip() for line in content.splitlines() if "Revisit:" in line), ""),
+                })
+            except OSError:
+                continue
+    files.sort(key=lambda item: item["modified"], reverse=True)
+    promotions = [
+        {
+            "id": item.get("id"),
+            "title": item.get("title"),
+            "receipt": (item.get("latest_receipt") or {}).get("path") if isinstance(item.get("latest_receipt"), dict) else None,
+            "status": item.get("status"),
+        }
+        for item in _read_queue_items()
+        if "memory" in " ".join([str(item.get("title") or ""), " ".join(item.get("tags") or [])]).lower()
+        and item.get("status") in {"human_review", "needs_input", "blocked"}
+    ][:10]
+    return {
+        "brain": {"available": MEMORY_INDEX_DIR.exists(), "root": _safe_relative(MEMORY_INDEX_DIR), "file_count": len(files), "blocked_path_count": blocked},
+        "files": files[:50],
+        "promotion_queue": promotions,
+    }
+
+
+@app.get("/api/dashboard/prompts")
+def dashboard_prompts():
+    prompts = []
+    for root in PROMPT_LIBRARY_DIRS:
+        if not root.exists():
+            continue
+        for path in sorted(root.glob("*.md")):
+            try:
+                content = path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            prompts.append({
+                "id": _safe_relative(path),
+                "title": _markdown_title(content, path.stem.replace("_", " ").title()),
+                "category": path.parent.name,
+                "target": "Hermes" if "hermes" in path.name else "Codex" if "codex" in path.name else "Claude" if "claude" in path.name else "Workbench",
+                "path": _safe_relative(path),
+                "content": _redacted_preview(content, 8000),
+            })
+    return {"prompts": prompts}
+
+
+@app.get("/api/dashboard/graphify")
+def dashboard_graphify():
+    return {
+        "available": False,
+        "status": "Unavailable",
+        "launch_command": "Launch Graphify locally, then refresh this page.",
+        "repos": [{"name": "Agentic OS Live", "path": _safe_relative(BASE_DIR), "node_count": "unavailable", "last_analyzed": None}],
+    }
+
+
+@app.get("/api/dashboard/repo-ingest")
+def dashboard_repo_ingest():
+    return {
+        "available": True,
+        "steps": ["Fetch", "Quarantine", "Reconstitute", "Graphify index", "Available"],
+        "repos": [],
+        "note": "Reconstitute is a queued token action in this pass; no live model call is wired.",
+    }
+
+
+@app.post("/api/dashboard/create-task")
+def dashboard_create_task(body: DashboardTaskCreate):
+    try:
+        item = _queue_create_dashboard_item(QueueItemCreate(
+            title=body.title,
+            owner=body.owner,
+            priority=body.priority,
+            tags=body.tags,
+            source="dashboard",
+            context=body.context,
+            sources=body.sources,
+            source_refs="",
+            definition_of_done=body.definition_of_done,
+            allowed_actions=body.allowed_actions,
+            stop_conditions=body.stop_conditions,
+        ))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"success": True, "item": _queue_detail_item(item)}
 
 
 def _queue_render_list(values: object) -> str:

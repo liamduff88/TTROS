@@ -1009,6 +1009,27 @@ class HermesComposioTests(unittest.TestCase):
             self.assertIn("invalid status", invalid.exception.detail)
             self.assertFalse((root / "queue" / "receipts").exists())
 
+    def test_dashboard_queue_fallback_refuses_done_transition(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_queue_items(root, self.sample_queue_items())
+            fallback = backend._QueueToolFallback()
+
+            with patch.object(backend, "BASE_DIR", root):
+                updated = fallback.update_status(root, "AOS-2026-0002", "human_review")
+                with self.assertRaises(ValueError) as status_done:
+                    fallback.update_status(root, "AOS-2026-0002", "done")
+                with self.assertRaises(ValueError) as receipt_done:
+                    fallback.attach_receipt(root, "AOS-2026-0002", "queue/receipts/unit.md", "done")
+
+            self.assertEqual(updated["status"], "human_review")
+            self.assertIn("finalize_done", str(status_done.exception))
+            self.assertIn("finalize_done", str(receipt_done.exception))
+            items = [json.loads(line) for line in (root / "queue" / "work_items.jsonl").read_text(encoding="utf-8").splitlines()]
+            item = next(item for item in items if item["id"] == "AOS-2026-0002")
+            self.assertEqual(item["status"], "human_review")
+            self.assertEqual(item.get("receipts"), None)
+
     def test_dashboard_queue_receipt_view_reads_only_receipt_artifacts(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -1132,6 +1153,105 @@ class HermesComposioTests(unittest.TestCase):
             self.assertIn("workflows/revenue_linkedin_outreach/output/angles.md", artifact_paths)
             output_ref = next(artifact for artifact in item["run_artifacts"] if artifact["path"].endswith("angles.md"))
             self.assertTrue(output_ref["available"])
+
+    def test_dashboard_skills_parse_frontmatter_name_description_and_clean_preview(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            skill_dir = root / "skills" / "aoa_working_session"
+            skill_dir.mkdir(parents=True)
+            (skill_dir / "SKILL.md").write_text(
+                "---\n"
+                "name: aoa_working_session\n"
+                "description: Prep and follow up one working session.\n"
+                "lane: delivery\n"
+                "status: watch\n"
+                "source: aos-delivery\n"
+                "trust: watch\n"
+                "version: v1\n"
+                "---\n"
+                "# /aoa-working-session\n\nBody text.\n",
+                encoding="utf-8",
+            )
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "SKILLS_DIR", root / "skills"), \
+                 patch.object(backend, "SKILL_TRUST_FILE", root / "queue" / "skill_trust.jsonl"), \
+                 patch.object(backend, "_run_wsl") as run:
+                result = backend.dashboard_skills()
+
+            run.assert_not_called()
+            self.assertEqual(len(result["skills"]), 1)
+            skill = result["skills"][0]
+            self.assertEqual(skill["name"], "aoa_working_session")
+            self.assertEqual(skill["description"], "Prep and follow up one working session.")
+            self.assertEqual(skill["lane"], "delivery")
+            self.assertEqual(skill["status"], "watch")
+            self.assertEqual(skill["source"], "aos-delivery")
+            self.assertEqual(skill["trust"], "watch")
+            self.assertEqual(skill["version"], "v1")
+            self.assertNotEqual(skill["name"], "---")
+            self.assertNotIn("---", skill["content"].splitlines()[:2])
+            self.assertIn("Body text.", skill["preview"])
+
+    def test_dashboard_skill_save_preserves_frontmatter_and_updates_body(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            skill_file = root / "skills" / "unit_skill" / "SKILL.md"
+            skill_file.parent.mkdir(parents=True)
+            skill_file.write_text(
+                "---\n"
+                "name: unit_skill\n"
+                "description: Old description.\n"
+                "lane: operations\n"
+                "trust: watch\n"
+                "---\n"
+                "# Old body\n",
+                encoding="utf-8",
+            )
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_run_wsl") as run:
+                result = backend.dashboard_save_skill(backend.DashboardSkillSave(
+                    path="skills/unit_skill/SKILL.md",
+                    name="unit_skill_updated",
+                    description="New description.",
+                    body="# New body\n\nEdited from dashboard.",
+                ))
+
+            run.assert_not_called()
+            saved = skill_file.read_text(encoding="utf-8")
+            self.assertTrue(result["success"])
+            self.assertEqual(result["name"], "unit_skill_updated")
+            self.assertIn("---\nname: unit_skill_updated\n", saved)
+            self.assertIn("description: New description.", saved)
+            self.assertIn("lane: operations", saved)
+            self.assertIn("trust: watch", saved)
+            self.assertIn("# New body", saved)
+            self.assertEqual(saved.count("---"), 2)
+
+    def test_dashboard_skill_save_refuses_unsafe_paths(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            blocked_paths = [
+                "../outside/SKILL.md",
+                "skills/.env",
+                "connectors/telegram_bridge/secret.md",
+                "pilots/northshore_honda_sales_demo/SKILL.md",
+                "old_runtime/skills/unit/SKILL.md",
+                str(root / "skills" / "absolute" / "SKILL.md"),
+            ]
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_run_wsl") as run:
+                for path in blocked_paths:
+                    with self.subTest(path=path):
+                        with self.assertRaises(backend.HTTPException) as raised:
+                            backend.dashboard_save_skill(backend.DashboardSkillSave(
+                                path=path,
+                                name="blocked",
+                                description="blocked",
+                                body="blocked",
+                            ))
+                        self.assertEqual(raised.exception.status_code, 400)
+
+            run.assert_not_called()
 
     def test_hermes_review_prompt_uses_dashboard_artifact_path_verification(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -1,18 +1,24 @@
-import { LayoutDashboard, Bot, FileText, TrendingUp, ScrollText, Layers, ListChecks } from 'lucide-react'
+import { BookOpenText, Brain, ChartNoAxesCombined, GitBranch, LayoutDashboard, Layers, Library, ListChecks, Network, Settings, Workflow, Wrench } from 'lucide-react'
 
 const NAV = [
-  { id: 'overview', label: 'Overview', icon: LayoutDashboard },
-  { id: 'agents', label: 'Agent Workbench', icon: Bot },
-  { id: 'packets', label: 'Packet Creator', icon: FileText },
-  { id: 'tracker', label: 'Time & Value', icon: TrendingUp },
-  { id: 'logs', label: 'Logs & Results', icon: ScrollText },
-  { id: 'queue', label: 'Queue', icon: ListChecks },
-  { id: 'connectors', label: 'Connectors', icon: Layers },
+  { id: 'cockpit', label: 'Cockpit', icon: LayoutDashboard },
+  { id: 'work-queue', label: 'Work Queue', icon: ListChecks, badge: 'needs' },
+  { id: 'workflow-bench', label: 'Workflow Bench', icon: Workflow, token: true },
+  { id: 'skills-board', label: 'Skills Board', icon: Wrench },
+  { id: 'memory-board', label: 'Memory Board', icon: Brain, token: true },
+  { id: 'graphify', label: 'Graphify', icon: Network, token: true },
+  { id: 'repo-ingest', label: 'Repo Ingest', icon: GitBranch, token: true },
+  { id: 'results-receipts', label: 'Results & Receipts', icon: BookOpenText },
+  { id: 'tokens-roi', label: 'Tokens & ROI', icon: ChartNoAxesCombined },
+  { id: 'connections-spine', label: 'Connections / Spine', icon: Layers },
+  { id: 'prompt-library', label: 'Prompt Library', icon: Library },
+  { id: 'settings', label: 'Settings / Launchers', icon: Settings },
 ]
 
-export default function Sidebar({ activeView, onNavigate }) {
+export default function Sidebar({ activeView, onNavigate, counts = {} }) {
+  const needs = (counts.human_review || 0) + (counts.needs_input || 0) + (counts.blocked || 0)
   return (
-    <aside className="w-56 flex-shrink-0 flex flex-col bg-graphite border-r border-softgraph">
+    <aside className="w-64 flex-shrink-0 flex flex-col bg-graphite border-r border-softgraph">
       <div className="px-5 py-5 border-b border-softgraph">
         <div className="flex items-center gap-2.5">
           <div className="w-6 h-6 rounded bg-champagne flex items-center justify-center">
@@ -20,13 +26,13 @@ export default function Sidebar({ activeView, onNavigate }) {
           </div>
           <div>
             <div className="text-xs font-semibold text-ivory tracking-wide leading-none">Agentic OS</div>
-            <div className="text-[10px] text-taupe font-mono mt-0.5">v0.1 · Local</div>
+            <div className="text-[10px] text-taupe font-mono mt-0.5">Dashboard v1 · Local</div>
           </div>
         </div>
       </div>
 
-      <nav className="flex-1 px-2 py-3 space-y-0.5">
-        {NAV.map(({ id, label, icon: Icon }) => (
+      <nav className="flex-1 px-2 py-3 space-y-0.5 overflow-y-auto">
+        {NAV.map(({ id, label, icon: Icon, badge, token }) => (
           <button
             key={id}
             onClick={() => onNavigate(id)}
@@ -37,7 +43,9 @@ export default function Sidebar({ activeView, onNavigate }) {
             }`}
           >
             <Icon size={14} className={activeView === id ? 'text-champagne' : ''} />
-            <span className="font-medium">{label}</span>
+            <span className="min-w-0 flex-1 truncate font-medium">{label}</span>
+            {token && <span className="text-[10px] text-champagne">⚡</span>}
+            {badge === 'needs' && needs > 0 && <span className="rounded bg-champagne px-1.5 py-0.5 text-[10px] font-bold text-ink">{needs}</span>}
           </button>
         ))}
       </nav>
@@ -54,7 +62,7 @@ export default function Sidebar({ activeView, onNavigate }) {
           </div>
           <div className="flex justify-between">
             <span>Mode</span>
-            <span className="text-stone">Model-silent</span>
+            <span className="text-stone">Zero-token default</span>
           </div>
         </div>
       </div>

@@ -1,4 +1,4 @@
-# queue/templates/skill_creation.prompt.md
+# queue/skill_creation_prompt.md
 > Template only — does not create a skill file or change queue state.
 > Claude Code and Codex do not invent skills outside the blueprint; they
 > propose, Liam decides (SKILL_GRADUATION_POLICY.md).
