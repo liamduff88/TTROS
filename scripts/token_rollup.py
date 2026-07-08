@@ -3,10 +3,14 @@
 
 Reads queue/token_ledger.jsonl and emits one dashboard-ready JSON rollup per
 ISO week to queue/rollups/, plus queue/rollups/index.json. This script makes no
-model calls and invents no numbers: it aggregates the counts already recorded
-in the ledger (harness/API-derived) and recomputes model-level cost from
-scripts/model_prices.json only. Token counts recorded as part of an
-"unavailable" component contribute zero and are surfaced, never guessed.
+model calls and invents no numbers: it aggregates the token counts already
+recorded in the ledger (harness/API-derived) and recomputes every cost figure
+— per line, and every breakdown (lane, profile, workbench, model, budget
+class) — from scripts/model_prices.json only. A ledger line's own stored
+est_cost_usd is never read; recomputing from components on every run means
+totals always reconcile with by_model, even against historical ledger data.
+Token counts recorded as part of an "unavailable" component contribute zero
+and are surfaced, never guessed.
 
 Usage:
     python3 scripts/token_rollup.py            # roll up every week found
@@ -79,6 +83,8 @@ def _bucket(store: dict, key: str) -> dict:
 def rollup_week(week: str, lines: list[dict], prices: dict) -> dict:
     totals = {"input": 0, "output": 0, "est_cost_usd": 0.0}
     by_lane: dict[str, dict] = {}
+    by_profile: dict[str, dict] = {}
+    by_workbench: dict[str, dict] = {}
     by_model: dict[str, dict] = {}
     by_budget: dict[str, dict] = {}
     escalated_cost = 0.0
@@ -89,7 +95,23 @@ def rollup_week(week: str, lines: list[dict], prices: dict) -> dict:
         usage = line.get("token_usage", {})
         line_in = int(usage.get("totals", {}).get("input", 0))
         line_out = int(usage.get("totals", {}).get("output", 0))
-        line_cost = float(usage.get("est_cost_usd", 0.0) or 0.0)
+
+        # Never trust a stored top-level est_cost_usd (it may be stale or, on
+        # older lines, wrong): recompute every line's cost deterministically
+        # from its own components, the same way as by_model below, so totals
+        # and every breakdown always reconcile with by_model by construction.
+        components: list[dict] = []
+        orch = usage.get("orchestrator", {})
+        if orch.get("input") or orch.get("output"):
+            components.append({"model": line.get("model_confirmed", "unavailable"),
+                               "input": int(orch.get("input", 0)), "output": int(orch.get("output", 0))})
+        for sub in usage.get("subagents", []):
+            components.append({"model": sub.get("model", "unavailable"),
+                               "input": int(sub.get("input", 0)), "output": int(sub.get("output", 0))})
+        for work in usage.get("workbenches", []):
+            components.append({"model": work.get("model", "unavailable"),
+                               "input": int(work.get("input", 0)), "output": int(work.get("output", 0))})
+        line_cost = round(sum(cost_for(c["model"], c["input"], c["output"], prices) for c in components), 6)
 
         totals["input"] += line_in
         totals["output"] += line_out
@@ -103,6 +125,12 @@ def rollup_week(week: str, lines: list[dict], prices: dict) -> dict:
         lane_b["est_cost_usd"] = round(lane_b["est_cost_usd"] + line_cost, 6)
         lane_b["count"] += 1
 
+        profile_b = _bucket(by_profile, line.get("profile", "unknown"))
+        profile_b["input"] += line_in
+        profile_b["output"] += line_out
+        profile_b["est_cost_usd"] = round(profile_b["est_cost_usd"] + line_cost, 6)
+        profile_b["count"] += 1
+
         budget_b = _bucket(by_budget, line.get("budget_class", "unknown"))
         budget_b["input"] += line_in
         budget_b["output"] += line_out
@@ -111,23 +139,23 @@ def rollup_week(week: str, lines: list[dict], prices: dict) -> dict:
 
         # by_model: attribute each component's tokens to its model; cost is
         # recomputed deterministically from model_prices.json.
-        components: list[dict] = []
-        orch = usage.get("orchestrator", {})
-        if orch.get("input") or orch.get("output"):
-            components.append({"model": line.get("model_confirmed", "unavailable"),
-                               "input": int(orch.get("input", 0)), "output": int(orch.get("output", 0))})
-        for sub in usage.get("subagents", []):
-            components.append({"model": sub.get("model", "unavailable"),
-                               "input": int(sub.get("input", 0)), "output": int(sub.get("output", 0))})
-        for work in usage.get("workbenches", []):
-            components.append({"model": work.get("model", "unavailable"),
-                               "input": int(work.get("input", 0)), "output": int(work.get("output", 0))})
         for comp in components:
             mb = _bucket(by_model, comp["model"])
             mb["input"] += comp["input"]
             mb["output"] += comp["output"]
             mb["est_cost_usd"] = round(mb["est_cost_usd"] + cost_for(comp["model"], comp["input"], comp["output"], prices), 6)
             mb["count"] += 1
+
+        # by_workbench: one bucket per tool, across every workbench entry on
+        # the line (a line may report more than one workbench).
+        for work in usage.get("workbenches", []):
+            wb = _bucket(by_workbench, work.get("tool", "unknown"))
+            wb["input"] += int(work.get("input", 0))
+            wb["output"] += int(work.get("output", 0))
+            wb["est_cost_usd"] = round(
+                wb["est_cost_usd"] + cost_for(work.get("model", "unavailable"), int(work.get("input", 0)), int(work.get("output", 0)), prices), 6
+            )
+            wb["count"] += 1
 
         for name in usage.get("unavailable", []):
             unavailable[name] = unavailable.get(name, 0) + 1
@@ -151,6 +179,8 @@ def rollup_week(week: str, lines: list[dict], prices: dict) -> dict:
         "line_count": len(lines),
         "totals": totals,
         "by_lane": by_lane,
+        "by_profile": by_profile,
+        "by_workbench": by_workbench,
         "by_model": by_model,
         "by_budget_class": by_budget,
         "escalation": {

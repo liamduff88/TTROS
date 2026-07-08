@@ -306,12 +306,6 @@ def _coerce_int(value: Any) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) else None
 
 
-def _coerce_num(value: Any) -> float | None:
-    if isinstance(value, bool):
-        return None
-    return float(value) if isinstance(value, (int, float)) else None
-
-
 def cost_for(model: str | None, inp: int, outp: int, prices: dict) -> float | None:
     """Deterministic USD cost for a component, or None when the model has no rate."""
     rate = prices.get(model) if model else None
@@ -332,27 +326,37 @@ def _empty_token_usage(unavailable: list[str]) -> dict:
     }
 
 
-def _recompute_totals_and_cost(block: dict, prices: dict, provided_cost: float | None) -> dict:
+def _recompute_totals_and_cost(block: dict, prices: dict, model_confirmed: str) -> dict:
+    """Recompute totals and est_cost_usd deterministically from model_prices.json.
+
+    Never accepts a caller-supplied cost (TOKEN_POLICY.md:47) — every component
+    is priced from its own model rate. The orchestrator block carries no
+    per-component model (receipt schema), so it is priced at model_confirmed,
+    the same attribution scripts/token_rollup.py uses for its by_model
+    breakdown; this keeps the ledger's stored est_cost_usd and the rollup's
+    recomputed total in agreement.
+    """
     orch = block.get("orchestrator", {"input": 0, "output": 0})
     subs = block.get("subagents", [])
     works = block.get("workbenches", [])
     total_in = int(orch.get("input", 0)) + sum(int(s.get("input", 0)) for s in subs) + sum(int(w.get("input", 0)) for w in works)
     total_out = int(orch.get("output", 0)) + sum(int(s.get("output", 0)) for s in subs) + sum(int(w.get("output", 0)) for w in works)
     block["totals"] = {"input": total_in, "output": total_out}
-    if provided_cost is not None:
-        block["est_cost_usd"] = round(provided_cost, 6)
-    else:
-        cost = 0.0
-        for s in subs:
-            c = cost_for(s.get("model"), int(s.get("input", 0)), int(s.get("output", 0)), prices)
+
+    cost = 0.0
+    orch_cost = cost_for(model_confirmed, int(orch.get("input", 0)), int(orch.get("output", 0)), prices)
+    if orch_cost is not None:
+        cost += orch_cost
+    for s in subs:
+        c = cost_for(s.get("model"), int(s.get("input", 0)), int(s.get("output", 0)), prices)
+        if c is not None:
+            cost += c
+    for w in works:
+        if w.get("source") == "reported":
+            c = cost_for(w.get("model"), int(w.get("input", 0)), int(w.get("output", 0)), prices)
             if c is not None:
                 cost += c
-        for w in works:
-            if w.get("source") == "reported":
-                c = cost_for(w.get("model"), int(w.get("input", 0)), int(w.get("output", 0)), prices)
-                if c is not None:
-                    cost += c
-        block["est_cost_usd"] = round(cost, 6)
+    block["est_cost_usd"] = round(cost, 6)
     return block
 
 
@@ -371,12 +375,13 @@ def build_token_usage(route: dict, *, usage_file: str | None, token_usage_json: 
         for key in ("orchestrator", "subagents", "workbenches", "unavailable"):
             if key in token_usage_json:
                 block[key] = token_usage_json[key]
-        provided_cost = _coerce_num(token_usage_json.get("est_cost_usd"))
-        block = _recompute_totals_and_cost(block, prices, provided_cost)
+        # est_cost_usd, if the caller supplied one, is ignored: cost is always
+        # computed deterministically below, never taken from the caller.
         model_confirmed = "unavailable"
         subs = block.get("subagents", [])
         if subs and subs[0].get("model"):
             model_confirmed = subs[0]["model"]
+        block = _recompute_totals_and_cost(block, prices, model_confirmed)
         return block, model_confirmed
 
     if usage_file:
@@ -396,11 +401,13 @@ def build_token_usage(route: dict, *, usage_file: str | None, token_usage_json: 
         block["subagents"] = [{"role": role, "model": model, "input": inp or 0, "output": outp or 0}]
         # orchestrator and workbench are not carried by a one-shot usage file.
         block["unavailable"].extend(["orchestrator tokens", "workbench session totals"])
-        provided_cost = _coerce_num(usage.get("estimated_cost_usd"))
-        block = _recompute_totals_and_cost(block, prices, provided_cost)
-        if provided_cost is None and cost_for(model, inp or 0, outp or 0, prices) is None:
+        model_confirmed = model if model != "unavailable" else "unavailable"
+        # est_cost_usd is always computed deterministically below; a caller-supplied
+        # estimated_cost_usd in the usage file is never used (TOKEN_POLICY.md:47).
+        block = _recompute_totals_and_cost(block, prices, model_confirmed)
+        if cost_for(model, inp or 0, outp or 0, prices) is None:
             block["unavailable"].append(f"cost for model {model}")
-        return block, (model if model != "unavailable" else "unavailable")
+        return block, model_confirmed
 
     return _empty_token_usage(["orchestrator tokens", "subagent tokens", "workbench session totals"]), "unavailable"
 
@@ -502,9 +509,12 @@ def finalize_done(
     """Run the coordinator side-effects for a real transition into `done`:
     profile resolution/invocation, dual ledger write, and token metering.
 
-    Returns a close record (for stdout). Raises QueueError only if the
-    token_usage block cannot be constructed with the required keys — the one
-    condition the receipt-completeness hook refuses a done-transition on.
+    Returns a close record (for stdout). Raises QueueError — refusing the
+    done-transition outright, before any file is written — if the token_usage
+    block cannot be built with the required keys, or if the assembled run/token
+    ledger lines fail schema validation. Callers must call this before
+    persisting status=done, so a refusal here leaves the item's prior status
+    untouched (hooks/token_budget_check.md).
     """
     route = resolve_route(root, item.get("owner"))
     invocation = probe_profile_invocation(route["profile_requested"], route["fallback_profile"])
@@ -521,8 +531,9 @@ def finalize_done(
     resolved_model_requested = model_requested or routes_meta.get("model") or "configured externally"
     resolved_model_confirmed = model_confirmed or confirmed or "unavailable"
     timestamp = now_iso()
-
-    sidecar_path = _write_receipt_token_usage(root, item["id"], resolved_receipt, block, invocation)
+    # The sidecar path is deterministic from item id alone, so it can be used
+    # in run_line for schema validation before the file is actually written.
+    sidecar_rel_path = str(RECEIPTS_DIR / f"{item['id']}.token_usage.json")
 
     run_line = {
         "item_id": item["id"],
@@ -535,7 +546,7 @@ def finalize_done(
         "escalated": bool(escalated),
         "review": review or "pending",
         "budget_class": resolved_budget,
-        "receipt": resolved_receipt or sidecar_path,
+        "receipt": resolved_receipt or sidecar_rel_path,
         "memory_promotion": [],
     }
     token_line = {
@@ -550,14 +561,17 @@ def finalize_done(
         "token_usage": block,
     }
 
-    warnings = []
+    # Hard block: a line that fails schema validation must never be appended
+    # (finding #2). Validated before any file is touched, so a failure here
+    # leaves the ledgers, the sidecar, and the item's status all unchanged.
     run_err = _validate_against_schema(run_line, root / RUN_LEDGER_SCHEMA_PATH)
     if run_err:
-        warnings.append(f"run_ledger line failed schema: {run_err}")
+        raise QueueError(f"run_ledger line failed schema; refusing done-transition: {run_err}")
     token_err = _validate_against_schema(token_line, root / TOKEN_LEDGER_SCHEMA_PATH)
     if token_err:
-        warnings.append(f"token_ledger line failed schema: {token_err}")
+        raise QueueError(f"token_ledger line failed schema; refusing done-transition: {token_err}")
 
+    sidecar_path = _write_receipt_token_usage(root, item["id"], resolved_receipt, block, invocation)
     _append_jsonl(root / RUN_LEDGER_PATH, run_line)
     _append_jsonl(root / TOKEN_LEDGER_PATH, token_line)
 
@@ -568,7 +582,6 @@ def finalize_done(
         "run_ledger_line": run_line,
         "token_ledger_line": token_line,
         "token_usage_sidecar": sidecar_path,
-        "warnings": warnings,
     }
 
 
@@ -653,38 +666,35 @@ def release_item(root: Path, item_id: str, status: str) -> dict:
     return item
 
 
-def _run_finalize_safely(root: Path, item: dict, **kwargs: Any) -> None:
-    """Run the coordinator done-transition without letting a metering problem
-    strand the item. Errors and schema warnings are surfaced on stderr; the
-    already-saved status change stands (queue liveness)."""
-    try:
-        record = finalize_done(root, item, **kwargs)
-        for warning in record.get("warnings", []):
-            print(f"NEEDS ATTENTION (metering): {warning}", file=sys.stderr)
-    except (QueueError, OSError, json.JSONDecodeError) as exc:
-        print(f"NEEDS ATTENTION (metering): {exc}", file=sys.stderr)
-
-
 def update_status(root: Path, item_id: str, status: str) -> dict:
+    """Update an item's status. A transition into `done` runs finalize_done
+    first: if the token_usage block can't be built or fails schema validation,
+    finalize_done raises and this function propagates it without saving —
+    the item's prior status stands (hooks/token_budget_check.md)."""
     validate_status(status)
     items = load_items(root)
     item = find_item(items, item_id)
     previous_status = item.get("status")
+    if status == DONE_STATUS and previous_status != DONE_STATUS:
+        finalize_done(root, item)
     item["status"] = status
     item["updated_at"] = now_iso()
     save_items(root, items)
-    if status == DONE_STATUS and previous_status != DONE_STATUS:
-        _run_finalize_safely(root, item)
     return item
 
 
 def attach_receipt(root: Path, item_id: str, receipt_path: str, status: str | None = None) -> dict:
+    """Attach a receipt, optionally setting status. A transition into `done`
+    runs finalize_done first (see update_status) so a refusal leaves the item
+    unmodified — no receipt attached, no status change, nothing saved."""
     if status:
         validate_status(status)
     items = load_items(root)
     item = find_item(items, item_id)
     previous_status = item.get("status")
     timestamp = now_iso()
+    if status == DONE_STATUS and previous_status != DONE_STATUS:
+        finalize_done(root, item, receipt_path=receipt_path)
     receipt = {"path": receipt_path, "created_at": timestamp}
     if status:
         receipt["status"] = status
@@ -692,26 +702,17 @@ def attach_receipt(root: Path, item_id: str, receipt_path: str, status: str | No
     item.setdefault("receipts", []).append(receipt)
     item["updated_at"] = timestamp
     save_items(root, items)
-    if status == DONE_STATUS and previous_status != DONE_STATUS:
-        _run_finalize_safely(root, item, receipt_path=receipt_path)
     return item
 
 
 def done_item(root: Path, args: argparse.Namespace) -> dict:
-    """Explicit coordinator close: attach an optional receipt, set status done,
-    and run the metering/ledger side-effects with full metadata. Unlike the
-    status/receipt paths, a token_usage block that cannot be built raises."""
+    """Explicit coordinator close: run the metering/ledger side-effects with
+    full metadata first, then attach the optional receipt and set status done.
+    A token_usage block that cannot be built or fails schema validation raises
+    from finalize_done before anything is saved (hooks/token_budget_check.md)."""
     items = load_items(root)
     item = find_item(items, args.item_id)
     previous_status = item.get("status")
-    timestamp = now_iso()
-    if args.receipt:
-        item.setdefault("receipts", []).append(
-            {"path": args.receipt, "created_at": timestamp, "status": DONE_STATUS}
-        )
-    item["status"] = DONE_STATUS
-    item["updated_at"] = timestamp
-    save_items(root, items)
 
     if previous_status == DONE_STATUS and not args.reclose:
         print(
@@ -721,6 +722,9 @@ def done_item(root: Path, args: argparse.Namespace) -> dict:
         )
         return item
 
+    # finalize_done only reads item fields already present (owner, tags,
+    # created_at, receipts) — the pending receipt path is passed explicitly,
+    # so it need not be attached in memory first for route/budget resolution.
     record = finalize_done(
         root,
         item,
@@ -734,8 +738,15 @@ def done_item(root: Path, args: argparse.Namespace) -> dict:
         model_confirmed=args.model_confirmed,
         skill=args.skill,
     )
-    for warning in record.get("warnings", []):
-        print(f"NEEDS ATTENTION (metering): {warning}", file=sys.stderr)
+
+    timestamp = now_iso()
+    if args.receipt:
+        item.setdefault("receipts", []).append(
+            {"path": args.receipt, "created_at": timestamp, "status": DONE_STATUS}
+        )
+    item["status"] = DONE_STATUS
+    item["updated_at"] = timestamp
+    save_items(root, items)
     return record
 
 

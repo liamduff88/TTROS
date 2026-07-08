@@ -1,0 +1,48 @@
+# DECISIONS.md — log of decisions that change system behavior
+> One entry per behavior-affecting change. Newest first.
+
+## 2026-07-08 — Token metering hardening (fix pass on commit 315a3a9)
+Codex audit of the token-metering back end (commit 315a3a9) found four
+issues; resolved as follows in `tools/aos-queue.py` and
+`scripts/token_rollup.py`:
+
+1. **Done-transition strictness.** Chose option (a): all three paths that can
+   reach `done` (`status`, `receipt --status done`, `done`) now hard-refuse
+   identically. `finalize_done()` builds the `token_usage` block and
+   schema-validates both ledger lines *before* the item's status/receipt is
+   persisted; on failure it raises and nothing is written or saved. Previously
+   `status`/`receipt` soft-failed (status saved, error only on stderr) while
+   `done` raised — but even `done` saved status=done before calling
+   `finalize_done()`, so a "done" item could end up with no ledger entry.
+   Chose strict refusal over documenting the soft-fail because the entire
+   point of TOKEN_POLICY.md is visibility on every completed item; silent
+   gaps defeat that.
+2. **Schema validation enforced.** A run/token ledger line that fails
+   `queue/run_ledger_schema.json` / `queue/token_ledger_schema.json`
+   validation now raises (hard block) instead of being appended with a
+   collected warning.
+3. **est_cost_usd always deterministic.** Removed the caller-supplied cost
+   override (`token_usage_json.est_cost_usd`, `usage_file.estimated_cost_usd`).
+   Also started pricing the orchestrator component (previously excluded from
+   cost entirely) at the run's confirmed model — matching the attribution
+   `scripts/token_rollup.py`'s `by_model` breakdown already used — so the
+   ledger's stored `est_cost_usd` and the rollup's recomputed total agree.
+4. **Rollup dimensions + reconciliation.** `scripts/token_rollup.py` now rolls
+   up by lane, profile, workbench, model, and budget class (was missing
+   profile and workbench). It also no longer trusts a ledger line's stored
+   `est_cost_usd` for any aggregate (totals, by_lane, by_budget, top_items) —
+   every figure is recomputed from that line's own components on every run.
+   This self-corrects historical data: regenerating `week-2026-W28.json`
+   fixed the `total est_cost_usd 0.0` vs `by_model.claude-sonnet-5 0.1491`
+   inconsistency to `0.1491` across every dimension, without editing the
+   ledger itself.
+
+Files touched: `tools/aos-queue.py`, `scripts/token_rollup.py`,
+`queue/rollups/week-2026-W28.json` (regenerated), `context/TOKEN_POLICY.md`,
+`hooks/token_budget_check.md`.
+
+Tests: `tests.test_aos_queue`, `tests.test_aos_paths`,
+`dashboard.backend.test_composio_hermes` — 69/69 pass. Manually verified in a
+sandbox that a schema-invalid done-transition on all three paths (`status`,
+`receipt`, `done`) leaves the item's status/receipts unchanged and appends
+nothing to either ledger.

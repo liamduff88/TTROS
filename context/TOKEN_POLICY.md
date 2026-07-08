@@ -1,5 +1,5 @@
 # TOKEN_POLICY.md — visible spend on every unit of work
-> Revisit: on a Hermes release (usage-metadata fields can reshape) or monthly pricing check. · Last touched: 2026-07-07 (model_prices path moved to scripts/; ledger back end wired).
+> Revisit: on a Hermes release (usage-metadata fields can reshape) or monthly pricing check. · Last touched: 2026-07-08 (done-transition hardened: all three paths hard-refuse, schema validation enforced, est_cost_usd override removed).
 
 ## Purpose
 Clear token usage on every task, subagent, the orchestrator, and every
@@ -24,7 +24,12 @@ Every queue-item receipt carries a `token_usage` block:
   "unavailable": []
 }
 ```
-The receipt-completeness hook refuses the done-transition without this block.
+The receipt-completeness hook refuses the done-transition without this block —
+on every path that can reach `done` (`status`, `receipt --status done`, and the
+explicit `done` command alike), the block is built and both ledger lines are
+schema-validated *before* the item's status is persisted, so a refusal leaves
+the item's prior status untouched rather than landing a "done" item with a
+missing or invalid ledger entry.
 
 ## Budget classes
 `light` (briefs, drafts, reviews) · `standard` (most work) · `heavy` (lead-gen
@@ -45,15 +50,23 @@ harness writes usage to local logs, a deterministic parser script is
 preferred over self-report. Where nothing is exposed: `"source": "unavailable"`.
 
 ## Cost
-`est_cost_usd` is computed by a deterministic script from `scripts/model_prices.json`
-— a rotting file with its own Revisit line, checked monthly for provider
-pricing changes. Rates there are placeholders until Liam fills real provider
-pricing.
+`est_cost_usd` is always computed deterministically from
+`scripts/model_prices.json` — a rotting file with its own Revisit line,
+checked monthly for provider pricing changes. Rates there are placeholders
+until Liam fills real provider pricing. No caller-supplied cost is ever
+accepted as an override, on any path; the orchestrator component (which
+carries no per-component model of its own) is priced at the run's confirmed
+model, the same attribution `scripts/token_rollup.py` uses for its by-model
+breakdown, so the ledger's stored cost and the rollup's recomputed cost always
+agree.
 
 ## Rollups
 `scripts/token_rollup.py` (no model calls): daily/weekly totals by lane,
 profile, workbench, budget class; top-10 most expensive items; escalation
-cost share. `/weekly-review` embeds the weekly rollup.
+cost share. `/weekly-review` embeds the weekly rollup. Every cost figure is
+recomputed from each line's own components on every run — never read from a
+line's stored `est_cost_usd` — so totals always reconcile with the by-model
+breakdown, including against older ledger data.
 
 ## Enforcement
 Hooks: token_budget_check.md, receipt-completeness-check. Mirrored in
