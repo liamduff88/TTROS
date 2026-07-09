@@ -5,6 +5,7 @@ from __future__ import annotations
 import datetime
 import json
 import os
+import secrets
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -129,13 +130,81 @@ def event_payload(event_type: str, component: str, status: str = "ok", **attrs: 
     }
 
 
+_OTLP_STATUS_CODE_OK = 1
+_OTLP_STATUS_CODE_ERROR = 2
+_RESERVED_EVENT_KEYS = {"event_type", "component", "status", "timestamp", "service", "telemetry"}
+
+
+def _otlp_attribute(key: str, value: Any) -> dict[str, Any]:
+    if isinstance(value, bool):
+        return {"key": key, "value": {"boolValue": value}}
+    if isinstance(value, int):
+        return {"key": key, "value": {"intValue": str(value)}}
+    if isinstance(value, float):
+        return {"key": key, "value": {"doubleValue": value}}
+    return {"key": key, "value": {"stringValue": str(value)}}
+
+
+def _unix_nanos(timestamp: str) -> int:
+    try:
+        dt = datetime.datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+    except ValueError:
+        dt = datetime.datetime.now(datetime.timezone.utc)
+    return int(dt.timestamp() * 1_000_000_000)
+
+
+def _otlp_trace_body(event: dict[str, Any]) -> dict[str, Any]:
+    """Wrap an internal telemetry event as a minimal OTLP/HTTP trace with a
+    GenAI-semantic-convention span, per the generic-OTLP shape Latitude expects
+    (`resourceSpans[].scopeSpans[].spans[]`, `gen_ai.*` attributes)."""
+    event_type = str(event.get("event_type") or "backend.event")
+    component = str(event.get("component") or "dashboard_backend")
+    status = str(event.get("status") or "ok")
+    service = str(event.get("service") or "agentic-os-dashboard-backend")
+
+    start_nanos = _unix_nanos(event.get("timestamp") or utc_now_iso())
+    end_nanos = start_nanos + 1_000_000  # 1ms synthetic span duration
+
+    attributes = [
+        _otlp_attribute("gen_ai.system", "agentic-os"),
+        _otlp_attribute("gen_ai.operation.name", event_type),
+        _otlp_attribute("component", component),
+        _otlp_attribute("status", status),
+    ]
+    for key, value in event.items():
+        if key in _RESERVED_EVENT_KEYS or value is None:
+            continue
+        attributes.append(_otlp_attribute(key, value))
+
+    span = {
+        "traceId": secrets.token_hex(16),
+        "spanId": secrets.token_hex(8),
+        "name": f"{component}.{event_type}",
+        "kind": 1,
+        "startTimeUnixNano": str(start_nanos),
+        "endTimeUnixNano": str(end_nanos),
+        "attributes": attributes,
+        "status": {"code": _OTLP_STATUS_CODE_OK if status == "ok" else _OTLP_STATUS_CODE_ERROR},
+    }
+    return {
+        "resourceSpans": [
+            {
+                "resource": {"attributes": [_otlp_attribute("service.name", service)]},
+                "scopeSpans": [
+                    {"scope": {"name": "agentic-os-dashboard-backend"}, "spans": [span]},
+                ],
+            }
+        ]
+    }
+
+
 def send_event(event: dict[str, Any]) -> dict[str, Any]:
     status = config_status()
     if not status["configured"]:
         return {"sent": False, "degraded": True, **status}
 
     config = _private_config()
-    body = json.dumps(event, separators=(",", ":")).encode("utf-8")
+    body = json.dumps(_otlp_trace_body(event), separators=(",", ":")).encode("utf-8")
     request = urllib.request.Request(
         config["endpoint"],
         data=body,
@@ -145,6 +214,7 @@ def send_event(event: dict[str, Any]) -> dict[str, Any]:
         },
         method="POST",
     )
+    request.add_header("X-Latitude-Project", config["project"])
     if config["project_kind"] == "slug":
         request.add_header("X-Project-Slug", config["project"])
     else:
