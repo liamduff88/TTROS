@@ -62,3 +62,55 @@ Status:
 
 \- Ready for WP5 pre-flight after repo is clean/pushed and notification allowlist is filled.
 
+
+
+
+
+\## Update 2026-07-09 — WP9 Phase C audit
+
+
+
+WP9 Phase C audit completed in fresh Codex session.
+
+
+
+Result: AUDIT CLEAN.
+
+
+
+Validated:
+
+\- WP8 commit audited: 45512d3 Phase C: deterministic local search, ingestion, and artifact index
+
+\- No model/API/Hermes invocation in index/search/ingest/artifact paths
+
+\- search/os\_index.db not tracked
+
+\- Business Brain read-only behavior confirmed
+
+\- north\_shore and API\_KEY exclusion checks passed
+
+\- create-from-artifact does not auto-run
+
+\- forbidden-path diff clean
+
+\- Tests/build passed:
+
+&#x20; - tests.test\_aos\_search
+
+&#x20; - tests.test\_aos\_orchestration
+
+&#x20; - dashboard.backend.test\_composio\_hermes
+
+&#x20; - tests.test\_aos\_queue
+
+&#x20; - compileall
+
+&#x20; - frontend build
+
+
+
+Focused fix needed before WP10: no.
+
+Token usage: unavailable from current CLI output.
+
