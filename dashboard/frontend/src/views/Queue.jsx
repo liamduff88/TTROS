@@ -92,6 +92,13 @@ const matchesFilters = (item, filters) =>
   (!filters.lane || itemLane(item) === filters.lane) &&
   (!filters.source || String(item.source || '').toLowerCase() === String(filters.source).toLowerCase())
 
+const selectedIdFromParams = params => params?.selectedId || params?.itemId || null
+
+const filtersFromParams = params => {
+  const { selectedId, itemId, ...filters } = params || {}
+  return filters
+}
+
 const emptyCreateForm = {
   title: '',
   owner: 'unassigned',
@@ -166,11 +173,12 @@ const FieldLabel = ({ label, children }) => (
 )
 
 export default function Queue({ initialFilters = {} }) {
+  const initialSelectedId = selectedIdFromParams(initialFilters)
   const [status, setStatus] = useState(null)
   const [items, setItems] = useState([])
   const [nextItem, setNextItem] = useState(null)
-  const [selectedId, setSelectedId] = useState(null)
-  const [filters, setFilters] = useState(initialFilters)
+  const [selectedId, setSelectedId] = useState(initialSelectedId)
+  const [filters, setFilters] = useState(filtersFromParams(initialFilters))
   const [createForm, setCreateForm] = useState(emptyCreateForm)
   const [createState, setCreateState] = useState({ submitting: false, message: '', error: null })
   const [promptCopy, setPromptCopy] = useState({ target: null, message: '', error: null })
@@ -238,7 +246,11 @@ export default function Queue({ initialFilters = {} }) {
     refreshQueue()
   }, [])
 
-  useEffect(() => setFilters(initialFilters), [JSON.stringify(initialFilters)])
+  useEffect(() => {
+    const explicitSelectedId = selectedIdFromParams(initialFilters)
+    setFilters(filtersFromParams(initialFilters))
+    if (explicitSelectedId) setSelectedId(explicitSelectedId)
+  }, [JSON.stringify(initialFilters)])
 
   useEffect(() => {
     if (filteredItems.some(item => item.id === selectedId)) return

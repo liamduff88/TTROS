@@ -179,7 +179,7 @@ export function NeedsMeRail({ cockpit, onNavigate }) {
       <div className="mt-2 text-xl font-semibold text-ivory">{items.length} active</div>
       <div className="mt-4 space-y-2">
         {items.slice(0, 8).map(item => (
-          <button key={item.id} onClick={() => onNavigate('work-queue', { q: item.id })} className="w-full rounded border border-softgraph bg-ink p-2 text-left hover:border-champagne/50">
+          <button key={item.id} onClick={() => onNavigate('work-queue', { q: item.id, selectedId: item.id })} className="w-full rounded border border-softgraph bg-ink p-2 text-left hover:border-champagne/50">
             <div className="truncate text-xs font-semibold text-stone">{item.title}</div>
             <div className="mt-1 flex items-center justify-between gap-2 text-[10px] text-taupe">
               <span>{item.id}</span>
