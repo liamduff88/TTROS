@@ -2037,6 +2037,184 @@ class HermesComposioTests(unittest.TestCase):
         self.assertEqual(run.call_args.kwargs["encoding"], "utf-8")
         self.assertEqual(run.call_args.kwargs["errors"], "replace")
 
+    def test_latitude_status_degrades_without_endpoint(self):
+        with patch.object(backend, "_read_backend_env", return_value={"LATITUDE_API_KEY": "redacted"}):
+            status = backend._public_latitude_status()
+        self.assertEqual(status["status"], "degraded")
+        self.assertTrue(status["has_api_key"])
+        self.assertFalse(status["has_endpoint"])
+        self.assertEqual(status["configured_key"], "present")
+        self.assertEqual(status["endpoint_configured"], "no")
+        self.assertEqual(status["event_sending"], "degraded")
+        self.assertNotIn("redacted", json.dumps(status))
+
+    def test_latitude_heartbeat_degrades_without_endpoint_and_hides_key(self):
+        with patch.object(backend, "_read_backend_env", return_value={"LATITUDE_API_KEY": "redacted"}), \
+             patch.object(backend.urllib.request, "urlopen") as urlopen:
+            result = backend.dashboard_latitude_heartbeat()
+        urlopen.assert_not_called()
+        self.assertFalse(result["success"])
+        self.assertEqual(result["status"], "degraded")
+        self.assertEqual(result["event_sending"], "degraded")
+        self.assertEqual(result["configured_key"], "present")
+        self.assertEqual(result["endpoint_configured"], "no")
+        self.assertIn("LATITUDE_ENDPOINT/LATITUDE_EVENTS_URL", result["reason"])
+        self.assertNotIn("redacted", json.dumps(result))
+
+    def test_external_send_dry_run_writes_noop_receipt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            receipts = root / "queue" / "receipts"
+            receipts.mkdir(parents=True)
+            body = backend.ExternalSendDryRun(
+                item_id=None,
+                recipient="lead@example.com",
+                action="Would send email",
+                payload="Hello from a dry run.",
+                confirmation="SEND lead@example.com",
+            )
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "QUEUE_DIR", root / "queue"), \
+                 patch.object(backend.urllib.request, "urlopen") as urlopen, \
+                 patch.object(backend.subprocess, "run") as subprocess_run:
+                result = backend._write_external_dry_run_receipt(body)
+                receipt = root / result["receipt_path"]
+                content = receipt.read_text(encoding="utf-8")
+        urlopen.assert_not_called()
+        subprocess_run.assert_not_called()
+        self.assertTrue(result["dry_run"])
+        self.assertFalse(result["transmitted"])
+        self.assertIn("dry_run: true", content)
+        self.assertIn("transmitted: false", content)
+        self.assertIn("Token usage: no agent invocation", content)
+
+    def test_external_send_dry_run_requires_exact_typed_confirmation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "queue" / "receipts").mkdir(parents=True)
+            body = backend.ExternalSendDryRun(
+                item_id=None,
+                recipient="lead@example.com",
+                action="Would send email",
+                payload="Hello from a dry run.",
+                confirmation="I approve",
+            )
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "QUEUE_DIR", root / "queue"), \
+                 patch.object(backend.urllib.request, "urlopen") as urlopen, \
+                 patch.object(backend.subprocess, "run") as subprocess_run:
+                with self.assertRaises(ValueError):
+                    backend._write_external_dry_run_receipt(body)
+                receipts = list((root / "queue" / "receipts").glob("*.md"))
+        urlopen.assert_not_called()
+        subprocess_run.assert_not_called()
+        self.assertEqual(receipts, [])
+
+    def test_agentmail_digest_is_allowlisted_and_idempotent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            queue = root / "queue"
+            queue.mkdir(parents=True)
+            (queue / "work_items.jsonl").write_text(
+                json.dumps({
+                    "id": "AOS-2026-9001",
+                    "title": "Completed yesterday",
+                    "status": "done",
+                    "owner": "ops",
+                    "priority": 1,
+                    "updated_at": "2026-07-08T12:00:00Z",
+                    "created_at": "2026-07-08T11:00:00Z",
+                }) + "\n",
+                encoding="utf-8",
+            )
+            (queue / "notifications.json").write_text(json.dumps({"allowlist": {"agentmail_internal": ["liam@timetorevenue.example"]}}), encoding="utf-8")
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "QUEUE_DIR", queue), \
+                 patch.object(backend, "NOTIFICATIONS_FILE", queue / "notifications.json"), \
+                 patch.object(backend, "TOKEN_LEDGER_FILE", queue / "token_ledger.jsonl"), \
+                 patch.object(backend, "ROOT_TOKEN_LEDGER_FILE", root / "token_ledger.jsonl"), \
+                 patch.object(backend, "BACKUP_RECEIPTS_FILE", queue / "receipts" / "backups.jsonl"), \
+                 patch.object(backend, "_read_backend_env", return_value={}):
+                first = backend._agentmail_digest_attempt(datetime.date(2026, 7, 8), "liam@timetorevenue.example")
+                second = backend._agentmail_digest_attempt(datetime.date(2026, 7, 8), "liam@timetorevenue.example")
+                receipt = root / first["receipt_path"]
+                payload = json.loads(receipt.read_text(encoding="utf-8"))
+        self.assertTrue(first["digest_generated"])
+        self.assertFalse(first["send_attempted"])
+        self.assertFalse(first["sent"])
+        self.assertIn("connector/auth", first["blocker"])
+        self.assertTrue(second["digest_generated"])
+        self.assertFalse(second["send_attempted"])
+        self.assertTrue(second["already_attempted"])
+        self.assertEqual(first["receipt_path"], second["receipt_path"])
+        self.assertTrue(payload["digest_generated"])
+        self.assertFalse(payload["send_attempted"])
+        self.assertFalse(payload["sent"])
+        self.assertIn("connector/auth", payload["blocker"])
+        self.assertEqual(payload["recipient"], "liam@timetorevenue.example")
+        self.assertEqual(payload["digest"]["completed_items"][0]["id"], "AOS-2026-9001")
+
+    def test_workflow_runner_contracts_follow_command_routes(self):
+        routes = {
+            "path": "queue/command_routes.json",
+            "routes": [
+                {
+                    "id": "linkedin_carousel",
+                    "workflow": "linkedin_carousel_from_md",
+                    "skill": "linkedin_carousel_from_md_SKILL",
+                    "owner": "marketing",
+                    "workbench": "lane",
+                    "patterns": ["carousel"],
+                },
+                {
+                    "id": "fit_call_prep",
+                    "workflow": "fit_call_prep",
+                    "skill": "fit_call_prep_SKILL",
+                    "owner": "revenue",
+                    "workbench": "lane",
+                    "patterns": ["fit call"],
+                },
+            ],
+        }
+        with patch.object(backend, "_load_command_routes", return_value=routes):
+            contracts = backend._workflow_runner_contracts()["contracts"]
+        ids = {contract["workflow_id"] for contract in contracts}
+        self.assertEqual(ids, {"linkedin_carousel_from_md", "fit_call_prep"})
+        for contract in contracts:
+            self.assertIn("ordered_steps", contract)
+            self.assertIn("stop_conditions", contract)
+            self.assertIn("artifact_expectations", contract)
+            self.assertIn("human_review", contract["review_gate"])
+
+    def test_real_workflow_runner_contracts_are_registered_and_runner_consumable(self):
+        contracts = backend._workflow_runner_contracts()
+        self.assertTrue(contracts["runner_consumable"])
+        self.assertEqual(len(contracts["contracts"]), 12)
+        ids = {contract["workflow_id"] for contract in contracts["contracts"]}
+        self.assertIn("linkedin_carousel_from_md", ids)
+        self.assertIn("fit_call_prep", ids)
+        for workflow_id in ("linkedin_carousel_from_md", "fit_call_prep"):
+            contract = next(item for item in contracts["contracts"] if item["workflow_id"] == workflow_id)
+            self.assertTrue(contract["ordered_steps"])
+            self.assertTrue(contract["artifact_expectations"])
+            self.assertIn("human_review", contract["review_gate"])
+            self.assertIn("No live third-party", contract["external_action_policy"])
+
+    def test_static_runner_contracts_match_command_routes(self):
+        source_root = MAIN.parents[2]
+        routes = json.loads((source_root / "queue" / "command_routes.json").read_text(encoding="utf-8"))
+        registry = json.loads((source_root / "workflows" / "runner_contracts.json").read_text(encoding="utf-8"))
+        route_workflows = [route["workflow"] for route in routes["routes"]]
+        contract_workflows = [contract["workflow_id"] for contract in registry["contracts"]]
+        self.assertEqual(len(contract_workflows), 12)
+        self.assertEqual(contract_workflows, route_workflows)
+        self.assertTrue(registry["runner_consumable"])
+        for workflow_id in ("linkedin_carousel_from_md", "fit_call_prep"):
+            contract = next(item for item in registry["contracts"] if item["workflow_id"] == workflow_id)
+            self.assertIn("contract_path", contract)
+            self.assertIn("review_gate", contract)
+            self.assertIn("artifact_expectations", contract)
+
 
 if __name__ == "__main__":
     unittest.main()

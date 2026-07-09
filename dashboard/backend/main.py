@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from pathlib import Path
 import argparse
+import hashlib
 import importlib.util
 import json
 import datetime
@@ -14,6 +15,8 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import urllib.error
+import urllib.request
 
 TOOLS_DIR = Path(__file__).resolve().parents[2] / "tools"
 if str(TOOLS_DIR) not in sys.path:
@@ -49,10 +52,12 @@ TRACKER_FILE = DATA_DIR / "tracker.json"
 TOKEN_USAGE_FILE = LOGS_DIR / "token_usage.jsonl"
 QUEUE_DIR = BASE_DIR / "queue"
 BACKUP_RECEIPTS_FILE = QUEUE_DIR / "receipts" / "backups.jsonl"
+NOTIFICATIONS_FILE = QUEUE_DIR / "notifications.json"
 TOKEN_LEDGER_FILE = QUEUE_DIR / "token_ledger.jsonl"
 ROOT_TOKEN_LEDGER_FILE = BASE_DIR / "token_ledger.jsonl"
 SKILL_TRUST_FILE = QUEUE_DIR / "skill_trust.jsonl"
 WORKFLOWS_DIR = BASE_DIR / "workflows"
+WORKFLOW_REGISTRY_FILE = WORKFLOWS_DIR / "workflow_registry.json"
 SKILLS_DIR = BASE_DIR / "skills"
 MEMORY_INDEX_DIR = BASE_DIR / "memory_index"
 PROMPT_LIBRARY_DIRS = [QUEUE_DIR / "templates", WORKFLOWS_DIR / "prompt_templates"]
@@ -430,6 +435,19 @@ class QueueStatusUpdate(BaseModel):
 class QueueReviewClose(BaseModel):
     status: str = "done"
     review_note: str = ""
+
+
+class ExternalSendDryRun(BaseModel):
+    item_id: str | None = None
+    recipient: str
+    action: str
+    payload: str
+    confirmation: str
+
+
+class AgentMailDigestRequest(BaseModel):
+    digest_date: str | None = None
+    recipient: str | None = None
 
 
 class DashboardTaskCreate(BaseModel):
@@ -849,6 +867,176 @@ def _redacted_preview(text: str, limit: int = 4000) -> str:
     return "\n".join(safe_lines)[:limit]
 
 
+def _backend_env_path() -> Path:
+    return Path(__file__).with_name(".env")
+
+
+def _read_backend_env(keys: set[str] | None = None) -> dict[str, str]:
+    """Read selected dashboard backend env values without printing or logging them."""
+    values: dict[str, str] = {}
+    path = _backend_env_path()
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        lines = []
+    wanted = {key.upper() for key in keys} if keys else None
+    for raw in lines:
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip().upper()
+        if wanted is not None and key not in wanted:
+            continue
+        values[key] = value.strip().strip("'\"")
+    for key in keys or set():
+        if key in os.environ:
+            values[key] = os.environ[key]
+    return values
+
+
+def _notifications_config() -> dict:
+    try:
+        value = json.loads(NOTIFICATIONS_FILE.read_text(encoding="utf-8"))
+        return value if isinstance(value, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def _utc_now_iso() -> str:
+    return datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _latitude_config() -> dict:
+    env = _read_backend_env({
+        "LATITUDE_API_KEY",
+        "LATITUDE_ENDPOINT",
+        "LATITUDE_EVENTS_URL",
+        "LATITUDE_WORKSPACE_URL",
+        "LATITUDE_WORKSPACE_LINK",
+        "LATITUDE_PROJECT_ID",
+    })
+    endpoint = env.get("LATITUDE_ENDPOINT") or env.get("LATITUDE_EVENTS_URL")
+    workspace_url = env.get("LATITUDE_WORKSPACE_URL") or env.get("LATITUDE_WORKSPACE_LINK")
+    has_key = bool(env.get("LATITUDE_API_KEY"))
+    if not has_key:
+        status = "unavailable"
+        reason = "LATITUDE_API_KEY missing from dashboard/backend/.env or process env."
+    elif not endpoint:
+        status = "degraded"
+        reason = "Latitude API key present, but no explicit LATITUDE_ENDPOINT/LATITUDE_EVENTS_URL is configured; endpoint not guessed."
+    else:
+        status = "configured"
+        reason = "Latitude endpoint and key are configured at runtime."
+    return {
+        "status": status,
+        "reason": reason,
+        "has_api_key": has_key,
+        "has_endpoint": bool(endpoint),
+        "configured_key": "present" if has_key else "absent",
+        "endpoint_configured": "yes" if endpoint else "no",
+        "event_sending": "ready" if status == "configured" else "degraded",
+        "workspace_url_configured": "yes" if workspace_url else "no",
+        "workspace_url": workspace_url or "",
+        "project_configured": bool(env.get("LATITUDE_PROJECT_ID")),
+        "_endpoint": endpoint or "",
+        "_api_key": env.get("LATITUDE_API_KEY") or "",
+        "_project_id": env.get("LATITUDE_PROJECT_ID") or "",
+    }
+
+
+def _public_latitude_status() -> dict:
+    config = _latitude_config()
+    return {key: value for key, value in config.items() if not key.startswith("_")}
+
+
+def _latitude_safe_event(event_type: str, component: str, status: str, task_id: str = "wp11-phase-d", token_usage: dict | None = None) -> dict:
+    payload = {
+        "event_type": event_type,
+        "task_id": task_id,
+        "component": component,
+        "status": status,
+        "timestamp": _utc_now_iso(),
+        "local_run_id": f"local-{datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%SZ')}",
+    }
+    usage = token_usage if isinstance(token_usage, dict) else {}
+    basis = usage.get("basis")
+    if basis in {"exact", "estimate", "unavailable", "no_agent_invocation"}:
+        payload["token_totals"] = {
+            "basis": basis,
+            "total": usage.get("total") if basis in {"exact", "estimate"} else None,
+        }
+    else:
+        payload["token_totals"] = {"basis": "unavailable", "total": None}
+    return payload
+
+
+def _send_latitude_event(event: dict) -> dict:
+    config = _latitude_config()
+    if config["status"] != "configured":
+        return {
+            "success": False,
+            "status": "degraded",
+            "event_sending": "degraded",
+            "configured_key": config["configured_key"],
+            "endpoint_configured": config["endpoint_configured"],
+            "reason": config["reason"],
+            "event": event,
+        }
+    body = json.dumps(event, separators=(",", ":")).encode("utf-8")
+    request = urllib.request.Request(
+        config["_endpoint"],
+        data=body,
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {config['_api_key']}",
+        },
+        method="POST",
+    )
+    if config["_project_id"]:
+        request.add_header("X-Project-Id", config["_project_id"])
+    try:
+        with urllib.request.urlopen(request, timeout=12) as response:
+            raw = response.read(4096).decode("utf-8", errors="replace")
+            event_id = None
+            try:
+                parsed = json.loads(raw) if raw else {}
+                if isinstance(parsed, dict):
+                    event_id = parsed.get("id") or parsed.get("event_id") or parsed.get("uuid")
+            except json.JSONDecodeError:
+                event_id = response.headers.get("X-Request-Id")
+            return {
+                "success": 200 <= response.status < 300,
+                "status": "sent" if 200 <= response.status < 300 else "degraded",
+                "event_sending": "sent" if 200 <= response.status < 300 else "degraded",
+                "configured_key": "present",
+                "endpoint_configured": "yes",
+                "status_code": response.status,
+                "event_id": event_id or response.headers.get("X-Request-Id") or "unavailable",
+                "timestamp": event["timestamp"],
+            }
+    except urllib.error.HTTPError as exc:
+        return {
+            "success": False,
+            "status": "degraded",
+            "event_sending": "degraded",
+            "configured_key": "present",
+            "endpoint_configured": "yes",
+            "reason": f"Latitude API unreachable: HTTP {exc.code}",
+            "timestamp": event["timestamp"],
+        }
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        return {
+            "success": False,
+            "status": "degraded",
+            "event_sending": "degraded",
+            "configured_key": "present",
+            "endpoint_configured": "yes",
+            "reason": f"Latitude API unreachable: {type(exc).__name__}",
+            "timestamp": event["timestamp"],
+        }
+
+
 _DASHBOARD_MARKDOWN_BLOCK_RE = re.compile(
     r"(^|[/.])(\.env|.*secret.*|.*credential.*|.*password.*|.*token.*)|"
     r"north[\s_-]*shore|old[\s_-]*(?:ubuntu|hermes|vault|runtime)|legacy[_-]?harvest|old[_-]?zpc|\bzpc\b|"
@@ -996,6 +1184,184 @@ def _read_token_ledger_records() -> list[dict]:
     records = _read_jsonl_file(TOKEN_LEDGER_FILE)
     records.extend(_read_jsonl_file(ROOT_TOKEN_LEDGER_FILE))
     return records
+
+
+def _local_date_from_record(value: object, tz: datetime.tzinfo | None = None) -> datetime.date | None:
+    timestamp = _parse_record_timestamp(value)
+    if not timestamp:
+        return None
+    return timestamp.astimezone(tz or datetime.datetime.now().astimezone().tzinfo).date()
+
+
+def _token_basis_bucket(record: dict) -> tuple[str, int | None]:
+    tokens, basis = _ledger_tokens_basis(record)
+    basis = str(basis or "unavailable")
+    if tokens is None:
+        usage = record.get("token_usage") if isinstance(record.get("token_usage"), dict) else {}
+        if usage.get("no_agent_invocation"):
+            return "no_agent_invocation", None
+        return "unavailable", None
+    if basis == "estimate":
+        return "estimate", tokens
+    return "exact", tokens
+
+
+def _token_totals_for_date(target_date: datetime.date) -> dict:
+    totals = {
+        "exact": 0,
+        "estimate": 0,
+        "unavailable": 0,
+        "no_agent_invocation": 0,
+        "rows": [],
+    }
+    for record in _read_token_ledger_records():
+        if _local_date_from_record(_ledger_timestamp(record)) != target_date:
+            continue
+        bucket, tokens = _token_basis_bucket(record)
+        if bucket in {"exact", "estimate"} and tokens is not None:
+            totals[bucket] += tokens
+        else:
+            totals[bucket] += 1
+        totals["rows"].append({
+            "task_id": _ledger_task_id(record),
+            "component": _ledger_component(record),
+            "basis": bucket,
+            "tokens": tokens,
+        })
+    return totals
+
+
+def _completed_items_for_date(target_date: datetime.date) -> list[dict]:
+    done = []
+    for item in _read_queue_items():
+        if item.get("status") != "done":
+            continue
+        item_date = _local_date_from_record(item.get("updated_at") or item.get("created_at"))
+        if item_date == target_date:
+            done.append(_queue_public_item(item))
+    return done
+
+
+def _agentmail_allowlist() -> list[str]:
+    allowlist = (_notifications_config().get("allowlist") or {}).get("agentmail_internal") or []
+    return [str(value).strip() for value in allowlist if str(value).strip()]
+
+
+def _safe_recipient_label(recipient: str) -> str:
+    return recipient if recipient in _agentmail_allowlist() else "not_allowlisted"
+
+
+def _digest_receipt_path(digest_date: str, recipient: str) -> Path:
+    digest_hash = hashlib.sha256(recipient.encode("utf-8")).hexdigest()[:12]
+    return QUEUE_DIR / "receipts" / f"agentmail_digest_{digest_date}_{digest_hash}.json"
+
+
+def _build_agentmail_digest(digest_date: datetime.date, recipient: str) -> dict:
+    completed = _completed_items_for_date(digest_date)
+    needs_me = _queue_human_needed_items(_read_queue_items())
+    token_totals = _token_totals_for_date(digest_date)
+    backup = _backup_status()
+    lines = [
+        f"Agentic OS daily digest for {digest_date.isoformat()}",
+        "",
+        f"Recipient: {recipient}",
+        f"Completed items yesterday: {len(completed)}",
+        f"Needs Me count now: {len(needs_me)}",
+        "",
+        "Completed items:",
+    ]
+    lines.extend([f"- {item.get('id')}: {item.get('title')}" for item in completed] or ["- None recorded."])
+    lines.extend([
+        "",
+        "Token totals:",
+        f"- exact: {token_totals['exact']}",
+        f"- ~estimate: {token_totals['estimate']}",
+        f"- unavailable records: {token_totals['unavailable']}",
+        f"- no agent invocation records: {token_totals['no_agent_invocation']}",
+    ])
+    if not token_totals["rows"]:
+        lines.append("- Note: token data is unavailable for this date; no numbers were invented.")
+    lines.extend([
+        "",
+        f"Last backup status: {backup.get('state', 'unavailable')}",
+        f"Backup receipt: {backup.get('latest_receipt_path') or 'unavailable'}",
+        "",
+        "Token usage: no agent invocation",
+    ])
+    return {
+        "digest_date": digest_date.isoformat(),
+        "recipient": recipient,
+        "subject": f"Agentic OS daily digest - {digest_date.isoformat()}",
+        "body": "\n".join(lines),
+        "completed_items": completed,
+        "needs_me_count": len(needs_me),
+        "token_totals": token_totals,
+        "backup": backup,
+    }
+
+
+def _agentmail_digest_attempt(digest_date: datetime.date | None = None, recipient: str | None = None) -> dict:
+    digest_date = digest_date or (datetime.datetime.now().astimezone().date() - datetime.timedelta(days=1))
+    allowlist = _agentmail_allowlist()
+    target = recipient or (allowlist[0] if allowlist else "")
+    if target not in allowlist:
+        raise ValueError("digest recipient must be in queue/notifications.json allowlist.agentmail_internal")
+    receipt_path = _digest_receipt_path(digest_date.isoformat(), target)
+    if receipt_path.exists():
+        receipt_payload = {}
+        try:
+            receipt_payload = json.loads(receipt_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            receipt_payload = {}
+        return {
+            "success": True,
+            "digest_generated": True,
+            "send_attempted": bool(receipt_payload.get("send_attempted")),
+            "sent": False,
+            "already_attempted": True,
+            "recipient": _safe_recipient_label(target),
+            "receipt_path": _safe_relative(receipt_path),
+            "blocker": receipt_payload.get("blocker") or receipt_payload.get("blocked_reason") or "Digest attempt already recorded for date/recipient.",
+            "reason": "Idempotency: digest attempt already recorded for date/recipient.",
+        }
+    digest = _build_agentmail_digest(digest_date, target)
+    env = _read_backend_env({"AGENTMAIL_INTERNAL_SEND_PATH", "AGENTMAIL_DRY_RUN_ONLY"})
+    send_path = env.get("AGENTMAIL_INTERNAL_SEND_PATH", "").strip()
+    sent = False
+    blocked_reason = ""
+    if not send_path:
+        blocked_reason = "AgentMail internal send connector/auth detail is not configured; digest assembled but not sent."
+    else:
+        blocked_reason = "AgentMail send path is configured but not executed by WP11 dry local validation without a concrete allowlisted connector contract."
+    receipt = {
+        "type": "agentmail_daily_digest",
+        "status": "blocked" if blocked_reason else "sent",
+        "digest_generated": True,
+        "send_attempted": False,
+        "sent": sent,
+        "recipient": _safe_recipient_label(target),
+        "allowlisted": True,
+        "digest_date": digest_date.isoformat(),
+        "idempotency_key": f"{digest_date.isoformat()}:{hashlib.sha256(target.encode('utf-8')).hexdigest()[:12]}",
+        "blocker": blocked_reason,
+        "blocked_reason": blocked_reason,
+        "digest": digest,
+        "created_at": _utc_now_iso(),
+        "token_usage_text": "Token usage: no agent invocation",
+    }
+    receipt_path.parent.mkdir(parents=True, exist_ok=True)
+    receipt_path.write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
+    return {
+        "success": True,
+        "digest_generated": True,
+        "send_attempted": False,
+        "sent": sent,
+        "recipient": _safe_recipient_label(target),
+        "receipt_path": _safe_relative(receipt_path),
+        "blocker": blocked_reason,
+        "blocked_reason": blocked_reason,
+        "digest": digest,
+    }
 
 
 def _ledger_timestamp(record: dict) -> object:
@@ -2420,6 +2786,64 @@ def _queue_write_review_receipt(item_id: str, review_note: str, status: str = "d
     return _queue_write_receipt(item_id, "\n".join(lines))
 
 
+def _external_dry_run_receipt_text(body: ExternalSendDryRun) -> str:
+    return "\n".join([
+        "PASS",
+        f"External action dry-run receipt for {body.item_id or 'unattached'}",
+        "",
+        f"Action: {body.action}",
+        f"Recipient: {body.recipient}",
+        "dry_run: true",
+        "transmitted: false",
+        "Live third-party send: impossible in WP11; endpoint writes local receipt only.",
+        "",
+        "Payload/body that WOULD have been sent:",
+        "```text",
+        str(body.payload),
+        "```",
+        "",
+        "Validation:",
+        "- Confirmation matched SEND <recipient>.",
+        "- No LinkedIn, CRM, Gmail, Calendar, GitHub, or third-party endpoint was called.",
+        "- This is a local no-op/stub path.",
+        "",
+        "Token usage: no agent invocation",
+    ])
+
+
+def _write_external_dry_run_receipt(body: ExternalSendDryRun) -> dict:
+    recipient = str(body.recipient or "").strip()
+    action = str(body.action or "").strip()
+    payload = str(body.payload or "")
+    expected = f"SEND {recipient}"
+    if not recipient:
+        raise ValueError("recipient is required")
+    if not action:
+        raise ValueError("action is required")
+    if not payload.strip():
+        raise ValueError("payload/body is required")
+    if str(body.confirmation or "").strip() != expected:
+        raise ValueError(f"typed confirmation must exactly match: {expected}")
+    item_id = body.item_id or "external-send-dry-run"
+    receipt_path = _queue_write_receipt(item_id, _external_dry_run_receipt_text(body))
+    updated = None
+    if body.item_id:
+        try:
+            item = _queue_find_item(body.item_id)
+            status = "done" if item.get("status") in {"human_review", "needs_input"} else item.get("status")
+            updated = _load_queue_tool().attach_receipt(BASE_DIR, body.item_id, receipt_path, status)
+        except (KeyError, ValueError):
+            updated = None
+    return {
+        "success": True,
+        "dry_run": True,
+        "transmitted": False,
+        "receipt_path": receipt_path,
+        "item": _queue_detail_item(updated) if updated else None,
+        "zero_outbound_evidence": "Backend endpoint has no transport/client branch; it only writes queue/receipts and optionally advances local queue status.",
+    }
+
+
 def _queue_run_receipt_path(item_id: str) -> str:
     safe_id = re.sub(r"[^A-Za-z0-9_-]+", "-", item_id).strip("-") or "receipt"
     return (Path("queue") / "receipts" / f"{safe_id}.md").as_posix()
@@ -3066,6 +3490,7 @@ def dashboard_cockpit():
     stalled = _stalled_items(items, 15)
     token_summary = _dashboard_token_summary()
     backup = _backup_status()
+    latitude = _public_latitude_status()
     workbenches = []
     for name in ("hermes", "codex", "claude", "claude-code", "antigravity", "connectors", "graphify"):
         tool = next((row for row in token_summary["by_tool"] if row["tool"] == name), None)
@@ -3092,6 +3517,7 @@ def dashboard_cockpit():
         "tokens": token_summary,
         "workbenches": workbenches,
         "backup": backup,
+        "latitude": latitude,
     }
 
 
@@ -3148,6 +3574,76 @@ def _workflow_contract(workflow_id: str) -> dict:
         "stop_conditions": stops,
         "steps": steps,
     }
+
+
+def _workflow_title_from_text(workflow_id: str, text: str) -> str:
+    for line in text.splitlines():
+        stripped = line.strip("# ").strip()
+        if stripped.lower().startswith("workflow:"):
+            return stripped.split(":", 1)[1].strip()
+        if stripped.startswith("#"):
+            return stripped.lstrip("#").strip()
+    return workflow_id.replace("_", " ").title()
+
+
+def _workflow_runner_contract(route: dict) -> dict:
+    workflow_id = route.get("workflow") or route.get("id")
+    contract = _workflow_contract(workflow_id)
+    path = WORKFLOWS_DIR / workflow_id / "workflow.md"
+    text = path.read_text(encoding="utf-8", errors="replace") if path.exists() else ""
+    steps = contract["steps"] or [{"index": 1, "text": "Run workflow contract from source markdown."}]
+    return {
+        "workflow_id": workflow_id,
+        "name": _workflow_title_from_text(workflow_id, text),
+        "route_id": route.get("id"),
+        "patterns": route.get("patterns") or [],
+        "skill_reference": route.get("skill") or "",
+        "owner_lane": route.get("owner") or "unassigned",
+        "workbench_profile": route.get("workbench") or "lane",
+        "contract_path": contract["path"],
+        "ordered_steps": [
+            {
+                "index": step.get("index", index),
+                "text": step.get("text") or "",
+                "definition_of_done": contract["definition_of_done"] or "Complete this step and leave a receipt.",
+                "token_usage_text": "Token usage: no agent invocation for deterministic contract registration.",
+            }
+            for index, step in enumerate(steps, start=1)
+        ],
+        "definition_of_done": contract["definition_of_done"],
+        "stop_conditions": contract["stop_conditions"],
+        "artifact_expectations": _workflow_artifact_expectations(workflow_id, text),
+        "review_gate": "human_review before done; third-party external actions require dry-run gate in WP11.",
+        "external_action_policy": "No live third-party send/publish/mutation in WP11.",
+    }
+
+
+def _workflow_artifact_expectations(workflow_id: str, text: str) -> list[str]:
+    explicit = []
+    for raw in text.splitlines():
+        line = raw.strip().strip("-").strip()
+        if re.search(r"\b(output/|receipts/|post_package\.json|carousel\.pdf|brief artifact|receipt)\b", line, re.IGNORECASE):
+            explicit.append(line)
+    if explicit:
+        return explicit[:12]
+    return [f"Receipt under queue/receipts/ or workflows/{workflow_id}/receipts/ with token usage line."]
+
+
+def _workflow_runner_contracts() -> dict:
+    routes = _load_command_routes().get("routes") or []
+    contracts = {
+        "version": 1,
+        "source": "queue/command_routes.json",
+        "runner_consumable": True,
+        "contracts": [_workflow_runner_contract(route) for route in routes],
+        "token_usage_text": "Token usage: no agent invocation",
+    }
+    if WORKFLOW_REGISTRY_FILE.exists():
+        contracts["registry_path"] = _safe_relative(WORKFLOW_REGISTRY_FILE)
+    runner_registry = WORKFLOWS_DIR / "runner_contracts.json"
+    if runner_registry.exists():
+        contracts["runner_contracts_path"] = _safe_relative(runner_registry)
+    return contracts
 
 
 def _load_command_routes() -> dict:
@@ -3344,6 +3840,7 @@ def dashboard_system_watch(stalled_minutes: int = 15):
         tail = log_path.read_text(encoding="utf-8", errors="replace").splitlines()[-20:]
     queue_tool_exists = QUEUE_TOOL.exists()
     backup = _backup_status()
+    latitude = _public_latitude_status()
     return {
         "backend": {"status": "ok", "checked_at": datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")},
         "queue_tooling": {"status": "ok" if queue_tool_exists else "missing", "path": _safe_relative(QUEUE_TOOL)},
@@ -3363,7 +3860,44 @@ def dashboard_system_watch(stalled_minutes: int = 15):
         ],
         "backup": backup,
         "backup_needs_attention": backup.get("needs_attention", False),
+        "latitude": latitude,
+        "latitude_needs_attention": latitude.get("status") != "configured",
     }
+
+
+@app.get("/api/dashboard/latitude/status")
+def dashboard_latitude_status():
+    return _public_latitude_status()
+
+
+@app.post("/api/dashboard/latitude/heartbeat")
+def dashboard_latitude_heartbeat():
+    event = _latitude_safe_event(
+        "heartbeat",
+        "dashboard_backend",
+        "ok",
+        token_usage={"basis": "no_agent_invocation"},
+    )
+    return _send_latitude_event(event)
+
+
+@app.post("/api/agentmail/daily-digest")
+def agentmail_daily_digest(body: AgentMailDigestRequest):
+    try:
+        digest_date = None
+        if body.digest_date:
+            digest_date = datetime.date.fromisoformat(body.digest_date)
+        return _agentmail_digest_attempt(digest_date, body.recipient)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/api/external-actions/dry-run")
+def external_action_dry_run(body: ExternalSendDryRun):
+    try:
+        return _write_external_dry_run_receipt(body)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @app.get("/api/dashboard/results")
@@ -3384,6 +3918,12 @@ def dashboard_workflows():
             lane = "operations" if any(part in slug for part in ("ops", "weekly", "ai_operations")) else "marketing" if "marketing" in slug or "content" in slug else "revenue" if any(part in slug for part in ("lead", "sales", "fit")) else "delivery"
             receipts_dir = path.parent / "receipts"
             receipts = sorted(receipts_dir.glob("*")) if receipts_dir.exists() else []
+            runner_contract = _workflow_runner_contract({
+                "id": slug,
+                "workflow": slug,
+                "owner": lane,
+                "workbench": "lane",
+            })
             workflows.append({
                 "id": slug,
                 "name": _markdown_title(content, slug.replace("_", " ").title()),
@@ -3393,8 +3933,14 @@ def dashboard_workflows():
                 "receipt_count": len(receipts),
                 "avg_tokens": "unavailable",
                 "content": _redacted_preview(content, 6000),
+                "runner_contract": runner_contract,
             })
     return {"workflows": workflows}
+
+
+@app.get("/api/dashboard/workflow-contracts")
+def dashboard_workflow_contracts():
+    return _workflow_runner_contracts()
 
 
 @app.get("/api/dashboard/skills")

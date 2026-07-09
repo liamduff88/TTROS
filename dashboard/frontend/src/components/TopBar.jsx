@@ -10,6 +10,7 @@ export default function TopBar({ backendOk, cockpit, onNavigate, onRefresh }) {
   const needs = (counts.human_review || 0) + (counts.needs_input || 0) + (cockpit?.stalled?.length || 0)
   const blocked = counts.blocked || 0
   const tokenChip = cockpit?.tokens?.strip?.today?.label || 'Token usage: unavailable from current CLI output'
+  const latitude = cockpit?.latitude || {}
   const tabs = [
     ['message-board', 'Message Board'],
     ['cockpit', 'Cockpit'],
@@ -62,7 +63,16 @@ export default function TopBar({ backendOk, cockpit, onNavigate, onRefresh }) {
         <div className="flex flex-wrap gap-1.5">
           <button onClick={() => window.open('https://t.me/', '_blank')} className="inline-flex h-8 items-center gap-1.5 rounded border border-softgraph bg-softgraph/40 px-2.5 text-xs text-stone hover:bg-softgraph"><ExternalLink size={13} />Open Telegram</button>
           <button onClick={() => window.open('http://127.0.0.1:3010', '_blank')} className="inline-flex h-8 items-center gap-1.5 rounded border border-softgraph bg-softgraph/40 px-2.5 text-xs text-stone hover:bg-softgraph"><Monitor size={13} />Open Hermes Desktop</button>
-          <button disabled title="connects in Phase D" className="inline-flex h-8 items-center gap-1.5 rounded border border-softgraph bg-ink px-2.5 text-xs text-taupe opacity-60"><Bot size={13} />Latitude</button>
+          <button
+            onClick={() => latitude.workspace_url && window.open(latitude.workspace_url, '_blank')}
+            disabled={!latitude.workspace_url}
+            title={latitude.workspace_url ? latitude.reason || 'Latitude workspace URL configured at runtime' : 'Latitude workspace URL not configured'}
+            className={`inline-flex h-8 items-center gap-1.5 rounded border px-2.5 text-xs ${
+              latitude.workspace_url ? 'border-softgraph bg-ink text-stone hover:border-champagne/50' : 'border-softgraph bg-ink text-taupe opacity-60'
+            }`}
+          >
+            <Bot size={13} />Latitude {latitude.workspace_url ? (latitude.status && latitude.status !== 'configured' ? latitude.status : 'open') : 'workspace URL not configured'}
+          </button>
           <button onClick={() => copyPrompt('codex')} className="inline-flex h-8 items-center gap-1.5 rounded border border-softgraph bg-ink px-2.5 text-xs text-stone hover:border-champagne/50"><Copy size={13} />{copied === 'codex' ? 'Copied Codex' : 'Codex copy-prompt'}</button>
           <button onClick={() => copyPrompt('claude-code')} className="inline-flex h-8 items-center gap-1.5 rounded border border-softgraph bg-ink px-2.5 text-xs text-stone hover:border-champagne/50"><Copy size={13} />{copied === 'claude-code' ? 'Copied Claude' : 'Claude Code copy-prompt'}</button>
         </div>

@@ -1,0 +1,18 @@
+{
+  "status": "blocked_render_stub",
+  "workflow": "linkedin_carousel_from_md",
+  "route": "linkedin_carousel",
+  "confirmation_card": "dashboard message-board route card for pattern 'carousel'",
+  "runner_step_advancement": "contract steps registered; proof package advances to gated human_review with render blocker",
+  "manual_handoff_only": true,
+  "external_transmission": false,
+  "artifacts": {
+    "source": "workflows/linkedin_carousel_from_md/output/WP11_PHASE_D_PROOF/source.md",
+    "carousel_draft": "workflows/linkedin_carousel_from_md/output/WP11_PHASE_D_PROOF/carousel_draft.md",
+    "linkedin_caption": "workflows/linkedin_carousel_from_md/output/WP11_PHASE_D_PROOF/linkedin_caption.md",
+    "carousel_pdf": null,
+    "review_receipt": "workflows/linkedin_carousel_from_md/output/WP11_PHASE_D_PROOF/review_receipt.md"
+  },
+  "blocker": "No source .md was attached for a real carousel run and no deterministic PDF render was invoked in this proof pass; PDF is intentionally not faked.",
+  "token_usage_text": "Token usage: no agent invocation"
+}

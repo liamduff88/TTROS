@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { AlertCircle, CheckCircle2, Clipboard, FileText, ListChecks, Plus, RefreshCw } from 'lucide-react'
-import { closeQueueItemReview, createQueueItem, getQueueArtifact, getQueueItems, getQueueNext, getQueuePrompt, getQueueReceipt, getQueueStatus } from '../api'
+import { closeQueueItemReview, createQueueItem, externalActionDryRun, getQueueArtifact, getQueueItems, getQueueNext, getQueuePrompt, getQueueReceipt, getQueueStatus } from '../api'
 
 const QUEUE_STATUSES = ['inbox', 'agent_todo', 'agent_working', 'needs_input', 'human_review', 'done', 'blocked', 'cancelled']
 const QUEUE_OWNERS = ['unassigned', 'hermes', 'codex', 'claude', 'revenue', 'marketing', 'delivery', 'operations']
@@ -119,6 +119,8 @@ const emptyCreateForm = {
 }
 
 const emptyReviewState = { submitting: null, note: '', message: '', error: null }
+const emptyDryRunForm = { recipient: '', action: '', payload: '', confirmation: '' }
+const emptyDryRunState = { submitting: false, message: '', error: null, receiptPath: '' }
 
 const copyToClipboard = async text => {
   if (navigator.clipboard?.writeText) {
@@ -184,6 +186,8 @@ export default function Queue({ initialFilters = {} }) {
   const [promptCopy, setPromptCopy] = useState({ target: null, message: '', error: null })
   const [runState, setRunState] = useState({ running: false, result: null, error: null })
   const [reviewState, setReviewState] = useState(emptyReviewState)
+  const [dryRunForm, setDryRunForm] = useState(emptyDryRunForm)
+  const [dryRunState, setDryRunState] = useState(emptyDryRunState)
   const [filePreview, setFilePreview] = useState({
     path: '',
     category: '',
@@ -261,6 +265,8 @@ export default function Queue({ initialFilters = {} }) {
     setFilePreview({ path: '', category: '', extension: '', loading: false, content: '', error: null })
     setRunState({ running: false, result: null, error: null })
     setReviewState(emptyReviewState)
+    setDryRunForm(emptyDryRunForm)
+    setDryRunState(emptyDryRunState)
   }, [selectedId])
 
   const updateCreateField = (field, value) => {
@@ -449,6 +455,33 @@ export default function Queue({ initialFilters = {} }) {
         message: '',
         error: error?.response?.data?.detail || error?.message || 'Review update failed',
       }))
+    }
+  }
+
+  const updateDryRunField = (field, value) => {
+    setDryRunForm(current => ({ ...current, [field]: value }))
+    if (dryRunState.message || dryRunState.error) setDryRunState(emptyDryRunState)
+  }
+
+  const submitDryRun = async event => {
+    event.preventDefault()
+    if (!selected?.id || dryRunState.submitting) return
+    setDryRunState({ submitting: true, message: '', error: null, receiptPath: '' })
+    try {
+      const response = await externalActionDryRun({
+        item_id: selected.id,
+        recipient: dryRunForm.recipient,
+        action: dryRunForm.action,
+        payload: dryRunForm.payload,
+        confirmation: dryRunForm.confirmation,
+      })
+      if (response?.success === false || response?.dry_run !== true || response?.transmitted !== false) {
+        throw new Error(response?.reason || response?.message || 'Dry-run receipt failed')
+      }
+      await refreshQueue(selected.id)
+      setDryRunState({ submitting: false, message: 'Dry-run receipt written. No external transmission occurred.', error: null, receiptPath: response.receipt_path || '' })
+    } catch (error) {
+      setDryRunState({ submitting: false, message: '', error: error?.response?.data?.detail || error?.message || 'Dry-run confirmation failed', receiptPath: '' })
     }
   }
 
@@ -887,6 +920,40 @@ export default function Queue({ initialFilters = {} }) {
                   </div>
                 </div>
               )}
+
+              <form onSubmit={submitDryRun} className="rounded border border-champagne/30 bg-ink">
+                <div className="border-b border-softgraph px-3 py-2">
+                  <div className="text-[11px] font-semibold uppercase tracking-wider text-champagne">Third-party send gate / dry-run only</div>
+                  <div className="mt-1 text-xs font-mono text-taupe">Typed confirmation records what would be sent. WP11 never transmits externally.</div>
+                </div>
+                <div className="space-y-3 px-3 py-3">
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <FieldLabel label="Exact recipient">
+                      <input className={fieldBase} value={dryRunForm.recipient} onChange={event => updateDryRunField('recipient', event.target.value)} placeholder="recipient@example.com" />
+                    </FieldLabel>
+                    <FieldLabel label="Exact action proposed">
+                      <input className={fieldBase} value={dryRunForm.action} onChange={event => updateDryRunField('action', event.target.value)} placeholder="Would send email / would publish LinkedIn post" />
+                    </FieldLabel>
+                  </div>
+                  <FieldLabel label="Exact payload/body">
+                    <textarea className={`${fieldBase} min-h-[7rem] resize-y font-mono text-xs`} value={dryRunForm.payload} onChange={event => updateDryRunField('payload', event.target.value)} placeholder="Paste the exact payload/body that would have been sent." />
+                  </FieldLabel>
+                  <FieldLabel label={`Typed confirmation: SEND ${dryRunForm.recipient || '<recipient>'}`}>
+                    <input className={fieldBase} value={dryRunForm.confirmation} onChange={event => updateDryRunField('confirmation', event.target.value)} placeholder={`SEND ${dryRunForm.recipient || '<recipient>'}`} />
+                  </FieldLabel>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button type="submit" disabled={dryRunState.submitting} className="inline-flex items-center gap-2 rounded border border-champagne/50 bg-graphite px-3 py-2 text-xs font-mono font-semibold text-champagne transition-colors hover:bg-champagne hover:text-ink disabled:cursor-not-allowed disabled:opacity-60">
+                      {dryRunState.submitting ? 'Writing dry-run receipt...' : 'Confirm dry-run only'}
+                    </button>
+                    <span className="text-xs font-mono text-taupe">dry_run: true / transmitted: false</span>
+                  </div>
+                  {(dryRunState.message || dryRunState.error) && (
+                    <div className={`rounded border px-3 py-2 text-xs font-mono ${dryRunState.error ? 'border-clay/40 bg-clay/10 text-clay' : 'border-champagne/30 bg-champagne/10 text-champagne'}`}>
+                      {dryRunState.error || `${dryRunState.message}${dryRunState.receiptPath ? ` Receipt: ${dryRunState.receiptPath}` : ''}`}
+                    </div>
+                  )}
+                </div>
+              </form>
 
               <div id="queue-file-preview" className="rounded border border-softgraph bg-ink">
                 <div className="flex flex-col gap-2 border-b border-softgraph px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
