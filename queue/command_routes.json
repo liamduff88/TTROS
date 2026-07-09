@@ -1,0 +1,120 @@
+{
+  "$comment": "TTROS deterministic command routes. First match wins. Match = confirmation card, never auto-run. Unmatched -> Ask Hermes. Additive edits only. Last touched: 2026-07-08.",
+  "version": 1,
+  "match": "case_insensitive_substring_any",
+  "on_no_match": {
+    "route": "ask_hermes",
+    "card": "unmatched",
+    "note": "Hermes triage on explicit operator click only"
+  },
+  "routes": [
+    {
+      "id": "linkedin_carousel",
+      "patterns": ["carousel", "linkedin slides", "slide deck from this"],
+      "workflow": "linkedin_carousel_from_md",
+      "skill": "linkedin_carousel_from_md_SKILL",
+      "owner": "marketing",
+      "workbench": "lane",
+      "priority": "normal"
+    },
+    {
+      "id": "internal_outreach_daily",
+      "patterns": ["daily outreach", "outreach run", "today's outreach", "outreach batch"],
+      "workflow": "internal_outreach_daily",
+      "skill": "internal_outreach_daily_SKILL",
+      "owner": "revenue",
+      "workbench": "lane",
+      "priority": "high"
+    },
+    {
+      "id": "fit_call_prep",
+      "patterns": ["fit call", "prep the call", "call prep", "discovery call prep"],
+      "workflow": "fit_call_prep",
+      "skill": "fit_call_prep_SKILL",
+      "owner": "revenue",
+      "workbench": "lane",
+      "priority": "high"
+    },
+    {
+      "id": "quick_win_scan",
+      "patterns": ["quick win", "quick-win scan", "quick wins for"],
+      "workflow": "quick_win_scan",
+      "skill": "quick_win_scan_SKILL",
+      "owner": "delivery",
+      "workbench": "lane",
+      "priority": "normal"
+    },
+    {
+      "id": "business_efficiency_assessment",
+      "patterns": ["efficiency assessment", "business assessment", "efficiency audit"],
+      "workflow": "business_efficiency_assessment",
+      "skill": "business_efficiency_assessment_SKILL",
+      "owner": "delivery",
+      "workbench": "lane",
+      "priority": "normal"
+    },
+    {
+      "id": "speed_to_lead",
+      "patterns": ["speed to lead", "speed-to-lead", "lead response system"],
+      "workflow": "speed_to_lead",
+      "skill": "build_speed_to_lead_SKILL",
+      "owner": "delivery",
+      "workbench": "lane",
+      "priority": "normal"
+    },
+    {
+      "id": "voice_agent_setup",
+      "patterns": ["voice agent", "phone agent", "voice bot"],
+      "workflow": "voice_agent_setup",
+      "skill": "build_voice_agent_SKILL",
+      "owner": "delivery",
+      "workbench": "lane",
+      "priority": "normal"
+    },
+    {
+      "id": "client_memory",
+      "patterns": ["client memory", "client hub", "client context file"],
+      "workflow": "client_memory",
+      "skill": "build_client_memory_SKILL",
+      "owner": "delivery",
+      "workbench": "lane",
+      "priority": "normal"
+    },
+    {
+      "id": "lead_gen_agent",
+      "patterns": ["lead gen", "lead generation", "prospect list", "find leads"],
+      "workflow": "lead_gen_agent",
+      "skill": "build_lead_gen_agent_SKILL",
+      "owner": "revenue",
+      "workbench": "lane",
+      "priority": "high"
+    },
+    {
+      "id": "ai_operations_support",
+      "patterns": ["ops support", "operations support", "ai operations"],
+      "workflow": "ai_operations_support",
+      "skill": "ai_operations_support_SKILL",
+      "owner": "operations",
+      "workbench": "lane",
+      "priority": "normal"
+    },
+    {
+      "id": "marketing_content",
+      "patterns": ["linkedin post", "write a post", "content draft", "blog", "article"],
+      "workflow": "marketing_content",
+      "skill": "content_draft_SKILL",
+      "owner": "marketing",
+      "workbench": "lane",
+      "priority": "normal"
+    },
+    {
+      "id": "weekly_review",
+      "patterns": ["weekly review", "week in review", "review the week"],
+      "workflow": "weekly_review",
+      "skill": "weekly_review_SKILL",
+      "owner": "operations",
+      "workbench": "lane",
+      "priority": "low"
+    }
+  ]
+}

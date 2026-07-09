@@ -1,0 +1,25 @@
+{
+  "$comment": "TTROS notification config + recipient allowlist. Internal sends unrestricted within allowlist; third-party sends gated with typed confirmation. Bridge FILES frozen — sends use the existing bridge send path only. Last touched: 2026-07-08.",
+  "version": 1,
+  "escalation": {
+    "channels_immediate": ["originating_channel", "needs_me_rail"],
+    "unanswered_minutes": 10,
+    "escalate_to": "telegram_operator",
+    "send_path": "existing_bridge_send_path_only"
+  },
+  "allowlist": {
+    "telegram": ["OPERATOR_CHAT_ID"],
+    "agentmail_internal": [
+      "liam@timetorevenue.example",
+      "revenue-agent@internal",
+      "marketing-agent@internal",
+      "delivery-agent@internal",
+      "operations-agent@internal"
+    ]
+  },
+  "third_party": {
+    "policy": "gated",
+    "confirmation": "typed, names the exact action and recipient",
+    "wired_phase": "D"
+  }
+}
