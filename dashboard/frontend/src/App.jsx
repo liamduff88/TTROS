@@ -10,7 +10,7 @@ import Connectors from './views/Connectors'
 import Queue from './views/Queue'
 import { getDashboardCockpit, getHealth, getOverview } from './api'
 import { Cockpit, ConnectionsSpine, GraphifyPage, MemoryBoard, PromptLibrary, RepoIngest, ResultsReceipts, SettingsLaunchers, SkillsBoard, TokensROI, WorkflowBench } from './views/DashboardV1'
-import { ArtifactsPage, AgentsPage, MessageBoard, MissionControl } from './views/WorkbenchV3'
+import { ArtifactsPage, AgentsPage, MessageBoard, MissionControl, SearchPage } from './views/WorkbenchV3'
 import { NeedsMeRail } from './components/DashboardKit'
 
 const VIEWS = {
@@ -18,6 +18,7 @@ const VIEWS = {
   cockpit: Cockpit,
   'work-queue': Queue,
   artifacts: ArtifactsPage,
+  search: SearchPage,
   'mission-control': MissionControl,
   'workflow-bench': WorkflowBench,
   'skills-board': SkillsBoard,

@@ -1,9 +1,10 @@
-import { Bot, Circle, Copy, ExternalLink, MessageSquare, Monitor, RefreshCw } from 'lucide-react'
+import { Bot, Circle, Copy, ExternalLink, MessageSquare, Monitor, RefreshCw, Search } from 'lucide-react'
 import { useState } from 'react'
 
 export default function TopBar({ backendOk, cockpit, onNavigate, onRefresh }) {
   const [refreshing, setRefreshing] = useState(false)
   const [copied, setCopied] = useState('')
+  const [query, setQuery] = useState('')
 
   const counts = cockpit?.counts || {}
   const needs = (counts.human_review || 0) + (counts.needs_input || 0) + (cockpit?.stalled?.length || 0)
@@ -29,6 +30,12 @@ export default function TopBar({ backendOk, cockpit, onNavigate, onRefresh }) {
     await navigator.clipboard?.writeText(prompt)
     setCopied(target)
     setTimeout(() => setCopied(''), 1400)
+  }
+
+  const submitSearch = event => {
+    event.preventDefault()
+    const clean = query.trim()
+    if (clean) onNavigate('search', { q: clean })
   }
 
   const now = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
@@ -59,6 +66,10 @@ export default function TopBar({ backendOk, cockpit, onNavigate, onRefresh }) {
           <button onClick={() => copyPrompt('codex')} className="inline-flex h-8 items-center gap-1.5 rounded border border-softgraph bg-ink px-2.5 text-xs text-stone hover:border-champagne/50"><Copy size={13} />{copied === 'codex' ? 'Copied Codex' : 'Codex copy-prompt'}</button>
           <button onClick={() => copyPrompt('claude-code')} className="inline-flex h-8 items-center gap-1.5 rounded border border-softgraph bg-ink px-2.5 text-xs text-stone hover:border-champagne/50"><Copy size={13} />{copied === 'claude-code' ? 'Copied Claude' : 'Claude Code copy-prompt'}</button>
         </div>
+        <form onSubmit={submitSearch} className="flex h-8 min-w-56 items-center rounded border border-softgraph bg-ink px-2 text-xs text-stone focus-within:border-champagne/60">
+          <Search size={13} className="text-taupe" />
+          <input value={query} onChange={event => setQuery(event.target.value)} placeholder="Search local index" className="ml-2 w-44 bg-transparent outline-none placeholder:text-taupe" />
+        </form>
         <button onClick={() => onNavigate('tokens-roi')} className="rounded border border-softgraph bg-ink px-2.5 py-1.5 text-xs font-mono text-champagne">{tokenChip}</button>
         <div className="hidden text-xs text-taupe font-mono lg:block">{new Date().toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })} · {now}</div>
         <button onClick={handleRefresh} className="text-taupe hover:text-stone transition-colors" title="Refresh dashboard">

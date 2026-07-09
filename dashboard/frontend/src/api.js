@@ -54,3 +54,8 @@ export const getDashboardRepoIngest = () => api.get('/dashboard/repo-ingest').th
 export const createDashboardTask = (data) => api.post('/dashboard/create-task', data).then(r => r.data)
 export const saveDashboardSkill = (data) => api.post('/dashboard/skills/save', data).then(r => r.data)
 export const openDashboardPath = (data) => api.post('/dashboard/open-path', data).then(r => r.data)
+export const searchIndex = (params) => api.get('/search', { params }).then(r => r.data)
+export const getSearchStatus = () => api.get('/search/status').then(r => r.data)
+export const reindexSearch = () => api.post('/search/reindex').then(r => r.data)
+export const ingestTick = () => api.post('/ingest/tick').then(r => r.data)
+export const getArtifacts = (params) => api.get('/artifacts', { params }).then(r => r.data)

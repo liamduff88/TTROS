@@ -1,0 +1,13 @@
+{
+  "inboxes": [
+    "queue/inbox"
+  ],
+  "watch_roots": [
+    "queue/inbox",
+    "results",
+    "workflows",
+    "queue/receipts"
+  ],
+  "business_brain_read_index_only": true,
+  "token_usage_text": "Token usage: no agent invocation"
+}

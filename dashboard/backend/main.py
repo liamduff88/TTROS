@@ -21,6 +21,7 @@ if str(TOOLS_DIR) not in sys.path:
 
 from aos_paths import AosPathError, aos_root, resolve_root_relative
 import aos_orchestration
+import aos_indexer
 
 app = FastAPI(title="Agentic OS API", version="0.1.0")
 
@@ -259,6 +260,31 @@ def _backup_status(now: datetime.datetime | None = None, receipts: list[dict] | 
 @app.get("/api/backups/status")
 def backups_status():
     return _backup_status()
+
+
+@app.get("/api/search")
+def api_search(q: str = "", type: str = "", tag: str = "", source: str = "", limit: int = 25):
+    return aos_indexer.search(q, kind=type, tag=tag, source=source, limit=limit)
+
+
+@app.get("/api/search/status")
+def api_search_status():
+    return aos_indexer.status()
+
+
+@app.post("/api/search/reindex")
+def api_search_reindex():
+    return aos_indexer.scan()
+
+
+@app.post("/api/ingest/tick")
+def api_ingest_tick():
+    return aos_indexer.ingest_tick()
+
+
+@app.get("/api/artifacts")
+def api_artifacts(type: str = "", tag: str = "", source: str = "", limit: int = 50):
+    return aos_indexer.artifacts(kind=type, tag=tag, source=source, limit=limit)
 
 
 
