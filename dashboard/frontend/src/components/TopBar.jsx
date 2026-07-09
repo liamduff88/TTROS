@@ -26,6 +26,16 @@ export default function TopBar({ backendOk, cockpit, onNavigate, onRefresh }) {
     setTimeout(() => setRefreshing(false), 600)
   }
 
+  const openTelegramApp = () => {
+    window.location.href = 'tg://'
+  }
+
+  const copyTelegramFallback = async () => {
+    await navigator.clipboard?.writeText('Open Telegram Desktop from the Windows Start menu if the tg:// app link does not open.')
+    setCopied('telegram')
+    setTimeout(() => setCopied(''), 1400)
+  }
+
   const copyPrompt = async target => {
     const prompt = `Open Agentic OS Live and work only from the active queue item assigned to ${target}. Preserve receipts, token usage lines, and local-only boundaries.`
     await navigator.clipboard?.writeText(prompt)
@@ -61,7 +71,8 @@ export default function TopBar({ backendOk, cockpit, onNavigate, onRefresh }) {
 
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap gap-1.5">
-          <button onClick={() => window.open('https://t.me/', '_blank')} className="inline-flex h-8 items-center gap-1.5 rounded border border-softgraph bg-softgraph/40 px-2.5 text-xs text-stone hover:bg-softgraph"><ExternalLink size={13} />Open Telegram</button>
+          <button onClick={openTelegramApp} className="inline-flex h-8 items-center gap-1.5 rounded border border-softgraph bg-softgraph/40 px-2.5 text-xs text-stone hover:bg-softgraph" title="Attempts to open Telegram Desktop with tg://"><ExternalLink size={13} />Open Telegram App</button>
+          <button onClick={copyTelegramFallback} className="inline-flex h-8 items-center gap-1.5 rounded border border-softgraph bg-ink px-2.5 text-xs text-stone hover:border-champagne/50" title="Copy fallback if Windows does not have tg:// registered"><Copy size={13} />{copied === 'telegram' ? 'Copied Telegram fallback' : 'Copy: Open from Start'}</button>
           <button onClick={() => window.open('http://127.0.0.1:3010', '_blank')} className="inline-flex h-8 items-center gap-1.5 rounded border border-softgraph bg-softgraph/40 px-2.5 text-xs text-stone hover:bg-softgraph"><Monitor size={13} />Open Hermes Desktop</button>
           <button
             onClick={() => latitude.workspace_url && window.open(latitude.workspace_url, '_blank')}

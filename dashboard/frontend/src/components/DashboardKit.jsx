@@ -142,7 +142,7 @@ export function TokenRail({ tokens, onNavigate }) {
   const tools = Array.isArray(tokens?.by_tool) ? tokens.by_tool : []
   const total = today?.known ? `${Number(today.tokens || 0).toLocaleString()} tokens` : 'unavailable'
   return (
-    <aside className="hidden w-64 shrink-0 border-l border-softgraph bg-graphite/80 p-4 xl:block">
+    <aside className="hidden min-h-0 w-64 shrink-0 overflow-y-auto border-l border-softgraph bg-graphite/80 p-4 xl:block">
       <div className="text-xs font-mono text-champagne">TODAY</div>
       <div className="mt-2 text-xl font-semibold text-ivory">{total}</div>
       <div className="mt-1 text-xs text-taupe">{today?.known ? `$${Number(today.cost || 0).toFixed(2)} est.` : 'Token usage: unavailable'}</div>
@@ -176,7 +176,7 @@ export function NeedsMeRail({ cockpit, onNavigate }) {
   const backup = cockpit?.backup || {}
   const backupAttention = backup?.needs_attention
   return (
-    <aside className="hidden w-72 shrink-0 border-l border-softgraph bg-graphite/80 p-4 xl:block">
+    <aside className="hidden min-h-0 w-72 shrink-0 overflow-y-auto border-l border-softgraph bg-graphite/80 p-4 xl:block">
       <div className="text-xs font-mono text-champagne">NEEDS ME</div>
       <div className="mt-2 text-xl font-semibold text-ivory">{items.length} active</div>
       <div className="mt-4 space-y-2">
