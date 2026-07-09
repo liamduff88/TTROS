@@ -8,7 +8,7 @@
     "send_path": "existing_bridge_send_path_only"
   },
   "allowlist": {
-    "telegram": ["OPERATOR_CHAT_ID"],
+    "telegram": ["1320777128"],
     "agentmail_internal": [
       "liam@timetorevenue.example",
       "revenue-agent@internal",
