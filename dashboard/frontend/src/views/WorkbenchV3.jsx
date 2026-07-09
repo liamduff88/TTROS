@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { AlertCircle, Bot, CheckCircle2, FileUp, Play, Save, SlidersHorizontal, X } from 'lucide-react'
-import { askHermesMessage, createQueueItem, getDashboardAgents, getDashboardResults, getDashboardSystemWatch, routeMessageBoardCommand } from '../api'
+import { askHermesMessage, createQueueChain, createQueueItem, getDashboardAgents, getDashboardResults, getDashboardSystemWatch, routeMessageBoardCommand } from '../api'
 import { ActionButton, EmptyState, PageHeader, RowButton, SourceChip, StatusChip } from '../components/DashboardKit'
 
 const csv = value => Array.isArray(value) ? value.filter(Boolean).join(',') : String(value || '')
@@ -100,6 +100,27 @@ function WorkOrderCard({ card, busy, error, editing, editDraft, onAction, onCanc
   )
 }
 
+function ChainProposalCard({ proposal, draft, busy, error, onDraftChange, onConfirm, onCancel }) {
+  const value = draft || JSON.stringify(proposal, null, 2)
+  return (
+    <div className="rounded border border-champagne/50 bg-graphite p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <div className="text-xs font-mono text-champagne">Hermes chain proposal</div>
+          <h3 className="mt-1 text-base font-semibold text-ivory">{proposal.title}</h3>
+        </div>
+        <StatusChip status="Ready">{proposal.steps?.length || 0} steps</StatusChip>
+      </div>
+      <textarea value={value} onChange={event => onDraftChange(event.target.value)} className="mt-3 min-h-72 w-full rounded border border-softgraph bg-ink px-3 py-2 font-mono text-xs text-stone outline-none focus:border-champagne/60" />
+      {error && <div className="mt-3 rounded border border-clay/60 bg-clay/10 p-2 text-xs text-clay">{error}</div>}
+      <div className="mt-4 flex flex-wrap gap-2">
+        <ActionButton kind="primary" onClick={() => onConfirm(value)} disabled={Boolean(busy)}><CheckCircle2 size={13} />{busy ? 'Filing' : 'Confirm chain'}</ActionButton>
+        <ActionButton onClick={onCancel} disabled={Boolean(busy)}><X size={13} />Cancel</ActionButton>
+      </div>
+    </div>
+  )
+}
+
 export function MessageBoard({ refresh }) {
   const [text, setText] = useState('')
   const [files, setFiles] = useState([])
@@ -110,6 +131,7 @@ export function MessageBoard({ refresh }) {
   const [cardErrors, setCardErrors] = useState({})
   const [editingCard, setEditingCard] = useState(null)
   const [editDraft, setEditDraft] = useState({})
+  const [chainDrafts, setChainDrafts] = useState({})
 
   const sourceRefs = files.map(file => `attachment:${file.name}`)
   const submit = async event => {
@@ -187,8 +209,10 @@ export function MessageBoard({ refresh }) {
       if (mode === 'hermes') {
         setCardBusy(current => ({ ...current, [cardId]: 'hermes' }))
         try {
-          const reply = await askHermesMessage(cardEntry.prompt || '')
-          setThread(current => [...current, { id: entryId(), type: 'hermes', text: reply.reply || reply.answer || reply.output || 'Hermes replied.', token: reply.token_usage_text || 'Token usage: unavailable from current CLI output' }])
+          const reply = await askHermesMessage(cardEntry.prompt || '', cardEntry.card?.work_order?.source_refs || [])
+          const chainId = entryId()
+          setThread(current => [...current, reply.chain_proposal ? { id: chainId, type: 'chain', proposal: reply.chain_proposal, token: reply.token_usage_text || 'Token usage: unavailable from current CLI output' } : { id: entryId(), type: 'hermes', text: reply.reply || reply.answer || reply.output || 'Hermes replied.', token: reply.token_usage_text || 'Token usage: unavailable from current CLI output', needsInput: reply.needs_input_item }])
+          if (reply.chain_proposal) setChainDrafts(current => ({ ...current, [chainId]: JSON.stringify(reply.chain_proposal, null, 2) }))
         } catch (error) {
           setCardError(cardId, errorText(error) || 'Hermes unavailable')
         } finally {
@@ -200,8 +224,10 @@ export function MessageBoard({ refresh }) {
     if (mode === 'hermes') {
       setCardBusy(current => ({ ...current, [cardId]: 'hermes' }))
       try {
-        const reply = await askHermesMessage(cardEntry.card.work_order.context)
-        setThread(current => [...current, { id: entryId(), type: 'hermes', text: reply.reply || reply.answer || reply.output || 'Hermes replied.', token: reply.token_usage_text || 'Token usage: unavailable from current CLI output' }])
+        const reply = await askHermesMessage(cardEntry.card.work_order.context, cardEntry.card.work_order.source_refs || [])
+        const chainId = entryId()
+        setThread(current => [...current, reply.chain_proposal ? { id: chainId, type: 'chain', proposal: reply.chain_proposal, token: reply.token_usage_text || 'Token usage: unavailable from current CLI output' } : { id: entryId(), type: 'hermes', text: reply.reply || reply.answer || reply.output || 'Hermes replied.', token: reply.token_usage_text || 'Token usage: unavailable from current CLI output', needsInput: reply.needs_input_item }])
+        if (reply.chain_proposal) setChainDrafts(current => ({ ...current, [chainId]: JSON.stringify(reply.chain_proposal, null, 2) }))
       } catch (error) {
         setCardError(cardId, errorText(error) || 'Hermes unavailable')
       } finally {
@@ -243,6 +269,22 @@ export function MessageBoard({ refresh }) {
     }
   }
 
+  const confirmChain = async (entry, raw) => {
+    if (cardBusy[entry.id]) return
+    setCardBusy(current => ({ ...current, [entry.id]: 'chain' }))
+    clearCardError(entry.id)
+    try {
+      const payload = JSON.parse(raw)
+      const result = await createQueueChain(payload)
+      setThread(current => current.map(row => row.id === entry.id ? { id: entryId(), type: 'created', item: result.parent, mode: 'chain', steps: result.steps } : row))
+      refresh?.()
+    } catch (error) {
+      setCardError(entry.id, errorText(error))
+    } finally {
+      setCardBusy(current => ({ ...current, [entry.id]: null }))
+    }
+  }
+
   return (
     <>
       <PageHeader title="Message Board" question="Command intake is deterministic by default; Hermes triage only runs on click." />
@@ -253,8 +295,9 @@ export function MessageBoard({ refresh }) {
               <div key={entry.id} className={entry.type === 'user' ? 'rounded border border-softgraph bg-ink p-3 text-stone' : ''}>
                 {entry.type === 'user' && <><div className="text-sm">{entry.text}</div>{entry.source_refs?.length > 0 && <div className="mt-2 text-xs text-taupe">{csv(entry.source_refs)}</div>}</>}
                 {entry.type === 'card' && <WorkOrderCard card={entry.card} busy={cardBusy[entry.id]} error={cardErrors[entry.id]} editing={editingCard === entry.id} editDraft={editDraft} onAction={mode => createFromCard(entry, mode)} onCancel={() => removeCard(entry.id)} onEditChange={(key, value) => setEditDraft(current => ({ ...current, [key]: value }))} onEditApply={() => applyEdit(entry.id)} onEditCancel={() => { setEditingCard(null); setEditDraft({}) }} />}
-                {entry.type === 'hermes' && <div className="rounded border border-champagne/40 bg-ink p-3"><div className="whitespace-pre-wrap text-sm text-stone">{entry.text}</div><div className="mt-2 text-xs font-mono text-champagne">{entry.token}</div></div>}
-                {entry.type === 'created' && <div className="rounded border border-olive/50 bg-olive/10 p-3 text-sm text-stone"><CheckCircle2 size={14} className="mr-2 inline text-olive" />{entry.mode === 'run' ? 'Queued to run' : 'Saved to queue'}: {entry.item?.id}</div>}
+                {entry.type === 'chain' && <ChainProposalCard proposal={entry.proposal} draft={chainDrafts[entry.id]} busy={cardBusy[entry.id]} error={cardErrors[entry.id]} onDraftChange={value => setChainDrafts(current => ({ ...current, [entry.id]: value }))} onConfirm={raw => confirmChain(entry, raw)} onCancel={() => removeCard(entry.id)} />}
+                {entry.type === 'hermes' && <div className="rounded border border-champagne/40 bg-ink p-3"><div className="whitespace-pre-wrap text-sm text-stone">{entry.text}</div>{entry.needsInput?.id && <div className="mt-2 text-xs text-champagne">Needs input: {entry.needsInput.id}</div>}<div className="mt-2 text-xs font-mono text-champagne">{entry.token}</div></div>}
+                {entry.type === 'created' && <div className="rounded border border-olive/50 bg-olive/10 p-3 text-sm text-stone"><CheckCircle2 size={14} className="mr-2 inline text-olive" />{entry.mode === 'chain' ? 'Chain filed' : entry.mode === 'run' ? 'Queued to run' : 'Saved to queue'}: {entry.item?.id}{entry.steps?.length ? ` (${entry.steps.length} steps)` : ''}</div>}
                 {entry.type === 'error' && <div className="rounded border border-clay/60 bg-clay/10 p-3 text-sm text-clay">{entry.text}</div>}
               </div>
             ))}

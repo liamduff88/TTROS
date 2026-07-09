@@ -20,6 +20,7 @@ if str(TOOLS_DIR) not in sys.path:
     sys.path.insert(0, str(TOOLS_DIR))
 
 from aos_paths import AosPathError, aos_root, resolve_root_relative
+import aos_orchestration
 
 app = FastAPI(title="Agentic OS API", version="0.1.0")
 
@@ -1012,6 +1013,7 @@ def _dashboard_token_summary() -> dict:
             simple_component = _ledger_component(record)
             if lightweight_record and simple_tokens is not None:
                 by_tool.setdefault(simple_component, {"tool": simple_component, "tokens": 0, "cost": 0.0, "flat_rate": simple_component in {"codex", "claude-code", "antigravity"}, "unavailable": 0, "estimated": 0})
+                by_tool[simple_component].setdefault("estimated", 0)
                 by_tool[simple_component]["tokens"] += simple_tokens
                 by_tool[simple_component]["estimated"] += int(simple_basis == "estimate")
             elif is_unavailable:
@@ -1563,6 +1565,35 @@ class TaskRun(BaseModel):
 
 class HermesMessage(BaseModel):
     text: str
+    source_refs: list[str] = []
+
+
+class HermesChainStep(BaseModel):
+    title: str
+    owner: str = "hermes"
+    workbench: str | None = "lane"
+    priority: str | int = "normal"
+    tags: list[str] = []
+    context: str = ""
+    source_refs: list[str] = []
+    allowed_actions: list[str] = ["local_read", "local_edit", "local_test"]
+    stop_conditions: list[str] = ["external_send", "secrets_exposure", "destructive_action_outside_scope"]
+    definition_of_done: str = ""
+    depends_on: list[str] = []
+    on_complete: str | None = None
+
+
+class HermesChainConfirm(BaseModel):
+    title: str
+    context: str = ""
+    source_refs: list[str] = []
+    steps: list[HermesChainStep]
+
+
+class TelegramSendValidation(BaseModel):
+    item_id: str
+    recipient: str
+    message: str = "Agentic OS validation send"
 
 
 def _token_usage_from_hermes_usage_report(usage: dict | None) -> tuple[dict, str]:
@@ -1675,6 +1706,126 @@ def _run_hermes_message(text: str) -> dict:
         "stderr": _clean_hermes_stream(result.get("stderr")),
         "raw_output_tail": "\n".join((str(result.get("stdout") or result.get("output") or "")).splitlines()[-20:]),
     }
+
+
+def _looks_multi_step(text: str) -> bool:
+    lowered = str(text or "").lower()
+    return any(marker in lowered for marker in ("multi-step", "chain", " then ", "after that", "step 1", "first ", "next "))
+
+
+def _hermes_decomposition_prompt(text: str) -> str:
+    return "\n".join((
+        "Propose an editable Agentic OS queue chain for this operator command.",
+        "Return a compact explanation, then a fenced JSON object with this shape:",
+        '{"title":"...","steps":[{"title":"...","owner":"revenue|marketing|delivery|operations|codex|claude|hermes","workbench":"lane|codex|claude","definition_of_done":"...","on_complete":null}]}',
+        "Use human_review or needs_input in on_complete only for real gates. Do not file queue items.",
+        "",
+        "Operator command:",
+        text,
+    ))
+
+
+def _extract_json_objects(text: str) -> list[dict]:
+    candidates = re.findall(r"```(?:json)?\s*(\{.*?\})\s*```", text, flags=re.DOTALL | re.IGNORECASE)
+    if "{" in text and "}" in text:
+        candidates.append(text[text.find("{"):text.rfind("}") + 1])
+    objects = []
+    for candidate in candidates:
+        try:
+            value = json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, dict):
+            objects.append(value)
+    return objects
+
+
+def _normalize_chain_proposal(text: str, original_text: str, source_refs: list[str] | None = None) -> dict | None:
+    for obj in _extract_json_objects(text):
+        raw_steps = obj.get("steps")
+        if not isinstance(raw_steps, list) or not raw_steps:
+            continue
+        steps = []
+        for index, step in enumerate(raw_steps, start=1):
+            if not isinstance(step, dict):
+                continue
+            owner = str(step.get("owner") or "hermes").strip().lower()
+            if owner not in {"hermes", "codex", "claude", "revenue", "marketing", "delivery", "operations"}:
+                owner = "hermes"
+            workbench = str(step.get("workbench") or ("codex" if owner == "codex" else "claude" if owner == "claude" else "lane")).strip()
+            on_complete = str(step.get("on_complete") or "").strip()
+            if on_complete not in {"human_review", "needs_input"}:
+                on_complete = None
+            steps.append({
+                "title": str(step.get("title") or step.get("name") or f"Step {index}").strip(),
+                "owner": owner,
+                "workbench": workbench,
+                "priority": step.get("priority") or "normal",
+                "tags": step.get("tags") if isinstance(step.get("tags"), list) else ["hermes_chain"],
+                "context": str(step.get("context") or original_text).strip(),
+                "source_refs": step.get("source_refs") if isinstance(step.get("source_refs"), list) else [],
+                "allowed_actions": step.get("allowed_actions") if isinstance(step.get("allowed_actions"), list) else ["local_read", "local_edit", "local_test"],
+                "stop_conditions": step.get("stop_conditions") if isinstance(step.get("stop_conditions"), list) else ["external_send", "secrets_exposure", "destructive_action_outside_scope"],
+                "definition_of_done": str(step.get("definition_of_done") or step.get("dod") or "").strip(),
+                "depends_on": step.get("depends_on") if isinstance(step.get("depends_on"), list) else [],
+                "on_complete": on_complete,
+            })
+        if steps:
+            return {
+                "title": str(obj.get("title") or f"Hermes chain: {original_text[:80]}").strip(),
+                "context": original_text,
+                "source_refs": list(source_refs or []),
+                "steps": steps,
+                "editable": True,
+                "filed": False,
+            }
+    return None
+
+
+def _append_hermes_decomposition_token_ledger(result: dict, item_id: str = "AOS-2026-0000") -> None:
+    usage = result.get("token_usage") if isinstance(result, dict) else {}
+    available = bool(isinstance(usage, dict) and usage.get("available"))
+    input_tokens = int(usage.get("input_tokens") or 0) if available else 0
+    output_tokens = int(usage.get("output_tokens") or 0) if available else 0
+    record = {
+        "item_id": item_id,
+        "lane": "hermes",
+        "profile": "default",
+        "timestamp": datetime.datetime.utcnow().replace(microsecond=0).isoformat() + "Z",
+        "escalated": False,
+        "model_requested": "configured externally",
+        "model_confirmed": str(usage.get("model") or ("reported" if available else "unavailable")),
+        "budget_class": "light",
+        "token_usage": {
+            "orchestrator": {"input": input_tokens, "output": output_tokens},
+            "subagents": [],
+            "workbenches": [],
+            "totals": {"input": input_tokens, "output": output_tokens},
+            "est_cost_usd": 0.0,
+            "unavailable": [] if available else ["Hermes decomposition usage unavailable"],
+        },
+        "basis": "exact" if available else "estimate",
+        "event": "hermes_decomposition",
+    }
+    TOKEN_LEDGER_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with TOKEN_LEDGER_FILE.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record, sort_keys=True, separators=(",", ":")) + "\n")
+
+
+def _create_hermes_question_item(question: str, source_refs: list[str]) -> dict:
+    item = _queue_create_dashboard_item(QueueItemCreate(
+        title="Hermes needs clarification",
+        owner="hermes",
+        priority="high",
+        tags="hermes,needs_input",
+        source="dashboard/hermes_question",
+        context=question.strip()[:2000],
+        source_refs=",".join(source_refs or []),
+        definition_of_done="Operator answers the clarifying question so the originating command can continue.",
+        allowed_actions="local_read,local_edit",
+        stop_conditions="external_send,secrets_exposure,destructive_action_outside_scope",
+    ))
+    return _load_queue_tool().update_status(BASE_DIR, item["id"], "needs_input")
 
 
 # Commands deliberately use only read/info slugs already evidenced by the local
@@ -2522,6 +2673,20 @@ def _queue_active_items(items: list[dict]) -> list[dict]:
     )
 
 
+_HUMAN_NEEDED_STATUSES = {"needs_input", "human_review", "blocked"}
+
+
+def _queue_human_needed_items(items: list[dict]) -> list[dict]:
+    return sorted(
+        [item for item in items if item.get("status") in _HUMAN_NEEDED_STATUSES],
+        key=_queue_item_sort_key,
+    )
+
+
+def _queue_human_needed_count(counts: dict[str, int]) -> int:
+    return sum(int(counts.get(status, 0) or 0) for status in _HUMAN_NEEDED_STATUSES)
+
+
 @app.get("/api/queue/summary")
 def queue_summary():
     """Read local queue state for the dashboard without mutating the queue."""
@@ -2539,12 +2704,16 @@ def queue_summary():
         }
 
     counts = {status: sum(1 for item in items if item.get("status") == status) for status in _QUEUE_STATUSES}
-    needs_liam = counts["needs_input"] + counts["human_review"] + counts["blocked"]
+    needs_liam = _queue_human_needed_count(counts)
     active_items = _queue_active_items(items)
+    human_needed_items = _queue_human_needed_items(items)
     return {
         "success": True,
         "counts": counts,
         "needsLiam": needs_liam,
+        "needsMeCount": needs_liam,
+        "humanNeededCount": needs_liam,
+        "needsMeItems": [_queue_public_item(item) for item in human_needed_items],
         "activeCount": len(active_items),
         "activeItems": [_queue_public_item(item) for item in active_items[:10]],
         "nextItem": _queue_public_item(active_items[0]) if active_items else None,
@@ -2597,6 +2766,89 @@ def create_queue_item(body: QueueItemCreate):
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return {"success": True, "item": _queue_detail_item(item)}
+
+
+@app.post("/api/queue/chains")
+def create_queue_chain(body: HermesChainConfirm):
+    """File an operator-confirmed Hermes chain as linked local queue items."""
+    if not body.steps:
+        raise HTTPException(status_code=400, detail="chain must include at least one step")
+    try:
+        parent = _queue_create_dashboard_item(QueueItemCreate(
+            title=body.title,
+            owner="hermes",
+            priority="normal",
+            tags="hermes_chain,parent",
+            source="dashboard/hermes_chain",
+            context=body.context,
+            source_refs=",".join(body.source_refs),
+            definition_of_done="All linked chain steps reach done or an operator gate.",
+            allowed_actions="local_read,local_edit,local_test",
+            stop_conditions="external_send,secrets_exposure,destructive_action_outside_scope",
+        ))
+        created_steps = []
+        previous_id = ""
+        for index, step in enumerate(body.steps, start=1):
+            depends_on = list(step.depends_on or [])
+            if index > 1 and not depends_on and previous_id:
+                depends_on = [previous_id]
+            step_item = _queue_create_dashboard_item(QueueItemCreate(
+                title=step.title,
+                owner=step.owner,
+                priority=step.priority,
+                tags=",".join(step.tags or ["hermes_chain"]),
+                source="dashboard/hermes_chain",
+                context=step.context or body.context,
+                sources="",
+                source_refs=",".join((body.source_refs or []) + (step.source_refs or [])),
+                definition_of_done=step.definition_of_done,
+                allowed_actions=",".join(step.allowed_actions or ["local_read", "local_edit", "local_test"]),
+                stop_conditions=",".join(step.stop_conditions or ["external_send", "secrets_exposure", "destructive_action_outside_scope"]),
+                parent_id=parent["id"],
+                step_index=index,
+                depends_on=",".join(depends_on),
+                on_complete=step.on_complete,
+                workbench=step.workbench,
+            ))
+            if index > 1:
+                step_item = _load_queue_tool().update_status(BASE_DIR, step_item["id"], "inbox")
+            created_steps.append(step_item)
+            previous_id = step_item["id"]
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {
+        "success": True,
+        "parent": _queue_detail_item(parent),
+        "steps": [_queue_detail_item(step) for step in created_steps],
+        "token_usage_text": "Token usage: no agent invocation",
+    }
+
+
+@app.post("/api/orchestration/tick")
+def orchestration_tick():
+    """Run one deterministic local orchestration tick; never invokes agents."""
+    try:
+        return aos_orchestration.tick(BASE_DIR)
+    except aos_orchestration.OrchestrationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/api/orchestration/telegram-send-test")
+def orchestration_telegram_send_test(body: TelegramSendValidation):
+    """Validation hook for the allowlisted existing Telegram bridge send path."""
+    try:
+        item = _queue_find_item(body.item_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="queue item not found")
+    result = aos_orchestration.attempt_telegram_send(BASE_DIR, item, body.recipient, body.message, key="api_validation")
+    aos_orchestration.append_jsonl(BASE_DIR / aos_orchestration.EVENTS_PATH, result)
+    items = _read_queue_items()
+    for index, existing in enumerate(items):
+        if existing.get("id") == item.get("id"):
+            items[index] = item
+            break
+    _load_queue_tool().save_items(BASE_DIR, items)
+    return {"success": result.get("result") in {"sent", "already_sent", "blocked", "send_failed"}, **result}
 
 
 @app.post("/api/queue/items/{item_id}/status")
@@ -2702,11 +2954,9 @@ def dashboard_cockpit():
     for item in items:
         status = item.get("status", "inbox")
         counts[status] = counts.get(status, 0) + 1
-    needs_me_statuses = {"human_review", "needs_input", "blocked"}
-    needs_me = [item for item in items if item.get("status") in needs_me_statuses]
+    needs_me_statuses = _HUMAN_NEEDED_STATUSES
+    needs_me = _queue_human_needed_items(items)
     stalled = _stalled_items(items, 15)
-    needs_me.extend(item for item in stalled if item.get("id") not in {existing.get("id") for existing in needs_me})
-    needs_me.sort(key=lambda item: item.get("updated_at") or item.get("created_at") or "", reverse=True)
     token_summary = _dashboard_token_summary()
     workbenches = []
     for name in ("hermes", "codex", "claude", "claude-code", "antigravity", "connectors", "graphify"):
@@ -2724,7 +2974,11 @@ def dashboard_cockpit():
         "success": True,
         "counts": counts,
         "needs_me": needs_me[:8],
+        "needs_me_count": _queue_human_needed_count(counts),
+        "human_needed_count": _queue_human_needed_count(counts),
+        "human_needed_statuses": sorted(_HUMAN_NEEDED_STATUSES),
         "stalled": stalled,
+        "stalled_count": len(stalled),
         "queue_items": items,
         "recent_output": _recent_file_items()[:8],
         "tokens": token_summary,
@@ -2974,6 +3228,7 @@ def _stalled_items(items: list[dict], minutes: int = 15) -> list[dict]:
 def dashboard_system_watch(stalled_minutes: int = 15):
     items = [_queue_detail_item(item) for item in _read_queue_items()]
     stalled = _stalled_items(items, stalled_minutes)
+    human_needed = _queue_human_needed_items(items)
     log_path = LOGS_DIR / "dashboard_backend.log"
     tail = []
     if log_path.exists():
@@ -2985,8 +3240,17 @@ def dashboard_system_watch(stalled_minutes: int = 15):
         "bridge_status": {"status": "read-only check available outside this Phase A endpoint", "freshness": "not mutated"},
         "stalled_window_minutes": stalled_minutes,
         "stalled": stalled,
+        "stalled_count": len(stalled),
         "error_log_tail": tail,
-        "needs_me": [{"id": item["id"], "title": item["title"], "reason": "stalled run", "status": item["status"]} for item in stalled],
+        "needs_me": [
+            {"id": item["id"], "title": item["title"], "reason": item["status"], "status": item["status"]}
+            for item in human_needed
+        ],
+        "needs_me_count": len(human_needed),
+        "stalled_needs_attention": [
+            {"id": item["id"], "title": item["title"], "reason": "stalled run", "status": item["status"], "stalled_minutes": item["stalled_minutes"]}
+            for item in stalled
+        ],
     }
 
 
@@ -4170,9 +4434,18 @@ def hermes_message(body: HermesMessage):
     """Send one direct, headless message through the project Hermes wrapper."""
     if not body.text.strip():
         raise HTTPException(status_code=422, detail="text must not be empty")
-    result = _run_hermes_message(body.text)
+    original_text = body.text.strip()
+    prompt_text = _hermes_decomposition_prompt(original_text) if _looks_multi_step(original_text) else original_text
+    result = _run_hermes_message(prompt_text)
     if not result["success"]:
         raise HTTPException(status_code=502, detail=result)
+    proposal = _normalize_chain_proposal(result.get("reply") or "", original_text, body.source_refs)
+    if proposal:
+        result["chain_proposal"] = proposal
+        _append_hermes_decomposition_token_ledger(result)
+    elif "?" in str(result.get("reply") or ""):
+        question_item = _create_hermes_question_item(str(result.get("reply") or ""), body.source_refs)
+        result["needs_input_item"] = _queue_detail_item(question_item)
     return result
 
 

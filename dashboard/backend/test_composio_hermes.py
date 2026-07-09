@@ -858,10 +858,168 @@ class HermesComposioTests(unittest.TestCase):
         self.assertEqual(result["counts"]["agent_todo"], 1)
         self.assertEqual(result["counts"]["done"], 1)
         self.assertEqual(result["needsLiam"], 1)
+        self.assertEqual(result["needsMeCount"], result["needsLiam"])
+        self.assertEqual([item["id"] for item in result["needsMeItems"]], ["AOS-2026-0003"])
         self.assertEqual(result["activeCount"], 3)
         self.assertEqual([item["id"] for item in result["activeItems"]], ["AOS-2026-0002", "AOS-2026-0003", "AOS-2026-0001"])
         self.assertEqual(result["nextItem"]["id"], "AOS-2026-0002")
         self.assertNotIn("Finished old task", json.dumps(result))
+
+    def test_dashboard_cockpit_uses_queue_summary_needs_me_source(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            items = [
+                *self.sample_queue_items(),
+                {
+                    "id": "AOS-2026-0005",
+                    "title": "Operator input gate",
+                    "status": "needs_input",
+                    "owner": "hermes",
+                    "priority": 8,
+                    "created_at": "2026-07-05T10:04:00Z",
+                },
+                {
+                    "id": "AOS-2026-0006",
+                    "title": "Review closeout",
+                    "status": "human_review",
+                    "owner": "codex",
+                    "priority": 7,
+                    "created_at": "2026-07-05T10:05:00Z",
+                },
+            ]
+            self.write_queue_items(root, items)
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_dashboard_token_summary", return_value={"by_tool": [], "strip": {}, "records": []}), \
+                 patch.object(backend, "_recent_file_items", return_value=[]), \
+                 patch.object(backend, "_run_wsl") as run:
+                summary = backend.queue_summary()
+                cockpit = backend.dashboard_cockpit()
+
+        run.assert_not_called()
+        self.assertTrue(cockpit["success"])
+        self.assertEqual(cockpit["needs_me_count"], summary["needsLiam"])
+        self.assertEqual(cockpit["human_needed_count"], summary["humanNeededCount"])
+        self.assertEqual(
+            {item["id"] for item in cockpit["needs_me"]},
+            {item["id"] for item in summary["needsMeItems"]},
+        )
+        self.assertEqual(
+            {item["status"] for item in cockpit["needs_me"]},
+            {"needs_input", "human_review", "blocked"},
+        )
+
+    def test_existing_human_needed_items_appear_without_notification_events(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_queue_items(root, [
+                {
+                    "id": "AOS-2026-0001",
+                    "title": "Needs input now",
+                    "status": "needs_input",
+                    "owner": "hermes",
+                    "priority": 3,
+                    "created_at": "2026-07-05T10:00:00Z",
+                },
+                {
+                    "id": "AOS-2026-0002",
+                    "title": "Review now",
+                    "status": "human_review",
+                    "owner": "codex",
+                    "priority": 2,
+                    "created_at": "2026-07-05T10:01:00Z",
+                },
+                {
+                    "id": "AOS-2026-0003",
+                    "title": "Blocked now",
+                    "status": "blocked",
+                    "owner": "operations",
+                    "priority": 1,
+                    "created_at": "2026-07-05T10:02:00Z",
+                },
+            ])
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_dashboard_token_summary", return_value={"by_tool": [], "strip": {}, "records": []}), \
+                 patch.object(backend, "_recent_file_items", return_value=[]):
+                cockpit = backend.dashboard_cockpit()
+
+        self.assertFalse((root / "queue" / "orchestration_events.jsonl").exists())
+        self.assertEqual(cockpit["needs_me_count"], 3)
+        self.assertEqual(
+            {item["id"] for item in cockpit["needs_me"]},
+            {"AOS-2026-0001", "AOS-2026-0002", "AOS-2026-0003"},
+        )
+
+    def test_telegram_send_test_endpoint_is_idempotent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "queue").mkdir(parents=True, exist_ok=True)
+            (root / "queue" / "notifications.json").write_text(
+                json.dumps({
+                    "escalation": {"unanswered_minutes": 1},
+                    "allowlist": {"telegram": ["1320777128"], "agentmail_internal": []},
+                }),
+                encoding="utf-8",
+            )
+            self.write_queue_items(root, [{
+                "id": "AOS-2026-0001",
+                "title": "Validation send",
+                "status": "needs_input",
+                "owner": "operations",
+                "priority": 1,
+                "created_at": "2026-07-09T00:00:00Z",
+                "updated_at": "2026-07-09T00:00:00Z",
+                "claim": {"claimed_by": None, "claimed_at": None},
+                "receipts": [],
+            }])
+            sends = []
+
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend.aos_orchestration, "default_bridge_send", side_effect=lambda chat, text: sends.append((chat, text))):
+                body = backend.TelegramSendValidation(item_id="AOS-2026-0001", recipient="1320777128")
+                first = backend.orchestration_telegram_send_test(body)
+                second = backend.orchestration_telegram_send_test(body)
+
+            self.assertTrue(first["success"])
+            self.assertEqual(first["result"], "sent")
+            self.assertTrue(first["sent"])
+            self.assertTrue(second["success"])
+            self.assertEqual(second["result"], "already_sent")
+            self.assertFalse(second["sent"])
+            self.assertTrue(second["duplicate_blocked"])
+            self.assertEqual(len(sends), 1)
+            self.assertEqual(sends[0], ("1320777128", "Agentic OS validation send"))
+
+    def test_system_watch_labels_stalled_runs_separately_from_needs_me(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_queue_items(root, [
+                {
+                    "id": "AOS-2026-0001",
+                    "title": "Old agent task",
+                    "status": "agent_todo",
+                    "owner": "codex",
+                    "priority": 9,
+                    "created_at": "2026-07-05T10:00:00Z",
+                    "updated_at": "2026-07-05T10:00:00Z",
+                },
+                {
+                    "id": "AOS-2026-0002",
+                    "title": "Operator review",
+                    "status": "human_review",
+                    "owner": "hermes",
+                    "priority": 1,
+                    "created_at": "2026-07-05T10:01:00Z",
+                },
+            ])
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "LOGS_DIR", root / "logs"), \
+                 patch.object(backend, "QUEUE_TOOL", root / "tools" / "aos-queue.py"):
+                watch = backend.dashboard_system_watch(stalled_minutes=15)
+
+        self.assertEqual(watch["needs_me_count"], 1)
+        self.assertEqual([item["id"] for item in watch["needs_me"]], ["AOS-2026-0002"])
+        self.assertEqual([item["id"] for item in watch["stalled_needs_attention"]], ["AOS-2026-0001"])
+        self.assertEqual(watch["stalled_count"], 1)
 
     def test_dashboard_queue_post_get_and_prompts_are_local_only(self):
         with tempfile.TemporaryDirectory() as tmp:
