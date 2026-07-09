@@ -90,6 +90,36 @@
     "definition_of_done": {
       "type": "string"
     },
+    "parent_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "step_index": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "depends_on": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "on_complete": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "workbench": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "claim": {
       "type": "object",
       "required": [

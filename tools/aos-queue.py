@@ -616,6 +616,11 @@ def create_item(root: Path, args: argparse.Namespace) -> dict:
         "allowed_actions": split_csv(args.allowed_actions),
         "stop_conditions": split_csv(args.stop_conditions),
         "definition_of_done": args.definition_of_done,
+        "parent_id": getattr(args, "parent_id", None) or None,
+        "step_index": getattr(args, "step_index", None),
+        "depends_on": split_csv(getattr(args, "depends_on", "")),
+        "on_complete": getattr(args, "on_complete", None) or None,
+        "workbench": getattr(args, "workbench", None) or None,
         "claim": {"claimed_by": None, "claimed_at": None},
         "receipts": [],
         "created_at": timestamp,
@@ -794,6 +799,11 @@ def build_parser() -> argparse.ArgumentParser:
     create.add_argument("--allowed-actions", default="")
     create.add_argument("--stop-conditions", default="")
     create.add_argument("--definition-of-done", default="")
+    create.add_argument("--parent-id", default="")
+    create.add_argument("--step-index", type=int)
+    create.add_argument("--depends-on", default="")
+    create.add_argument("--on-complete", default="")
+    create.add_argument("--workbench", default="")
 
     list_parser = subparsers.add_parser("list", help="List local work items")
     list_parser.add_argument("--status")

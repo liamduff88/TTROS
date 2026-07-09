@@ -47,6 +47,7 @@ TRACKER_FILE = DATA_DIR / "tracker.json"
 TOKEN_USAGE_FILE = LOGS_DIR / "token_usage.jsonl"
 QUEUE_DIR = BASE_DIR / "queue"
 TOKEN_LEDGER_FILE = QUEUE_DIR / "token_ledger.jsonl"
+ROOT_TOKEN_LEDGER_FILE = BASE_DIR / "token_ledger.jsonl"
 SKILL_TRUST_FILE = QUEUE_DIR / "skill_trust.jsonl"
 WORKFLOWS_DIR = BASE_DIR / "workflows"
 SKILLS_DIR = BASE_DIR / "skills"
@@ -302,6 +303,11 @@ class QueueItemCreate(BaseModel):
     definition_of_done: str = ""
     allowed_actions: str = "local_read,local_edit,local_test"
     stop_conditions: str = "external_send,secrets_exposure,destructive_action_outside_scope"
+    parent_id: str | None = None
+    step_index: int | None = None
+    depends_on: str = ""
+    on_complete: str | None = None
+    workbench: str | None = None
 
 
 class QueueReceiptAttach(BaseModel):
@@ -879,7 +885,77 @@ def _token_component_total(record: dict) -> tuple[int | None, int | None]:
 
 
 def _read_token_ledger_records() -> list[dict]:
-    return _read_jsonl_file(TOKEN_LEDGER_FILE)
+    records = _read_jsonl_file(TOKEN_LEDGER_FILE)
+    records.extend(_read_jsonl_file(ROOT_TOKEN_LEDGER_FILE))
+    return records
+
+
+def _ledger_timestamp(record: dict) -> object:
+    return record.get("timestamp") or record.get("ts")
+
+
+def _ledger_task_id(record: dict) -> str:
+    return str(record.get("item_id") or record.get("task_id") or "unavailable")
+
+
+def _ledger_component(record: dict) -> str:
+    component = record.get("component")
+    if component:
+        return str(component)
+    usage = record.get("token_usage") if isinstance(record.get("token_usage"), dict) else {}
+    workbenches = usage.get("workbenches") if isinstance(usage.get("workbenches"), list) else []
+    if workbenches:
+        return str(workbenches[0].get("tool") or record.get("lane") or "hermes")
+    return str(record.get("lane") or record.get("profile") or "hermes")
+
+
+def _ledger_tokens_basis(record: dict) -> tuple[int | None, str]:
+    if "tokens" in record:
+        try:
+            return int(record.get("tokens")), str(record.get("basis") or "exact")
+        except (TypeError, ValueError):
+            return None, "unavailable"
+    input_tokens, output_tokens = _token_component_total(record)
+    if input_tokens is None or output_tokens is None:
+        return None, "unavailable"
+    return input_tokens + output_tokens, "exact"
+
+
+def _simple_token_line(task_id: str, component: str, tokens: int, basis: str) -> dict:
+    return {
+        "ts": datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+        "task_id": task_id or "unattributed",
+        "component": component or "unattributed",
+        "tokens": max(0, int(tokens)),
+        "basis": basis if basis in {"exact", "estimate"} else "estimate",
+    }
+
+
+def _append_simple_token_ledger(task_id: str, component: str, token_usage: dict, raw_text: str) -> None:
+    if token_usage.get("no_agent_invocation"):
+        return
+    total = token_usage.get("total_tokens")
+    basis = "exact"
+    try:
+        tokens = int(str(total).replace(",", "")) if total is not None else None
+    except (TypeError, ValueError):
+        tokens = None
+    if tokens is None:
+        input_tokens = token_usage.get("input_tokens")
+        output_tokens = token_usage.get("output_tokens")
+        try:
+            tokens = int(str(input_tokens).replace(",", "")) + int(str(output_tokens).replace(",", ""))
+        except (TypeError, ValueError):
+            compact = str(raw_text or "")
+            if not compact.strip():
+                return
+            tokens = max(1, round(len(compact) / 4))
+            basis = "estimate"
+    try:
+        with ROOT_TOKEN_LEDGER_FILE.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(_simple_token_line(task_id, component, tokens, basis), separators=(",", ":")) + "\n")
+    except OSError:
+        return
 
 
 def _dashboard_token_summary() -> dict:
@@ -905,12 +981,14 @@ def _dashboard_token_summary() -> dict:
             entry["cost"] += float(cost)
 
     for record in records:
-        timestamp = _parse_record_timestamp(record.get("timestamp"))
+        timestamp = _parse_record_timestamp(_ledger_timestamp(record))
         local_date = timestamp.astimezone(now.tzinfo).date() if timestamp else None
+        lightweight_record = "tokens" in record
         input_tokens, output_tokens = _token_component_total(record)
+        simple_tokens, simple_basis = _ledger_tokens_basis(record)
         unavailable = record.get("token_usage", {}).get("unavailable") if isinstance(record.get("token_usage"), dict) else []
-        is_unavailable = bool(unavailable) or input_tokens is None or output_tokens is None
-        total_tokens = (input_tokens or 0) + (output_tokens or 0)
+        is_unavailable = simple_tokens is None and (bool(unavailable) or input_tokens is None or output_tokens is None)
+        total_tokens = simple_tokens if simple_tokens is not None else (input_tokens or 0) + (output_tokens or 0)
         cost = record.get("token_usage", {}).get("est_cost_usd") if isinstance(record.get("token_usage"), dict) else record.get("est_cost_usd")
         try:
             cost_float = float(cost)
@@ -934,7 +1012,12 @@ def _dashboard_token_summary() -> dict:
         if local_date == today:
             usage = record.get("token_usage") if isinstance(record.get("token_usage"), dict) else {}
             orch = usage.get("orchestrator") if isinstance(usage.get("orchestrator"), dict) else {}
-            if is_unavailable:
+            simple_component = _ledger_component(record)
+            if lightweight_record and simple_tokens is not None:
+                by_tool.setdefault(simple_component, {"tool": simple_component, "tokens": 0, "cost": 0.0, "flat_rate": simple_component in {"codex", "claude-code", "antigravity"}, "unavailable": 0, "estimated": 0})
+                by_tool[simple_component]["tokens"] += simple_tokens
+                by_tool[simple_component]["estimated"] += int(simple_basis == "estimate")
+            elif is_unavailable:
                 by_tool.setdefault("hermes", {"tool": "hermes", "tokens": 0, "cost": 0.0, "flat_rate": False, "unavailable": 0})["unavailable"] += 1
             else:
                 add_tool("hermes", int(orch.get("input") or 0), int(orch.get("output") or 0), cost_float)
@@ -955,11 +1038,11 @@ def _dashboard_token_summary() -> dict:
 
         if total_tokens and (highest is None or total_tokens > highest["tokens"]):
             highest = {
-                "item_id": record.get("item_id"),
+                "item_id": _ledger_task_id(record),
                 "lane": record.get("lane"),
                 "profile": record.get("profile"),
                 "tokens": total_tokens,
-                "timestamp": record.get("timestamp"),
+                "timestamp": _ledger_timestamp(record),
             }
 
     for value in periods.values():
@@ -973,7 +1056,55 @@ def _dashboard_token_summary() -> dict:
         "highest_task": highest,
         "unavailable_count": sum(row.get("unavailable", 0) for row in by_tool.values()) + periods["today"]["unavailable"],
         "records": records[-100:],
+        "strip": _dashboard_token_strip(records),
         "chart": [{"date": day, "tokens": tokens} for day, tokens in sorted(chart_days.items())[-14:]],
+    }
+
+
+def _token_label(record: dict | None) -> str:
+    if not record:
+        return "Token usage: unavailable from current CLI output"
+    if record.get("no_agent_invocation") or (record.get("token_usage") or {}).get("no_agent_invocation"):
+        return "Token usage: no agent invocation"
+    tokens, basis = _ledger_tokens_basis(record)
+    if tokens is None:
+        return "Token usage: unavailable from current CLI output"
+    prefix = "" if basis == "exact" else "~"
+    suffix = " exact" if basis == "exact" else " est"
+    return f"Token usage: {prefix}{tokens:,}{suffix}"
+
+
+def _dashboard_token_strip(records: list[dict]) -> dict:
+    dated = []
+    for index, record in enumerate(records):
+        dated.append((_parse_record_timestamp(_ledger_timestamp(record)), index, record))
+    dated.sort(key=lambda row: (row[0] or datetime.datetime.min.replace(tzinfo=datetime.timezone.utc), row[1]))
+    now = datetime.datetime.now().astimezone()
+    today_records = [record for parsed, _, record in dated if parsed and parsed.astimezone(now.tzinfo).date() == now.date()]
+    current = dated[-1][2] if dated else None
+    previous = dated[-2][2] if len(dated) > 1 else None
+    today_total = 0
+    today_estimated = False
+    today_unavailable = False
+    for record in today_records:
+        tokens, basis = _ledger_tokens_basis(record)
+        if tokens is None:
+            today_unavailable = True
+            continue
+        today_total += tokens
+        today_estimated = today_estimated or basis == "estimate"
+    if today_total:
+        today_label = f"Token usage: {'~' if today_estimated else ''}{today_total:,}{' est' if today_estimated else ' exact'} today"
+    else:
+        today_label = "Token usage: unavailable from current CLI output" if today_unavailable else "Token usage: no task recorded today"
+    return {
+        "current_task": {"task_id": _ledger_task_id(current) if current else None, "label": _token_label(current)},
+        "last_task": {"task_id": _ledger_task_id(previous) if previous else None, "label": _token_label(previous)},
+        "today": {"label": today_label},
+        "states": [
+            "Token usage: no agent invocation",
+            "Token usage: unavailable from current CLI output",
+        ],
     }
 
 
@@ -1308,6 +1439,12 @@ def _log_token_usage(
     TOKEN_USAGE_FILE.parent.mkdir(parents=True, exist_ok=True)
     with TOKEN_USAGE_FILE.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+    _append_simple_token_ledger(
+        str((route_metadata or {}).get("item_id") or task[:80] or route),
+        agent or route,
+        token_usage,
+        f"{task}\n{token_usage_text}",
+    )
     return record
 
 
@@ -1685,6 +1822,11 @@ class _QueueToolFallback:
             "allowed_actions": _queue_split_text(args.allowed_actions),
             "stop_conditions": _queue_split_text(args.stop_conditions),
             "definition_of_done": args.definition_of_done,
+            "parent_id": getattr(args, "parent_id", None) or None,
+            "step_index": getattr(args, "step_index", None),
+            "depends_on": _queue_split_text(getattr(args, "depends_on", "")),
+            "on_complete": getattr(args, "on_complete", None) or None,
+            "workbench": getattr(args, "workbench", None) or None,
             "receipts": [],
             "claim": {"claimed_by": None, "claimed_at": None},
             "created_at": now,
@@ -1970,6 +2112,11 @@ def _queue_create_dashboard_item(body: QueueItemCreate) -> dict:
         allowed_actions=",".join(_queue_split_text(body.allowed_actions)) or "local_read,local_edit,local_test",
         stop_conditions=",".join(_queue_split_text(body.stop_conditions)) or "external_send,secrets_exposure,destructive_action_outside_scope",
         definition_of_done=body.definition_of_done.strip(),
+        parent_id=(body.parent_id or "").strip() or None,
+        step_index=body.step_index,
+        depends_on=",".join(_queue_split_text(body.depends_on)),
+        on_complete=(body.on_complete or "").strip() or None,
+        workbench=(body.workbench or "").strip() or None,
     )
     item = queue_tool.create_item(BASE_DIR, args)
     if source_refs:
@@ -2266,6 +2413,11 @@ def _queue_latest_receipt(item: dict) -> dict | None:
 def _queue_detail_item(item: dict) -> dict:
     public = _queue_public_item(item)
     latest_receipt = _queue_latest_receipt(item)
+    steps = _workflow_steps_for_item(item)
+    step_index = item.get("step_index")
+    step_progress = None
+    if steps and isinstance(step_index, int):
+        step_progress = {"current": max(0, min(step_index, len(steps))), "total": len(steps), "label": f"{max(0, min(step_index, len(steps)))} of {len(steps)}"}
     public.update({
         "requested_by": item.get("requested_by", ""),
         "owner_type": item.get("owner_type", ""),
@@ -2278,6 +2430,14 @@ def _queue_detail_item(item: dict) -> dict:
         "stop_conditions": item.get("stop_conditions") or [],
         "definition_of_done": item.get("definition_of_done", ""),
         "next_action": item.get("next_action", ""),
+        "parent_id": item.get("parent_id"),
+        "step_index": item.get("step_index"),
+        "depends_on": item.get("depends_on") or [],
+        "on_complete": item.get("on_complete"),
+        "workbench": item.get("workbench"),
+        "honest_status": _honest_status(item),
+        "workflow_steps": steps,
+        "step_progress": step_progress,
         "claim": item.get("claim") or {"claimed_by": None, "claimed_at": None},
         "receipts": item.get("receipts") or [],
         "latest_receipt": latest_receipt,
@@ -2548,6 +2708,8 @@ def dashboard_cockpit():
         counts[status] = counts.get(status, 0) + 1
     needs_me_statuses = {"human_review", "needs_input", "blocked"}
     needs_me = [item for item in items if item.get("status") in needs_me_statuses]
+    stalled = _stalled_items(items, 15)
+    needs_me.extend(item for item in stalled if item.get("id") not in {existing.get("id") for existing in needs_me})
     needs_me.sort(key=lambda item: item.get("updated_at") or item.get("created_at") or "", reverse=True)
     token_summary = _dashboard_token_summary()
     workbenches = []
@@ -2566,6 +2728,7 @@ def dashboard_cockpit():
         "success": True,
         "counts": counts,
         "needs_me": needs_me[:8],
+        "stalled": stalled,
         "queue_items": items,
         "recent_output": _recent_file_items()[:8],
         "tokens": token_summary,
@@ -2576,6 +2739,259 @@ def dashboard_cockpit():
 @app.get("/api/dashboard/tokens")
 def dashboard_tokens():
     return _dashboard_token_summary()
+
+
+class MessageRouteRequest(BaseModel):
+    text: str
+    source_refs: list[str] = []
+
+
+def _workflow_contract(workflow_id: str) -> dict:
+    path = WORKFLOWS_DIR / workflow_id / "workflow.md"
+    if not path.exists():
+        return {
+            "workflow": workflow_id,
+            "path": _safe_relative(path),
+            "definition_of_done": "",
+            "allowed_actions": [],
+            "stop_conditions": [],
+            "steps": [],
+        }
+    text = path.read_text(encoding="utf-8", errors="replace")
+    definition = ""
+    allowed = []
+    stops = []
+    steps = []
+    for raw in text.splitlines():
+        line = raw.strip().lstrip("-").strip()
+        if not definition and re.search(r"\bDone\b\s*=", line, re.IGNORECASE):
+            definition = re.sub(r"^\*\*Done\*\*\s*=\s*", "", line).strip()
+        elif not definition and line.lower().startswith("done ="):
+            definition = line.split("=", 1)[1].strip()
+        if re.search(r"Allowed unprompted", line, re.IGNORECASE):
+            value = re.sub(r"^\*\*Allowed unprompted\*\*\s*=\s*", "", line).strip()
+            allowed = [part.strip(" .") for part in re.split(r";|,", value) if part.strip(" .")]
+        if re.search(r"Stop conditions", line, re.IGNORECASE):
+            value = re.sub(r"^\*\*Stop conditions\*\*\s*=\s*", "", line).strip()
+            stops = [part.strip(" .") for part in re.split(r";", value) if part.strip(" .")]
+        numbered = re.match(r"^(\d+)\.\s+(.+)", raw.strip())
+        if numbered:
+            steps.append({"index": int(numbered.group(1)), "text": numbered.group(2).strip()})
+    if not allowed:
+        allowed = ["local_read", "local_edit", "local_test"]
+    if not stops:
+        stops = ["external_send", "destructive_action_outside_scope"]
+    return {
+        "workflow": workflow_id,
+        "path": _safe_relative(path),
+        "definition_of_done": definition,
+        "allowed_actions": allowed,
+        "stop_conditions": stops,
+        "steps": steps,
+    }
+
+
+def _load_command_routes() -> dict:
+    path = QUEUE_DIR / "command_routes.json"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"routes": [], "path": _safe_relative(path)}
+    data["path"] = _safe_relative(path)
+    return data
+
+
+def _match_command_route(text: str) -> dict:
+    command = str(text or "").lower()
+    data = _load_command_routes()
+    matches = []
+    for route in data.get("routes") or []:
+        patterns = route.get("patterns") or []
+        hit = next((pattern for pattern in patterns if str(pattern).lower() in command), None)
+        if hit:
+            matches.append({"route": route, "pattern": hit})
+    if not matches:
+        return {
+            "matched": False,
+            "confidence": "unmatched",
+            "token_usage_text": "Token usage: no agent invocation",
+            "routes_path": data.get("path"),
+        }
+    chosen = matches[0]["route"]
+    workflow = chosen.get("workflow") or chosen.get("id")
+    contract = _workflow_contract(workflow)
+    return {
+        "matched": True,
+        "confidence": "exact match" if len(matches) == 1 else "ambiguous",
+        "ambiguous_matches": [match["route"].get("workflow") or match["route"].get("id") for match in matches[1:]],
+        "pattern": matches[0]["pattern"],
+        "route": chosen,
+        "work_order": {
+            "title": f"{workflow}: {str(text or '').strip()[:90]}",
+            "owner": chosen.get("owner") or "unassigned",
+            "priority": chosen.get("priority") or "normal",
+            "tags": [workflow, chosen.get("skill"), "message_board"],
+            "source": "message_board",
+            "source_refs": [],
+            "context": str(text or "").strip(),
+            "allowed_actions": contract["allowed_actions"],
+            "stop_conditions": contract["stop_conditions"],
+            "definition_of_done": contract["definition_of_done"],
+            "workbench": chosen.get("workbench"),
+            "workflow": workflow,
+            "steps": contract["steps"],
+            "contract_path": contract["path"],
+        },
+        "token_usage_text": "Token usage: no agent invocation",
+        "routes_path": data.get("path"),
+    }
+
+
+@app.get("/api/dashboard/command-routes")
+def dashboard_command_routes():
+    return _load_command_routes()
+
+
+@app.post("/api/dashboard/message-board/route")
+def dashboard_message_board_route(body: MessageRouteRequest):
+    result = _match_command_route(body.text)
+    if result.get("work_order") is not None:
+        result["work_order"]["source_refs"] = list(body.source_refs or [])
+    return result
+
+
+def _component_tokens(component: str, records: list[dict]) -> dict:
+    total = 0
+    estimated = 0
+    unavailable = 0
+    rows = []
+    aliases = {component}
+    if component == "operations":
+        aliases.add("ops")
+    if component == "claude":
+        aliases.add("claude-code")
+    for record in records:
+        record_component = _ledger_component(record)
+        lane = str(record.get("lane") or "")
+        if record_component not in aliases and lane not in aliases:
+            continue
+        tokens, basis = _ledger_tokens_basis(record)
+        rows.append({"task_id": _ledger_task_id(record), "tokens": tokens, "basis": basis, "ts": _ledger_timestamp(record)})
+        if tokens is None:
+            unavailable += 1
+        else:
+            total += tokens
+            estimated += int(basis == "estimate")
+    return {"tokens": total, "estimated": estimated, "unavailable": unavailable, "rows": rows[-20:]}
+
+
+def _receipt_owner_match(path: Path, component: str) -> bool:
+    name = path.name.lower()
+    return component.lower() in name
+
+
+@app.get("/api/dashboard/agents")
+def dashboard_agents():
+    items = [_queue_detail_item(item) for item in _read_queue_items()]
+    token_records = _read_token_ledger_records()
+    components = [
+        {"id": "hermes", "name": "Hermes", "group": "orchestrator", "owner_filter": {"hermes", "orchestrator"}, "workbench_filter": set()},
+        {"id": "revenue", "name": "Revenue", "group": "lane", "owner_filter": {"revenue"}, "workbench_filter": set()},
+        {"id": "marketing", "name": "Marketing", "group": "lane", "owner_filter": {"marketing"}, "workbench_filter": set()},
+        {"id": "delivery", "name": "Delivery", "group": "lane", "owner_filter": {"delivery"}, "workbench_filter": set()},
+        {"id": "operations", "name": "Operations", "group": "lane", "owner_filter": {"operations", "ops"}, "workbench_filter": set()},
+        {"id": "codex", "name": "Codex", "group": "executor", "owner_filter": {"codex"}, "workbench_filter": {"codex"}},
+        {"id": "claude", "name": "Claude Code", "group": "executor", "owner_filter": {"claude"}, "workbench_filter": {"claude", "claude-code"}},
+        {"id": "antigravity", "name": "Antigravity", "group": "executor", "owner_filter": {"antigravity"}, "workbench_filter": {"antigravity"}},
+        {"id": "composio", "name": "Composio", "group": "connector", "owner_filter": set(), "workbench_filter": set(), "status_text": "Read-only status only in Phase A."},
+        {"id": "agentmail", "name": "AgentMail", "group": "connector", "owner_filter": set(), "workbench_filter": set(), "status_text": "Read-only status only in Phase A."},
+    ]
+    receipt_paths = sorted((QUEUE_DIR / "receipts").glob("*.md"), key=lambda p: p.stat().st_mtime, reverse=True) if (QUEUE_DIR / "receipts").exists() else []
+    cards = []
+    for component in components:
+        owner_filter = component["owner_filter"]
+        workbench_filter = component["workbench_filter"]
+        filtered = [
+            item for item in items
+            if str(item.get("owner") or "").lower() in owner_filter
+            or str(item.get("workbench") or "").lower() in workbench_filter
+        ]
+        counts = {
+            "queued": sum(1 for item in filtered if item.get("status") in {"inbox", "agent_todo"}),
+            "running": sum(1 for item in filtered if item.get("status") in {"agent_working"}),
+            "done": sum(1 for item in filtered if item.get("status") == "done"),
+        }
+        cards.append({
+            "id": component["id"],
+            "name": component["name"],
+            "group": component["group"],
+            "status_text": component.get("status_text") or "Local queue and receipt view.",
+            "counts": counts,
+            "items": filtered[:80],
+            "receipts": [{"path": _safe_relative(path), "modified": datetime.datetime.fromtimestamp(path.stat().st_mtime, datetime.timezone.utc).isoformat().replace("+00:00", "Z")} for path in receipt_paths if _receipt_owner_match(path, component["id"])][:20],
+            "tokens": _component_tokens(component["id"], token_records),
+        })
+    return {"components": cards}
+
+
+def _workflow_steps_for_item(item: dict) -> list[dict]:
+    workflow = None
+    for tag in item.get("tags") or []:
+        candidate = WORKFLOWS_DIR / str(tag) / "workflow.md"
+        if candidate.exists():
+            workflow = str(tag)
+            break
+    if not workflow:
+        return []
+    return _workflow_contract(workflow).get("steps") or []
+
+
+def _honest_status(item: dict) -> str:
+    status = str(item.get("status") or "")
+    if status == "inbox":
+        return "queued"
+    if status == "agent_todo":
+        return "claimed" if (item.get("claim") or {}).get("claimed_by") else "queued"
+    if status == "agent_working":
+        return "running"
+    if status in {"needs_input", "human_review", "blocked", "done"}:
+        return status
+    return status or "queued"
+
+
+def _stalled_items(items: list[dict], minutes: int = 15) -> list[dict]:
+    now = datetime.datetime.now(datetime.timezone.utc)
+    stalled = []
+    for item in items:
+        if item.get("status") not in {"agent_todo", "agent_working"}:
+            continue
+        timestamp = _parse_record_timestamp(item.get("updated_at") or item.get("created_at"))
+        if not timestamp:
+            continue
+        age_seconds = (now - timestamp.astimezone(datetime.timezone.utc)).total_seconds()
+        if age_seconds >= minutes * 60:
+            stalled.append({**item, "stalled_minutes": round(age_seconds / 60)})
+    return stalled
+
+
+@app.get("/api/dashboard/system-watch")
+def dashboard_system_watch(stalled_minutes: int = 15):
+    items = [_queue_detail_item(item) for item in _read_queue_items()]
+    stalled = _stalled_items(items, stalled_minutes)
+    log_path = LOGS_DIR / "dashboard_backend.log"
+    tail = []
+    if log_path.exists():
+        tail = log_path.read_text(encoding="utf-8", errors="replace").splitlines()[-20:]
+    queue_tool_exists = QUEUE_TOOL.exists()
+    return {
+        "backend": {"status": "ok", "checked_at": datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")},
+        "queue_tooling": {"status": "ok" if queue_tool_exists else "missing", "path": _safe_relative(QUEUE_TOOL)},
+        "bridge_status": {"status": "read-only check available outside this Phase A endpoint", "freshness": "not mutated"},
+        "stalled_window_minutes": stalled_minutes,
+        "stalled": stalled,
+        "error_log_tail": tail,
+        "needs_me": [{"id": item["id"], "title": item["title"], "reason": "stalled run", "status": item["status"]} for item in stalled],
+    }
 
 
 @app.get("/api/dashboard/results")

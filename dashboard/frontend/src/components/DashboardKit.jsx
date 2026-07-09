@@ -41,7 +41,7 @@ export function SourceChip({ source }) {
   return <span className="rounded border border-softgraph bg-softgraph/40 px-1.5 py-0.5 text-[10px] text-taupe">{value}</span>
 }
 
-export function ActionButton({ kind = 'neutral', children, className = '', ...props }) {
+export function ActionButton({ kind = 'neutral', children, className = '', type = 'button', ...props }) {
   const styles = {
     neutral: 'border-softgraph bg-softgraph/40 text-stone hover:bg-softgraph',
     token: 'border-champagne/60 bg-champagne/10 text-champagne hover:bg-champagne/20',
@@ -49,7 +49,7 @@ export function ActionButton({ kind = 'neutral', children, className = '', ...pr
     primary: 'border-champagne/80 bg-champagne text-ink hover:bg-stone',
   }
   return (
-    <button {...props} className={`inline-flex h-8 items-center justify-center gap-1.5 rounded border px-3 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${styles[kind]} ${className}`}>
+    <button {...props} type={type} className={`inline-flex h-8 items-center justify-center gap-1.5 rounded border px-3 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${styles[kind]} ${className}`}>
       {kind === 'token' && <Zap size={13} />}
       {kind === 'locked' && <LockKeyhole size={13} />}
       {children}
@@ -166,6 +166,37 @@ export function TokenRail({ tokens, onNavigate }) {
         <div className="mt-1">{tokens?.highest_task?.item_id || 'unavailable'}</div>
       </div>
       <button onClick={() => onNavigate('tokens-roi')} className="mt-4 text-xs font-semibold text-champagne hover:text-stone">Open Tokens & ROI</button>
+    </aside>
+  )
+}
+
+export function NeedsMeRail({ cockpit, onNavigate }) {
+  const items = cockpit?.needs_me || []
+  const strip = cockpit?.tokens?.strip || {}
+  return (
+    <aside className="hidden w-72 shrink-0 border-l border-softgraph bg-graphite/80 p-4 xl:block">
+      <div className="text-xs font-mono text-champagne">NEEDS ME</div>
+      <div className="mt-2 text-xl font-semibold text-ivory">{items.length} active</div>
+      <div className="mt-4 space-y-2">
+        {items.slice(0, 8).map(item => (
+          <button key={item.id} onClick={() => onNavigate('work-queue', { q: item.id })} className="w-full rounded border border-softgraph bg-ink p-2 text-left hover:border-champagne/50">
+            <div className="truncate text-xs font-semibold text-stone">{item.title}</div>
+            <div className="mt-1 flex items-center justify-between gap-2 text-[10px] text-taupe">
+              <span>{item.id}</span>
+              <StatusChip status={item.honest_status || item.status}>{item.stalled_minutes ? 'stalled' : statusLabel(item.status)}</StatusChip>
+            </div>
+          </button>
+        ))}
+        {!items.length && <div className="rounded border border-softgraph bg-ink p-3 text-xs text-taupe">No stalled, blocked, review, or input items.</div>}
+      </div>
+      <div className="mt-5 rounded border border-softgraph bg-ink p-3 text-xs text-taupe">
+        <div className="font-mono text-champagne">TOKENS</div>
+        <div className="mt-2">{strip.current_task?.label || 'Token usage: unavailable from current CLI output'}</div>
+        <div className="mt-1">{strip.last_task?.label || 'Token usage: unavailable from current CLI output'}</div>
+        <div className="mt-1">{strip.today?.label || 'Token usage: unavailable from current CLI output'}</div>
+        <div className="mt-2 text-[10px]">Token usage: no agent invocation</div>
+      </div>
+      <button onClick={() => onNavigate('mission-control')} className="mt-4 text-xs font-semibold text-champagne hover:text-stone">Open Mission Control</button>
     </aside>
   )
 }

@@ -104,6 +104,11 @@ const emptyCreateForm = {
   allowed_actions: 'local_read, local_edit, local_test',
   stop_conditions: 'external_send, secrets_exposure, destructive_action_outside_scope',
   definition_of_done: '',
+  parent_id: '',
+  step_index: '',
+  depends_on: '',
+  on_complete: '',
+  workbench: '',
 }
 
 const emptyReviewState = { submitting: null, note: '', message: '', error: null }
@@ -275,6 +280,11 @@ export default function Queue({ initialFilters = {} }) {
         allowed_actions: createForm.allowed_actions,
         stop_conditions: createForm.stop_conditions,
         definition_of_done: createForm.definition_of_done,
+        parent_id: createForm.parent_id,
+        step_index: createForm.step_index === '' ? null : Number(createForm.step_index),
+        depends_on: createForm.depends_on,
+        on_complete: createForm.on_complete,
+        workbench: createForm.workbench,
       })
       if (response?.success === false || !response?.item?.id) {
         throw new Error(response?.reason || response?.message || 'Queue item was not created')
@@ -485,7 +495,9 @@ export default function Queue({ initialFilters = {} }) {
 
       <section className="grid gap-4 lg:grid-cols-[minmax(22rem,0.9fr)_minmax(0,1.1fr)]">
         <div className="space-y-4">
-          <form onSubmit={submitCreate} className="rounded-lg border border-softgraph bg-graphite p-5">
+          <details className="rounded-lg border border-softgraph bg-graphite p-5">
+            <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wider text-champagne">Advanced / manual create</summary>
+          <form onSubmit={submitCreate} className="mt-4">
             <div className="mb-4 flex items-center justify-between gap-3">
               <div className="flex items-center gap-2">
                 <Plus size={14} className="text-taupe" />
@@ -599,6 +611,24 @@ export default function Queue({ initialFilters = {} }) {
                   placeholder="Concrete acceptance criteria for this queue item"
                 />
               </FieldLabel>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <FieldLabel label="Parent ID">
+                  <input className={fieldBase} value={createForm.parent_id} onChange={event => updateCreateField('parent_id', event.target.value)} placeholder="AOS-YYYY-NNNN" />
+                </FieldLabel>
+                <FieldLabel label="Step index">
+                  <input type="number" className={fieldBase} value={createForm.step_index} onChange={event => updateCreateField('step_index', event.target.value)} placeholder="0" />
+                </FieldLabel>
+                <FieldLabel label="Depends on">
+                  <input className={fieldBase} value={createForm.depends_on} onChange={event => updateCreateField('depends_on', event.target.value)} placeholder="AOS-YYYY-NNNN, AOS-YYYY-NNNN" />
+                </FieldLabel>
+                <FieldLabel label="On complete">
+                  <input className={fieldBase} value={createForm.on_complete} onChange={event => updateCreateField('on_complete', event.target.value)} placeholder="queue_next_step" />
+                </FieldLabel>
+                <FieldLabel label="Workbench">
+                  <input className={fieldBase} value={createForm.workbench} onChange={event => updateCreateField('workbench', event.target.value)} placeholder="codex, claude, lane" />
+                </FieldLabel>
+              </div>
             </div>
 
             {(createState.message || createState.error) && (
@@ -611,6 +641,7 @@ export default function Queue({ initialFilters = {} }) {
               </div>
             )}
           </form>
+          </details>
 
           <div className="rounded-lg border border-softgraph bg-graphite p-5">
             <div className="mb-4 flex items-center justify-between gap-3">
@@ -769,6 +800,8 @@ export default function Queue({ initialFilters = {} }) {
                 <div className="text-xl font-semibold text-ivory">{selected.title || 'Untitled queue item'}</div>
                 <div className="mt-2 flex flex-wrap gap-2 font-mono text-xs text-taupe">
                   <span>{formatStatus(selected.status)}</span>
+                  {selected.honest_status && <span>{formatStatus(selected.honest_status)}</span>}
+                  {selected.step_progress?.label && <span>{selected.step_progress.label}</span>}
                   <span>{selected.owner || 'unassigned'}</span>
                   <span>Priority {selected.priority ?? 0}</span>
                   {selected.source && <span>{selected.source}</span>}
@@ -783,13 +816,19 @@ export default function Queue({ initialFilters = {} }) {
               <div className="grid gap-4 md:grid-cols-2">
                 <DetailRow label="ID" value={selected.id} />
                 <DetailRow label="Status" value={formatStatus(selected.status)} />
+                <DetailRow label="Running status" value={formatStatus(selected.honest_status)} />
+                <DetailRow label="Step progress" value={selected.step_progress?.label || (selected.workflow_steps?.length ? `0 of ${selected.workflow_steps.length}` : '')} />
                 <DetailRow label="Owner" value={selected.owner || 'unassigned'} />
+                <DetailRow label="Workbench" value={selected.workbench} />
                 <DetailRow label="Priority" value={String(selected.priority ?? 0)} />
                 <DetailRow label="Source" value={selected.source} />
                 <DetailRow label="Updated at" value={selected.updated_at} />
                 <DetailRow label="Created at" value={selected.created_at} />
                 <DetailRow label="Requested by" value={selected.requested_by} />
                 <DetailRow label="Next action" value={selected.next_action} />
+                <DetailRow label="Parent ID" value={selected.parent_id} />
+                <DetailRow label="Depends on" value={renderList(selected.depends_on)} />
+                <DetailRow label="On complete" value={selected.on_complete} />
                 <DetailRow label="Tags" value={renderList(selected.tags)} />
                 <DetailRow label="Sources" value={renderList(selected.sources)} />
                 <DetailRow label="Source refs" value={renderList(selected.source_refs)} />

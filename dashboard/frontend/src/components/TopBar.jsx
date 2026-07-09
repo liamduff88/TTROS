@@ -1,16 +1,22 @@
-import { Circle, Plus, RefreshCw, Search, Zap } from 'lucide-react'
+import { Bot, Circle, Copy, ExternalLink, MessageSquare, Monitor, RefreshCw } from 'lucide-react'
 import { useState } from 'react'
-import { createDashboardTask } from '../api'
 
 export default function TopBar({ backendOk, cockpit, onNavigate, onRefresh }) {
   const [refreshing, setRefreshing] = useState(false)
-  const [query, setQuery] = useState('')
+  const [copied, setCopied] = useState('')
 
   const counts = cockpit?.counts || {}
-  const needs = (counts.human_review || 0) + (counts.needs_input || 0)
+  const needs = (counts.human_review || 0) + (counts.needs_input || 0) + (cockpit?.stalled?.length || 0)
   const blocked = counts.blocked || 0
-  const today = cockpit?.tokens?.periods?.today
-  const tokenChip = today?.known ? `$${Number(today.cost || 0).toFixed(2)}` : 'unavailable'
+  const tokenChip = cockpit?.tokens?.strip?.today?.label || 'Token usage: unavailable from current CLI output'
+  const tabs = [
+    ['message-board', 'Message Board'],
+    ['cockpit', 'Cockpit'],
+    ['work-queue', 'Queue'],
+    ['agents', 'Agents'],
+    ['artifacts', 'Artifacts'],
+    ['mission-control', 'Mission Control'],
+  ]
 
   const handleRefresh = async () => {
     setRefreshing(true)
@@ -18,41 +24,42 @@ export default function TopBar({ backendOk, cockpit, onNavigate, onRefresh }) {
     setTimeout(() => setRefreshing(false), 600)
   }
 
-  const queueHermes = async () => {
-    await createDashboardTask({
-      title: 'Ask Hermes from dashboard',
-      owner: 'hermes',
-      tags: 'dashboard,hermes',
-      context: query.trim() || 'Dashboard command bar Hermes question.',
-      definition_of_done: 'Hermes response is returned as a receipt with token usage block.',
-    })
-    onNavigate('work-queue', { workbench: 'hermes' })
+  const copyPrompt = async target => {
+    const prompt = `Open Agentic OS Live and work only from the active queue item assigned to ${target}. Preserve receipts, token usage lines, and local-only boundaries.`
+    await navigator.clipboard?.writeText(prompt)
+    setCopied(target)
+    setTimeout(() => setCopied(''), 1400)
   }
 
   const now = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
   const statusColor = blocked ? 'text-clay fill-clay' : needs ? 'text-champagne fill-champagne' : backendOk ? 'text-olive fill-olive' : 'text-taupe fill-taupe'
 
   return (
-    <header className="flex items-center justify-between gap-4 px-5 py-3 bg-graphite border-b border-softgraph flex-shrink-0">
-      <div className="flex min-w-0 flex-1 items-center gap-3">
-        <button onClick={() => onNavigate('work-queue')} className="inline-flex h-8 items-center gap-1.5 rounded border border-softgraph bg-softgraph/40 px-3 text-xs font-semibold text-stone hover:bg-softgraph">
-          <Plus size={13} />Create task
-        </button>
-        <button onClick={queueHermes} className="inline-flex h-8 items-center gap-1.5 rounded border border-champagne/60 bg-champagne/10 px-3 text-xs font-semibold text-champagne hover:bg-champagne/20">
-          <Zap size={13} />Ask Hermes
-        </button>
-        <div className="flex h-8 min-w-0 max-w-xl flex-1 items-center gap-2 rounded border border-softgraph bg-ink px-3">
-          <Search size={13} className="text-taupe" />
-          <input value={query} onChange={event => setQuery(event.target.value)} placeholder="Search everything" className="min-w-0 flex-1 bg-transparent text-xs text-stone outline-none placeholder:text-taupe" />
+    <header className="flex flex-col gap-2 bg-graphite px-4 py-3 border-b border-softgraph flex-shrink-0">
+      <div className="flex min-w-0 items-center justify-between gap-3">
+        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+          {tabs.map(([id, label]) => (
+            <button key={id} onClick={() => onNavigate(id)} className="inline-flex h-8 items-center gap-1.5 rounded border border-softgraph bg-ink px-2.5 text-xs font-semibold text-stone hover:border-champagne/50">
+              {id === 'message-board' && <MessageSquare size={13} />}
+              {label}
+            </button>
+          ))}
         </div>
-      </div>
-
-      <div className="flex items-center gap-5">
         <div className="hidden items-center gap-1.5 md:flex">
           <Circle size={8} className={statusColor} />
           <span className="text-xs font-mono text-taupe">{blocked ? `${blocked} blocked` : needs ? `${needs} needs me` : backendOk ? 'ready' : 'API offline'}</span>
         </div>
-        <button onClick={() => onNavigate('tokens-roi')} className="rounded border border-softgraph bg-ink px-2.5 py-1.5 text-xs font-mono text-champagne">Today {tokenChip}</button>
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap gap-1.5">
+          <button onClick={() => window.open('https://t.me/', '_blank')} className="inline-flex h-8 items-center gap-1.5 rounded border border-softgraph bg-softgraph/40 px-2.5 text-xs text-stone hover:bg-softgraph"><ExternalLink size={13} />Open Telegram</button>
+          <button onClick={() => window.open('http://127.0.0.1:3010', '_blank')} className="inline-flex h-8 items-center gap-1.5 rounded border border-softgraph bg-softgraph/40 px-2.5 text-xs text-stone hover:bg-softgraph"><Monitor size={13} />Open Hermes Desktop</button>
+          <button disabled title="connects in Phase D" className="inline-flex h-8 items-center gap-1.5 rounded border border-softgraph bg-ink px-2.5 text-xs text-taupe opacity-60"><Bot size={13} />Latitude</button>
+          <button onClick={() => copyPrompt('codex')} className="inline-flex h-8 items-center gap-1.5 rounded border border-softgraph bg-ink px-2.5 text-xs text-stone hover:border-champagne/50"><Copy size={13} />{copied === 'codex' ? 'Copied Codex' : 'Codex copy-prompt'}</button>
+          <button onClick={() => copyPrompt('claude-code')} className="inline-flex h-8 items-center gap-1.5 rounded border border-softgraph bg-ink px-2.5 text-xs text-stone hover:border-champagne/50"><Copy size={13} />{copied === 'claude-code' ? 'Copied Claude' : 'Claude Code copy-prompt'}</button>
+        </div>
+        <button onClick={() => onNavigate('tokens-roi')} className="rounded border border-softgraph bg-ink px-2.5 py-1.5 text-xs font-mono text-champagne">{tokenChip}</button>
         <div className="hidden text-xs text-taupe font-mono lg:block">{new Date().toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })} · {now}</div>
         <button onClick={handleRefresh} className="text-taupe hover:text-stone transition-colors" title="Refresh dashboard">
           <RefreshCw size={13} className={refreshing ? 'animate-spin' : ''} />

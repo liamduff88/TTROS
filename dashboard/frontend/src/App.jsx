@@ -10,11 +10,15 @@ import Connectors from './views/Connectors'
 import Queue from './views/Queue'
 import { getDashboardCockpit, getHealth, getOverview } from './api'
 import { Cockpit, ConnectionsSpine, GraphifyPage, MemoryBoard, PromptLibrary, RepoIngest, ResultsReceipts, SettingsLaunchers, SkillsBoard, TokensROI, WorkflowBench } from './views/DashboardV1'
-import { TokenRail } from './components/DashboardKit'
+import { ArtifactsPage, AgentsPage, MessageBoard, MissionControl } from './views/WorkbenchV3'
+import { NeedsMeRail } from './components/DashboardKit'
 
 const VIEWS = {
+  'message-board': MessageBoard,
   cockpit: Cockpit,
   'work-queue': Queue,
+  artifacts: ArtifactsPage,
+  'mission-control': MissionControl,
   'workflow-bench': WorkflowBench,
   'skills-board': SkillsBoard,
   'memory-board': MemoryBoard,
@@ -26,7 +30,8 @@ const VIEWS = {
   'prompt-library': PromptLibrary,
   settings: SettingsLaunchers,
   overview: Overview,
-  agents: AgentWorkbench,
+  agents: AgentsPage,
+  'agent-workbench': AgentWorkbench,
   packets: PacketCreator,
   tracker: Tracker,
   logs: LogsResults,
@@ -35,7 +40,7 @@ const VIEWS = {
 }
 
 export default function App() {
-  const [view, setView] = useState('cockpit')
+  const [view, setView] = useState('message-board')
   const [viewParams, setViewParams] = useState({})
   const [backendOk, setBackendOk] = useState(null)
   const [overview, setOverview] = useState(null)
@@ -69,7 +74,7 @@ export default function App() {
           <main className="flex-1 overflow-y-auto p-6">
             <ViewComponent overview={overview} cockpit={cockpit} initialFilters={viewParams} onNavigate={navigate} refresh={refreshCockpit} onRefresh={() => getOverview().then(setOverview).catch(() => setOverview({ error: true }))} />
           </main>
-          <TokenRail tokens={cockpit?.tokens} onNavigate={navigate} />
+          <NeedsMeRail cockpit={cockpit} onNavigate={navigate} />
         </div>
       </div>
     </div>
