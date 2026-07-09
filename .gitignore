@@ -84,3 +84,5 @@ legacy_harvest/
 
 # Local token usage receipt artifacts
 queue/receipts/*.token_usage.json
+
+dashboard/data/
