@@ -1,5 +1,5 @@
 # workflows/ — run instances of earned skills
-> Revisit: when a workflow is added, retired, or a skill it mirrors changes. · Last touched: 2026-07-07.
+> Revisit: when a workflow is added, retired, or a skill it mirrors changes. · Last touched: 2026-07-08.
 
 A workflow is the executable shape of a skill: `workflows/<name>/workflow.md`
 plus, once run, that instance's `output/` and `receipts/`. A skill defines
@@ -7,14 +7,12 @@ plus, once run, that instance's `output/` and `receipts/`. A skill defines
 No workflow exists without a matching skill in `skills/` — this folder
 never invents scope the skill layer hasn't earned.
 
-## Planned inventory (built in Batches 10–11, not yet present)
-**Delivery workflows** (Batch 10 — 5 files, mirroring Batch 8 skills):
-`fit_call_prep`, `quick_win_scan`, `business_efficiency_assessment`,
-`speed_to_lead`, `voice_agent_setup`.
-
-**Remaining workflows** (Batch 11 — 5 files, mirroring Batch 8–9 skills):
-`client_memory`, `lead_gen_agent`, `ai_operations_support`,
-`marketing_content`, `weekly_review`.
+## Inventory (Batches 10–11 built; stamp corrected 2026-07-08)
+**Delivery workflows:** `fit_call_prep`, `quick_win_scan`,
+`business_efficiency_assessment`, `speed_to_lead`, `voice_agent_setup`.
+**Business workflows:** `client_memory`, `lead_gen_agent`,
+`ai_operations_support`, `marketing_content`, `weekly_review`.
+**Added post-batch:** `linkedin_carousel_from_md`, `internal_outreach_daily`.
 
 ## Naming note
 Workflow folder names occasionally drop the `build_` / `_prep` prefix used
