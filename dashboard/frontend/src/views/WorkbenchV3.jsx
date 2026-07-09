@@ -361,6 +361,8 @@ export function MissionControl() {
   const [watch, setWatch] = useState(null)
   useEffect(() => { getDashboardSystemWatch().then(setWatch) }, [])
   const stalled = watch?.stalled || []
+  const backup = watch?.backup || {}
+  const latestBackup = backup?.latest
   return (
     <>
       <PageHeader title="Mission Control" question="Read-only system watch: backend, queue tooling, stalled runs, and log tail." />
@@ -369,6 +371,22 @@ export function MissionControl() {
         <div className="rounded border border-softgraph bg-graphite/70 p-4"><div className="text-xs text-taupe">Queue Tooling</div><div className="mt-1 text-lg text-stone">{watch?.queue_tooling?.status || 'loading'}</div></div>
         <div className="rounded border border-softgraph bg-graphite/70 p-4"><div className="text-xs text-taupe">Stalled Runs</div><div className="mt-1 text-lg text-stone">{stalled.length}</div></div>
       </div>
+      <section className={`mt-4 rounded border p-4 ${backup?.needs_attention ? 'border-clay/70 bg-clay/10' : 'border-softgraph bg-graphite/70'}`}>
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <h2 className="text-sm font-semibold text-stone">Automated Backup</h2>
+            <div className="mt-1 text-xs text-taupe">{backup?.token_usage_text || 'Token usage: no agent invocation'}</div>
+          </div>
+          <StatusChip status={backup?.needs_attention ? 'Blocked' : 'Done'}>{backup?.state || 'loading'}</StatusChip>
+        </div>
+        <div className="mt-3 grid gap-2 text-xs text-taupe md:grid-cols-2">
+          <div><span className="text-stone">Last:</span> {latestBackup?.ts || 'no backup receipts yet'}</div>
+          <div><span className="text-stone">Target:</span> {latestBackup?.target || 'D:\\TTROS_Backups'}</div>
+          <div className="md:col-span-2"><span className="text-stone">Snapshot:</span> {latestBackup?.snapshot_path || 'unavailable'}</div>
+          <div className="md:col-span-2"><span className="text-stone">Receipt:</span> {backup?.latest_receipt_path || 'queue/receipts/backups.jsonl'}</div>
+          <div className="md:col-span-2"><span className="text-stone">Log:</span> {backup?.latest_log_path || 'unavailable'}</div>
+        </div>
+      </section>
       <div className="mt-4 grid gap-4 xl:grid-cols-2">
         <div className="rounded border border-softgraph bg-graphite/70 p-4"><h2 className="text-sm font-semibold text-stone">Stalled</h2><div className="mt-3 space-y-2">{stalled.map(item => <RowButton key={item.id} title={item.title} meta={`${item.id} · ${item.stalled_minutes} min`} right={<StatusChip status="Blocked">stalled</StatusChip>} />)}{!stalled.length && <EmptyState title="No stalled runs" detail="No claimed/running queue item exceeded the configured window." />}</div></div>
         <pre className="max-h-96 overflow-auto rounded border border-softgraph bg-ink p-3 text-xs text-taupe">{(watch?.error_log_tail || []).join('\n') || 'No log tail available.'}</pre>

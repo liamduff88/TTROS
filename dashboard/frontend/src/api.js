@@ -37,6 +37,7 @@ export const wslClaude = (task) => apiWsl.post('/wsl/claude', { task }).then(r =
 export const wslCodex = (task) => apiWsl.post('/wsl/codex', { task }).then(r => r.data)
 
 export const telegramStatus = () => api.get('/connectors/telegram/status').then(r => r.data)
+export const getBackupsStatus = () => api.get('/backups/status').then(r => r.data)
 export const getDashboardCockpit = () => api.get('/dashboard/cockpit').then(r => r.data)
 export const getDashboardTokens = () => api.get('/dashboard/tokens').then(r => r.data)
 export const getDashboardResults = () => api.get('/dashboard/results').then(r => r.data)

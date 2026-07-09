@@ -47,6 +47,7 @@ for d in [PACKETS_DIR, LOGS_DIR, RESULTS_DIR, CONNECTORS_DIR, DATA_DIR]:
 TRACKER_FILE = DATA_DIR / "tracker.json"
 TOKEN_USAGE_FILE = LOGS_DIR / "token_usage.jsonl"
 QUEUE_DIR = BASE_DIR / "queue"
+BACKUP_RECEIPTS_FILE = QUEUE_DIR / "receipts" / "backups.jsonl"
 TOKEN_LEDGER_FILE = QUEUE_DIR / "token_ledger.jsonl"
 ROOT_TOKEN_LEDGER_FILE = BASE_DIR / "token_ledger.jsonl"
 SKILL_TRUST_FILE = QUEUE_DIR / "skill_trust.jsonl"
@@ -178,6 +179,86 @@ def get_overview():
         **token_rollup,
         "version": "0.1.0",
     }
+
+
+def _read_backup_receipts(path: Path | None = None) -> list[dict]:
+    receipt_file = path or BACKUP_RECEIPTS_FILE
+    if not receipt_file.exists():
+        return []
+    receipts = []
+    for raw in receipt_file.read_text(encoding="utf-8", errors="replace").splitlines():
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            record = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(record, dict):
+            receipts.append(record)
+    return receipts
+
+
+def _backup_status(now: datetime.datetime | None = None, receipts: list[dict] | None = None) -> dict:
+    now = now or datetime.datetime.now(datetime.timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=datetime.timezone.utc)
+    records = _read_backup_receipts() if receipts is None else receipts
+    if not records:
+        return {
+            "state": "no_receipts",
+            "latest": None,
+            "latest_receipt_path": _safe_relative(BACKUP_RECEIPTS_FILE),
+            "latest_log_path": None,
+            "stale_after_hours": 48,
+            "needs_attention": False,
+            "token_usage_text": "Token usage: no agent invocation",
+        }
+    latest = records[-1]
+    latest_ts = _parse_record_timestamp(latest.get("ts"))
+    latest_status = str(latest.get("status") or "").lower()
+    if latest_status == "fail":
+        state = "failed"
+    elif latest_status == "success" and latest_ts and (now - latest_ts.astimezone(datetime.timezone.utc)).total_seconds() <= 48 * 3600:
+        state = "fresh_success"
+    else:
+        state = "stale"
+    log_path = latest.get("log_path")
+    safe_log_path = None
+    if log_path:
+        try:
+            safe_log_path = _safe_relative(Path(log_path))
+        except Exception:
+            safe_log_path = str(log_path)
+    return {
+        "state": state,
+        "latest": {
+            "ts": latest.get("ts"),
+            "status": latest.get("status"),
+            "target": latest.get("target"),
+            "target_drive": latest.get("target_drive"),
+            "target_label": latest.get("target_label"),
+            "snapshot_path": latest.get("snapshot_path"),
+            "sources": latest.get("sources") or [],
+            "files_copied": latest.get("files_copied") if latest.get("files_copied") is not None else latest.get("files_total"),
+            "bytes_copied": latest.get("bytes_copied") if latest.get("bytes_copied") is not None else latest.get("bytes"),
+            "duration_s": latest.get("duration_s"),
+            "dry_run": bool(latest.get("dry_run")),
+            "errors": latest.get("errors") or [],
+            "warnings": latest.get("warnings") or [],
+            "token_usage_text": latest.get("token_usage_text") or "Token usage: no agent invocation",
+        },
+        "latest_receipt_path": _safe_relative(BACKUP_RECEIPTS_FILE),
+        "latest_log_path": safe_log_path,
+        "stale_after_hours": 48,
+        "needs_attention": state in {"failed", "stale"},
+        "token_usage_text": "Token usage: no agent invocation",
+    }
+
+
+@app.get("/api/backups/status")
+def backups_status():
+    return _backup_status()
 
 
 
@@ -2958,6 +3039,7 @@ def dashboard_cockpit():
     needs_me = _queue_human_needed_items(items)
     stalled = _stalled_items(items, 15)
     token_summary = _dashboard_token_summary()
+    backup = _backup_status()
     workbenches = []
     for name in ("hermes", "codex", "claude", "claude-code", "antigravity", "connectors", "graphify"):
         tool = next((row for row in token_summary["by_tool"] if row["tool"] == name), None)
@@ -2983,6 +3065,7 @@ def dashboard_cockpit():
         "recent_output": _recent_file_items()[:8],
         "tokens": token_summary,
         "workbenches": workbenches,
+        "backup": backup,
     }
 
 
@@ -3234,6 +3317,7 @@ def dashboard_system_watch(stalled_minutes: int = 15):
     if log_path.exists():
         tail = log_path.read_text(encoding="utf-8", errors="replace").splitlines()[-20:]
     queue_tool_exists = QUEUE_TOOL.exists()
+    backup = _backup_status()
     return {
         "backend": {"status": "ok", "checked_at": datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")},
         "queue_tooling": {"status": "ok" if queue_tool_exists else "missing", "path": _safe_relative(QUEUE_TOOL)},
@@ -3251,6 +3335,8 @@ def dashboard_system_watch(stalled_minutes: int = 15):
             {"id": item["id"], "title": item["title"], "reason": "stalled run", "status": item["status"], "stalled_minutes": item["stalled_minutes"]}
             for item in stalled
         ],
+        "backup": backup,
+        "backup_needs_attention": backup.get("needs_attention", False),
     }
 
 

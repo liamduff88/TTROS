@@ -173,6 +173,8 @@ export function TokenRail({ tokens, onNavigate }) {
 export function NeedsMeRail({ cockpit, onNavigate }) {
   const items = cockpit?.needs_me || []
   const strip = cockpit?.tokens?.strip || {}
+  const backup = cockpit?.backup || {}
+  const backupAttention = backup?.needs_attention
   return (
     <aside className="hidden w-72 shrink-0 border-l border-softgraph bg-graphite/80 p-4 xl:block">
       <div className="text-xs font-mono text-champagne">NEEDS ME</div>
@@ -189,6 +191,12 @@ export function NeedsMeRail({ cockpit, onNavigate }) {
         ))}
         {!items.length && <div className="rounded border border-softgraph bg-ink p-3 text-xs text-taupe">No stalled, blocked, review, or input items.</div>}
       </div>
+      {backupAttention && (
+        <button onClick={() => onNavigate('mission-control')} className="mt-4 w-full rounded border border-clay/70 bg-clay/10 p-3 text-left text-xs hover:border-clay">
+          <div className="font-semibold text-clay">Backup needs attention</div>
+          <div className="mt-1 text-taupe">{backup.state === 'failed' ? 'Latest backup failed.' : 'Latest backup is older than 48 hours.'}</div>
+        </button>
+      )}
       <div className="mt-5 rounded border border-softgraph bg-ink p-3 text-xs text-taupe">
         <div className="font-mono text-champagne">TOKENS</div>
         <div className="mt-2">{strip.current_task?.label || 'Token usage: unavailable from current CLI output'}</div>

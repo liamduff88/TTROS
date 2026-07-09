@@ -37,6 +37,36 @@ const byFilters = (item, filters) =>
   (!filters.source || String(item.source || '').toLowerCase() === filters.source.toLowerCase()) &&
   textMatch(item, filters.q || '')
 
+const backupLabel = state => ({
+  no_receipts: 'No receipts',
+  fresh_success: 'Fresh success',
+  stale: 'Stale',
+  failed: 'Failed',
+}[state] || 'Unavailable')
+
+function BackupStatusCard({ backup }) {
+  const latest = backup?.latest
+  const attention = backup?.needs_attention
+  return (
+    <div className={`rounded border p-4 ${attention ? 'border-clay/70 bg-clay/10' : 'border-softgraph bg-graphite/70'}`}>
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <h2 className="text-sm font-semibold text-stone">Automated Backup</h2>
+          <div className="mt-1 text-xs text-taupe">{backup?.token_usage_text || 'Token usage: no agent invocation'}</div>
+        </div>
+        <StatusChip status={attention ? 'Blocked' : 'Done'}>{backupLabel(backup?.state)}</StatusChip>
+      </div>
+      <div className="mt-3 grid gap-2 text-xs text-taupe md:grid-cols-2">
+        <div><span className="text-stone">Last:</span> {latest?.ts || 'no backup receipts yet'}</div>
+        <div><span className="text-stone">Target:</span> {latest?.target || 'D:\\TTROS_Backups'}</div>
+        <div className="md:col-span-2"><span className="text-stone">Snapshot:</span> {latest?.snapshot_path || 'unavailable'}</div>
+        <div className="md:col-span-2"><span className="text-stone">Receipt:</span> {backup?.latest_receipt_path || 'queue/receipts/backups.jsonl'}</div>
+        <div className="md:col-span-2"><span className="text-stone">Log:</span> {backup?.latest_log_path || 'unavailable'}</div>
+      </div>
+    </div>
+  )
+}
+
 function useAsync(loader, deps = []) {
   const [state, setState] = useState({ loading: true, data: null, error: '' })
   useEffect(() => {
@@ -89,6 +119,9 @@ export function Cockpit({ cockpit, onNavigate, refresh }) {
             ))}
           </div>
         </div>
+        <BackupStatusCard backup={data.backup} />
+      </section>
+      <section className="mt-4 grid gap-4 xl:grid-cols-2">
         <div className="rounded border border-softgraph bg-graphite/70 p-4">
           <h2 className="mb-3 text-sm font-semibold text-stone">Workbench Tiles</h2>
           <div className="grid gap-2 md:grid-cols-2">

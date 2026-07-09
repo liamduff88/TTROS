@@ -1,4 +1,5 @@
 import importlib.util
+import datetime
 import json
 import re
 import sys
@@ -178,6 +179,49 @@ class HermesComposioTests(unittest.TestCase):
                 "created_at": "2026-07-05T10:03:00Z",
             },
         ]
+
+    def test_backup_status_no_receipts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            receipt_path = Path(tmp) / "queue" / "receipts" / "backups.jsonl"
+            with patch.object(backend, "BACKUP_RECEIPTS_FILE", receipt_path):
+                result = backend._backup_status(now=datetime.datetime(2026, 7, 9, 12, 0, tzinfo=datetime.timezone.utc))
+        self.assertEqual(result["state"], "no_receipts")
+        self.assertFalse(result["needs_attention"])
+        self.assertEqual(result["token_usage_text"], "Token usage: no agent invocation")
+
+    def test_backups_status_endpoint_returns_no_agent_invocation(self):
+        with patch.object(backend, "_backup_status", return_value={"state": "no_receipts", "token_usage_text": "Token usage: no agent invocation"}) as status:
+            result = backend.backups_status()
+        status.assert_called_once()
+        self.assertEqual(result["state"], "no_receipts")
+        self.assertEqual(result["token_usage_text"], "Token usage: no agent invocation")
+
+    def test_backup_status_fresh_success(self):
+        now = datetime.datetime(2026, 7, 9, 12, 0, tzinfo=datetime.timezone.utc)
+        receipts = [{"ts": "2026-07-09T11:00:00Z", "status": "success", "target": "D:\\TTROS_Backups", "token_usage_text": "Token usage: no agent invocation"}]
+        result = backend._backup_status(now=now, receipts=receipts)
+        self.assertEqual(result["state"], "fresh_success")
+        self.assertFalse(result["needs_attention"])
+        self.assertEqual(result["latest"]["target"], "D:\\TTROS_Backups")
+        self.assertEqual(result["token_usage_text"], "Token usage: no agent invocation")
+
+    def test_backup_status_stale_success(self):
+        now = datetime.datetime(2026, 7, 9, 12, 0, tzinfo=datetime.timezone.utc)
+        receipts = [{"ts": "2026-07-06T11:00:00Z", "status": "success", "snapshot_path": "D:\\TTROS_Backups\\2026-07-06_1100"}]
+        result = backend._backup_status(now=now, receipts=receipts)
+        self.assertEqual(result["state"], "stale")
+        self.assertTrue(result["needs_attention"])
+
+    def test_backup_status_latest_fail(self):
+        now = datetime.datetime(2026, 7, 9, 12, 0, tzinfo=datetime.timezone.utc)
+        receipts = [
+            {"ts": "2026-07-09T10:00:00Z", "status": "success"},
+            {"ts": "2026-07-09T11:00:00Z", "status": "fail", "errors": ["Target drive is absent"]},
+        ]
+        result = backend._backup_status(now=now, receipts=receipts)
+        self.assertEqual(result["state"], "failed")
+        self.assertTrue(result["needs_attention"])
+        self.assertEqual(result["latest"]["errors"], ["Target drive is absent"])
 
     def test_normal_task_uses_hermes_coordinator(self):
         command, result = self.route("quick search for local micro cement plasterers")
