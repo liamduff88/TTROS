@@ -927,15 +927,16 @@ def _simple_token_line(task_id: str, component: str, tokens: int, basis: str) ->
         "task_id": task_id or "unattributed",
         "component": component or "unattributed",
         "tokens": max(0, int(tokens)),
-        "basis": basis if basis in {"exact", "estimate"} else "estimate",
+        "basis": basis if basis in {"exact", "estimate"} else "exact",
     }
 
 
-def _append_simple_token_ledger(task_id: str, component: str, token_usage: dict, raw_text: str) -> None:
+def _append_simple_token_ledger(task_id: str, component: str, token_usage: dict) -> None:
     if token_usage.get("no_agent_invocation"):
         return
+    if token_usage.get("available") is not True:
+        return
     total = token_usage.get("total_tokens")
-    basis = "exact"
     try:
         tokens = int(str(total).replace(",", "")) if total is not None else None
     except (TypeError, ValueError):
@@ -946,14 +947,10 @@ def _append_simple_token_ledger(task_id: str, component: str, token_usage: dict,
         try:
             tokens = int(str(input_tokens).replace(",", "")) + int(str(output_tokens).replace(",", ""))
         except (TypeError, ValueError):
-            compact = str(raw_text or "")
-            if not compact.strip():
-                return
-            tokens = max(1, round(len(compact) / 4))
-            basis = "estimate"
+            return
     try:
         with ROOT_TOKEN_LEDGER_FILE.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(_simple_token_line(task_id, component, tokens, basis), separators=(",", ":")) + "\n")
+            handle.write(json.dumps(_simple_token_line(task_id, component, tokens, "exact"), separators=(",", ":")) + "\n")
     except OSError:
         return
 
@@ -1443,7 +1440,6 @@ def _log_token_usage(
         str((route_metadata or {}).get("item_id") or task[:80] or route),
         agent or route,
         token_usage,
-        f"{task}\n{token_usage_text}",
     )
     return record
 

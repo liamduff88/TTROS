@@ -281,6 +281,53 @@ class HermesComposioTests(unittest.TestCase):
         self.assertEqual(result["token_usage"]["total_tokens"], 14)
         self.assertIn("total 14", result["token_usage_text"])
 
+    def test_simple_token_ledger_writes_only_exact_reported_usage(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger = Path(tmp) / "token_ledger.jsonl"
+            with patch.object(backend, "ROOT_TOKEN_LEDGER_FILE", ledger):
+                backend._append_simple_token_ledger(
+                    "AOS-2026-0101",
+                    "codex",
+                    {"available": False},
+                )
+                backend._append_simple_token_ledger(
+                    "AOS-2026-0102",
+                    "codex",
+                    {"available": True, "input_tokens": "7", "output_tokens": "5"},
+                )
+                backend._append_simple_token_ledger(
+                    "AOS-2026-0103",
+                    "codex",
+                    {"available": True, "total_tokens": "1,205"},
+                )
+
+            rows = [json.loads(line) for line in ledger.read_text(encoding="utf-8").splitlines()]
+            self.assertEqual([row["task_id"] for row in rows], ["AOS-2026-0102", "AOS-2026-0103"])
+            self.assertEqual([row["tokens"] for row in rows], [12, 1205])
+            self.assertEqual([row["basis"] for row in rows], ["exact", "exact"])
+
+    def test_simple_token_ledger_does_not_estimate_from_missing_usage(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger = Path(tmp) / "token_ledger.jsonl"
+            with patch.object(backend, "ROOT_TOKEN_LEDGER_FILE", ledger):
+                backend._append_simple_token_ledger(
+                    "AOS-2026-0104",
+                    "codex",
+                    {"available": True},
+                )
+                backend._append_simple_token_ledger(
+                    "AOS-2026-0105",
+                    "codex",
+                    {"available": True, "input_tokens": "7"},
+                )
+                backend._append_simple_token_ledger(
+                    "AOS-2026-0106",
+                    "hermes",
+                    {"available": False, "no_agent_invocation": True},
+                )
+
+            self.assertFalse(ledger.exists())
+
     def test_queue_run_uses_prompt_files_and_redacted_token_task(self):
         adversarial_title = "Build output with `ticks`, $(bad), $VARS, quotes, and C:\\Users\\Admin\\A Time"
         with tempfile.TemporaryDirectory() as tmp:
