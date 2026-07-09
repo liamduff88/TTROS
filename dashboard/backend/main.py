@@ -10,6 +10,7 @@ import webbrowser
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -452,6 +453,45 @@ def _run_wsl(bash_cmd: str, timeout: int = 60) -> dict:
         return {"success": False, "output": "wsl.exe not found — WSL not available on this machine", "returncode": -1}
     except Exception as e:
         return {"success": False, "output": f"Error: {e}", "returncode": -1}
+
+
+def _run_agentic_os_clean_bash(bash_cmd: str, timeout: int = 60) -> dict:
+    """Run in AgenticOSClean, using direct bash when already inside the distro."""
+    if shutil.which("wsl.exe"):
+        return _run_wsl(bash_cmd, timeout=timeout)
+    full_cmd = f"{WSL_ENV}; {bash_cmd}"
+    try:
+        result = subprocess.run(
+            ["bash", "-lc", full_cmd],
+            cwd=str(BASE_DIR),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=timeout,
+        )
+        stdout = result.stdout.strip()
+        stderr = result.stderr.strip()
+        output = stdout if stdout else stderr
+        return {
+            "success": result.returncode == 0,
+            "output": output or "(no output)",
+            "stdout": stdout,
+            "stderr": stderr,
+            "returncode": result.returncode,
+        }
+    except subprocess.TimeoutExpired:
+        return {
+            "success": False,
+            "output": f"Command timed out after {timeout}s",
+            "stdout": "",
+            "stderr": f"Command timed out after {timeout}s",
+            "returncode": -1,
+            "timed_out": True,
+            "timeout_seconds": timeout,
+        }
+    except Exception as e:
+        return {"success": False, "output": f"Error: {e}", "stdout": "", "stderr": f"Error: {e}", "returncode": -1}
 
 
 def _write_agent_prompt_file(prompt: str, prefix: str = "aos_prompt_") -> tuple[Path, str]:
@@ -1386,6 +1426,122 @@ def wsl_status():
 
 class TaskRun(BaseModel):
     task: str
+
+
+class HermesMessage(BaseModel):
+    text: str
+
+
+def _token_usage_from_hermes_usage_report(usage: dict | None) -> tuple[dict, str]:
+    if not isinstance(usage, dict):
+        return {"available": False}, "Token usage: unavailable from current CLI output"
+
+    fields = {}
+    for key in (
+        "input_tokens",
+        "output_tokens",
+        "cache_read_tokens",
+        "cache_write_tokens",
+        "reasoning_tokens",
+        "total_tokens",
+        "api_calls",
+    ):
+        value = usage.get(key)
+        if isinstance(value, bool) or value is None:
+            continue
+        if isinstance(value, int):
+            fields[key] = value
+            continue
+        if isinstance(value, str) and re.fullmatch(r"\d+", value.strip()):
+            fields[key] = int(value.strip())
+
+    model = usage.get("model")
+    provider = usage.get("provider")
+    failed = bool(usage.get("failed"))
+    failure = str(usage.get("failure") or "").strip()
+    token_usage = {
+        "available": bool(fields),
+        **fields,
+        "model": model,
+        "provider": provider,
+        "completed": usage.get("completed"),
+        "failed": failed,
+    }
+    if failure:
+        token_usage["failure"] = failure
+
+    if not fields:
+        return token_usage, "Token usage: unavailable from current CLI output"
+
+    labels = {
+        "input_tokens": "input",
+        "output_tokens": "output",
+        "cache_read_tokens": "cache read",
+        "cache_write_tokens": "cache write",
+        "reasoning_tokens": "reasoning",
+        "total_tokens": "total",
+        "api_calls": "api calls",
+    }
+    summary = ", ".join(f"{labels[key]} {fields[key]}" for key in labels if key in fields)
+    return token_usage, f"Token usage: {summary}"
+
+
+def _read_hermes_usage_report(path: Path) -> dict | None:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def _run_hermes_message(text: str) -> dict:
+    prompt_path, prompt_wsl_path = _write_agent_prompt_file(text, prefix="hermes_message_")
+    usage_handle = tempfile.NamedTemporaryFile(
+        "w",
+        encoding="utf-8",
+        prefix="hermes_usage_",
+        suffix=".json",
+        dir=prompt_path.parent,
+        delete=False,
+    )
+    usage_path = Path(usage_handle.name)
+    usage_handle.close()
+    usage_wsl_path = _path_for_wsl_command(usage_path)
+    command = (
+        f"{shlex.quote(_path_for_wsl_command(HERMES_COORDINATOR))} "
+        f"--usage-file {shlex.quote(usage_wsl_path)} "
+        f"--prompt-file {shlex.quote(prompt_wsl_path)}"
+    )
+    try:
+        result = _run_agentic_os_clean_bash(command, timeout=120)
+        usage_report = _read_hermes_usage_report(usage_path)
+    finally:
+        for path in (prompt_path, usage_path):
+            try:
+                path.unlink()
+            except FileNotFoundError:
+                pass
+
+    reply = _clean_hermes_stream(result.get("stdout") or result.get("output") or "")
+    token_usage, token_usage_text = _token_usage_from_hermes_usage_report(usage_report)
+    metadata = {
+        "requested_target": "hermes",
+        "selected_route": "hermes_message",
+        "delegation_reason": "direct Hermes one-shot API route",
+        "codex_forbidden": "no",
+        "profile_requested": "aos-orchestrator",
+        "profile_used": "aos-orchestrator",
+    }
+    _log_token_usage("hermes", "hermes", text, token_usage, token_usage_text, metadata)
+    return {
+        "success": bool(result.get("success")) and not token_usage.get("failed", False),
+        "reply": reply,
+        "token_usage": token_usage,
+        "token_usage_text": token_usage_text,
+        "returncode": result.get("returncode", -1),
+        "stderr": _clean_hermes_stream(result.get("stderr")),
+        "raw_output_tail": "\n".join((str(result.get("stdout") or result.get("output") or "")).splitlines()[-20:]),
+    }
 
 
 # Commands deliberately use only read/info slugs already evidenced by the local
@@ -3595,6 +3751,17 @@ def wsl_hermes(body: TaskRun):
     if selected_route == "hermes_coordinator":
         return _hermes_coordinator_closeout(result, body.task, metadata)
     return _compact_agent_closeout(result, route, agent, body.task, metadata)
+
+
+@app.post("/api/hermes/message")
+def hermes_message(body: HermesMessage):
+    """Send one direct, headless message through the project Hermes wrapper."""
+    if not body.text.strip():
+        raise HTTPException(status_code=422, detail="text must not be empty")
+    result = _run_hermes_message(body.text)
+    if not result["success"]:
+        raise HTTPException(status_code=502, detail=result)
+    return result
 
 
 @app.post("/api/wsl/claude")

@@ -236,6 +236,51 @@ class HermesComposioTests(unittest.TestCase):
         self.assertTrue(seen["prompt_exists_during_run"])
         self.assertFalse(seen["prompt_exists_after_run"])
 
+    def test_hermes_message_uses_wrapper_prompt_file_and_usage_file(self):
+        seen = {}
+
+        def capture(command, timeout=60):
+            seen["command"] = command
+            prompt_match = re.search(r"--prompt-file\s+(?P<quote>['\"]?)(?P<path>[^'\")]+)(?P=quote)", command)
+            usage_match = re.search(r"--usage-file\s+(?P<quote>['\"]?)(?P<path>[^'\")]+)(?P=quote)", command)
+            self.assertIsNotNone(prompt_match)
+            self.assertIsNotNone(usage_match)
+            prompt_path = Path(prompt_match.group("path"))
+            usage_path = Path(usage_match.group("path"))
+            seen["prompt"] = prompt_path.read_text(encoding="utf-8")
+            seen["prompt_exists_during_run"] = prompt_path.exists()
+            usage_path.write_text(
+                json.dumps({
+                    "input_tokens": 11,
+                    "output_tokens": 3,
+                    "total_tokens": 14,
+                    "api_calls": 1,
+                    "model": "gpt-5.5",
+                    "provider": "openai-codex",
+                    "completed": True,
+                    "failed": False,
+                }),
+                encoding="utf-8",
+            )
+            seen["usage_path"] = usage_path
+            return {"success": True, "output": "ALIVE", "stdout": "ALIVE", "stderr": "", "returncode": 0}
+
+        task = "reply with the word ALIVE and do not expose $(bad)"
+        with patch.object(backend, "_run_agentic_os_clean_bash", side_effect=capture), \
+             patch.object(backend, "_log_token_usage"):
+            result = backend.hermes_message(backend.HermesMessage(text=task))
+
+        self.assertIn("aos-hermes-coordinator.sh", seen["command"])
+        self.assertIn("--usage-file", seen["command"])
+        self.assertIn("--prompt-file", seen["command"])
+        self.assertNotIn("$(bad)", seen["command"])
+        self.assertEqual(seen["prompt"], task)
+        self.assertTrue(seen["prompt_exists_during_run"])
+        self.assertFalse(seen["usage_path"].exists())
+        self.assertEqual(result["reply"], "ALIVE")
+        self.assertEqual(result["token_usage"]["total_tokens"], 14)
+        self.assertIn("total 14", result["token_usage_text"])
+
     def test_queue_run_uses_prompt_files_and_redacted_token_task(self):
         adversarial_title = "Build output with `ticks`, $(bad), $VARS, quotes, and C:\\Users\\Admin\\A Time"
         with tempfile.TemporaryDirectory() as tmp:

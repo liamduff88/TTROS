@@ -6,6 +6,7 @@ export PATH="$HOME/.local/bin:$HOME/.local/npm/bin:$PATH"
 prompt_file=""
 provider_requested=""
 model_requested=""
+usage_file=""
 while (($# > 0)); do
   case "${1:-}" in
     --prompt-file)
@@ -33,6 +34,15 @@ while (($# > 0)); do
         exit 2
       fi
       model_requested="$2"
+      shift 2
+      ;;
+    --usage-file)
+      if (($# < 2)); then
+        echo "NEEDS ATTENTION"
+        echo "Blockers: --usage-file requires a path"
+        exit 2
+      fi
+      usage_file="$2"
       shift 2
       ;;
     *)
@@ -65,6 +75,12 @@ if [[ -n "$provider_requested" && -n "$model_requested" ]]; then
     echo "Blockers: Refusing placeholder provider/model route; using explicit flags requires real configured values"
     exit 2
   fi
+  if [[ -n "$usage_file" ]]; then
+    exec hermes --provider "$provider_requested" --model "$model_requested" --usage-file "$usage_file" --oneshot "$prompt"
+  fi
   exec hermes --provider "$provider_requested" --model "$model_requested" --oneshot "$prompt"
+fi
+if [[ -n "$usage_file" ]]; then
+  exec hermes --usage-file "$usage_file" --oneshot "$prompt"
 fi
 exec hermes --oneshot "$prompt"
