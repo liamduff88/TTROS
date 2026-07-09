@@ -21,10 +21,14 @@ import urllib.request
 TOOLS_DIR = Path(__file__).resolve().parents[2] / "tools"
 if str(TOOLS_DIR) not in sys.path:
     sys.path.insert(0, str(TOOLS_DIR))
+BACKEND_DIR = Path(__file__).resolve().parent
+if str(BACKEND_DIR) not in sys.path:
+    sys.path.insert(0, str(BACKEND_DIR))
 
 from aos_paths import AosPathError, aos_root, resolve_root_relative
 import aos_orchestration
 import aos_indexer
+import latitude_telemetry
 
 app = FastAPI(title="Agentic OS API", version="0.1.0")
 
@@ -153,6 +157,7 @@ ALLOWLISTED_LAUNCHERS = {
 
 @app.get("/api/health")
 def health():
+    latitude_telemetry.trace("backend.status", "dashboard_backend", "ok")
     return {
         "status": "ok",
         "version": "0.1.0",
@@ -264,7 +269,9 @@ def _backup_status(now: datetime.datetime | None = None, receipts: list[dict] | 
 
 @app.get("/api/backups/status")
 def backups_status():
-    return _backup_status()
+    status = _backup_status()
+    latitude_telemetry.trace("backup.status", "backup", status.get("state", "unknown"), needs_attention=status.get("needs_attention"))
+    return status
 
 
 @app.get("/api/search")
@@ -274,17 +281,23 @@ def api_search(q: str = "", type: str = "", tag: str = "", source: str = "", lim
 
 @app.get("/api/search/status")
 def api_search_status():
-    return aos_indexer.status()
+    status = aos_indexer.status()
+    latitude_telemetry.trace("search.status", "search_index", "ok", indexed=status.get("indexed"), path=status.get("path"))
+    return status
 
 
 @app.post("/api/search/reindex")
 def api_search_reindex():
-    return aos_indexer.scan()
+    result = aos_indexer.scan()
+    latitude_telemetry.trace("search.reindex", "search_index", "ok", count=result.get("count"))
+    return result
 
 
 @app.post("/api/ingest/tick")
 def api_ingest_tick():
-    return aos_indexer.ingest_tick()
+    result = aos_indexer.ingest_tick()
+    latitude_telemetry.trace("search.ingest_tick", "search_index", "ok", changed=result.get("changed"))
+    return result
 
 
 @app.get("/api/artifacts")
@@ -907,47 +920,8 @@ def _utc_now_iso() -> str:
     return datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
-def _latitude_config() -> dict:
-    env = _read_backend_env({
-        "LATITUDE_API_KEY",
-        "LATITUDE_ENDPOINT",
-        "LATITUDE_EVENTS_URL",
-        "LATITUDE_WORKSPACE_URL",
-        "LATITUDE_WORKSPACE_LINK",
-        "LATITUDE_PROJECT_ID",
-    })
-    endpoint = env.get("LATITUDE_ENDPOINT") or env.get("LATITUDE_EVENTS_URL")
-    workspace_url = env.get("LATITUDE_WORKSPACE_URL") or env.get("LATITUDE_WORKSPACE_LINK")
-    has_key = bool(env.get("LATITUDE_API_KEY"))
-    if not has_key:
-        status = "unavailable"
-        reason = "LATITUDE_API_KEY missing from dashboard/backend/.env or process env."
-    elif not endpoint:
-        status = "degraded"
-        reason = "Latitude API key present, but no explicit LATITUDE_ENDPOINT/LATITUDE_EVENTS_URL is configured; endpoint not guessed."
-    else:
-        status = "configured"
-        reason = "Latitude endpoint and key are configured at runtime."
-    return {
-        "status": status,
-        "reason": reason,
-        "has_api_key": has_key,
-        "has_endpoint": bool(endpoint),
-        "configured_key": "present" if has_key else "absent",
-        "endpoint_configured": "yes" if endpoint else "no",
-        "event_sending": "ready" if status == "configured" else "degraded",
-        "workspace_url_configured": "yes" if workspace_url else "no",
-        "workspace_url": workspace_url or "",
-        "project_configured": bool(env.get("LATITUDE_PROJECT_ID")),
-        "_endpoint": endpoint or "",
-        "_api_key": env.get("LATITUDE_API_KEY") or "",
-        "_project_id": env.get("LATITUDE_PROJECT_ID") or "",
-    }
-
-
 def _public_latitude_status() -> dict:
-    config = _latitude_config()
-    return {key: value for key, value in config.items() if not key.startswith("_")}
+    return latitude_telemetry.config_status()
 
 
 def _latitude_safe_event(event_type: str, component: str, status: str, task_id: str = "wp11-phase-d", token_usage: dict | None = None) -> dict:
@@ -972,69 +946,14 @@ def _latitude_safe_event(event_type: str, component: str, status: str, task_id: 
 
 
 def _send_latitude_event(event: dict) -> dict:
-    config = _latitude_config()
-    if config["status"] != "configured":
-        return {
-            "success": False,
-            "status": "degraded",
-            "event_sending": "degraded",
-            "configured_key": config["configured_key"],
-            "endpoint_configured": config["endpoint_configured"],
-            "reason": config["reason"],
-            "event": event,
-        }
-    body = json.dumps(event, separators=(",", ":")).encode("utf-8")
-    request = urllib.request.Request(
-        config["_endpoint"],
-        data=body,
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {config['_api_key']}",
-        },
-        method="POST",
-    )
-    if config["_project_id"]:
-        request.add_header("X-Project-Id", config["_project_id"])
-    try:
-        with urllib.request.urlopen(request, timeout=12) as response:
-            raw = response.read(4096).decode("utf-8", errors="replace")
-            event_id = None
-            try:
-                parsed = json.loads(raw) if raw else {}
-                if isinstance(parsed, dict):
-                    event_id = parsed.get("id") or parsed.get("event_id") or parsed.get("uuid")
-            except json.JSONDecodeError:
-                event_id = response.headers.get("X-Request-Id")
-            return {
-                "success": 200 <= response.status < 300,
-                "status": "sent" if 200 <= response.status < 300 else "degraded",
-                "event_sending": "sent" if 200 <= response.status < 300 else "degraded",
-                "configured_key": "present",
-                "endpoint_configured": "yes",
-                "status_code": response.status,
-                "event_id": event_id or response.headers.get("X-Request-Id") or "unavailable",
-                "timestamp": event["timestamp"],
-            }
-    except urllib.error.HTTPError as exc:
-        return {
-            "success": False,
-            "status": "degraded",
-            "event_sending": "degraded",
-            "configured_key": "present",
-            "endpoint_configured": "yes",
-            "reason": f"Latitude API unreachable: HTTP {exc.code}",
-            "timestamp": event["timestamp"],
-        }
-    except (urllib.error.URLError, TimeoutError, OSError) as exc:
-        return {
-            "success": False,
-            "status": "degraded",
-            "event_sending": "degraded",
-            "configured_key": "present",
-            "endpoint_configured": "yes",
-            "reason": f"Latitude API unreachable: {type(exc).__name__}",
-            "timestamp": event["timestamp"],
-        }
+    result = latitude_telemetry.send_event(event)
+    return {
+        "success": bool(result.get("sent")),
+        "status": "sent" if result.get("sent") else "degraded",
+        "event_sending": "sent" if result.get("sent") else "degraded",
+        **_public_latitude_status(),
+        "degraded_reason": result.get("degraded_reason") or _public_latitude_status().get("degraded_reason"),
+    }
 
 
 _DASHBOARD_MARKDOWN_BLOCK_RE = re.compile(
@@ -3296,6 +3215,7 @@ def create_queue_item(body: QueueItemCreate):
         item = _queue_create_dashboard_item(body)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    latitude_telemetry.trace("queue.item_create", "queue", "ok", item_id=item.get("id"), owner=item.get("owner"), queue_status=item.get("status"), source=item.get("source"))
     return {"success": True, "item": _queue_detail_item(item)}
 
 
@@ -3359,8 +3279,11 @@ def create_queue_chain(body: HermesChainConfirm):
 def orchestration_tick():
     """Run one deterministic local orchestration tick; never invokes agents."""
     try:
-        return aos_orchestration.tick(BASE_DIR)
+        result = aos_orchestration.tick(BASE_DIR)
+        latitude_telemetry.trace("runner.deterministic_tick", "orchestration", "ok", events=len(result.get("events", [])) if isinstance(result, dict) else None)
+        return result
     except aos_orchestration.OrchestrationError as exc:
+        latitude_telemetry.trace("runner.deterministic_tick", "orchestration", "blocked", error_type=type(exc).__name__)
         raise HTTPException(status_code=400, detail=str(exc))
 
 
@@ -3393,6 +3316,8 @@ def update_queue_item_status(item_id: str, body: QueueStatusUpdate):
         raise HTTPException(status_code=404, detail="queue item not found")
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    event_type = "queue.needs_me" if status in {"needs_input", "human_review", "blocked"} else "queue.status_change"
+    latitude_telemetry.trace(event_type, "queue", status, item_id=item_id, queue_status=status)
     return {"ok": True, "success": True, "item_id": item_id, "status": item.get("status"), "item": _queue_detail_item(item)}
 
 
@@ -3408,6 +3333,9 @@ def attach_queue_item_receipt(item_id: str, body: QueueReceiptAttach):
         raise HTTPException(status_code=404, detail="queue item not found")
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    if status:
+        event_type = "queue.needs_me" if status in {"needs_input", "human_review", "blocked"} else "queue.status_change"
+        latitude_telemetry.trace(event_type, "queue", status, item_id=item_id, queue_status=status, receipt_path=receipt_path)
     return {
         "ok": True,
         "success": True,
@@ -3435,6 +3363,7 @@ def close_queue_item_review(item_id: str, body: QueueReviewClose):
         raise HTTPException(status_code=404, detail="queue item not found")
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    latitude_telemetry.trace("queue.human_review_close", "queue", status, item_id=item_id, queue_status=status, receipt_path=receipt_path)
     return {
         "ok": True,
         "success": True,
@@ -3712,6 +3641,13 @@ def dashboard_message_board_route(body: MessageRouteRequest):
     result = _match_command_route(body.text)
     if result.get("work_order") is not None:
         result["work_order"]["source_refs"] = list(body.source_refs or [])
+    latitude_telemetry.trace(
+        "message_board.route",
+        "message_board",
+        "matched" if result.get("matched") else "unmatched",
+        matched=bool(result.get("matched")),
+        confidence=result.get("confidence"),
+    )
     return result
 
 
@@ -3861,7 +3797,7 @@ def dashboard_system_watch(stalled_minutes: int = 15):
         "backup": backup,
         "backup_needs_attention": backup.get("needs_attention", False),
         "latitude": latitude,
-        "latitude_needs_attention": latitude.get("status") != "configured",
+        "latitude_needs_attention": not latitude.get("configured"),
     }
 
 
@@ -3872,13 +3808,17 @@ def dashboard_latitude_status():
 
 @app.post("/api/dashboard/latitude/heartbeat")
 def dashboard_latitude_heartbeat():
-    event = _latitude_safe_event(
-        "heartbeat",
-        "dashboard_backend",
-        "ok",
-        token_usage={"basis": "no_agent_invocation"},
-    )
-    return _send_latitude_event(event)
+    return latitude_telemetry.heartbeat()
+
+
+@app.get("/api/latitude/status")
+def latitude_status():
+    return _public_latitude_status()
+
+
+@app.post("/api/latitude/heartbeat")
+def latitude_heartbeat():
+    return latitude_telemetry.heartbeat()
 
 
 @app.post("/api/agentmail/daily-digest")
@@ -3895,8 +3835,11 @@ def agentmail_daily_digest(body: AgentMailDigestRequest):
 @app.post("/api/external-actions/dry-run")
 def external_action_dry_run(body: ExternalSendDryRun):
     try:
-        return _write_external_dry_run_receipt(body)
+        result = _write_external_dry_run_receipt(body)
+        latitude_telemetry.trace("third_party.dry_run_gate", "external_action_gate", "ok", item_id=body.item_id, action=body.action, dry_run=True, transmitted=False)
+        return result
     except ValueError as exc:
+        latitude_telemetry.trace("third_party.dry_run_gate", "external_action_gate", "blocked", item_id=body.item_id, action=body.action, dry_run=True, transmitted=False)
         raise HTTPException(status_code=400, detail=str(exc))
 
 
@@ -4672,6 +4615,7 @@ def run_queue_item(item_id: str):
     try:
         item = _queue_find_item(item_id)
         owner = _queue_worker_owner(item)
+        latitude_telemetry.trace("runner.queue_run_start", "deterministic_runner", "agent_working", item_id=item_id, owner=owner)
         recovery = _queue_stuck_recovery(item)
         if item.get("status") == "agent_working":
             if not recovery.get("stuck"):
@@ -4680,6 +4624,7 @@ def run_queue_item(item_id: str):
             receipt_path = _queue_write_run_receipt(item_id, receipt_text)
             updated = _load_queue_tool().attach_receipt(BASE_DIR, item_id, receipt_path, "blocked")
             updated = _load_queue_tool().release_item(BASE_DIR, item_id, "blocked")
+            latitude_telemetry.trace("runner.queue_run_recovered", "deterministic_runner", "blocked", item_id=item_id, owner=owner, receipt_path=receipt_path)
             return {
                 "ok": True,
                 "success": False,
@@ -4758,6 +4703,8 @@ def run_queue_item(item_id: str):
         receipt_path = _queue_write_run_receipt(item_id, receipt_text)
         updated = _load_queue_tool().attach_receipt(BASE_DIR, item_id, receipt_path, final_status)
         updated = _load_queue_tool().release_item(BASE_DIR, item_id, final_status)
+        event_type = "queue.needs_me" if final_status in {"needs_input", "human_review", "blocked"} else "runner.queue_run_complete"
+        latitude_telemetry.trace(event_type, "deterministic_runner", final_status, item_id=item_id, owner=owner, receipt_path=receipt_path, attempts_used=len(attempts))
     except KeyError:
         raise HTTPException(status_code=404, detail="queue item not found")
     except HTTPException:

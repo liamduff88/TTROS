@@ -11,6 +11,12 @@ export default function TopBar({ backendOk, cockpit, onNavigate, onRefresh }) {
   const blocked = counts.blocked || 0
   const tokenChip = cockpit?.tokens?.strip?.today?.label || 'Token usage: unavailable from current CLI output'
   const latitude = cockpit?.latitude || {}
+  const latitudeLabel = latitude.configured
+    ? (latitude.connected === true ? 'connected' : 'configured')
+    : 'not configured'
+  const latitudeTitle = latitude.workspace_url
+    ? 'Open configured Latitude workspace'
+    : (latitude.degraded_reason || 'Latitude workspace URL not configured')
   const tabs = [
     ['message-board', 'Message Board'],
     ['cockpit', 'Cockpit'],
@@ -77,12 +83,12 @@ export default function TopBar({ backendOk, cockpit, onNavigate, onRefresh }) {
           <button
             onClick={() => latitude.workspace_url && window.open(latitude.workspace_url, '_blank')}
             disabled={!latitude.workspace_url}
-            title={latitude.workspace_url ? latitude.reason || 'Latitude workspace URL configured at runtime' : 'Latitude workspace URL not configured'}
+            title={latitudeTitle}
             className={`inline-flex h-8 items-center gap-1.5 rounded border px-2.5 text-xs ${
               latitude.workspace_url ? 'border-softgraph bg-ink text-stone hover:border-champagne/50' : 'border-softgraph bg-ink text-taupe opacity-60'
             }`}
           >
-            <Bot size={13} />Latitude {latitude.workspace_url ? (latitude.status && latitude.status !== 'configured' ? latitude.status : 'open') : 'workspace URL not configured'}
+            <Bot size={13} />Latitude {latitude.workspace_url ? 'open' : latitudeLabel}
           </button>
           <button onClick={() => copyPrompt('codex')} className="inline-flex h-8 items-center gap-1.5 rounded border border-softgraph bg-ink px-2.5 text-xs text-stone hover:border-champagne/50"><Copy size={13} />{copied === 'codex' ? 'Copied Codex' : 'Codex copy-prompt'}</button>
           <button onClick={() => copyPrompt('claude-code')} className="inline-flex h-8 items-center gap-1.5 rounded border border-softgraph bg-ink px-2.5 text-xs text-stone hover:border-champagne/50"><Copy size={13} />{copied === 'claude-code' ? 'Copied Claude' : 'Claude Code copy-prompt'}</button>

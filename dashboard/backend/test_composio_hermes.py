@@ -2038,28 +2038,60 @@ class HermesComposioTests(unittest.TestCase):
         self.assertEqual(run.call_args.kwargs["errors"], "replace")
 
     def test_latitude_status_degrades_without_endpoint(self):
-        with patch.object(backend, "_read_backend_env", return_value={"LATITUDE_API_KEY": "redacted"}):
+        with patch.object(backend.latitude_telemetry, "_env_values", return_value={"LATITUDE_API_KEY": "redacted"}):
             status = backend._public_latitude_status()
-        self.assertEqual(status["status"], "degraded")
-        self.assertTrue(status["has_api_key"])
-        self.assertFalse(status["has_endpoint"])
-        self.assertEqual(status["configured_key"], "present")
-        self.assertEqual(status["endpoint_configured"], "no")
-        self.assertEqual(status["event_sending"], "degraded")
+        self.assertFalse(status["configured"])
+        self.assertEqual(status["connected"], "unknown")
+        self.assertEqual(status["required_env_vars_present"], ["LATITUDE_API_KEY"])
+        self.assertEqual(status["required_env_vars_missing"], ["LATITUDE_PROJECT_SLUG_OR_ID", "LATITUDE_ENDPOINT"])
+        self.assertIn("LATITUDE_PROJECT_SLUG_OR_ID, LATITUDE_ENDPOINT", status["degraded_reason"])
         self.assertNotIn("redacted", json.dumps(status))
 
     def test_latitude_heartbeat_degrades_without_endpoint_and_hides_key(self):
-        with patch.object(backend, "_read_backend_env", return_value={"LATITUDE_API_KEY": "redacted"}), \
-             patch.object(backend.urllib.request, "urlopen") as urlopen:
+        with patch.object(backend.latitude_telemetry, "_env_values", return_value={"LATITUDE_API_KEY": "redacted"}), \
+             patch.object(backend.latitude_telemetry.urllib.request, "urlopen") as urlopen:
             result = backend.dashboard_latitude_heartbeat()
         urlopen.assert_not_called()
         self.assertFalse(result["success"])
-        self.assertEqual(result["status"], "degraded")
         self.assertEqual(result["event_sending"], "degraded")
-        self.assertEqual(result["configured_key"], "present")
-        self.assertEqual(result["endpoint_configured"], "no")
-        self.assertIn("LATITUDE_ENDPOINT/LATITUDE_EVENTS_URL", result["reason"])
+        self.assertFalse(result["configured"])
+        self.assertEqual(result["required_env_vars_present"], ["LATITUDE_API_KEY"])
+        self.assertEqual(result["required_env_vars_missing"], ["LATITUDE_PROJECT_SLUG_OR_ID", "LATITUDE_ENDPOINT"])
+        self.assertIn("LATITUDE_PROJECT_SLUG_OR_ID, LATITUDE_ENDPOINT", result["degraded_reason"])
         self.assertNotIn("redacted", json.dumps(result))
+
+    def test_latitude_send_uses_project_slug_header_and_hides_config(self):
+        class FakeLatitudeResponse:
+            status = 202
+            headers = {}
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self, _limit):
+                return b'{"id":"evt_test"}'
+
+        env = {
+            "LATITUDE_API_KEY": "redacted-key",
+            "LATITUDE_PROJECT_SLUG": "agentic-os",
+            "LATITUDE_ENDPOINT": "https://latitude.example.test/events",
+        }
+        event = backend.latitude_telemetry.event_payload("backend.heartbeat", "dashboard_backend")
+        with patch.object(backend.latitude_telemetry, "_env_values", return_value=env), \
+             patch.object(backend.latitude_telemetry, "_write_state"), \
+             patch.object(backend.latitude_telemetry.urllib.request, "urlopen", return_value=FakeLatitudeResponse()) as urlopen:
+            result = backend.latitude_telemetry.send_event(event)
+
+        request = urlopen.call_args.args[0]
+        headers = dict(request.header_items())
+        self.assertTrue(result["sent"])
+        self.assertEqual(headers["X-project-slug"], "agentic-os")
+        self.assertNotIn("X-project-id", headers)
+        self.assertNotIn("redacted-key", json.dumps(result))
+        self.assertNotIn("agentic-os", json.dumps(result))
 
     def test_external_send_dry_run_writes_noop_receipt(self):
         with tempfile.TemporaryDirectory() as tmp:
