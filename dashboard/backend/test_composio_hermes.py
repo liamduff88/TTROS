@@ -507,6 +507,301 @@ class HermesComposioTests(unittest.TestCase):
 
             self.assertFalse(ledger.exists())
 
+    def test_review_close_writes_receipt_and_resumes_linked_step_once(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            parent_id = "AOS-2026-0200"
+            step1_id = "AOS-2026-0201"
+            step2_id = "AOS-2026-0202"
+            step3_id = "AOS-2026-0203"
+            queue = root / "queue"
+            receipts = queue / "receipts"
+            results = root / "results" / "orchestration_acceptance" / parent_id
+            receipts.mkdir(parents=True)
+            results.mkdir(parents=True)
+            source_pack = "results/orchestration_acceptance/AOS-2026-0200/01_source_pack.md"
+            brief = "results/orchestration_acceptance/AOS-2026-0200/02_speed_to_lead_micro_brief.md"
+            (root / source_pack).write_text("source pack", encoding="utf-8")
+            (root / brief).write_text("approved brief", encoding="utf-8")
+            (receipts / "step1.md").write_text(f"PASS\n- {source_pack}\nToken usage: no agent invocation\n", encoding="utf-8")
+            (receipts / "step2.md").write_text(f"PASS\n- {brief}\nToken usage: unavailable from current CLI output\n", encoding="utf-8")
+            self.write_queue_items(root, [
+                {
+                    "id": parent_id,
+                    "title": "TTR Speed-to-Lead Micro-Brief Acceptance",
+                    "status": "agent_todo",
+                    "owner": "hermes",
+                    "priority": 5,
+                    "created_at": "2026-07-10T00:00:00Z",
+                    "updated_at": "2026-07-10T00:00:00Z",
+                    "tags": ["orchestration_acceptance"],
+                    "receipts": [],
+                },
+                {
+                    "id": step1_id,
+                    "title": "Operations source pack",
+                    "status": "done",
+                    "owner": "operations",
+                    "priority": 5,
+                    "tags": ["orchestration_acceptance"],
+                    "parent_id": parent_id,
+                    "step_index": 1,
+                    "depends_on": [],
+                    "source_refs": [],
+                    "created_at": "2026-07-10T00:00:00Z",
+                    "updated_at": "2026-07-10T00:00:00Z",
+                    "receipts": [{"path": "queue/receipts/step1.md", "created_at": "2026-07-10T00:00:00Z", "status": "done"}],
+                },
+                {
+                    "id": step2_id,
+                    "title": "Marketing micro brief",
+                    "status": "human_review",
+                    "owner": "marketing",
+                    "priority": 5,
+                    "parent_id": parent_id,
+                    "step_index": 2,
+                    "depends_on": [step1_id],
+                    "source_refs": [source_pack],
+                    "on_complete": "human_review",
+                    "created_at": "2026-07-10T00:00:00Z",
+                    "updated_at": "2026-07-10T00:00:00Z",
+                    "receipts": [{"path": "queue/receipts/step2.md", "created_at": "2026-07-10T00:01:00Z", "status": "human_review"}],
+                },
+                {
+                    "id": step3_id,
+                    "title": "Delivery final package",
+                    "status": "inbox",
+                    "owner": "delivery",
+                    "priority": 5,
+                    "tags": ["orchestration_acceptance"],
+                    "parent_id": parent_id,
+                    "step_index": 3,
+                    "depends_on": [step2_id],
+                    "source_refs": [],
+                    "workbench": "local",
+                    "created_at": "2026-07-10T00:00:00Z",
+                    "updated_at": "2026-07-10T00:00:00Z",
+                    "receipts": [],
+                },
+            ])
+            (queue / "notifications.json").write_text(json.dumps({"escalation": {"unanswered_minutes": 10}, "allowlist": {"telegram": []}}), encoding="utf-8")
+
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "QUEUE_DIR", queue), \
+                 patch.object(backend, "QUEUE_TOOL", MAIN.parents[2] / "tools" / "aos-queue.py"), \
+                 patch.object(backend.latitude_telemetry, "trace"):
+                summary = backend.queue_summary()
+                self.assertEqual(summary["needsMeCount"], 1)
+                self.assertEqual(summary["needsMeItems"][0]["id"], step2_id)
+
+                result = backend.close_queue_item_review(
+                    step2_id,
+                    backend.QueueReviewClose(status="done", review_note="Approved for final packaging."),
+                )
+                repeated_review = backend.close_queue_item_review(
+                    step2_id,
+                    backend.QueueReviewClose(status="done", review_note="This should not replace the original note."),
+                )
+                repeat = backend.orchestration_tick()
+                summary_after = backend.queue_summary()
+                parent_detail = backend.queue_item(parent_id)["item"]
+                reviewed_detail = backend.queue_item(step2_id)["item"]
+                final_detail = backend.queue_item(step3_id)["item"]
+
+            self.assertEqual(result["status"], "done")
+            self.assertEqual(len(result["resume_tick"]["advanced"]), 2)
+            self.assertEqual(result["parent_id"], parent_id)
+            self.assertEqual(result["reviewed_item_id"], step2_id)
+            self.assertEqual(result["final_item_id"], step3_id)
+            self.assertEqual(result["chain_status"], "done")
+            self.assertEqual(result["final_item_status"], "done")
+            self.assertEqual(result["advanced_item_ids"], [step3_id])
+            self.assertIn(f"results/orchestration_acceptance/{parent_id}/03_final_review_package.md", result["final_artifact_paths"])
+            self.assertTrue(any(path.startswith(f"queue/receipts/{step3_id}-final-closeout-") for path in result["final_receipt_paths"]))
+            self.assertEqual(repeated_review["resume_tick"]["advanced"], [])
+            self.assertEqual(repeat["advanced"], [])
+            rows = [json.loads(line) for line in (queue / "work_items.jsonl").read_text(encoding="utf-8").splitlines()]
+            by_id = {row["id"]: row for row in rows}
+            self.assertEqual(by_id[step3_id]["status"], "done")
+            self.assertEqual(by_id[parent_id]["status"], "done")
+            self.assertEqual(by_id[step3_id]["source_refs"].count(brief), 1)
+            self.assertTrue(any("queue/receipts" in ref and step2_id in ref for ref in by_id[step3_id]["source_refs"]))
+            self.assertTrue((results / "03_final_review_package.md").is_file())
+            final_receipts = list(receipts.glob(f"{step3_id}-final-closeout-*.md"))
+            self.assertEqual(len(final_receipts), 1)
+            review_receipts = [path for path in receipts.glob(f"{step2_id}-*.md") if "final-closeout" not in path.name]
+            self.assertEqual(len(review_receipts), 1)
+            review_receipt = (root / result["receipt_path"]).read_text(encoding="utf-8")
+            self.assertIn("Approved for final packaging.", review_receipt)
+            self.assertNotIn("This should not replace the original note.", review_receipt)
+            self.assertEqual(summary_after["needsMeCount"], 0)
+            for detail in (parent_detail, reviewed_detail, final_detail):
+                self.assertEqual(detail["final_result"]["parent_id"], parent_id)
+                self.assertEqual(detail["final_result"]["reviewed_item_id"], step2_id)
+                self.assertEqual(detail["final_result"]["final_item_id"], step3_id)
+                self.assertEqual(detail["final_result"]["chain_status"], "done")
+                self.assertEqual(detail["final_result"]["final_item_status"], "done")
+                self.assertTrue(detail["final_result"]["final_artifacts"][0]["available"])
+                self.assertTrue(detail["final_result"]["final_receipts"][0]["available"])
+
+    def test_dashboard_queue_review_close_retries_live_partial_close_without_duplicate_side_effects(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            queue = root / "queue"
+            receipts = queue / "receipts"
+            results = root / "results" / "orchestration_acceptance" / "AOS-2026-0071"
+            receipts.mkdir(parents=True)
+            results.mkdir(parents=True)
+            source_pack = "results/orchestration_acceptance/AOS-2026-0071/01_source_pack.md"
+            brief = "results/orchestration_acceptance/AOS-2026-0071/02_speed_to_lead_micro_brief.md"
+            review_receipt = "queue/receipts/AOS-2026-0073-20260710T192427Z.md"
+            (root / source_pack).write_text("source pack", encoding="utf-8")
+            (root / brief).write_text("approved brief", encoding="utf-8")
+            (root / review_receipt).write_text(
+                "PASS\n\nReview closeout:\n- Reviewed by: Liam\n- Status: done\n\nReview note:\nApproved for final packaging.\n",
+                encoding="utf-8",
+            )
+            self.write_queue_items(root, [
+                {
+                    "id": "AOS-2026-0071",
+                    "title": "TTR Speed-to-Lead Micro-Brief Acceptance",
+                    "status": "agent_todo",
+                    "owner": "hermes",
+                    "priority": 8,
+                    "tags": ["orchestration_acceptance", "post_wp12_acceptance", "final_ux_repair"],
+                    "created_at": "2026-07-10T18:49:46Z",
+                    "updated_at": "2026-07-10T18:49:46Z",
+                    "receipts": [],
+                },
+                {
+                    "id": "AOS-2026-0072",
+                    "title": "Step 1 - Operations/local source pack",
+                    "status": "done",
+                    "owner": "operations",
+                    "priority": 8,
+                    "parent_id": "AOS-2026-0071",
+                    "step_index": 1,
+                    "depends_on": [],
+                    "source_refs": [],
+                    "created_at": "2026-07-10T18:49:46Z",
+                    "updated_at": "2026-07-10T18:49:46Z",
+                    "receipts": [{"path": "queue/receipts/AOS-2026-0072-source-pack.md", "created_at": "2026-07-10T18:49:46Z", "status": "done"}],
+                },
+                {
+                    "id": "AOS-2026-0073",
+                    "title": "Step 2 - Marketing worker draft",
+                    "status": "done",
+                    "owner": "marketing",
+                    "priority": 8,
+                    "parent_id": "AOS-2026-0071",
+                    "step_index": 2,
+                    "depends_on": ["AOS-2026-0072"],
+                    "source_refs": [source_pack],
+                    "on_complete": "human_review",
+                    "created_at": "2026-07-10T18:49:46Z",
+                    "updated_at": "2026-07-10T19:24:27Z",
+                    "receipts": [
+                        {"path": "queue/receipts/AOS-2026-0073-draft-human-review.md", "created_at": "2026-07-10T18:49:46Z", "status": "human_review"},
+                        {"path": review_receipt, "created_at": "2026-07-10T19:24:27Z", "status": "done"},
+                    ],
+                },
+                {
+                    "id": "AOS-2026-0074",
+                    "title": "Step 3 - Delivery/local final package",
+                    "status": "inbox",
+                    "owner": "delivery",
+                    "priority": 8,
+                    "tags": ["orchestration_acceptance", "post_wp12_acceptance", "final_ux_repair"],
+                    "parent_id": "AOS-2026-0071",
+                    "step_index": 3,
+                    "depends_on": ["AOS-2026-0073"],
+                    "source_refs": [],
+                    "workbench": "local",
+                    "created_at": "2026-07-10T18:49:46Z",
+                    "updated_at": "2026-07-10T18:49:46Z",
+                    "receipts": [],
+                },
+            ])
+            (receipts / "AOS-2026-0072-source-pack.md").write_text(f"PASS\nArtifact: {source_pack}\n", encoding="utf-8")
+            (receipts / "AOS-2026-0073-draft-human-review.md").write_text(f"PASS\nArtifact: {brief}\n", encoding="utf-8")
+            (queue / "notifications.json").write_text(json.dumps({"escalation": {"unanswered_minutes": 10}, "allowlist": {"telegram": []}}), encoding="utf-8")
+
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "QUEUE_DIR", queue), \
+                 patch.object(backend, "QUEUE_TOOL", MAIN.parents[2] / "tools" / "aos-queue.py"), \
+                 patch.object(backend.latitude_telemetry, "trace"):
+                result = backend.close_queue_item_review(
+                    "AOS-2026-0073",
+                    backend.QueueReviewClose(status="done", review_note="Approved for final packaging."),
+                )
+                repeated = backend.close_queue_item_review(
+                    "AOS-2026-0073",
+                    backend.QueueReviewClose(status="done", review_note="Approved for final packaging."),
+                )
+
+            json.dumps(result, sort_keys=True)
+            json.dumps(repeated, sort_keys=True)
+            self.assertTrue(result["ok"])
+            self.assertTrue(result["final_result"]["complete"])
+            self.assertEqual(result["parent_id"], "AOS-2026-0071")
+            self.assertEqual(result["reviewed_item_id"], "AOS-2026-0073")
+            self.assertEqual(result["final_item_id"], "AOS-2026-0074")
+            self.assertEqual(result["advanced_item_ids"], ["AOS-2026-0074"])
+            self.assertEqual(repeated["advanced_item_ids"], [])
+            self.assertEqual(repeated["resume_tick"]["advanced"], [])
+            rows = [json.loads(line) for line in (queue / "work_items.jsonl").read_text(encoding="utf-8").splitlines()]
+            by_id = {row["id"]: row for row in rows}
+            self.assertEqual(by_id["AOS-2026-0071"]["status"], "done")
+            self.assertEqual(by_id["AOS-2026-0073"]["status"], "done")
+            self.assertEqual(by_id["AOS-2026-0074"]["status"], "done")
+            self.assertEqual(sum(1 for receipt in by_id["AOS-2026-0073"]["receipts"] if receipt.get("status") == "done"), 1)
+            self.assertEqual(len(list(results.glob("03_final_review_package.md"))), 1)
+            self.assertEqual(len(list(receipts.glob("AOS-2026-0074-final-closeout-*.md"))), 1)
+            self.assertIn("Approved for final packaging.", (root / review_receipt).read_text(encoding="utf-8"))
+
+    def test_queue_artifact_preview_and_folder_open_refuse_unsafe_paths(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            artifact = root / "results" / "orchestration_acceptance" / "AOS-2026-0300" / "03_final_review_package.md"
+            artifact.parent.mkdir(parents=True)
+            artifact.write_text("final package", encoding="utf-8")
+
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend.subprocess, "Popen") as popen:
+                opened = backend.queue_artifact_open_folder(
+                    backend.QueueArtifactFolderOpen(path="results/orchestration_acceptance/AOS-2026-0300/03_final_review_package.md")
+                )
+                self.assertTrue(opened["success"])
+                self.assertEqual(opened["path"], "results/orchestration_acceptance/AOS-2026-0300")
+                popen.assert_called_once()
+
+                artifact_absolute = backend.queue_artifact("/tmp/outside.md")
+                self.assertFalse(artifact_absolute["success"])
+                self.assertIn("root-relative", artifact_absolute["reason"])
+                with self.assertRaises(ValueError):
+                    backend._queue_read_artifact("/tmp/outside.md")
+
+                with self.assertRaises(backend.HTTPException) as folder_absolute:
+                    backend.queue_artifact_open_folder(backend.QueueArtifactFolderOpen(path="/tmp/outside.md"))
+                self.assertEqual(folder_absolute.exception.status_code, 400)
+
+                with self.assertRaises(backend.HTTPException) as blocked_secret:
+                    backend.queue_artifact_open_folder(backend.QueueArtifactFolderOpen(path="results/.env.md"))
+                self.assertEqual(blocked_secret.exception.status_code, 400)
+
+    def test_queue_completion_card_frontend_contract_is_present(self):
+        source = (MAIN.parents[1] / "frontend" / "src" / "views" / "Queue.jsx").read_text(encoding="utf-8")
+        for text in (
+            "Workflow complete",
+            "Open Final Review Package",
+            "Open Final Receipt",
+            "Open Output Folder",
+            "View Final Step",
+            "Final packaging running...",
+            "openQueueArtifactFolder",
+        ):
+            self.assertIn(text, source)
+
     def test_queue_run_uses_prompt_files_and_redacted_token_task(self):
         adversarial_title = "Build output with `ticks`, $(bad), $VARS, quotes, and C:\\Users\\Admin\\A Time"
         with tempfile.TemporaryDirectory() as tmp:

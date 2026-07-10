@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { AlertCircle, CheckCircle2, Clipboard, FileText, ListChecks, Plus, RefreshCw } from 'lucide-react'
-import { closeQueueItemReview, createQueueItem, externalActionDryRun, getQueueArtifact, getQueueItems, getQueueNext, getQueuePrompt, getQueueReceipt, getQueueStatus } from '../api'
+import { AlertCircle, CheckCircle2, Clipboard, FileText, FolderOpen, ListChecks, Plus, RefreshCw } from 'lucide-react'
+import { closeQueueItemReview, createQueueItem, externalActionDryRun, getQueueArtifact, getQueueItems, getQueueNext, getQueuePrompt, getQueueReceipt, getQueueStatus, openQueueArtifactFolder } from '../api'
 
 const QUEUE_STATUSES = ['inbox', 'agent_todo', 'agent_working', 'needs_input', 'human_review', 'done', 'blocked', 'cancelled']
 const QUEUE_OWNERS = ['unassigned', 'hermes', 'codex', 'claude', 'revenue', 'marketing', 'delivery', 'operations']
@@ -79,6 +79,12 @@ const fileTypeText = preview => {
 const scrollFilePreviewIntoView = () => {
   window.requestAnimationFrame(() => {
     document.getElementById('queue-file-preview')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  })
+}
+
+const scrollSelectedDetailIntoView = () => {
+  window.requestAnimationFrame(() => {
+    document.getElementById('queue-selected-detail')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
   })
 }
 
@@ -188,6 +194,7 @@ export default function Queue({ initialFilters = {} }) {
   const [reviewState, setReviewState] = useState(emptyReviewState)
   const [dryRunForm, setDryRunForm] = useState(emptyDryRunForm)
   const [dryRunState, setDryRunState] = useState(emptyDryRunState)
+  const [finalStepSelection, setFinalStepSelection] = useState({ targetId: '', message: '' })
   const [filePreview, setFilePreview] = useState({
     path: '',
     category: '',
@@ -207,6 +214,7 @@ export default function Queue({ initialFilters = {} }) {
     [items, selectedId],
   )
   const selectedStatus = selected?.status || ''
+  const finalResult = selected?.final_result || null
   const latestReceipt = selected?.latest_receipt || (selected?.receipts?.length ? selected.receipts[selected.receipts.length - 1] : null)
   const hasReceipt = Boolean(receiptLabel(latestReceipt) && latestReceipt && receiptLabel(latestReceipt) !== 'Receipt path unavailable')
   const runArtifacts = Array.isArray(selected?.run_artifacts) ? selected.run_artifacts : []
@@ -491,6 +499,36 @@ export default function Queue({ initialFilters = {} }) {
   const needsLiam = status?.needsLiam ?? ((counts.needs_input || 0) + (counts.human_review || 0) + (counts.blocked || 0))
   const latestReceiptPath = receiptLabel(latestReceipt)
   const primaryOutputPath = runArtifacts.find(artifact => artifact.available && artifact.path !== latestReceiptPath)?.path || ''
+  const finalArtifact = finalResult?.final_artifacts?.find(artifact => artifact.available) || (finalResult?.final_artifact_paths?.[0] ? { path: finalResult.final_artifact_paths[0], available: true, category: 'Final review package', extension: '.md' } : null)
+  const finalReceipt = finalResult?.final_receipts?.find(receipt => receipt.available) || (finalResult?.final_receipt_paths?.[0] ? { path: finalResult.final_receipt_paths[0], available: true, category: 'Final receipt', extension: '.md' } : null)
+  const finalArtifactName = finalArtifact?.name || finalArtifact?.path?.split('/').pop() || '03_final_review_package.md'
+  const finalStepSelectionMessage = finalStepSelection.targetId && finalStepSelection.targetId === selected?.id ? finalStepSelection.message : ''
+
+  const openFinalFolder = async () => {
+    if (!finalArtifact?.path) return
+    try {
+      await openQueueArtifactFolder(finalArtifact.path)
+    } catch (error) {
+      setFilePreview({
+        path: finalArtifact.path,
+        category: 'Output folder',
+        extension: '',
+        loading: false,
+        content: '',
+        error: error?.response?.data?.detail || error?.message || 'Output folder open failed',
+      })
+      scrollFilePreviewIntoView()
+    }
+  }
+
+  const viewFinalStep = () => {
+    const finalItemId = finalResult?.final_item_id
+    if (!finalItemId) return
+    setFilters({})
+    setSelectedId(finalItemId)
+    setFinalStepSelection({ targetId: finalItemId, message: 'Final step selected' })
+    scrollSelectedDetailIntoView()
+  }
 
   return (
     <div className="max-w-7xl space-y-5">
@@ -751,7 +789,7 @@ export default function Queue({ initialFilters = {} }) {
           </div>
         </div>
 
-        <div className="rounded-lg border border-softgraph bg-graphite p-5">
+        <div id="queue-selected-detail" className="rounded-lg border border-softgraph bg-graphite p-5">
           <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <h2 className="text-xs font-semibold uppercase tracking-wider text-taupe">Selected item</h2>
@@ -783,6 +821,12 @@ export default function Queue({ initialFilters = {} }) {
                   }`}
                 >
                   {promptCopy.error || promptCopy.message}
+                </div>
+              )}
+
+              {finalStepSelectionMessage && (
+                <div className="rounded border border-champagne/30 bg-champagne/10 px-3 py-2 text-xs font-mono text-champagne">
+                  {finalStepSelectionMessage}
                 </div>
               )}
 
@@ -858,6 +902,66 @@ export default function Queue({ initialFilters = {} }) {
                 )}
               </div>
 
+              {reviewState.submitting === 'done' && (
+                <div className="rounded border border-champagne/30 bg-champagne/10 px-3 py-2 text-xs font-mono text-champagne">
+                  Final packaging running...
+                </div>
+              )}
+
+              {finalResult?.complete && (
+                <div className="rounded border border-champagne/40 bg-ink">
+                  <div className="border-b border-softgraph px-3 py-2">
+                    <div className="text-sm font-semibold text-ivory">Workflow complete</div>
+                    <div className="mt-1 text-xs font-mono text-taupe">
+                      Parent {finalResult.parent_id || 'unknown'} / Final step {finalResult.final_item_id || 'unknown'} / Status {formatStatus(finalResult.final_item_status || finalResult.chain_status)}
+                    </div>
+                  </div>
+                  <div className="space-y-3 px-3 py-3">
+                    <div className="text-xs font-mono text-champagne">Finished result: {finalArtifactName}</div>
+                    <button
+                      type="button"
+                      aria-label="Open Final Review Package"
+                      onClick={() => viewArtifact({ ...finalArtifact, category: 'Final review package', extension: finalArtifact?.extension || '.md' })}
+                      disabled={!finalArtifact?.path}
+                      className="inline-flex min-h-11 w-full min-w-0 items-center justify-center gap-2 whitespace-normal rounded bg-champagne px-4 py-3 text-center text-xs font-mono font-semibold leading-5 text-ink transition-colors hover:bg-stone disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      <FileText size={14} className="shrink-0" />
+                      <span className="min-w-0 break-words">Open Finished Result</span>
+                    </button>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        aria-label="Open Final Receipt"
+                        onClick={() => viewReceipt(finalReceipt)}
+                        disabled={!finalReceipt?.path}
+                        className="inline-flex min-h-10 min-w-[10rem] flex-1 items-center justify-center gap-2 whitespace-normal rounded border border-softgraph bg-graphite px-3 py-2 text-center text-xs font-mono font-semibold leading-5 text-stone transition-colors hover:border-champagne disabled:cursor-not-allowed disabled:opacity-60 sm:flex-none"
+                      >
+                        <FileText size={13} className="shrink-0" />
+                        <span className="min-w-0 break-words">Open Receipt</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={openFinalFolder}
+                        disabled={!finalArtifact?.path}
+                        className="inline-flex min-h-10 min-w-[10rem] flex-1 items-center justify-center gap-2 whitespace-normal rounded border border-softgraph bg-graphite px-3 py-2 text-center text-xs font-mono font-semibold leading-5 text-stone transition-colors hover:border-champagne disabled:cursor-not-allowed disabled:opacity-60 sm:flex-none"
+                      >
+                        <FolderOpen size={13} className="shrink-0" />
+                        <span className="min-w-0 break-words">Open Output Folder</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={viewFinalStep}
+                        disabled={!finalResult.final_item_id}
+                        className="inline-flex min-h-10 min-w-[10rem] flex-1 items-center justify-center gap-2 whitespace-normal rounded border border-softgraph bg-graphite px-3 py-2 text-center text-xs font-mono font-semibold leading-5 text-stone transition-colors hover:border-champagne disabled:cursor-not-allowed disabled:opacity-60 sm:flex-none"
+                      >
+                        <ListChecks size={13} className="shrink-0" />
+                        <span className="min-w-0 break-words">View Final Step</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <div className="grid gap-4 md:grid-cols-2">
                 <DetailRow label="ID" value={selected.id} />
                 <DetailRow label="Status" value={formatStatus(selected.status)} />
@@ -916,7 +1020,7 @@ export default function Queue({ initialFilters = {} }) {
                         {reviewState.error || reviewState.message}
                       </div>
                     )}
-                    <div className="text-xs font-mono text-taupe">These controls only update local queue status and attach a local review receipt. They do not launch agents.</div>
+                    <div className="text-xs font-mono text-taupe">Mark done attaches a local review receipt and runs the deterministic local orchestration tick. It does not launch agents.</div>
                   </div>
                 </div>
               )}

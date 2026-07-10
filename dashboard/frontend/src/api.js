@@ -20,6 +20,7 @@ export const getQueueItem = (id) => api.get(`/queue/items/${id}`).then(r => r.da
 export const getQueueNext = () => api.get('/queue/next').then(r => r.data)
 export const getQueueReceipt = (path) => api.get('/queue/receipt', { params: { path } }).then(r => r.data)
 export const getQueueArtifact = (path) => api.get('/queue/artifact', { params: { path } }).then(r => r.data)
+export const openQueueArtifactFolder = (path) => api.post('/queue/artifact/open-folder', { path }).then(r => r.data)
 export const createQueueItem = (data) => api.post('/queue/items', data).then(r => r.data)
 export const createQueueChain = (data) => api.post('/queue/chains', data).then(r => r.data)
 export const getQueuePrompt = (id, target) => api.get(`/queue/items/${id}/prompt`, { params: { target } }).then(r => r.data)

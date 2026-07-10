@@ -454,6 +454,10 @@ class QueueReviewClose(BaseModel):
     review_note: str = ""
 
 
+class QueueArtifactFolderOpen(BaseModel):
+    path: str
+
+
 class ExternalSendDryRun(BaseModel):
     item_id: str | None = None
     recipient: str
@@ -3133,6 +3137,22 @@ def _queue_write_review_receipt(item_id: str, review_note: str, status: str = "d
     return _queue_write_receipt(item_id, "\n".join(lines))
 
 
+def _queue_existing_review_receipt(item: dict, status: str = "done") -> str:
+    for receipt in reversed(item.get("receipts") or []):
+        path = str(receipt.get("path") if isinstance(receipt, dict) else receipt or "").strip()
+        if not path or _queue_artifact_block_reason(path):
+            continue
+        if isinstance(receipt, dict) and status and receipt.get("status") != status:
+            continue
+        try:
+            content = _queue_read_artifact(path, receipt_only=True)["content"]
+        except (FileNotFoundError, ValueError, OSError):
+            continue
+        if "Review closeout:" in content:
+            return path
+    return ""
+
+
 def _external_dry_run_receipt_text(body: ExternalSendDryRun) -> str:
     return "\n".join([
         "PASS",
@@ -3362,10 +3382,18 @@ def _queue_artifact_refs(item: dict, receipt_content: str = "") -> list[dict]:
         values = value if isinstance(value, list) else _queue_split_text(value)
         raw_paths.extend(str(entry).strip() for entry in values if str(entry).strip())
     for receipt in item.get("receipts") or []:
+        receipt_path = ""
         if isinstance(receipt, str):
-            raw_paths.append(receipt)
+            receipt_path = receipt
+            raw_paths.append(receipt_path)
         elif isinstance(receipt, dict):
-            raw_paths.append(str(receipt.get("path") or "").strip())
+            receipt_path = str(receipt.get("path") or "").strip()
+            raw_paths.append(receipt_path)
+        if receipt_path and not _queue_artifact_block_reason(receipt_path):
+            try:
+                raw_paths.extend(_queue_artifact_candidates_from_text(_queue_read_artifact(receipt_path, receipt_only=True)["content"]))
+            except (FileNotFoundError, ValueError, OSError):
+                pass
     raw_paths.extend(_queue_artifact_candidates_from_text(receipt_content))
 
     refs = []
@@ -3397,6 +3425,132 @@ def _queue_artifact_refs(item: dict, receipt_content: str = "") -> list[dict]:
                 ref.update({"available": False, "reason": f"file is listed but could not be read: {exc}"})
         refs.append(ref)
     return refs
+
+
+def _queue_artifact_ref(path: str, *, receipt_only: bool = False) -> dict | None:
+    if not path:
+        return None
+    ref = {"path": path}
+    reason = _queue_artifact_block_reason(path)
+    if reason:
+        ref.update({"available": False, "reason": reason})
+        return ref
+    try:
+        artifact = _queue_read_artifact(path, receipt_only=receipt_only)
+        ref.update({
+            "available": True,
+            "name": artifact["name"],
+            "extension": artifact["extension"],
+            "size_bytes": artifact["size_bytes"],
+            "modified": artifact["modified"],
+        })
+    except FileNotFoundError:
+        ref.update({"available": False, "reason": "file is listed but missing"})
+    except ValueError as exc:
+        ref.update({"available": False, "reason": str(exc)})
+    except OSError as exc:
+        ref.update({"available": False, "reason": f"file is listed but could not be read: {exc}"})
+    return ref
+
+
+def _queue_unique_paths(paths: list[str]) -> list[str]:
+    unique = []
+    seen = set()
+    for path in paths:
+        value = str(path or "").strip()
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        unique.append(value)
+    return unique
+
+
+def _queue_final_result_for_item(item: dict, items: list[dict] | None = None, events: list[dict] | None = None) -> dict | None:
+    items = items if items is not None else _read_queue_items()
+    events = events if events is not None else _read_jsonl_file(BASE_DIR / aos_orchestration.EVENTS_PATH)
+    by_id = {str(row.get("id") or ""): row for row in items}
+    item_id = str(item.get("id") or "")
+    parent_id = str(item.get("parent_id") or item_id or "")
+    parent = by_id.get(parent_id)
+    children = [row for row in items if str(row.get("parent_id") or "") == parent_id]
+
+    final_events = [
+        row for row in events
+        if row.get("event") == "acceptance_finalized"
+        and str(row.get("parent_id") or row.get("key") or "") == parent_id
+    ]
+    final_event = final_events[-1] if final_events else None
+
+    final_item_id = str((final_event or {}).get("item_id") or "")
+    final_item = by_id.get(final_item_id) if final_item_id else None
+    if not final_item:
+        candidates = [
+            row for row in children
+            if row.get("step_index") == 3
+            and str(row.get("owner") or "").lower() == "delivery"
+            and str(row.get("workbench") or "").lower() == "local"
+        ]
+        final_item = sorted(candidates, key=_queue_item_sort_key)[0] if candidates else None
+        final_item_id = str(final_item.get("id") or "") if final_item else ""
+
+    reviewed_item_id = ""
+    if final_item and final_item.get("depends_on"):
+        reviewed_item_id = str(final_item.get("depends_on")[0] or "")
+    if not reviewed_item_id:
+        reviewed = [row for row in children if row.get("step_index") == 2 or row.get("on_complete") == "human_review"]
+        reviewed_item_id = str((sorted(reviewed, key=_queue_item_sort_key)[0] if reviewed else {}).get("id") or "")
+
+    relevant_ids = {parent_id, reviewed_item_id, final_item_id}
+    if item_id not in relevant_ids:
+        return None
+
+    artifact_paths = []
+    receipt_paths = []
+    if final_event:
+        artifact_paths.append(str(final_event.get("artifact_path") or ""))
+        receipt_paths.append(str(final_event.get("receipt_path") or ""))
+
+    if parent_id:
+        convention = f"results/orchestration_acceptance/{parent_id}/03_final_review_package.md"
+        if (BASE_DIR / convention).is_file():
+            artifact_paths.append(convention)
+
+    for candidate in [final_item, parent]:
+        if not candidate:
+            continue
+        for receipt in candidate.get("receipts") or []:
+            path = str(receipt.get("path") if isinstance(receipt, dict) else receipt or "").strip()
+            if final_item_id and f"{final_item_id}-final-closeout-" in path:
+                receipt_paths.append(path)
+
+    if final_item_id:
+        receipt_dir = BASE_DIR / "queue" / "receipts"
+        if receipt_dir.exists():
+            for path in sorted(receipt_dir.glob(f"{final_item_id}-final-closeout-*.md")):
+                receipt_paths.append(_safe_relative(path))
+
+    artifact_paths = _queue_unique_paths(artifact_paths)
+    receipt_paths = _queue_unique_paths(receipt_paths)
+    artifact_refs = [ref for ref in (_queue_artifact_ref(path) for path in artifact_paths) if ref]
+    receipt_refs = [ref for ref in (_queue_artifact_ref(path, receipt_only=True) for path in receipt_paths) if ref]
+    completed = bool(final_event or any(ref.get("available") for ref in artifact_refs) or (final_item or {}).get("status") == "done")
+
+    if not completed and not final_item_id:
+        return None
+
+    return {
+        "complete": completed and (final_item or {}).get("status") == "done" and (parent or {}).get("status") == "done",
+        "parent_id": parent_id,
+        "reviewed_item_id": reviewed_item_id,
+        "final_item_id": final_item_id,
+        "chain_status": (parent or {}).get("status", ""),
+        "final_item_status": (final_item or {}).get("status", ""),
+        "final_artifact_paths": artifact_paths,
+        "final_receipt_paths": receipt_paths,
+        "final_artifacts": artifact_refs,
+        "final_receipts": receipt_refs,
+        "output_folder_path": str(Path(artifact_paths[0]).parent).replace("\\", "/") if artifact_paths else "",
+    }
 
 
 def _queue_latest_receipt(item: dict) -> dict | None:
@@ -3467,6 +3621,7 @@ def _queue_detail_item(item: dict) -> dict:
         "receipts": item.get("receipts") or [],
         "latest_receipt": latest_receipt,
         "run_artifacts": _queue_artifact_refs(item, latest_receipt.get("content", "") if latest_receipt else ""),
+        "final_result": _queue_final_result_for_item(item),
         "stuck_recovery": _queue_stuck_recovery(item),
     })
     return public
@@ -3777,29 +3932,55 @@ def attach_queue_item_receipt(item_id: str, body: QueueReceiptAttach):
 @app.post("/api/queue/items/{item_id}/review-close")
 def close_queue_item_review(item_id: str, body: QueueReviewClose):
     """Close one human_review queue item with an optional local review note."""
+    tick_result = None
+    telegram_reply = None
     try:
         status = _queue_validate_status(body.status)
         if status not in {"done", "needs_input", "blocked"}:
             raise ValueError("review status must be done, needs_input, or blocked")
         existing = _queue_find_item(item_id)
-        if existing.get("status") != "human_review":
+        already_closed = existing.get("status") == status and status == "done"
+        if existing.get("status") != "human_review" and not already_closed:
             raise ValueError("only human_review items can be closed from review")
-        receipt_path = _queue_write_review_receipt(item_id, body.review_note, status)
-        item = _load_queue_tool().attach_receipt(BASE_DIR, item_id, receipt_path, status)
-        telegram_reply = _telegram_reply_on_close(existing, status, body.review_note, receipt_path)
+        if already_closed:
+            latest = (existing.get("receipts") or [""])[-1]
+            latest_path = latest.get("path") if isinstance(latest, dict) else latest
+            receipt_path = _queue_existing_review_receipt(existing, status) or str(latest_path or "")
+        else:
+            receipt_path = _queue_write_review_receipt(item_id, body.review_note, status)
+            _load_queue_tool().attach_receipt(BASE_DIR, item_id, receipt_path, status)
+            telegram_reply = _telegram_reply_on_close(existing, status, body.review_note, receipt_path)
+        if status == "done":
+            tick_result = aos_orchestration.tick(BASE_DIR, allow_telegram_escalation=False)
     except KeyError:
         raise HTTPException(status_code=404, detail="queue item not found")
+    except aos_orchestration.OrchestrationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     latitude_telemetry.trace("queue.human_review_close", "queue", status, item_id=item_id, queue_status=status, receipt_path=receipt_path)
+    refreshed = _queue_find_item(item_id)
+    final_result = _queue_final_result_for_item(refreshed)
+    advanced = tick_result.get("advanced", []) if isinstance(tick_result, dict) else []
+    advanced_item_ids = _queue_unique_paths([str(row.get("item_id") or "") for row in advanced if row.get("item_id")])
     return {
         "ok": True,
         "success": True,
         "item_id": item_id,
+        "reviewed_item_id": item_id,
         "receipt_path": receipt_path,
-        "status": item.get("status"),
-        "item": _queue_detail_item(item),
+        "status": refreshed.get("status"),
+        "item": _queue_detail_item(refreshed),
+        "resume_tick": tick_result,
         "telegram_reply": telegram_reply,
+        "parent_id": (final_result or {}).get("parent_id") or refreshed.get("parent_id"),
+        "final_item_id": (final_result or {}).get("final_item_id", ""),
+        "chain_status": (final_result or {}).get("chain_status", ""),
+        "final_item_status": (final_result or {}).get("final_item_status", ""),
+        "final_artifact_paths": (final_result or {}).get("final_artifact_paths", []),
+        "final_receipt_paths": (final_result or {}).get("final_receipt_paths", []),
+        "advanced_item_ids": advanced_item_ids,
+        "final_result": final_result,
     }
 
 
@@ -3830,6 +4011,26 @@ def queue_artifact(path: str):
         **artifact,
         "token_usage_lines": _queue_token_usage_lines(artifact["content"]),
     }
+
+
+@app.post("/api/queue/artifact/open-folder")
+def queue_artifact_open_folder(body: QueueArtifactFolderOpen):
+    """Open the local folder containing a dashboard-safe queue artifact."""
+    try:
+        artifact = _queue_read_artifact(body.path)
+        target = resolve_root_relative(artifact["path"], root=BASE_DIR).parent
+        target.relative_to(BASE_DIR.resolve())
+        if hasattr(os, "startfile"):
+            os.startfile(str(target))
+        else:
+            subprocess.Popen(["powershell.exe", "-NoProfile", "-Command", "Start-Process", str(target)])
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="artifact not found")
+    except (AosPathError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"local open failed: {exc}")
+    return {"success": True, "path": _safe_relative(target), "artifact_path": artifact["path"]}
 
 
 @app.get("/api/dashboard/cockpit")

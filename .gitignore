@@ -86,3 +86,6 @@ legacy_harvest/
 queue/receipts/*.token_usage.json
 
 dashboard/data/
+
+# Runtime orchestration locks
+queue/locks/*.lock

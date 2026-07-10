@@ -14,6 +14,7 @@ from aos_orchestration import EVENTS_PATH, append_jsonl, attempt_telegram_send, 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Deterministic local queue orchestration runner")
     parser.add_argument("--root", default=str(aos_root()), help="Repository root")
+    parser.add_argument("--skip-telegram-escalation", action="store_true", help="Log Needs Me notifications without attempting Telegram escalation")
     parser.add_argument("--attempt-telegram", metavar="ITEM_ID", help="Validation helper: attempt one telegram send for an item")
     parser.add_argument("--recipient", help="Recipient for --attempt-telegram")
     parser.add_argument("--message", default="Agentic OS validation send", help="Message for --attempt-telegram")
@@ -31,7 +32,7 @@ def main() -> int:
         save_items(root, items)
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0 if result.get("result") in {"sent", "already_sent", "blocked", "send_failed"} else 1
-    print(json.dumps(tick(root), indent=2, sort_keys=True))
+    print(json.dumps(tick(root, allow_telegram_escalation=not args.skip_telegram_escalation), indent=2, sort_keys=True))
     return 0
 
 

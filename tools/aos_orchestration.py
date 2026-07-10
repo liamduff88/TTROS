@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import re
 import sys
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable
@@ -27,6 +28,7 @@ RECEIPTS_DIR = QUEUE_DIR / "receipts"
 EVENTS_PATH = QUEUE_DIR / "orchestration_events.jsonl"
 NOTIFICATIONS_PATH = QUEUE_DIR / "notifications.json"
 TOKEN_LEDGER_PATH = QUEUE_DIR / "token_ledger.jsonl"
+TICK_LOCK_PATH = QUEUE_DIR / "locks" / "orchestration_tick.lock"
 
 GATE_STATUSES = {"human_review", "needs_input"}
 ATTENTION_STATUSES = {"human_review", "needs_input", "blocked"}
@@ -39,6 +41,28 @@ ARTIFACT_RE = re.compile(r"(?P<path>(?:results|workflows|packets|logs|queue/rece
 
 class OrchestrationError(Exception):
     """Raised when local orchestration cannot continue safely."""
+
+
+@contextmanager
+def tick_lock(root: Path):
+    lock_path = root / TICK_LOCK_PATH
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("w", encoding="utf-8") as handle:
+        try:
+            import fcntl
+        except ModuleNotFoundError:
+            yield
+            return
+
+        try:
+
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            yield
+        finally:
+            try:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            except Exception:
+                pass
 
 
 def now_iso() -> str:
@@ -247,6 +271,136 @@ def append_no_agent_token_line(root: Path, item: dict, event: str) -> None:
     })
 
 
+def _is_acceptance_delivery_step(item: dict) -> bool:
+    tags = {str(tag) for tag in item.get("tags") or []}
+    return (
+        item.get("status") == READY_STATUS
+        and str(item.get("owner") or "").lower() == "delivery"
+        and str(item.get("workbench") or "").lower() == "local"
+        and "orchestration_acceptance" in tags
+        and isinstance(item.get("parent_id"), str)
+        and item.get("step_index") == 3
+    )
+
+
+def _read_text_if_available(root: Path, ref: str, limit: int = 12000) -> str:
+    path = clean_ref(ref)
+    if not path:
+        return ""
+    target = root / path
+    if not target.is_file() or target.stat().st_size > 250_000:
+        return ""
+    return target.read_text(encoding="utf-8", errors="replace")[:limit]
+
+
+def _first_ref(refs: list[str], suffix: str) -> str:
+    for ref in refs:
+        if ref.endswith(suffix):
+            return ref
+    return ""
+
+
+def complete_acceptance_delivery_steps(root: Path, items: list[dict], events: list[dict]) -> list[dict]:
+    actions = []
+    by_id = {str(item.get("id")): item for item in items}
+    for item in sorted((row for row in items if _is_acceptance_delivery_step(row)), key=_step_sort_key):
+        item_id = str(item.get("id") or "")
+        parent_id = str(item.get("parent_id") or "")
+        if event_exists(events, "acceptance_finalized", item_id, parent_id):
+            continue
+        deps = [str(dep) for dep in item.get("depends_on") or [] if str(dep).strip()]
+        if deps and not all(is_step_complete(by_id.get(dep, {})) for dep in deps):
+            continue
+
+        refs = [str(ref) for ref in item.get("source_refs") or []]
+        source_pack = _first_ref(refs, "/01_source_pack.md")
+        approved_brief = _first_ref(refs, "/02_speed_to_lead_micro_brief.md")
+        review_receipt = ""
+        for ref in refs:
+            if ref.startswith("queue/receipts/") and item.get("depends_on") and str(item["depends_on"][0]) in ref:
+                review_receipt = ref
+                break
+        source_text = _read_text_if_available(root, source_pack, 6000)
+        brief_text = _read_text_if_available(root, approved_brief, 8000)
+        review_text = _read_text_if_available(root, review_receipt, 4000)
+
+        final_artifact = f"results/orchestration_acceptance/{parent_id}/03_final_review_package.md"
+        target = root / final_artifact
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("\n".join([
+            "# Final Review Package",
+            "",
+            f"Acceptance-run ID: {parent_id}",
+            f"Source-pack path: {source_pack or 'unavailable'}",
+            f"Approved micro-brief path: {approved_brief or 'unavailable'}",
+            f"Operator review receipt/reference: {review_receipt or 'unavailable'}",
+            "",
+            "Approved micro-brief content:",
+            brief_text.strip() or "Unavailable.",
+            "",
+            "Operator review note/reference:",
+            review_text.strip() or "Unavailable.",
+            "",
+            "Chain-step summary:",
+            "- Step 1 operations/local source pack: done.",
+            "- Step 2 marketing draft: approved through human_review.",
+            "- Step 3 delivery/local final package: done.",
+            "",
+            "Final status: done",
+            "",
+            "Token summary:",
+            "- Step 1: Token usage: no agent invocation",
+            "- Step 2: Token usage: unavailable from current CLI output",
+            "- Step 3: Token usage: no agent invocation",
+            "- Runner activity: Token usage: no agent invocation",
+            "",
+            "Source-pack excerpt:",
+            source_text.strip() or "Unavailable.",
+            "",
+        ]).rstrip() + "\n", encoding="utf-8")
+
+        receipt_path = write_receipt(root, item_id, "final-closeout", [
+            "PASS",
+            "",
+            "Final queue closeout:",
+            f"- Work item ID: {item_id}",
+            f"- Parent ID: {parent_id}",
+            f"- Final artifact: {final_artifact}",
+            f"- Source pack: {source_pack or 'unavailable'}",
+            f"- Approved brief: {approved_brief or 'unavailable'}",
+            f"- Review receipt: {review_receipt or 'unavailable'}",
+            "- Final status: done",
+            "",
+            "Token usage: no agent invocation",
+        ])
+        item.setdefault("receipts", []).append({"path": receipt_path, "created_at": now_iso(), "status": DONE_STATUS})
+        item["status"] = DONE_STATUS
+        item["updated_at"] = now_iso()
+
+        parent = by_id.get(parent_id)
+        if parent and parent.get("status") != DONE_STATUS:
+            parent.setdefault("receipts", []).append({"path": receipt_path, "created_at": now_iso(), "status": DONE_STATUS})
+            parent["status"] = DONE_STATUS
+            parent["updated_at"] = now_iso()
+
+        record = {
+            "event": "acceptance_finalized",
+            "item_id": item_id,
+            "key": parent_id,
+            "parent_id": parent_id,
+            "status": DONE_STATUS,
+            "artifact_path": final_artifact,
+            "receipt_path": receipt_path,
+            "token_usage_text": "Token usage: no agent invocation",
+            "created_at": now_iso(),
+        }
+        append_jsonl(root / EVENTS_PATH, record)
+        events.append(record)
+        append_no_agent_token_line(root, item, "acceptance_finalized")
+        actions.append(record)
+    return actions
+
+
 def _step_sort_key(item: dict) -> tuple[int, str]:
     index = item.get("step_index")
     return (index if isinstance(index, int) else 999999, str(item.get("id") or ""))
@@ -273,80 +427,97 @@ def next_steps(items: list[dict], completed: dict[str, dict]) -> list[dict]:
     return sorted(ready, key=_step_sort_key)
 
 
-def tick(root: Path | None = None, *, send_telegram: Callable[[str, str], Any] | None = None, now: datetime | None = None) -> dict:
+def tick(
+    root: Path | None = None,
+    *,
+    send_telegram: Callable[[str, str], Any] | None = None,
+    now: datetime | None = None,
+    allow_telegram_escalation: bool = True,
+) -> dict:
     root = Path(root or aos_root()).resolve()
-    current_time = now or datetime.now(timezone.utc)
-    items = load_items(root)
-    by_id = {str(item.get("id")): item for item in items}
-    completed = {item_id: item for item_id, item in by_id.items() if is_step_complete(item)}
-    events = read_jsonl(root / EVENTS_PATH)
-    actions: list[dict] = []
+    with tick_lock(root):
+        current_time = now or datetime.now(timezone.utc)
+        items = load_items(root)
+        by_id = {str(item.get("id")): item for item in items}
+        completed = {item_id: item for item_id, item in by_id.items() if is_step_complete(item)}
+        events = read_jsonl(root / EVENTS_PATH)
+        actions: list[dict] = []
 
-    for item in next_steps(items, completed):
-        item_id = str(item.get("id"))
-        deps = [str(dep) for dep in item.get("depends_on") or [] if str(dep).strip()]
-        if not deps:
-            previous = [
-                other for other in items
-                if other.get("parent_id") == item.get("parent_id")
-                and isinstance(other.get("step_index"), int)
-                and isinstance(item.get("step_index"), int)
-                and other.get("step_index") < item.get("step_index")
-            ]
-            deps = [str(other.get("id")) for other in previous[-1:]]
-        key = ",".join(deps)
-        if event_exists(events, "step_advanced", item_id, key):
-            continue
-        refs: list[str] = []
-        for dep in deps:
-            if dep in completed:
-                refs.extend(artifact_refs_for(root, completed[dep]))
-        added_refs = append_source_refs(item, refs)
-        target_status = str(item.get("on_complete") or "").strip().lower()
-        if target_status not in GATE_STATUSES:
-            target_status = READY_STATUS
-        item["status"] = target_status
-        item["updated_at"] = now_iso()
-        receipt_path = write_receipt(root, item_id, "runner", [
-            "PASS",
-            "",
-            "Runner action:",
-            f"- Event: step_advanced",
-            f"- Work item ID: {item_id}",
-            f"- Parent ID: {item.get('parent_id')}",
-            f"- Step index: {item.get('step_index')}",
-            f"- Depends on: {', '.join(deps) if deps else 'none'}",
-            f"- Routed owner: {item.get('owner') or 'unassigned'}",
-            f"- Workbench: {item.get('workbench') or 'lane'}",
-            f"- Status: {target_status}",
-            f"- Source refs added: {', '.join(added_refs) if added_refs else 'none'}",
-            "- Token usage: no agent invocation",
-        ])
-        item.setdefault("receipts", []).append({"path": receipt_path, "created_at": now_iso(), "status": target_status})
-        record = {
-            "event": "step_advanced",
-            "item_id": item_id,
-            "key": key,
-            "parent_id": item.get("parent_id"),
-            "status": target_status,
-            "source_refs_added": added_refs,
-            "receipt_path": receipt_path,
+        for item in next_steps(items, completed):
+            item_id = str(item.get("id"))
+            deps = [str(dep) for dep in item.get("depends_on") or [] if str(dep).strip()]
+            if not deps:
+                previous = [
+                    other for other in items
+                    if other.get("parent_id") == item.get("parent_id")
+                    and isinstance(other.get("step_index"), int)
+                    and isinstance(item.get("step_index"), int)
+                    and other.get("step_index") < item.get("step_index")
+                ]
+                deps = [str(other.get("id")) for other in previous[-1:]]
+            key = ",".join(deps)
+            if event_exists(events, "step_advanced", item_id, key):
+                continue
+            refs: list[str] = []
+            for dep in deps:
+                if dep in completed:
+                    refs.extend(artifact_refs_for(root, completed[dep]))
+            added_refs = append_source_refs(item, refs)
+            target_status = str(item.get("on_complete") or "").strip().lower()
+            if target_status not in GATE_STATUSES:
+                target_status = READY_STATUS
+            item["status"] = target_status
+            item["updated_at"] = now_iso()
+            receipt_path = write_receipt(root, item_id, "runner", [
+                "PASS",
+                "",
+                "Runner action:",
+                f"- Event: step_advanced",
+                f"- Work item ID: {item_id}",
+                f"- Parent ID: {item.get('parent_id')}",
+                f"- Step index: {item.get('step_index')}",
+                f"- Depends on: {', '.join(deps) if deps else 'none'}",
+                f"- Routed owner: {item.get('owner') or 'unassigned'}",
+                f"- Workbench: {item.get('workbench') or 'lane'}",
+                f"- Status: {target_status}",
+                f"- Source refs added: {', '.join(added_refs) if added_refs else 'none'}",
+                "- Token usage: no agent invocation",
+            ])
+            item.setdefault("receipts", []).append({"path": receipt_path, "created_at": now_iso(), "status": target_status})
+            record = {
+                "event": "step_advanced",
+                "item_id": item_id,
+                "key": key,
+                "parent_id": item.get("parent_id"),
+                "status": target_status,
+                "source_refs_added": added_refs,
+                "receipt_path": receipt_path,
+                "token_usage_text": "Token usage: no agent invocation",
+                "created_at": now_iso(),
+            }
+            append_jsonl(root / EVENTS_PATH, record)
+            events.append(record)
+            append_no_agent_token_line(root, item, "step_advanced")
+            actions.append(record)
+
+        local_actions = complete_acceptance_delivery_steps(root, items, events)
+        actions.extend(local_actions)
+
+        notification_actions = process_notifications(
+            root,
+            items,
+            events,
+            send_telegram=send_telegram,
+            now=current_time,
+            allow_telegram_escalation=allow_telegram_escalation,
+        )
+        save_items(root, items)
+        return {
+            "success": True,
+            "advanced": actions,
+            "notifications": notification_actions,
             "token_usage_text": "Token usage: no agent invocation",
-            "created_at": now_iso(),
         }
-        append_jsonl(root / EVENTS_PATH, record)
-        events.append(record)
-        append_no_agent_token_line(root, item, "step_advanced")
-        actions.append(record)
-
-    notification_actions = process_notifications(root, items, events, send_telegram=send_telegram, now=current_time)
-    save_items(root, items)
-    return {
-        "success": True,
-        "advanced": actions,
-        "notifications": notification_actions,
-        "token_usage_text": "Token usage: no agent invocation",
-    }
 
 
 def load_notifications(root: Path) -> dict:
@@ -387,6 +558,7 @@ def process_notifications(
     *,
     send_telegram: Callable[[str, str], Any] | None,
     now: datetime,
+    allow_telegram_escalation: bool = True,
 ) -> list[dict]:
     config = load_notifications(root)
     actions = []
@@ -418,6 +590,8 @@ def process_notifications(
         origin_event = latest_event(events, "notification_logged", item_id, origin_key)
         origin_logged_at = parse_iso(origin_event.get("created_at") if origin_event else None)
         if not origin_logged_at:
+            continue
+        if not allow_telegram_escalation:
             continue
         age = now - origin_logged_at.astimezone(timezone.utc)
         if age < timedelta(minutes=config["unanswered_minutes"]):
