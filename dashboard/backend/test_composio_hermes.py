@@ -2277,7 +2277,7 @@ class HermesComposioTests(unittest.TestCase):
         subprocess_run.assert_not_called()
         self.assertEqual(receipts, [])
 
-    def test_agentmail_digest_is_allowlisted_and_idempotent(self):
+    def test_agentmail_digest_preview_accepts_allowlisted_internal_recipient(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             queue = root / "queue"
@@ -2294,32 +2294,255 @@ class HermesComposioTests(unittest.TestCase):
                 }) + "\n",
                 encoding="utf-8",
             )
-            (queue / "notifications.json").write_text(json.dumps({"allowlist": {"agentmail_internal": ["liam@timetorevenue.example"]}}), encoding="utf-8")
+            (queue / "notifications.json").write_text(json.dumps({"allowlist": {"agentmail_internal": ["revenue-agent@internal"]}}), encoding="utf-8")
             with patch.object(backend, "BASE_DIR", root), \
                  patch.object(backend, "QUEUE_DIR", queue), \
                  patch.object(backend, "NOTIFICATIONS_FILE", queue / "notifications.json"), \
                  patch.object(backend, "TOKEN_LEDGER_FILE", queue / "token_ledger.jsonl"), \
                  patch.object(backend, "ROOT_TOKEN_LEDGER_FILE", root / "token_ledger.jsonl"), \
                  patch.object(backend, "BACKUP_RECEIPTS_FILE", queue / "receipts" / "backups.jsonl"), \
-                 patch.object(backend, "_read_backend_env", return_value={}):
-                first = backend._agentmail_digest_attempt(datetime.date(2026, 7, 8), "liam@timetorevenue.example")
-                second = backend._agentmail_digest_attempt(datetime.date(2026, 7, 8), "liam@timetorevenue.example")
-                receipt = root / first["receipt_path"]
-                payload = json.loads(receipt.read_text(encoding="utf-8"))
-        self.assertTrue(first["digest_generated"])
-        self.assertFalse(first["send_attempted"])
-        self.assertFalse(first["sent"])
-        self.assertIn("connector/auth", first["blocker"])
-        self.assertTrue(second["digest_generated"])
-        self.assertFalse(second["send_attempted"])
-        self.assertTrue(second["already_attempted"])
-        self.assertEqual(first["receipt_path"], second["receipt_path"])
-        self.assertTrue(payload["digest_generated"])
+                 patch.object(backend, "_run_agentmail_composio_send") as provider:
+                result = backend._agentmail_digest_attempt(datetime.date(2026, 7, 8), "revenue-agent@internal")
+        provider.assert_not_called()
+        self.assertTrue(result["digest_generated"])
+        self.assertTrue(result["preview"])
+        self.assertFalse(result["send_attempted"])
+        self.assertFalse(result["sent"])
+        self.assertEqual(result["recipient"], "revenue-agent@internal")
+        self.assertEqual(result["digest"]["completed_items"][0]["id"], "AOS-2026-9001")
+        self.assertEqual(result["provider"], "composio")
+        self.assertEqual(result["toolkit"], "agent_mail")
+        self.assertEqual(result["action"], "AGENT_MAIL_SEND_EMAIL")
+        self.assertEqual(result["inbox_id"], "olmec1@agentmail.to")
+        self.assertEqual(result["provider_payload"]["inbox_id"], "olmec1@agentmail.to")
+        self.assertEqual(result["provider_payload"]["to"], ["revenue-agent@internal"])
+        self.assertEqual(result["provider_payload"]["subject"], result["subject"])
+        self.assertEqual(result["provider_payload"]["text"], result["body"])
+        self.assertEqual(result["provider_payload"]["html"], "")
+        self.assertEqual(result["provider_payload"]["cc"], [])
+        self.assertEqual(result["provider_payload"]["bcc"], [])
+        self.assertEqual(result["provider_payload"]["labels"], [])
+        self.assertEqual(result["provider_payload"]["reply_to"], [])
+
+    def test_agentmail_digest_preview_accepts_liam_verified_internal_recipient(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            queue = root / "queue"
+            queue.mkdir(parents=True)
+            (queue / "notifications.json").write_text(json.dumps({"allowlist": {"agentmail_internal": ["liam@timetorevenue.com"]}}), encoding="utf-8")
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "QUEUE_DIR", queue), \
+                 patch.object(backend, "NOTIFICATIONS_FILE", queue / "notifications.json"), \
+                 patch.object(backend, "TOKEN_LEDGER_FILE", queue / "token_ledger.jsonl"), \
+                 patch.object(backend, "ROOT_TOKEN_LEDGER_FILE", root / "token_ledger.jsonl"), \
+                 patch.object(backend, "BACKUP_RECEIPTS_FILE", queue / "receipts" / "backups.jsonl"), \
+                 patch.object(backend, "_run_agentmail_composio_send") as provider:
+                result = backend._agentmail_digest_attempt(datetime.date(2026, 7, 8), "liam@timetorevenue.com")
+        provider.assert_not_called()
+        self.assertTrue(result["allowlist_result"]["allowed"])
+        self.assertEqual(result["recipient"], "liam@timetorevenue.com")
+        self.assertEqual(result["provider_payload"]["to"], ["liam@timetorevenue.com"])
+
+    def test_agentmail_non_allowlisted_recipient_rejected_before_provider(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            queue = root / "queue"
+            queue.mkdir(parents=True)
+            (queue / "notifications.json").write_text(json.dumps({"allowlist": {"agentmail_internal": ["ops-agent@internal"]}}), encoding="utf-8")
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "QUEUE_DIR", queue), \
+                 patch.object(backend, "NOTIFICATIONS_FILE", queue / "notifications.json"), \
+                 patch.object(backend, "_run_agentmail_composio_send") as provider:
+                with self.assertRaises(ValueError):
+                    backend._agentmail_digest_attempt(datetime.date(2026, 7, 8), "outside@timetorevenue.com", send=True, dry_run=False)
+        provider.assert_not_called()
+
+    def test_agentmail_placeholder_recipient_rejected_before_provider(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            queue = root / "queue"
+            queue.mkdir(parents=True)
+            (queue / "notifications.json").write_text(json.dumps({"allowlist": {"agentmail_internal": ["liam@timetorevenue.example"]}}), encoding="utf-8")
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "QUEUE_DIR", queue), \
+                 patch.object(backend, "NOTIFICATIONS_FILE", queue / "notifications.json"), \
+                 patch.object(backend, "_run_agentmail_composio_send") as provider:
+                with self.assertRaises(ValueError):
+                    backend._agentmail_digest_attempt(datetime.date(2026, 7, 8), "liam@timetorevenue.example", send=True, dry_run=False)
+        provider.assert_not_called()
+
+    def test_agentmail_malformed_recipient_rejected_before_provider(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            queue = root / "queue"
+            queue.mkdir(parents=True)
+            (queue / "notifications.json").write_text(json.dumps({"allowlist": {"agentmail_internal": ["not-an-address"]}}), encoding="utf-8")
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "QUEUE_DIR", queue), \
+                 patch.object(backend, "NOTIFICATIONS_FILE", queue / "notifications.json"), \
+                 patch.object(backend, "_run_agentmail_composio_send") as provider:
+                with self.assertRaisesRegex(ValueError, "malformed"):
+                    backend._agentmail_digest_attempt(datetime.date(2026, 7, 8), "not-an-address", send=True, dry_run=False)
+        provider.assert_not_called()
+
+    def test_agentmail_text_or_html_required_before_provider_call(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            queue = root / "queue"
+            (queue / "receipts").mkdir(parents=True)
+            (queue / "notifications.json").write_text(json.dumps({"allowlist": {"agentmail_internal": ["ops-agent@internal"]}}), encoding="utf-8")
+            empty_digest = {
+                "digest_date": "2026-07-08",
+                "recipient": "ops-agent@internal",
+                "subject": "Subject",
+                "body": "",
+            }
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "QUEUE_DIR", queue), \
+                 patch.object(backend, "NOTIFICATIONS_FILE", queue / "notifications.json"), \
+                 patch.object(backend, "_build_agentmail_digest", return_value=empty_digest), \
+                 patch.object(backend, "_run_agentmail_composio_send") as provider:
+                result = backend._agentmail_digest_attempt(datetime.date(2026, 7, 8), "ops-agent@internal", send=True, dry_run=False)
+                payload = json.loads((root / result["receipt_path"]).read_text(encoding="utf-8"))
+        provider.assert_not_called()
+        self.assertFalse(result["sent"])
+        self.assertFalse(payload["send_attempted"])
+        self.assertIn("requires text or html", payload["blocker"])
+
+    def test_agentmail_dry_run_writes_receipt_without_provider_call(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            queue = root / "queue"
+            (queue / "receipts").mkdir(parents=True)
+            (queue / "notifications.json").write_text(json.dumps({"allowlist": {"agentmail_internal": ["ops-agent@internal"]}}), encoding="utf-8")
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "QUEUE_DIR", queue), \
+                 patch.object(backend, "NOTIFICATIONS_FILE", queue / "notifications.json"), \
+                 patch.object(backend, "_run_agentmail_composio_send") as provider:
+                result = backend._agentmail_digest_attempt(datetime.date(2026, 7, 8), "ops-agent@internal", send=True, dry_run=True)
+                payload = json.loads((root / result["receipt_path"]).read_text(encoding="utf-8"))
+        provider.assert_not_called()
+        self.assertTrue(payload["dry_run"])
         self.assertFalse(payload["send_attempted"])
         self.assertFalse(payload["sent"])
-        self.assertIn("connector/auth", payload["blocker"])
-        self.assertEqual(payload["recipient"], "liam@timetorevenue.example")
-        self.assertEqual(payload["digest"]["completed_items"][0]["id"], "AOS-2026-9001")
+        self.assertFalse(payload["transmitted"])
+        self.assertEqual(payload["provider_action"], "AGENT_MAIL_SEND_EMAIL")
+        self.assertEqual(payload["inbox_id"], "olmec1@agentmail.to")
+        self.assertEqual(payload["token_usage_text"], "Token usage: no agent invocation")
+
+    def test_agentmail_provider_success_writes_sent_true_and_reference(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            queue = root / "queue"
+            (queue / "receipts").mkdir(parents=True)
+            (queue / "notifications.json").write_text(json.dumps({"allowlist": {"agentmail_internal": ["ops-agent@internal"]}}), encoding="utf-8")
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "QUEUE_DIR", queue), \
+                 patch.object(backend, "NOTIFICATIONS_FILE", queue / "notifications.json"), \
+                 patch.object(backend, "_run_agentmail_composio_send", return_value={"ok": True, "result": {"message_id": "msg_123"}}) as provider:
+                result = backend._agentmail_digest_attempt(datetime.date(2026, 7, 8), "ops-agent@internal", send=True, dry_run=False)
+                payload = json.loads((root / result["receipt_path"]).read_text(encoding="utf-8"))
+        provider.assert_called_once()
+        action, provider_payload = provider.call_args.args
+        self.assertEqual(action, "AGENT_MAIL_SEND_EMAIL")
+        self.assertEqual(provider_payload["inbox_id"], "olmec1@agentmail.to")
+        self.assertEqual(provider_payload["to"], ["ops-agent@internal"])
+        self.assertEqual(provider_payload["cc"], [])
+        self.assertEqual(provider_payload["bcc"], [])
+        self.assertEqual(provider_payload["labels"], [])
+        self.assertEqual(provider_payload["reply_to"], [])
+        self.assertTrue(payload["send_attempted"])
+        self.assertTrue(payload["sent"])
+        self.assertTrue(payload["transmitted"])
+        self.assertEqual(payload["provider_reference"], "msg_123")
+        self.assertEqual(payload["token_usage_text"], "Token usage: no agent invocation")
+
+    def test_agentmail_provider_success_reference_supports_thread_id(self):
+        response = {"ok": True, "result": {"thread_id": "thr_123"}}
+        self.assertEqual(backend._agentmail_provider_reference(response), "thr_123")
+
+    def test_agentmail_provider_failure_writes_retryable_receipt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            queue = root / "queue"
+            (queue / "receipts").mkdir(parents=True)
+            (queue / "notifications.json").write_text(json.dumps({"allowlist": {"agentmail_internal": ["ops-agent@internal"]}}), encoding="utf-8")
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "QUEUE_DIR", queue), \
+                 patch.object(backend, "NOTIFICATIONS_FILE", queue / "notifications.json"), \
+                 patch.object(backend, "_run_agentmail_composio_send", return_value={"ok": False, "error": "auth unavailable"}) as provider:
+                result = backend._agentmail_digest_attempt(datetime.date(2026, 7, 8), "ops-agent@internal", send=True, dry_run=False)
+                payload = json.loads((root / result["receipt_path"]).read_text(encoding="utf-8"))
+        provider.assert_called_once()
+        self.assertFalse(payload["sent"])
+        self.assertTrue(payload["retryable"])
+        self.assertIn("auth unavailable", payload["failure"])
+
+    def test_agentmail_duplicate_success_does_not_call_provider_twice(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            queue = root / "queue"
+            (queue / "receipts").mkdir(parents=True)
+            (queue / "notifications.json").write_text(json.dumps({"allowlist": {"agentmail_internal": ["ops-agent@internal"]}}), encoding="utf-8")
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "QUEUE_DIR", queue), \
+                 patch.object(backend, "NOTIFICATIONS_FILE", queue / "notifications.json"), \
+                 patch.object(backend, "_run_agentmail_composio_send", return_value={"ok": True, "result": {"message_id": "msg_123"}}) as provider:
+                first = backend._agentmail_digest_attempt(datetime.date(2026, 7, 8), "ops-agent@internal", send=True, dry_run=False)
+                second = backend._agentmail_digest_attempt(datetime.date(2026, 7, 8), "ops-agent@internal", send=True, dry_run=False)
+                second_payload = json.loads((root / second["receipt_path"]).read_text(encoding="utf-8"))
+        self.assertTrue(first["sent"])
+        self.assertFalse(second["sent"])
+        self.assertTrue(second["already_sent"])
+        provider.assert_called_once()
+        self.assertEqual(second_payload["status"], "duplicate_suppressed")
+
+    def test_agentmail_failed_attempt_may_be_retried(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            queue = root / "queue"
+            (queue / "receipts").mkdir(parents=True)
+            (queue / "notifications.json").write_text(json.dumps({"allowlist": {"agentmail_internal": ["ops-agent@internal"]}}), encoding="utf-8")
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "QUEUE_DIR", queue), \
+                 patch.object(backend, "NOTIFICATIONS_FILE", queue / "notifications.json"), \
+                 patch.object(backend, "_run_agentmail_composio_send", side_effect=[{"ok": False, "error": "temporary"}, {"ok": True, "result": {"message_id": "msg_2"}}]) as provider:
+                first = backend._agentmail_digest_attempt(datetime.date(2026, 7, 8), "ops-agent@internal", send=True, dry_run=False)
+                second = backend._agentmail_digest_attempt(datetime.date(2026, 7, 8), "ops-agent@internal", send=True, dry_run=False)
+        self.assertFalse(first["sent"])
+        self.assertTrue(second["sent"])
+        self.assertEqual(provider.call_count, 2)
+
+    def test_no_generic_unrestricted_send_email_endpoint_exists(self):
+        source = MAIN.read_text(encoding="utf-8")
+        route_paths = re.findall(r"@app\.(?:post|get|put|delete)\(\"([^\"]+)\"", source)
+        generic_paths = [path for path in route_paths if "send-email" in path or path.endswith("/send") or path.endswith("/email")]
+        self.assertEqual(generic_paths, [])
+
+    def test_external_send_path_remains_dry_run_only_after_agentmail_live_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "queue" / "receipts").mkdir(parents=True)
+            body = backend.ExternalSendDryRun(
+                item_id=None,
+                recipient="lead@example.com",
+                action="Would send email",
+                payload="Hello from a dry run.",
+                confirmation="SEND lead@example.com",
+            )
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "QUEUE_DIR", root / "queue"), \
+                 patch.object(backend.urllib.request, "urlopen") as urlopen, \
+                 patch.object(backend.subprocess, "run") as subprocess_run:
+                result = backend._write_external_dry_run_receipt(body)
+                receipt = root / result["receipt_path"]
+                content = receipt.read_text(encoding="utf-8")
+        urlopen.assert_not_called()
+        subprocess_run.assert_not_called()
+        self.assertTrue(result["dry_run"])
+        self.assertFalse(result["transmitted"])
+        self.assertIn("dry_run: true", content)
+        self.assertIn("transmitted: false", content)
 
     def test_workflow_runner_contracts_follow_command_routes(self):
         routes = {

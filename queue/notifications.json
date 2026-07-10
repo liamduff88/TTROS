@@ -1,5 +1,5 @@
 {
-  "$comment": "TTROS notification config + recipient allowlist. Internal sends unrestricted within allowlist; third-party sends gated with typed confirmation. Bridge FILES frozen — sends use the existing bridge send path only. Last touched: 2026-07-08.",
+  "$comment": "TTROS notification config + recipient allowlist. Internal sends unrestricted within allowlist; third-party sends gated with typed confirmation. Bridge FILES frozen — sends use the existing bridge send path only. Last touched: 2026-07-09.",
   "version": 1,
   "escalation": {
     "channels_immediate": ["originating_channel", "needs_me_rail"],
@@ -10,12 +10,18 @@
   "allowlist": {
     "telegram": ["1320777128"],
     "agentmail_internal": [
-      "liam@timetorevenue.example",
+      "liam@timetorevenue.com",
       "revenue-agent@internal",
       "marketing-agent@internal",
       "delivery-agent@internal",
       "operations-agent@internal"
     ]
+  },
+  "agentmail": {
+    "provider": "composio",
+    "toolkit": "agent_mail",
+    "action": "AGENT_MAIL_SEND_EMAIL",
+    "inbox_id": "olmec1@agentmail.to"
   },
   "third_party": {
     "policy": "gated",

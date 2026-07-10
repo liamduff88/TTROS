@@ -15,6 +15,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -464,6 +465,8 @@ class ExternalSendDryRun(BaseModel):
 class AgentMailDigestRequest(BaseModel):
     digest_date: str | None = None
     recipient: str | None = None
+    send: bool = False
+    dry_run: bool = True
 
 
 class DashboardTaskCreate(BaseModel):
@@ -1335,16 +1338,155 @@ def _completed_items_for_date(target_date: datetime.date) -> list[dict]:
 
 def _agentmail_allowlist() -> list[str]:
     allowlist = (_notifications_config().get("allowlist") or {}).get("agentmail_internal") or []
-    return [str(value).strip() for value in allowlist if str(value).strip()]
+    return [_normalize_agentmail_recipient(str(value)) for value in allowlist if _normalize_agentmail_recipient(str(value))]
 
 
 def _safe_recipient_label(recipient: str) -> str:
-    return recipient if recipient in _agentmail_allowlist() else "not_allowlisted"
+    normalized = _normalize_agentmail_recipient(recipient)
+    return normalized if normalized in _agentmail_allowlist() else "not_allowlisted"
 
 
-def _digest_receipt_path(digest_date: str, recipient: str) -> Path:
-    digest_hash = hashlib.sha256(recipient.encode("utf-8")).hexdigest()[:12]
-    return QUEUE_DIR / "receipts" / f"agentmail_digest_{digest_date}_{digest_hash}.json"
+_AGENTMAIL_DIGEST_LOCK = threading.Lock()
+_AGENTMAIL_EMAIL_RE = re.compile(r"^[^@\s<>]+@[^@\s<>]+\.[^@\s<>]+$")
+_AGENTMAIL_INTERNAL_RE = re.compile(r"^[a-z0-9._%+-]+@internal$")
+_AGENTMAIL_PROVIDER = "composio"
+_AGENTMAIL_TOOLKIT = "agent_mail"
+_AGENTMAIL_ACTION = "AGENT_MAIL_SEND_EMAIL"
+_AGENTMAIL_DEFAULT_INBOX_ID = "olmec1@agentmail.to"
+
+
+def _normalize_agentmail_recipient(recipient: str) -> str:
+    return str(recipient or "").strip().lower()
+
+
+def _agentmail_recipient_allowlist_result(recipient: str) -> dict:
+    normalized = _normalize_agentmail_recipient(recipient)
+    allowlist = set(_agentmail_allowlist())
+    if not normalized:
+        return {"allowed": False, "recipient": normalized, "reason": "recipient is required"}
+    if any(value in normalized for value in ("example.com", "example", "placeholder", "your-email", "todo")):
+        return {"allowed": False, "recipient": normalized, "reason": "placeholder recipient rejected"}
+    if not (_AGENTMAIL_EMAIL_RE.fullmatch(normalized) or _AGENTMAIL_INTERNAL_RE.fullmatch(normalized)):
+        return {"allowed": False, "recipient": normalized, "reason": "malformed recipient rejected"}
+    if normalized not in allowlist:
+        return {"allowed": False, "recipient": normalized, "reason": "recipient is not in queue/notifications.json allowlist.agentmail_internal"}
+    return {"allowed": True, "recipient": normalized, "reason": "allowlisted internal recipient"}
+
+
+def _agentmail_digest_content_hash(digest: dict) -> str:
+    body = str(digest.get("body") or "")
+    return hashlib.sha256(body.encode("utf-8")).hexdigest()
+
+
+def _agentmail_digest_idempotency_key(digest: dict) -> str:
+    source = "|".join([
+        str(digest.get("digest_id") or digest.get("digest_date") or ""),
+        _normalize_agentmail_recipient(str(digest.get("recipient") or "")),
+        _agentmail_digest_content_hash(digest),
+    ])
+    return hashlib.sha256(source.encode("utf-8")).hexdigest()
+
+
+def _digest_receipt_path(digest_date: str, recipient: str, idempotency_key: str | None = None) -> Path:
+    digest_hash = hashlib.sha256(_normalize_agentmail_recipient(recipient).encode("utf-8")).hexdigest()[:12]
+    suffix = f"_{idempotency_key[:16]}" if idempotency_key else ""
+    return QUEUE_DIR / "receipts" / f"agentmail_digest_{digest_date}_{digest_hash}{suffix}.json"
+
+
+def _agentmail_attempt_receipt_path(digest_date: str, recipient: str, idempotency_key: str) -> Path:
+    base = _digest_receipt_path(digest_date, recipient, idempotency_key)
+    if not base.exists():
+        return base
+    stamp = _utc_now_iso().replace(":", "").replace("-", "").replace("Z", "Z")
+    return QUEUE_DIR / "receipts" / f"{base.stem}_{stamp}.json"
+
+
+def _agentmail_success_receipt_for_key(idempotency_key: str) -> dict | None:
+    receipts = QUEUE_DIR / "receipts"
+    if not receipts.exists():
+        return None
+    for path in sorted(receipts.glob("agentmail_digest_*.json"), key=lambda item: item.stat().st_mtime, reverse=True):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if payload.get("idempotency_key") == idempotency_key and payload.get("sent") is True:
+            return {**payload, "receipt_path": _safe_relative(path)}
+    return None
+
+
+def _agentmail_config() -> dict:
+    config = (_notifications_config().get("agentmail") or {})
+    if not isinstance(config, dict):
+        config = {}
+    return {
+        "provider": str(config.get("provider") or _AGENTMAIL_PROVIDER),
+        "toolkit": str(config.get("toolkit") or _AGENTMAIL_TOOLKIT),
+        "action": str(config.get("action") or _AGENTMAIL_ACTION).strip().upper(),
+        "inbox_id": str(config.get("inbox_id") or _AGENTMAIL_DEFAULT_INBOX_ID).strip(),
+    }
+
+
+def _agentmail_text_html_present(payload: dict) -> bool:
+    return bool(str(payload.get("text") or "").strip() or str(payload.get("html") or "").strip())
+
+
+def _agentmail_provider_payload(digest: dict, idempotency_key: str, config: dict) -> tuple[dict | None, str]:
+    action = str(config.get("action") or "").strip().upper()
+    inbox_id = str(config.get("inbox_id") or "").strip()
+    if action != _AGENTMAIL_ACTION:
+        return None, "AgentMail Composio action must be AGENT_MAIL_SEND_EMAIL."
+    if not inbox_id:
+        return None, "AgentMail Composio send contract is not configured: missing inbox_id"
+    payload = {
+        "inbox_id": inbox_id,
+        "to": [digest["recipient"]],
+        "subject": digest["subject"],
+        "text": digest["body"],
+        "html": "",
+        "cc": [],
+        "bcc": [],
+        "labels": [],
+        "reply_to": [],
+    }
+    if not _agentmail_text_html_present(payload):
+        return None, "AgentMail payload requires text or html."
+    return {"provider": _AGENTMAIL_PROVIDER, "toolkit": _AGENTMAIL_TOOLKIT, "action": action, "payload": payload}, ""
+
+
+def _run_agentmail_composio_send(action: str, payload: dict) -> dict:
+    workspace = "/mnt/c/Users/Admin/Documents/A-Time to revenue/Agentic OS Live"
+    command = (
+        f"cd {shlex.quote(workspace)}; python3 connectors/composio_access_adapter.py "
+        f"run agent_mail {shlex.quote(action)} --data {shlex.quote(json.dumps(payload, separators=(',', ':')))} "
+        "--execute --operator-command"
+    )
+    result = _run_agentic_os_clean_bash(command, timeout=120)
+    try:
+        parsed = json.loads(result["output"])
+        return parsed if isinstance(parsed, dict) else {"ok": False, "error": "Adapter returned non-object JSON"}
+    except (json.JSONDecodeError, TypeError):
+        return {"ok": False, "error": _redacted_preview(result.get("output") or "AgentMail connector returned no parseable JSON")}
+
+
+def _agentmail_provider_reference(response: dict) -> str | None:
+    candidates = [response.get("id"), response.get("message_id"), response.get("thread_id"), response.get("reference_id")]
+    result = response.get("result")
+    if isinstance(result, dict):
+        candidates.extend([result.get("id"), result.get("message_id"), result.get("thread_id"), result.get("reference_id")])
+        data = result.get("data")
+        if isinstance(data, dict):
+            candidates.extend([data.get("id"), data.get("message_id"), data.get("thread_id"), data.get("reference_id")])
+    for value in candidates:
+        if value:
+            return str(value)[:200]
+    return None
+
+
+def _write_agentmail_receipt(receipt: dict, path: Path) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return path
 
 
 def _build_agentmail_digest(digest_date: datetime.date, recipient: str) -> dict:
@@ -1391,66 +1533,132 @@ def _build_agentmail_digest(digest_date: datetime.date, recipient: str) -> dict:
     }
 
 
-def _agentmail_digest_attempt(digest_date: datetime.date | None = None, recipient: str | None = None) -> dict:
+def _agentmail_digest_attempt(
+    digest_date: datetime.date | None = None,
+    recipient: str | None = None,
+    *,
+    send: bool = False,
+    dry_run: bool = True,
+) -> dict:
     digest_date = digest_date or (datetime.datetime.now().astimezone().date() - datetime.timedelta(days=1))
     allowlist = _agentmail_allowlist()
-    target = recipient or (allowlist[0] if allowlist else "")
-    if target not in allowlist:
-        raise ValueError("digest recipient must be in queue/notifications.json allowlist.agentmail_internal")
-    receipt_path = _digest_receipt_path(digest_date.isoformat(), target)
-    if receipt_path.exists():
-        receipt_payload = {}
-        try:
-            receipt_payload = json.loads(receipt_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            receipt_payload = {}
+    target = _normalize_agentmail_recipient(recipient or (allowlist[0] if allowlist else ""))
+    allowlist_result = _agentmail_recipient_allowlist_result(target)
+    if not allowlist_result["allowed"]:
+        raise ValueError(allowlist_result["reason"])
+    digest = _build_agentmail_digest(digest_date, target)
+    idempotency_key = _agentmail_digest_idempotency_key(digest)
+    content_hash = _agentmail_digest_content_hash(digest)
+    config = _agentmail_config()
+    contract, contract_blocker = _agentmail_provider_payload(digest, idempotency_key, config)
+    provider = _AGENTMAIL_PROVIDER
+    toolkit = _AGENTMAIL_TOOLKIT
+    action = _AGENTMAIL_ACTION
+    inbox_id = config["inbox_id"]
+    if not send:
         return {
             "success": True,
             "digest_generated": True,
-            "send_attempted": bool(receipt_payload.get("send_attempted")),
+            "preview": True,
+            "send_attempted": False,
             "sent": False,
-            "already_attempted": True,
+            "dry_run": True,
             "recipient": _safe_recipient_label(target),
-            "receipt_path": _safe_relative(receipt_path),
-            "blocker": receipt_payload.get("blocker") or receipt_payload.get("blocked_reason") or "Digest attempt already recorded for date/recipient.",
-            "reason": "Idempotency: digest attempt already recorded for date/recipient.",
+            "subject": digest["subject"],
+            "body": digest["body"],
+            "digest": digest,
+            "allowlist_result": allowlist_result,
+            "provider": provider,
+            "toolkit": toolkit,
+            "action": action or None,
+            "inbox_id": inbox_id,
+            "idempotency_key": idempotency_key,
+            "content_hash": content_hash,
+            "provider_payload": contract["payload"] if contract else None,
         }
-    digest = _build_agentmail_digest(digest_date, target)
-    env = _read_backend_env({"AGENTMAIL_INTERNAL_SEND_PATH", "AGENTMAIL_DRY_RUN_ONLY"})
-    send_path = env.get("AGENTMAIL_INTERNAL_SEND_PATH", "").strip()
-    sent = False
-    blocked_reason = ""
-    if not send_path:
-        blocked_reason = "AgentMail internal send connector/auth detail is not configured; digest assembled but not sent."
-    else:
-        blocked_reason = "AgentMail send path is configured but not executed by WP11 dry local validation without a concrete allowlisted connector contract."
-    receipt = {
-        "type": "agentmail_daily_digest",
-        "status": "blocked" if blocked_reason else "sent",
-        "digest_generated": True,
-        "send_attempted": False,
-        "sent": sent,
-        "recipient": _safe_recipient_label(target),
-        "allowlisted": True,
-        "digest_date": digest_date.isoformat(),
-        "idempotency_key": f"{digest_date.isoformat()}:{hashlib.sha256(target.encode('utf-8')).hexdigest()[:12]}",
-        "blocker": blocked_reason,
-        "blocked_reason": blocked_reason,
-        "digest": digest,
-        "created_at": _utc_now_iso(),
-        "token_usage_text": "Token usage: no agent invocation",
-    }
-    receipt_path.parent.mkdir(parents=True, exist_ok=True)
-    receipt_path.write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
+
+    receipt_path: Path | None = None
+    with _AGENTMAIL_DIGEST_LOCK:
+        prior_success = _agentmail_success_receipt_for_key(idempotency_key)
+        duplicate_blocker = ""
+        if prior_success:
+            duplicate_blocker = "Idempotency: prior sent=true receipt exists for digest date, recipient, and content hash."
+        send_attempted = False
+        sent = False
+        provider_reference = None
+        failure = ""
+        status = "dry_run" if dry_run else "blocked"
+        provider_response = None
+        if duplicate_blocker:
+            failure = duplicate_blocker
+            status = "duplicate_suppressed"
+        elif dry_run:
+            failure = "Dry-run requested; provider call skipped."
+        elif contract_blocker:
+            failure = contract_blocker
+        else:
+            send_attempted = True
+            provider_response = _run_agentmail_composio_send(contract["action"], contract["payload"])
+            if provider_response.get("ok"):
+                sent = True
+                status = "sent"
+                provider_reference = _agentmail_provider_reference(provider_response)
+            else:
+                failure = str(provider_response.get("error") or "AgentMail provider send failed")[:500]
+                status = "failed_retryable"
+        receipt = {
+            "timestamp": _utc_now_iso(),
+            "type": "agentmail_daily_digest",
+            "action": "agentmail_internal_digest",
+            "status": status,
+            "digest_generated": True,
+            "digest_date": digest_date.isoformat(),
+            "digest_id": digest_date.isoformat(),
+            "recipient": _safe_recipient_label(target),
+            "subject": digest["subject"],
+            "provider": provider,
+            "toolkit": toolkit,
+            "provider_action": action or None,
+            "inbox_id": inbox_id,
+            "idempotency_key": idempotency_key,
+            "content_hash": content_hash,
+            "allowlist_result": allowlist_result,
+            "allowlisted": True,
+            "dry_run": bool(dry_run),
+            "send_attempted": send_attempted,
+            "sent": sent,
+            "transmitted": bool(sent),
+            "provider_reference": provider_reference,
+            "failure": failure,
+            "blocker": failure if not sent else "",
+            "retryable": bool(not sent and not duplicate_blocker and not dry_run),
+            "digest": digest,
+            "provider_response_summary": {
+                "ok": bool(provider_response.get("ok")) if isinstance(provider_response, dict) else None,
+                "mode": provider_response.get("mode") if isinstance(provider_response, dict) else None,
+            },
+            "token_usage_text": "Token usage: no agent invocation",
+        }
+        receipt_path = _write_agentmail_receipt(receipt, _agentmail_attempt_receipt_path(digest_date.isoformat(), target, idempotency_key))
     return {
         "success": True,
         "digest_generated": True,
-        "send_attempted": False,
+        "preview": False,
+        "send_attempted": send_attempted,
         "sent": sent,
+        "dry_run": bool(dry_run),
+        "already_sent": bool(duplicate_blocker),
         "recipient": _safe_recipient_label(target),
         "receipt_path": _safe_relative(receipt_path),
-        "blocker": blocked_reason,
-        "blocked_reason": blocked_reason,
+        "provider": provider,
+        "toolkit": toolkit,
+        "action": action or None,
+        "inbox_id": inbox_id,
+        "idempotency_key": idempotency_key,
+        "provider_reference": provider_reference,
+        "blocker": failure,
+        "blocked_reason": failure,
+        "allowlist_result": allowlist_result,
         "digest": digest,
     }
 
@@ -4047,7 +4255,7 @@ def agentmail_daily_digest(body: AgentMailDigestRequest):
         digest_date = None
         if body.digest_date:
             digest_date = datetime.date.fromisoformat(body.digest_date)
-        return _agentmail_digest_attempt(digest_date, body.recipient)
+        return _agentmail_digest_attempt(digest_date, body.recipient, send=bool(body.send), dry_run=bool(body.dry_run))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 

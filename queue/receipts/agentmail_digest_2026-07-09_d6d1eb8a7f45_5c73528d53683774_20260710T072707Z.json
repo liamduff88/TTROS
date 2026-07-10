@@ -1,0 +1,298 @@
+{
+  "action": "agentmail_internal_digest",
+  "allowlist_result": {
+    "allowed": true,
+    "reason": "allowlisted internal recipient",
+    "recipient": "liam@timetorevenue.com"
+  },
+  "allowlisted": true,
+  "blocker": "",
+  "content_hash": "fc27e07eaad62bbd6e2839d820a874d707e04013928e75676f0688f306dba9e1",
+  "digest": {
+    "backup": {
+      "latest": {
+        "bytes_copied": null,
+        "dry_run": false,
+        "duration_s": 29.72,
+        "errors": [],
+        "files_copied": null,
+        "snapshot_path": "D:\\TTROS_Backups\\2026-07-09_1800",
+        "sources": [
+          {
+            "name": "AgenticOSLive",
+            "path": "C:\\Users\\Admin\\Documents\\A-Time to revenue\\Agentic OS Live"
+          },
+          {
+            "name": "BusinessBrain",
+            "path": "C:\\Users\\Admin\\Documents\\A-Time to revenue\\TTROS Business Brain"
+          }
+        ],
+        "status": "success",
+        "target": "D:\\TTROS_Backups",
+        "target_drive": "D:",
+        "target_label": "My Passport",
+        "token_usage_text": "Token usage: no agent invocation",
+        "ts": "2026-07-10T01:00:31Z",
+        "warnings": [
+          "robocopy exit codes: 1, 1"
+        ]
+      },
+      "latest_log_path": "D:\\TTROS_Backups\\2026-07-09_1800\\backup.log",
+      "latest_receipt_path": "queue/receipts/backups.jsonl",
+      "needs_attention": false,
+      "stale_after_hours": 48,
+      "state": "fresh_success",
+      "token_usage_text": "Token usage: no agent invocation"
+    },
+    "body": "Agentic OS daily digest for 2026-07-09\n\nRecipient: liam@timetorevenue.com\nCompleted items yesterday: 2\nNeeds Me count now: 7\n\nCompleted items:\n- AOS-2026-0060: Phase B validation step 1 - produce artifact\n- AOS-2026-0061: Phase B validation step 2 - consume artifact\n\nToken totals:\n- exact: 1205\n- ~estimate: 208\n- unavailable records: 0\n- no agent invocation records: 0\n\nLast backup status: fresh_success\nBackup receipt: queue/receipts/backups.jsonl\n\nToken usage: no agent invocation",
+    "completed_items": [
+      {
+        "created_at": "2026-07-09T08:41:10Z",
+        "id": "AOS-2026-0060",
+        "owner": "operations",
+        "priority": 1,
+        "status": "done",
+        "title": "Phase B validation step 1 - produce artifact",
+        "updated_at": "2026-07-09T08:41:10Z"
+      },
+      {
+        "created_at": "2026-07-09T08:41:10Z",
+        "id": "AOS-2026-0061",
+        "owner": "marketing",
+        "priority": 1,
+        "status": "done",
+        "title": "Phase B validation step 2 - consume artifact",
+        "updated_at": "2026-07-09T08:42:10Z"
+      }
+    ],
+    "digest_date": "2026-07-09",
+    "needs_me_count": 7,
+    "recipient": "liam@timetorevenue.com",
+    "subject": "Agentic OS daily digest - 2026-07-09",
+    "token_totals": {
+      "estimate": 208,
+      "exact": 1205,
+      "no_agent_invocation": 0,
+      "rows": [
+        {
+          "basis": "exact",
+          "component": "marketing",
+          "task_id": "AOS-2026-0061",
+          "tokens": 0
+        },
+        {
+          "basis": "exact",
+          "component": "operations",
+          "task_id": "AOS-2026-0020",
+          "tokens": 0
+        },
+        {
+          "basis": "exact",
+          "component": "operations",
+          "task_id": "AOS-2026-0020",
+          "tokens": 0
+        },
+        {
+          "basis": "exact",
+          "component": "operations",
+          "task_id": "AOS-2026-0020",
+          "tokens": 0
+        },
+        {
+          "basis": "exact",
+          "component": "revenue",
+          "task_id": "AOS-2026-0021",
+          "tokens": 0
+        },
+        {
+          "basis": "exact",
+          "component": "revenue",
+          "task_id": "AOS-2026-0021",
+          "tokens": 0
+        },
+        {
+          "basis": "exact",
+          "component": "revenue",
+          "task_id": "AOS-2026-0021",
+          "tokens": 0
+        },
+        {
+          "basis": "exact",
+          "component": "marketing",
+          "task_id": "AOS-2026-0022",
+          "tokens": 0
+        },
+        {
+          "basis": "exact",
+          "component": "marketing",
+          "task_id": "AOS-2026-0022",
+          "tokens": 0
+        },
+        {
+          "basis": "exact",
+          "component": "marketing",
+          "task_id": "AOS-2026-0022",
+          "tokens": 0
+        },
+        {
+          "basis": "exact",
+          "component": "operations",
+          "task_id": "AOS-2026-0030",
+          "tokens": 0
+        },
+        {
+          "basis": "exact",
+          "component": "operations",
+          "task_id": "AOS-2026-0030",
+          "tokens": 0
+        },
+        {
+          "basis": "exact",
+          "component": "operations",
+          "task_id": "AOS-2026-0030",
+          "tokens": 0
+        },
+        {
+          "basis": "exact",
+          "component": "operations",
+          "task_id": "AOS-2026-0062",
+          "tokens": 0
+        },
+        {
+          "basis": "exact",
+          "component": "operations",
+          "task_id": "AOS-2026-0062",
+          "tokens": 0
+        },
+        {
+          "basis": "exact",
+          "component": "operations",
+          "task_id": "AOS-2026-0062",
+          "tokens": 0
+        },
+        {
+          "basis": "exact",
+          "component": "operations",
+          "task_id": "AOS-2026-0063",
+          "tokens": 0
+        },
+        {
+          "basis": "exact",
+          "component": "operations",
+          "task_id": "AOS-2026-0063",
+          "tokens": 0
+        },
+        {
+          "basis": "exact",
+          "component": "operations",
+          "task_id": "AOS-2026-0063",
+          "tokens": 0
+        },
+        {
+          "basis": "exact",
+          "component": "operations",
+          "task_id": "AOS-2026-0064",
+          "tokens": 0
+        },
+        {
+          "basis": "exact",
+          "component": "operations",
+          "task_id": "AOS-2026-0064",
+          "tokens": 0
+        },
+        {
+          "basis": "exact",
+          "component": "operations",
+          "task_id": "AOS-2026-0064",
+          "tokens": 0
+        },
+        {
+          "basis": "estimate",
+          "component": "revenue",
+          "task_id": "AOS-2026-0101 | revenue | Revenue explicit provider model command",
+          "tokens": 28
+        },
+        {
+          "basis": "estimate",
+          "component": "codex",
+          "task_id": "AOS-2026-0002 | codex | Codex route test",
+          "tokens": 22
+        },
+        {
+          "basis": "estimate",
+          "component": "codex",
+          "task_id": "AOS-2026-0002 | codex | Codex route test",
+          "tokens": 22
+        },
+        {
+          "basis": "estimate",
+          "component": "revenue",
+          "task_id": "AOS-2026-0100 | revenue | Revenue route metadata",
+          "tokens": 24
+        },
+        {
+          "basis": "exact",
+          "component": "codex",
+          "task_id": "AOS-2026-PHASEA-EXACT",
+          "tokens": 1205
+        },
+        {
+          "basis": "estimate",
+          "component": "revenue",
+          "task_id": "AOS-2026-0101 | revenue | Revenue explicit provider model command",
+          "tokens": 28
+        },
+        {
+          "basis": "estimate",
+          "component": "codex",
+          "task_id": "AOS-2026-0002 | codex | Codex route test",
+          "tokens": 22
+        },
+        {
+          "basis": "estimate",
+          "component": "codex",
+          "task_id": "AOS-2026-0002 | codex | Codex route test",
+          "tokens": 22
+        },
+        {
+          "basis": "estimate",
+          "component": "revenue",
+          "task_id": "AOS-2026-0100 | revenue | Revenue route metadata",
+          "tokens": 24
+        },
+        {
+          "basis": "estimate",
+          "component": "hermes",
+          "task_id": "chat id check",
+          "tokens": 16
+        }
+      ],
+      "unavailable": 0
+    }
+  },
+  "digest_date": "2026-07-09",
+  "digest_generated": true,
+  "digest_id": "2026-07-09",
+  "dry_run": false,
+  "failure": "",
+  "idempotency_key": "5c73528d536837744d75be68b2353f82c2356cf51ee08108844ced5440e816fe",
+  "inbox_id": "olmec1@agentmail.to",
+  "provider": "composio",
+  "provider_action": "AGENT_MAIL_SEND_EMAIL",
+  "provider_reference": "<0100019f4aec47bd-b628d074-69bc-47d7-92d5-79be4a604fa2-000000@email.amazonses.com>",
+  "provider_response_summary": {
+    "mode": "execute",
+    "ok": true
+  },
+  "recipient": "liam@timetorevenue.com",
+  "retryable": false,
+  "send_attempted": true,
+  "sent": true,
+  "status": "sent",
+  "subject": "Agentic OS daily digest - 2026-07-09",
+  "timestamp": "2026-07-10T07:27:07Z",
+  "token_usage_text": "Token usage: no agent invocation",
+  "toolkit": "agent_mail",
+  "transmitted": true,
+  "type": "agentmail_daily_digest"
+}
