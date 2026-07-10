@@ -65,7 +65,7 @@ WORKFLOW_REGISTRY_FILE = WORKFLOWS_DIR / "workflow_registry.json"
 SKILLS_DIR = BASE_DIR / "skills"
 MEMORY_INDEX_DIR = BASE_DIR / "memory_index"
 GRAPHIFY_BRAIN_DIR = BASE_DIR.parent / "Graphify Brain"
-GRAPHIFY_OUT_DIR = GRAPHIFY_BRAIN_DIR / "brain_graph" / "graphify-out"
+GRAPHIFY_OUT_DIR = GRAPHIFY_BRAIN_DIR / "brain_graph" / "source" / "graphify-out"
 PROMPT_LIBRARY_DIRS = [QUEUE_DIR / "templates", WORKFLOWS_DIR / "prompt_templates"]
 CLAUDE_USAGE_READER_WSL = "/mnt/c/Users/Admin/Documents/A-Time to revenue/Agentic OS Live/dashboard/backend/claude_usage.py"
 
@@ -4070,8 +4070,14 @@ def dashboard_graphify():
             version = "version unavailable"
     output_files = []
     if GRAPHIFY_OUT_DIR.exists():
-        for path in sorted(p for p in GRAPHIFY_OUT_DIR.glob("*") if p.is_file()):
-            output_files.append({"name": path.name, "path": str(path), "bytes": path.stat().st_size})
+        expected_files = [
+            GRAPHIFY_OUT_DIR / "graph.json",
+            GRAPHIFY_OUT_DIR / ".graphify_analysis.json",
+            GRAPHIFY_OUT_DIR / "manifest.json",
+            GRAPHIFY_OUT_DIR / "cache" / "stat-index.json",
+        ]
+        for path in [p for p in expected_files if p.is_file()]:
+            output_files.append({"name": str(path.relative_to(GRAPHIFY_OUT_DIR)), "path": str(path), "bytes": path.stat().st_size})
     graph_html = GRAPHIFY_OUT_DIR / "graph.html"
     graph_json = GRAPHIFY_OUT_DIR / "graph.json"
     installed = bool(cli_path)
@@ -4087,7 +4093,7 @@ def dashboard_graphify():
         "graph_html": str(graph_html) if graph_html.exists() else "",
         "graph_json": str(graph_json) if graph_json.exists() else "",
         "output_files": output_files,
-        "launch_command": "graphify extract <approved-path> --out '/mnt/c/Users/Admin/Documents/A-Time to revenue/Graphify Brain/brain_graph'",
+        "launch_command": "cd '/mnt/c/Users/Admin/Documents/A-Time to revenue/Graphify Brain/brain_graph' && graphify ./source --code-only",
         "repos": [{"name": "Agentic OS Live", "path": _safe_relative(BASE_DIR), "node_count": "unavailable", "last_analyzed": None}],
     }
 

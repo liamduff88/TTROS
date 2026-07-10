@@ -1,48 +1,55 @@
 # Graphify Status - 2026-07-09
-> Revisit: after the first successful graph extraction, or when Graphify Brain receives real output. Last touched: 2026-07-09.
+> Revisit: after `GRAPH_REPORT.md` generation, Business Brain graph expansion, or Graphify dashboard behavior changes. Last touched: 2026-07-09.
 
 ## Current finding
 
-Graphify is installed locally and verified from WSL:
+Graphify is installed locally and the first local code-only graph proof passed.
 
+- Graphify installed: yes
 - CLI: `/home/liam/.local/bin/graphify`
 - Version: `graphify 0.9.11`
-- Help: `graphify --help` returns the command list successfully.
+- First graph proof: PASS
+- Exact command: `graphify ./source --code-only`
+- Source folder: `/mnt/c/Users/Admin/Documents/A-Time to revenue/Graphify Brain/brain_graph/source`
+- Output folder: `/mnt/c/Users/Admin/Documents/A-Time to revenue/Graphify Brain/brain_graph/source/graphify-out`
 
-## Graphify Brain folder
+## Why code-only was used
 
-Read-only inspection found the sibling folder at:
+The normal Graphify run stopped because two docs required semantic extraction and no LLM API key was present. The first proof was rerun with `--code-only` so it stayed local and key-free.
 
-`/mnt/c/Users/Admin/Documents/A-Time to revenue/Graphify Brain`
+## Output files found
 
-Existing structure:
+- `/mnt/c/Users/Admin/Documents/A-Time to revenue/Graphify Brain/brain_graph/source/graphify-out/graph.json`
+- `/mnt/c/Users/Admin/Documents/A-Time to revenue/Graphify Brain/brain_graph/source/graphify-out/.graphify_analysis.json`
+- `/mnt/c/Users/Admin/Documents/A-Time to revenue/Graphify Brain/brain_graph/source/graphify-out/manifest.json`
+- `/mnt/c/Users/Admin/Documents/A-Time to revenue/Graphify Brain/brain_graph/source/graphify-out/cache/stat-index.json`
 
-- `brain_graph/graphify-out/`
-- `config/`
-- `intake/cloned-repos/`
-- `intake/downloaded-docs/`
-- `receipts/`
-- `repo_graphs/`
+## Graph counts
 
-No files were found under the folder at max depth 4 during this pass. No graph output exists yet.
+- Nodes: 716
+- Edges: 1681
+- Communities: 36
+
+## Receipt
+
+`/mnt/c/Users/Admin/Documents/A-Time to revenue/Graphify Brain/receipts/graphify_run_2026-07-09.md`
+
+## Not yet done
+
+- `GRAPH_REPORT.md` has not been generated yet.
+- Cluster-only is deferred because community naming may require an LLM/backend.
+- Business Brain/doc semantic mapping has not been run yet.
 
 ## Dashboard behavior
 
-The existing dashboard Graphify endpoint should report the real local status:
+The dashboard Graphify endpoint should report the real proof output under:
 
-- installed: yes
-- graph root: Graphify Brain sibling folder
-- graph output: absent until `graphify extract` or another graph build creates files
-- launcher command: local CLI command text only; no external call or model call
+`/mnt/c/Users/Admin/Documents/A-Time to revenue/Graphify Brain/brain_graph/source/graphify-out`
 
-The dashboard must remain honest: installed does not mean graphed, embedded, or connected.
-
-## Use rule
-
-Check the Graphify map/index first, then load only the few files needed.
+The dashboard must remain honest: installed and first code graph proof passing does not mean doc semantic mapping, Business Brain mapping, live Graphify service embedding, or third-party sync is complete.
 
 ## Next safe action
 
-Run the first small graph extraction into Graphify Brain using only approved non-secret Agentic OS folders, then update this status with the exact command and output files.
+Hermes Desktop/Kanban UI repair, unless Liam wants Business Brain graph expansion first.
 
 Token usage: unavailable from current CLI output.
