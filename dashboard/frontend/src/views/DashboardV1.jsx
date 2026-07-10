@@ -7,6 +7,7 @@ import {
   createQueueItem,
   getDashboardCockpit,
   getDashboardGraphify,
+  getHermesUiStatus,
   getDashboardMemory,
   getDashboardPrompts,
   getDashboardRepoIngest,
@@ -15,6 +16,7 @@ import {
   getDashboardTokens,
   getDashboardWorkflows,
   getQueueItems,
+  launchHermesUi,
   openDashboardPath,
   saveDashboardSkill,
 } from '../api'
@@ -457,5 +459,111 @@ export function RepoIngest() {
 }
 
 export function SettingsLaunchers() {
-  return <><PageHeader title="Settings / Launchers" question="Local launch commands and dashboard preferences." /><div className="grid gap-3 md:grid-cols-2"><EmptyState title="Hermes" detail="Use existing WSL launcher routes from the old Agent Workbench." action={<ActionButton>Open launcher</ActionButton>} /><EmptyState title="Telegram bridge" detail="Read-only status; no bridge code changes in this pass." action={<ActionButton>Check status</ActionButton>} /></div></>
+  const { data, loading, error } = useAsync(getHermesUiStatus)
+  const [statusData, setStatusData] = useState(null)
+  const [launching, setLaunching] = useState(false)
+  const [refreshingStatus, setRefreshingStatus] = useState(false)
+  const [showEmbedded, setShowEmbedded] = useState(false)
+  const [iframeState, setIframeState] = useState('idle')
+  const [copied, setCopied] = useState(false)
+  const status = statusData || data || {}
+  useEffect(() => {
+    if (data) setStatusData(data)
+  }, [data])
+  useEffect(() => {
+    if (!showEmbedded) return undefined
+    setIframeState('loading')
+    const timer = setTimeout(() => setIframeState(current => current === 'loading' ? 'slow' : current), 8000)
+    return () => clearTimeout(timer)
+  }, [showEmbedded, status.iframe_url])
+  const refreshStatus = async () => {
+    setRefreshingStatus(true)
+    try {
+      const result = await getHermesUiStatus()
+      setStatusData(result)
+      if (!result?.embeddable) setShowEmbedded(false)
+    } finally {
+      setRefreshingStatus(false)
+    }
+  }
+  const startHermes = async () => {
+    setLaunching(true)
+    try {
+      const result = await launchHermesUi()
+      setStatusData(result)
+      if (!result?.embeddable) setShowEmbedded(false)
+    } finally {
+      setLaunching(false)
+    }
+  }
+  const openHermes = () => {
+    if (status?.http_reachable && status?.url) window.open(status.url, 'hermes_os')
+  }
+  const toggleEmbedded = () => {
+    if (status?.http_reachable && status?.embeddable) setShowEmbedded(value => !value)
+  }
+  const copyCommand = async () => {
+    await navigator.clipboard?.writeText(status.launch_command || '')
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1400)
+  }
+  return (
+    <>
+      <PageHeader title="Settings / Launchers" question="Local launch commands and dashboard preferences." />
+      <div className="grid gap-3 md:grid-cols-2">
+        <div className="rounded border border-softgraph bg-graphite/70 p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <div className="text-xs uppercase tracking-wider text-champagne">Hermes UI</div>
+              <div className="mt-1 text-sm font-semibold text-ivory">{loading ? 'checking' : status.state || error || 'unavailable'}</div>
+            </div>
+            <div className={`rounded px-2 py-1 text-[11px] font-mono ${status.http_reachable ? 'bg-olive/20 text-stone' : status.supported === false ? 'bg-clay/20 text-stone' : 'bg-softgraph text-taupe'}`}>
+              {status.http_reachable ? (status.embeddable ? 'RUNNING EMBEDDED' : 'WINDOW ONLY') : status.supported === false ? 'UNSUPPORTED' : launching ? 'STARTING' : 'NOT RUNNING'}
+            </div>
+          </div>
+          <div className="mt-4 grid gap-2 text-xs text-taupe">
+            <div><span className="text-stone">Target:</span> {status.url || 'http://127.0.0.1:8081'}</div>
+            <div><span className="text-stone">Runtime:</span> {status.runtime || 'AgenticOSClean'} / {status.user || 'liam'}</div>
+            <div><span className="text-stone">Version:</span> {status.version || 'unavailable'}</div>
+            <div><span className="text-stone">Installed:</span> {status.installed ? 'yes' : 'no'}</div>
+            <div><span className="text-stone">Process:</span> {status.process_running ? 'running' : 'not running'}</div>
+            <div><span className="text-stone">HTTP:</span> {status.http_reachable ? 'reachable' : 'not reachable'}</div>
+            <div><span className="text-stone">Embeddable:</span> {status.embeddable ? 'yes' : 'no'}</div>
+            {status.blocking_header && <div><span className="text-stone">Blocking header:</span> {status.blocking_header}</div>}
+            {status.reason && <div><span className="text-stone">Reason:</span> {status.reason}</div>}
+            {status.last_error && <div><span className="text-stone">Last error:</span> {status.last_error}</div>}
+          </div>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <ActionButton onClick={startHermes} disabled={launching || status.supported === false}>{launching ? 'Starting' : 'Start Hermes UI'}</ActionButton>
+            <ActionButton onClick={openHermes} disabled={!status.http_reachable}>Open Hermes UI</ActionButton>
+            <ActionButton onClick={toggleEmbedded} disabled={!status.http_reachable || !status.embeddable}>{showEmbedded ? 'Hide embedded Hermes' : 'Show embedded Hermes'}</ActionButton>
+            <ActionButton onClick={refreshStatus} disabled={refreshingStatus}>{refreshingStatus ? 'Refreshing' : 'Refresh status'}</ActionButton>
+            <ActionButton onClick={copyCommand} disabled={!status.launch_command}>{copied ? 'Copied' : 'Copy launch command'}</ActionButton>
+          </div>
+          <code className="mt-3 block whitespace-pre-wrap break-words rounded border border-softgraph bg-ink p-3 text-xs text-stone">{status.launch_command || 'Launcher command unavailable.'}</code>
+          {status.http_reachable && !status.embeddable && (
+            <div className="mt-3 rounded border border-champagne/40 bg-ink p-3 text-xs text-stone">
+              Hermes UI is running, but its current security headers prevent embedding. Use Open Hermes UI.
+            </div>
+          )}
+        </div>
+        <EmptyState title="Telegram bridge" detail="Read-only status; no bridge code changes in this pass." action={<ActionButton>Check status</ActionButton>} />
+      </div>
+      {showEmbedded && status.http_reachable && status.embeddable && (
+        <section className="mt-4 rounded border border-softgraph bg-graphite/70 p-3">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <div className="text-sm font-semibold text-stone">Embedded Hermes</div>
+            <div className="text-xs text-taupe">{iframeState === 'loading' ? 'Loading' : iframeState === 'slow' ? 'Still loading' : 'Running'}</div>
+          </div>
+          {iframeState === 'slow' && <div className="mb-2 rounded border border-champagne/40 bg-ink p-2 text-xs text-stone">Hermes is reachable, but the embedded view has not completed loading. Open in window remains available.</div>}
+          <iframe
+            title="Hermes UI"
+            src={status.iframe_url || status.url || 'http://127.0.0.1:8081'}
+            onLoad={() => setIframeState('loaded')}
+            className="h-[72vh] w-full rounded border border-softgraph bg-ink"
+          />
+        </section>
+      )}
+    </>
+  )
 }

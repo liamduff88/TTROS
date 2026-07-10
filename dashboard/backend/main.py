@@ -15,6 +15,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.error
 import urllib.request
 
@@ -545,10 +546,15 @@ def launch_entity(entity_id: str):
 # ---------------------------------------------------------------------------
 
 WSL_ENV = 'export PATH="$HOME/.local/npm/bin:$HOME/.local/bin:$PATH"'
+WSL_COMMAND = "wsl"
 WSL_DISTRO = "AgenticOSClean"
 WSL_USER = "liam"
 COMPOSIO_PATH = "/home/liam/.composio:/home/liam/.local/bin:/home/liam/.composio:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/usr/lib/wsl/lib"
 HERMES_COORDINATOR = BASE_DIR / "tools" / "aos-hermes-coordinator.sh"
+HERMES_DASHBOARD_LAUNCHER = BASE_DIR / "tools" / "aos-hermes-dashboard.sh"
+HERMES_DASHBOARD_HOST = "127.0.0.1"
+HERMES_DASHBOARD_PORT = 8081
+HERMES_DASHBOARD_URL = f"http://{HERMES_DASHBOARD_HOST}:{HERMES_DASHBOARD_PORT}"
 QUEUE_WORKER_TIMEOUT_SECONDS = 300
 QUEUE_HERMES_REVIEW_TIMEOUT_SECONDS = 120
 QUEUE_STUCK_TIMEOUT_SECONDS = QUEUE_WORKER_TIMEOUT_SECONDS + QUEUE_HERMES_REVIEW_TIMEOUT_SECONDS + 180
@@ -568,7 +574,7 @@ def _run_wsl(bash_cmd: str, timeout: int = 60) -> dict:
     full_cmd = f"{WSL_ENV}; {bash_cmd}"
     try:
         result = subprocess.run(
-            ["wsl.exe", "-d", WSL_DISTRO, "--user", WSL_USER, "--", "bash", "-lc", full_cmd],
+            [WSL_COMMAND, "-d", WSL_DISTRO, "--user", WSL_USER, "--", "bash", "-lc", full_cmd],
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -604,7 +610,7 @@ def _run_wsl(bash_cmd: str, timeout: int = 60) -> dict:
 
 def _run_agentic_os_clean_bash(bash_cmd: str, timeout: int = 60) -> dict:
     """Run in AgenticOSClean, using direct bash when already inside the distro."""
-    if shutil.which("wsl.exe"):
+    if os.name == "nt" or shutil.which(WSL_COMMAND):
         return _run_wsl(bash_cmd, timeout=timeout)
     full_cmd = f"{WSL_ENV}; {bash_cmd}"
     try:
@@ -639,6 +645,170 @@ def _run_agentic_os_clean_bash(bash_cmd: str, timeout: int = 60) -> dict:
         }
     except Exception as e:
         return {"success": False, "output": f"Error: {e}", "stdout": "", "stderr": f"Error: {e}", "returncode": -1}
+
+
+def _http_endpoint_reachable(url: str, timeout: int = 2) -> bool:
+    request = urllib.request.Request(url, method="GET")
+    try:
+        with urllib.request.urlopen(request, timeout=timeout):
+            return True
+    except urllib.error.HTTPError:
+        return True
+    except (OSError, urllib.error.URLError):
+        return False
+
+
+def _http_endpoint_headers(url: str, timeout: int = 2) -> dict:
+    request = urllib.request.Request(url, method="GET")
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return {
+                "success": True,
+                "status_code": getattr(response, "status", 200),
+                "final_url": response.geturl(),
+                "headers": {key.lower(): value for key, value in response.headers.items()},
+                "error": "",
+            }
+    except urllib.error.HTTPError as exc:
+        return {
+            "success": True,
+            "status_code": exc.code,
+            "final_url": exc.geturl(),
+            "headers": {key.lower(): value for key, value in exc.headers.items()},
+            "error": "",
+        }
+    except (OSError, urllib.error.URLError) as exc:
+        return {"success": False, "status_code": None, "final_url": "", "headers": {}, "error": str(exc)}
+
+
+def _frame_ancestor_sources(csp: str) -> list[str]:
+    for directive in str(csp or "").split(";"):
+        parts = directive.strip().split()
+        if parts and parts[0].lower() == "frame-ancestors":
+            return parts[1:]
+    return []
+
+
+def _hermes_frame_status(headers: dict) -> tuple[bool, str]:
+    x_frame = str(headers.get("x-frame-options") or "").strip()
+    if x_frame:
+        value = x_frame.lower()
+        if value in {"deny", "sameorigin"} or value.startswith("allow-from"):
+            return False, f"X-Frame-Options: {x_frame}"
+
+    csp = str(headers.get("content-security-policy") or "").strip()
+    sources = _frame_ancestor_sources(csp)
+    if not sources:
+        return True, ""
+
+    normalized = {source.strip().strip('"').strip("'").lower() for source in sources}
+    allowed_sources = {
+        "*",
+        "http://127.0.0.1:3010",
+        "http://localhost:3010",
+        "http://127.0.0.1:*",
+        "http://localhost:*",
+    }
+    if "'none'" in normalized or "none" in normalized:
+        return False, f"Content-Security-Policy: frame-ancestors {' '.join(sources)}"
+    if "'self'" in normalized or "self" in normalized:
+        return False, f"Content-Security-Policy: frame-ancestors {' '.join(sources)}"
+    if normalized.intersection(allowed_sources):
+        return True, ""
+    return False, f"Content-Security-Policy: frame-ancestors {' '.join(sources)}"
+
+
+def _poll_http_endpoint(url: str, timeout_seconds: float = 10.0, interval_seconds: float = 0.5) -> bool:
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() <= deadline:
+        if _http_endpoint_reachable(url):
+            return True
+        time.sleep(interval_seconds)
+    return False
+
+
+def _parse_key_value_output(output: str) -> dict[str, str]:
+    values: dict[str, str] = {}
+    for raw in str(output or "").splitlines():
+        if "=" not in raw:
+            continue
+        key, value = raw.split("=", 1)
+        key = key.strip()
+        if re.fullmatch(r"[a-zA-Z_][a-zA-Z0-9_]*", key):
+            values[key] = value.strip()
+    return values
+
+
+def _hermes_dashboard_launcher_command(action: str) -> str:
+    script = shlex.quote(_path_for_wsl_command(HERMES_DASHBOARD_LAUNCHER))
+    workspace = shlex.quote(_path_for_wsl_command(BASE_DIR))
+    return (
+        f"cd {workspace} && "
+        f"HERMES_DASHBOARD_HOST={shlex.quote(HERMES_DASHBOARD_HOST)} "
+        f"HERMES_DASHBOARD_PORT={shlex.quote(str(HERMES_DASHBOARD_PORT))} "
+        f"{script} {shlex.quote(action)}"
+    )
+
+
+def _hermes_dashboard_operator_command(action: str = "start") -> str:
+    workspace = _path_for_wsl_command(BASE_DIR)
+    return (
+        f"{WSL_COMMAND} -d {WSL_DISTRO} --user {WSL_USER} -- bash -lc "
+        f"{shlex.quote(f'{WSL_ENV}; cd {shlex.quote(workspace)}; bash tools/aos-hermes-dashboard.sh {action}')}"
+    )
+
+
+def _hermes_ui_status() -> dict:
+    header_result = _http_endpoint_headers(HERMES_DASHBOARD_URL + "/")
+    http_reachable = bool(header_result.get("success"))
+    result = _run_agentic_os_clean_bash(_hermes_dashboard_launcher_command("status"), timeout=15)
+    fields = _parse_key_value_output(result.get("stdout") or result.get("output") or "")
+    state = fields.get("state")
+    if http_reachable:
+        state = "reachable"
+    elif not result.get("success"):
+        state = "configuration_missing"
+    elif not state:
+        state = "configuration_missing"
+
+    supported = state not in {"unsupported", "configuration_missing"}
+    embeddable, blocking_header = _hermes_frame_status(header_result.get("headers", {})) if http_reachable else (False, "")
+    process_running = http_reachable or state in {"reachable", "starting"}
+    launch_command = _hermes_dashboard_operator_command("start")
+    final_state = "running_embedded" if http_reachable and embeddable else "running_window_only" if http_reachable else state
+    return {
+        "success": state != "configuration_missing",
+        "state": final_state,
+        "launcher_state": state,
+        "reachable": http_reachable,
+        "http_reachable": http_reachable,
+        "process_running": process_running,
+        "embeddable": embeddable,
+        "blocking_header": blocking_header,
+        "headers": {
+            "x-frame-options": header_result.get("headers", {}).get("x-frame-options", ""),
+            "content-security-policy": header_result.get("headers", {}).get("content-security-policy", ""),
+        },
+        "installed": supported,
+        "supported": supported,
+        "url": HERMES_DASHBOARD_URL,
+        "iframe_url": HERMES_DASHBOARD_URL if http_reachable and embeddable else "",
+        "host": HERMES_DASHBOARD_HOST,
+        "port": HERMES_DASHBOARD_PORT,
+        "version": fields.get("version", ""),
+        "reason": fields.get("reason", ""),
+        "last_error": "" if http_reachable or result.get("success") else result.get("stderr") or result.get("output") or "",
+        "target": "Hermes dashboard web UI",
+        "runtime": WSL_DISTRO,
+        "user": WSL_USER,
+        "launcher": _safe_relative(HERMES_DASHBOARD_LAUNCHER),
+        "launch_command": launch_command,
+        "open_url": HERMES_DASHBOARD_URL if http_reachable else "",
+        "headless_available": True,
+        "headless_command": "aos-hermes status",
+        "token_usage": {"available": False, "no_agent_invocation": True},
+        "token_usage_text": "Token usage: no agent invocation",
+    }
 
 
 def _write_agent_prompt_file(prompt: str, prefix: str = "aos_prompt_") -> tuple[Path, str]:
@@ -1951,6 +2121,54 @@ def wsl_status():
     result["token_usage"] = {"available": False, "no_agent_invocation": True}
     result["token_usage_text"] = "Token usage: no agent invocation"
     return result
+
+
+@app.get("/api/hermes-ui/status")
+def hermes_ui_status():
+    """Report the real local Hermes dashboard reachability state."""
+    return _hermes_ui_status()
+
+
+@app.post("/api/hermes-ui/launch")
+def hermes_ui_launch():
+    """Start the supported Hermes dashboard on 127.0.0.1:8081 when needed."""
+    before = _hermes_ui_status()
+    if before.get("http_reachable"):
+        return {**before, "success": True, "already_running": True, "launched": False, "message": "Hermes dashboard already reachable."}
+    if not before.get("supported"):
+        return {
+            **before,
+            "success": False,
+            "already_running": False,
+            "launched": False,
+            "message": before.get("reason") or "Hermes dashboard command is unavailable.",
+        }
+    result = _run_agentic_os_clean_bash(_hermes_dashboard_launcher_command("start"), timeout=20)
+    fields = _parse_key_value_output(result.get("stdout") or result.get("output") or "")
+    ready = _poll_http_endpoint(HERMES_DASHBOARD_URL + "/", timeout_seconds=10, interval_seconds=0.5)
+    after = _hermes_ui_status()
+    http_reachable = bool(after.get("http_reachable") or ready)
+    launch_succeeded = http_reachable
+    return {
+        **after,
+        "success": launch_succeeded,
+        "state": after.get("state") if http_reachable == after.get("http_reachable") else "running_embedded",
+        "reachable": http_reachable,
+        "http_reachable": http_reachable,
+        "process_running": bool(after.get("process_running") or http_reachable),
+        "open_url": HERMES_DASHBOARD_URL if http_reachable else "",
+        "already_running": False,
+        "launched": bool(result.get("success")),
+        "launcher_state": fields.get("state", ""),
+        "launcher_returncode": result.get("returncode"),
+        "launcher_stdout": result.get("stdout", ""),
+        "launcher_stderr": result.get("stderr", ""),
+        "message": (
+            "Hermes dashboard reachable."
+            if launch_succeeded
+            else "Hermes dashboard launch command returned, but http://127.0.0.1:8081 did not become reachable."
+        ),
+    }
 
 
 class TaskRun(BaseModel):

@@ -94,6 +94,141 @@ class HermesComposioTests(unittest.TestCase):
             encoding="utf-8",
         )
 
+    def test_hermes_ui_status_reports_reachable_only_when_endpoint_answers(self):
+        launcher = {"success": True, "stdout": "state=installed_stopped\nversion=Hermes Agent v0.18.0\nurl=http://127.0.0.1:8081/", "output": "", "returncode": 0}
+        with patch.object(backend, "_http_endpoint_headers", return_value={"success": False, "headers": {}, "error": "connection refused"}), \
+             patch.object(backend, "_run_agentic_os_clean_bash", return_value=launcher):
+            stopped = backend.hermes_ui_status()
+
+        self.assertEqual(stopped["state"], "installed_stopped")
+        self.assertFalse(stopped["reachable"])
+        self.assertFalse(stopped["http_reachable"])
+        self.assertTrue(stopped["supported"])
+        self.assertEqual(stopped["url"], "http://127.0.0.1:8081")
+        self.assertIn("wsl -d AgenticOSClean --user liam", stopped["launch_command"])
+        self.assertIn("bash tools/aos-hermes-dashboard.sh start", stopped["launch_command"])
+
+        with patch.object(backend, "_http_endpoint_headers", return_value={"success": True, "headers": {}, "status_code": 200, "final_url": "http://127.0.0.1:8081/"}), \
+             patch.object(backend, "_run_agentic_os_clean_bash", return_value=launcher):
+            reachable = backend.hermes_ui_status()
+
+        self.assertEqual(reachable["state"], "running_embedded")
+        self.assertTrue(reachable["reachable"])
+        self.assertTrue(reachable["http_reachable"])
+        self.assertTrue(reachable["embeddable"])
+        self.assertEqual(reachable["open_url"], "http://127.0.0.1:8081")
+
+    def test_hermes_ui_status_reports_unsupported_without_fake_url(self):
+        launcher = {"success": True, "stdout": "state=unsupported\nreason=hermes dashboard command is unavailable\nurl=http://127.0.0.1:8081/", "output": "", "returncode": 0}
+        with patch.object(backend, "_http_endpoint_headers", return_value={"success": False, "headers": {}, "error": "connection refused"}), \
+             patch.object(backend, "_run_agentic_os_clean_bash", return_value=launcher):
+            status = backend.hermes_ui_status()
+
+        self.assertEqual(status["state"], "unsupported")
+        self.assertFalse(status["supported"])
+        self.assertFalse(status["reachable"])
+        self.assertEqual(status["open_url"], "")
+
+    def test_hermes_ui_launch_does_not_duplicate_reachable_process(self):
+        reachable = {
+            "state": "reachable",
+            "reachable": True,
+            "http_reachable": True,
+            "supported": True,
+            "url": "http://127.0.0.1:8081",
+        }
+        with patch.object(backend, "_hermes_ui_status", return_value=reachable), \
+             patch.object(backend, "_run_agentic_os_clean_bash") as run:
+            result = backend.hermes_ui_launch()
+
+        run.assert_not_called()
+        self.assertFalse(result["launched"])
+        self.assertTrue(result["reachable"])
+        self.assertTrue(result["already_running"])
+
+    def test_hermes_ui_launch_uses_explicit_wsl_command(self):
+        with patch.object(backend.subprocess, "run") as run:
+            run.return_value = types.SimpleNamespace(stdout="ok", stderr="", returncode=0)
+            backend._run_wsl("cd /tmp && bash tools/aos-hermes-dashboard.sh start", timeout=20)
+
+        args = run.call_args.args[0]
+        self.assertEqual(args[:6], ["wsl", "-d", "AgenticOSClean", "--user", "liam", "--"])
+        self.assertIn("bash", args)
+        self.assertIn("-lc", args)
+        self.assertNotEqual(args[0], str(backend.HERMES_DASHBOARD_LAUNCHER))
+
+    def test_hermes_ui_launch_does_not_execute_script_natively_on_windows(self):
+        with patch.object(backend.os, "name", "nt"), \
+             patch.object(backend, "_run_wsl", return_value=self.RUN_RESULT) as run:
+            backend._run_agentic_os_clean_bash(backend._hermes_dashboard_launcher_command("start"), timeout=20)
+
+        command = run.call_args.args[0]
+        self.assertIn("bash tools/aos-hermes-dashboard.sh start", backend._hermes_dashboard_operator_command("start"))
+        self.assertIn("aos-hermes-dashboard.sh", command)
+
+    def test_hermes_ui_launch_reports_failure_when_readiness_never_arrives(self):
+        before = {"supported": True, "http_reachable": False, "reachable": False, "url": "http://127.0.0.1:8081"}
+        after = {**before, "state": "installed_stopped"}
+        start = {"success": True, "stdout": "state=starting\nurl=http://127.0.0.1:8081/", "stderr": "", "returncode": 0}
+        with patch.object(backend, "_hermes_ui_status", side_effect=[before, after]), \
+             patch.object(backend, "_run_agentic_os_clean_bash", return_value=start), \
+             patch.object(backend, "_poll_http_endpoint", return_value=False):
+            result = backend.hermes_ui_launch()
+
+        self.assertFalse(result["success"])
+        self.assertTrue(result["launched"])
+        self.assertIn("did not become reachable", result["message"])
+
+    def test_hermes_ui_launch_reports_success_only_after_http_readiness(self):
+        before = {"supported": True, "http_reachable": False, "reachable": False, "url": "http://127.0.0.1:8081"}
+        after = {"supported": True, "http_reachable": True, "reachable": True, "url": "http://127.0.0.1:8081", "state": "running_embedded"}
+        start = {"success": True, "stdout": "state=reachable\nurl=http://127.0.0.1:8081/", "stderr": "", "returncode": 0}
+        with patch.object(backend, "_hermes_ui_status", side_effect=[before, after]), \
+             patch.object(backend, "_run_agentic_os_clean_bash", return_value=start), \
+             patch.object(backend, "_poll_http_endpoint", return_value=True):
+            result = backend.hermes_ui_launch()
+
+        self.assertTrue(result["success"])
+        self.assertTrue(result["http_reachable"])
+        self.assertEqual(result["message"], "Hermes dashboard reachable.")
+
+    def test_hermes_ui_status_surfaces_x_frame_options_denial(self):
+        launcher = {"success": True, "stdout": "state=reachable\nversion=Hermes Agent v0.18.0", "output": "", "returncode": 0}
+        headers = {"success": True, "headers": {"x-frame-options": "DENY"}, "status_code": 200, "final_url": "http://127.0.0.1:8081/"}
+        with patch.object(backend, "_http_endpoint_headers", return_value=headers), \
+             patch.object(backend, "_run_agentic_os_clean_bash", return_value=launcher):
+            status = backend.hermes_ui_status()
+
+        self.assertTrue(status["http_reachable"])
+        self.assertFalse(status["embeddable"])
+        self.assertEqual(status["state"], "running_window_only")
+        self.assertEqual(status["blocking_header"], "X-Frame-Options: DENY")
+
+    def test_hermes_ui_status_surfaces_csp_frame_ancestors_denial(self):
+        launcher = {"success": True, "stdout": "state=reachable\nversion=Hermes Agent v0.18.0", "output": "", "returncode": 0}
+        headers = {
+            "success": True,
+            "headers": {"content-security-policy": "default-src 'self'; frame-ancestors 'none'"},
+            "status_code": 200,
+            "final_url": "http://127.0.0.1:8081/",
+        }
+        with patch.object(backend, "_http_endpoint_headers", return_value=headers), \
+             patch.object(backend, "_run_agentic_os_clean_bash", return_value=launcher):
+            status = backend.hermes_ui_status()
+
+        self.assertFalse(status["embeddable"])
+        self.assertIn("Content-Security-Policy: frame-ancestors", status["blocking_header"])
+
+    def test_hermes_ui_status_allows_permissive_frame_headers(self):
+        launcher = {"success": True, "stdout": "state=reachable\nversion=Hermes Agent v0.18.0", "output": "", "returncode": 0}
+        headers = {"success": True, "headers": {"content-security-policy": "default-src 'self'"}, "status_code": 200, "final_url": "http://127.0.0.1:8081/"}
+        with patch.object(backend, "_http_endpoint_headers", return_value=headers), \
+             patch.object(backend, "_run_agentic_os_clean_bash", return_value=launcher):
+            status = backend.hermes_ui_status()
+
+        self.assertTrue(status["embeddable"])
+        self.assertEqual(status["blocking_header"], "")
+
     def write_queue_templates(self, root):
         templates = root / "queue" / "templates"
         templates.mkdir(parents=True, exist_ok=True)

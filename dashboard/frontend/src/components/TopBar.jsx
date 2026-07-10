@@ -1,10 +1,13 @@
 import { Bot, Circle, Copy, ExternalLink, MessageSquare, Monitor, RefreshCw, Search } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { getHermesUiStatus, launchHermesUi } from '../api'
 
 export default function TopBar({ backendOk, cockpit, onNavigate, onRefresh }) {
   const [refreshing, setRefreshing] = useState(false)
   const [copied, setCopied] = useState('')
   const [query, setQuery] = useState('')
+  const [hermesUi, setHermesUi] = useState(null)
+  const [hermesUiBusy, setHermesUiBusy] = useState(false)
 
   const counts = cockpit?.counts || {}
   const needs = (counts.human_review || 0) + (counts.needs_input || 0) + (cockpit?.stalled?.length || 0)
@@ -25,6 +28,10 @@ export default function TopBar({ backendOk, cockpit, onNavigate, onRefresh }) {
     ['artifacts', 'Artifacts'],
     ['mission-control', 'Mission Control'],
   ]
+
+  useEffect(() => {
+    getHermesUiStatus().then(setHermesUi).catch(() => setHermesUi({ state: 'configuration_missing' }))
+  }, [])
 
   const handleRefresh = async () => {
     setRefreshing(true)
@@ -47,6 +54,28 @@ export default function TopBar({ backendOk, cockpit, onNavigate, onRefresh }) {
     await navigator.clipboard?.writeText(prompt)
     setCopied(target)
     setTimeout(() => setCopied(''), 1400)
+  }
+
+  const openHermesUi = async () => {
+    setHermesUiBusy(true)
+    const hermesWindow = window.open('', 'hermes_os')
+    try {
+      const launchResult = hermesUi?.http_reachable ? hermesUi : await launchHermesUi()
+      const status = await getHermesUiStatus().catch(() => launchResult)
+      setHermesUi(status)
+      if (status?.http_reachable && status?.url) {
+        if (hermesWindow) hermesWindow.location = status.url
+        else window.open(status.url, 'hermes_os')
+      } else {
+        hermesWindow?.close()
+        setHermesUi({ ...status, reason: status?.message || status?.last_error || 'Hermes UI did not become reachable.' })
+      }
+    } catch (error) {
+      hermesWindow?.close()
+      setHermesUi({ state: 'configuration_missing', reason: error?.response?.data?.message || error?.message || 'Dashboard backend could not launch Hermes UI.' })
+    } finally {
+      setHermesUiBusy(false)
+    }
   }
 
   const submitSearch = event => {
@@ -79,7 +108,20 @@ export default function TopBar({ backendOk, cockpit, onNavigate, onRefresh }) {
         <div className="flex flex-wrap gap-1.5">
           <button onClick={openTelegramApp} className="inline-flex h-8 items-center gap-1.5 rounded border border-softgraph bg-softgraph/40 px-2.5 text-xs text-stone hover:bg-softgraph" title="Attempts to open Telegram Desktop with tg://"><ExternalLink size={13} />Open Telegram App</button>
           <button onClick={copyTelegramFallback} className="inline-flex h-8 items-center gap-1.5 rounded border border-softgraph bg-ink px-2.5 text-xs text-stone hover:border-champagne/50" title="Copy fallback if Windows does not have tg:// registered"><Copy size={13} />{copied === 'telegram' ? 'Copied Telegram fallback' : 'Copy: Open from Start'}</button>
-          <button onClick={() => window.open('http://127.0.0.1:3010', '_blank')} className="inline-flex h-8 items-center gap-1.5 rounded border border-softgraph bg-softgraph/40 px-2.5 text-xs text-stone hover:bg-softgraph"><Monitor size={13} />Open Hermes Desktop</button>
+          <button
+            onClick={openHermesUi}
+            disabled={hermesUiBusy || hermesUi?.supported === false}
+            title={hermesUi?.reason || hermesUi?.launch_command || 'Start or open the local Hermes dashboard at 127.0.0.1:8081'}
+            className={`inline-flex h-8 items-center gap-1.5 rounded border px-2.5 text-xs ${
+              hermesUi?.http_reachable
+                ? 'border-softgraph bg-softgraph/40 text-stone hover:bg-softgraph'
+                : hermesUi?.supported === false
+                  ? 'border-softgraph bg-ink text-taupe opacity-60'
+                  : 'border-softgraph bg-ink text-stone hover:border-champagne/50'
+            }`}
+          >
+            <Monitor size={13} />{hermesUiBusy ? 'Starting Hermes UI' : hermesUi?.http_reachable ? 'Open Hermes UI' : hermesUi?.supported === false ? 'Hermes UI unavailable' : 'Launch Hermes UI'}
+          </button>
           <button
             onClick={() => latitude.workspace_url && window.open(latitude.workspace_url, '_blank')}
             disabled={!latitude.workspace_url}

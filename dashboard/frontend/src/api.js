@@ -35,6 +35,8 @@ export const wslStatus = () => apiWsl.get('/wsl/status').then(r => r.data)
 export const wslHermes = (task) => apiWsl.post('/wsl/hermes', { task }).then(r => r.data)
 export const wslClaude = (task) => apiWsl.post('/wsl/claude', { task }).then(r => r.data)
 export const wslCodex = (task) => apiWsl.post('/wsl/codex', { task }).then(r => r.data)
+export const getHermesUiStatus = () => api.get('/hermes-ui/status').then(r => r.data)
+export const launchHermesUi = () => apiWsl.post('/hermes-ui/launch').then(r => r.data)
 
 export const telegramStatus = () => api.get('/connectors/telegram/status').then(r => r.data)
 export const getBackupsStatus = () => api.get('/backups/status').then(r => r.data)
