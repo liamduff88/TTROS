@@ -64,6 +64,8 @@ WORKFLOWS_DIR = BASE_DIR / "workflows"
 WORKFLOW_REGISTRY_FILE = WORKFLOWS_DIR / "workflow_registry.json"
 SKILLS_DIR = BASE_DIR / "skills"
 MEMORY_INDEX_DIR = BASE_DIR / "memory_index"
+GRAPHIFY_BRAIN_DIR = BASE_DIR.parent / "Graphify Brain"
+GRAPHIFY_OUT_DIR = GRAPHIFY_BRAIN_DIR / "brain_graph" / "graphify-out"
 PROMPT_LIBRARY_DIRS = [QUEUE_DIR / "templates", WORKFLOWS_DIR / "prompt_templates"]
 CLAUDE_USAGE_READER_WSL = "/mnt/c/Users/Admin/Documents/A-Time to revenue/Agentic OS Live/dashboard/backend/claude_usage.py"
 
@@ -4058,10 +4060,34 @@ def dashboard_prompts():
 
 @app.get("/api/dashboard/graphify")
 def dashboard_graphify():
+    cli_path = shutil.which("graphify") or ""
+    version = ""
+    if cli_path:
+        try:
+            result = subprocess.run([cli_path, "--version"], capture_output=True, text=True, timeout=3, check=False)
+            version = (result.stdout or result.stderr).strip()
+        except (OSError, subprocess.SubprocessError):
+            version = "version unavailable"
+    output_files = []
+    if GRAPHIFY_OUT_DIR.exists():
+        for path in sorted(p for p in GRAPHIFY_OUT_DIR.glob("*") if p.is_file()):
+            output_files.append({"name": path.name, "path": str(path), "bytes": path.stat().st_size})
+    graph_html = GRAPHIFY_OUT_DIR / "graph.html"
+    graph_json = GRAPHIFY_OUT_DIR / "graph.json"
+    installed = bool(cli_path)
+    has_graph = graph_html.exists() or graph_json.exists() or bool(output_files)
     return {
-        "available": False,
-        "status": "Unavailable",
-        "launch_command": "Launch Graphify locally, then refresh this page.",
+        "available": has_graph,
+        "installed": installed,
+        "status": "Ready" if has_graph else ("Installed, no graph output" if installed else "Unavailable"),
+        "cli_path": cli_path,
+        "version": version,
+        "brain_root": str(GRAPHIFY_BRAIN_DIR),
+        "graph_output_dir": str(GRAPHIFY_OUT_DIR),
+        "graph_html": str(graph_html) if graph_html.exists() else "",
+        "graph_json": str(graph_json) if graph_json.exists() else "",
+        "output_files": output_files,
+        "launch_command": "graphify extract <approved-path> --out '/mnt/c/Users/Admin/Documents/A-Time to revenue/Graphify Brain/brain_graph'",
         "repos": [{"name": "Agentic OS Live", "path": _safe_relative(BASE_DIR), "node_count": "unavailable", "last_analyzed": None}],
     }
 

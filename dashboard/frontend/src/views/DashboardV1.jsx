@@ -414,7 +414,40 @@ export function PromptLibrary() {
 
 export function GraphifyPage() {
   const { data } = useAsync(getDashboardGraphify)
-  return <><PageHeader title="Graphify" question="What does the OS/repo knowledge structure look like?" /><div className="min-h-[65vh] rounded border border-softgraph bg-graphite/70 p-4"><EmptyState title={data?.status || 'Unavailable'} detail="Graphify is not embedded in this pass. Use the local launch button when the service exists." action={<ActionButton>Launch Graphify</ActionButton>} /></div></>
+  const files = data?.output_files || []
+  return (
+    <>
+      <PageHeader title="Graphify" question="What does the OS/repo knowledge structure look like?" />
+      <div className="min-h-[65vh] rounded border border-softgraph bg-graphite/70 p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="text-lg font-semibold text-stone">{data?.status || 'Unavailable'}</div>
+            <div className="mt-1 text-sm text-taupe">{data?.installed ? `${data.version || 'graphify installed'} at ${data.cli_path}` : 'Graphify CLI is not installed.'}</div>
+          </div>
+          <StatusChip status={data?.available ? 'Ready' : data?.installed ? 'Needs attention' : 'Unavailable'} />
+        </div>
+        <div className="mt-5 grid gap-3 md:grid-cols-2">
+          <div className="rounded border border-softgraph bg-ink p-4">
+            <div className="text-xs uppercase text-champagne">Brain root</div>
+            <div className="mt-2 break-words text-sm text-stone">{data?.brain_root || 'unavailable'}</div>
+          </div>
+          <div className="rounded border border-softgraph bg-ink p-4">
+            <div className="text-xs uppercase text-champagne">Graph output</div>
+            <div className="mt-2 break-words text-sm text-stone">{data?.graph_output_dir || 'unavailable'}</div>
+          </div>
+        </div>
+        <div className="mt-4 rounded border border-softgraph bg-ink p-4">
+          <div className="text-xs uppercase text-champagne">Local command</div>
+          <code className="mt-2 block whitespace-pre-wrap break-words text-xs text-stone">{data?.launch_command || 'Install Graphify first.'}</code>
+        </div>
+        {files.length ? (
+          <div className="mt-4 grid gap-2">{files.map(file => <div key={file.path} className="rounded border border-softgraph bg-ink px-3 py-2 text-sm text-stone">{file.name} · {file.bytes} bytes</div>)}</div>
+        ) : (
+          <EmptyState title="No graph output yet" detail="Graphify is installed, but no graph.html or graph.json exists in Graphify Brain." />
+        )}
+      </div>
+    </>
+  )
 }
 
 export function RepoIngest() {
