@@ -396,7 +396,7 @@ export default function Overview({ overview, onNavigate, onRefresh }) {
     <div className="max-w-6xl space-y-6">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-champagne">Agentic OS Cockpit</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-champagne">Agentic OS Cockpit (Pass 0 proof)</p>
           <h1 className="mt-1 text-2xl font-semibold text-ivory">Operator Front Door</h1>
           <p className="mt-1 text-sm text-taupe">Launch work, inspect state, and route into the existing dashboard controls.</p>
         </div>
