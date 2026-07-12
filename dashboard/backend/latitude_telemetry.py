@@ -11,6 +11,9 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+from aos_paths import assert_authoritative_root
+from aos_queue_storage import durable_replace_text
+
 
 SECRET_ENV_VARS = ("LATITUDE_API_KEY",)
 PROJECT_ENV_VARS = ("LATITUDE_PROJECT_SLUG", "LATITUDE_PROJECT", "LATITUDE_PROJECT_ID")
@@ -60,8 +63,8 @@ def _state() -> dict[str, Any]:
 
 def _write_state(data: dict[str, Any]) -> None:
     try:
-        STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-        STATE_FILE.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        assert_authoritative_root(STATE_FILE.parent)
+        durable_replace_text(STATE_FILE, json.dumps(data, indent=2, sort_keys=True) + "\n")
     except OSError:
         return
 
@@ -199,6 +202,8 @@ def _otlp_trace_body(event: dict[str, Any]) -> dict[str, Any]:
 
 
 def send_event(event: dict[str, Any]) -> dict[str, Any]:
+    if os.environ.get("AOS_DISABLE_TELEMETRY", "").strip().lower() in {"1", "true", "yes"}:
+        return {"sent": False, "degraded": False, "disabled": True}
     status = config_status()
     if not status["configured"]:
         return {"sent": False, "degraded": True, **status}

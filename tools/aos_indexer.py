@@ -12,7 +12,12 @@ import sys
 import time
 from pathlib import Path
 
-from aos_paths import aos_root, resolve_root_relative
+try:
+    from aos_paths import aos_root, assert_authoritative_root, resolve_root_relative
+    from aos_queue_storage import durable_append_text, durable_replace_text
+except ModuleNotFoundError:  # package import in unittest/IDE contexts
+    from tools.aos_paths import aos_root, assert_authoritative_root, resolve_root_relative
+    from tools.aos_queue_storage import durable_append_text, durable_replace_text
 
 
 TOKEN_USAGE_TEXT = "Token usage: no agent invocation"
@@ -107,6 +112,7 @@ def is_excluded(path: Path | str, *, root: Path | None = None) -> bool:
 def ensure_default_config() -> dict:
     if INGEST_CONFIG_PATH.exists():
         return json.loads(INGEST_CONFIG_PATH.read_text(encoding="utf-8"))
+    assert_authoritative_root(LIVE_ROOT)
     config = {
         "inboxes": ["queue/inbox"],
         "watch_roots": ["queue/inbox", "results", "workflows", "queue/receipts"],
@@ -123,8 +129,13 @@ def runtime_db_path(db_path: Path | None = None) -> Path:
     return db_path or DB_PATH
 
 
-def connect(db_path: Path | None = None) -> sqlite3.Connection:
+def connect(db_path: Path | None = None, *, readonly: bool = False) -> sqlite3.Connection:
     db_path = runtime_db_path(db_path)
+    if readonly:
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        conn.row_factory = sqlite3.Row
+        return conn
+    assert_authoritative_root(db_path.parent)
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(db_path))
     conn.row_factory = sqlite3.Row
@@ -393,7 +404,9 @@ def public_row(row: sqlite3.Row) -> dict:
 def search(query: str, *, kind: str = "", tag: str = "", source: str = "", limit: int = 25, db_path: Path | None = None) -> dict:
     db_path = runtime_db_path(db_path)
     start = time.perf_counter()
-    conn = connect(db_path)
+    if not db_path.exists():
+        return {"query": query, "count": 0, "groups": {key: [] for key in ("files", "receipts", "queue_items", "prompts_skills_workflows", "memory", "artifacts")}, "latency_ms": 0.0, "token_usage_text": TOKEN_USAGE_TEXT}
+    conn = connect(db_path, readonly=True)
     limit = max(1, min(int(limit or 25), 100))
     params: list[object] = []
     where = []
@@ -465,7 +478,7 @@ def status(db_path: Path | None = None) -> dict:
             "db_path": str(db_path),
             "token_usage_text": TOKEN_USAGE_TEXT,
         }
-    conn = connect(db_path)
+    conn = connect(db_path, readonly=True)
     row = conn.execute("SELECT COUNT(*) AS count, MAX(indexed_at) AS last_scan_time FROM documents").fetchone()
     latest_receipt = None
     failures_count = 0
@@ -501,9 +514,8 @@ def load_watch_roots() -> list[Path]:
 
 
 def write_ingestion_receipt(record: dict) -> None:
-    INGEST_RECEIPT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with INGEST_RECEIPT_PATH.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(record, sort_keys=True) + "\n")
+    assert_authoritative_root(LIVE_ROOT)
+    durable_append_text(LIVE_ROOT, INGEST_RECEIPT_PATH, json.dumps(record, sort_keys=True) + "\n")
 
 
 def ingested_source_paths() -> set[str]:

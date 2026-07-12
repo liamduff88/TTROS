@@ -1,4 +1,11 @@
 # Dashboard Backend
+> Revisit: when the backend launch or authority boundary changes. · Last touched: 2026-07-11.
+
+The one supported backend runs on Linux from the canonical `AOS_ROOT` (currently
+`/home/liam/agentic-os-live`). Start the existing backend, frontend, and runner
+with `tools/aos-linux-runtime.sh start`; inspect or stop them with `status` and
+`stop`. Native Windows FastAPI and Windows-mounted authoritative storage are
+retired. Windows launchers are thin WSL adapters only.
 
 ## Latitude Telemetry
 

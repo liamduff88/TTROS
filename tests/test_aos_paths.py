@@ -12,7 +12,7 @@ TOOLS = ROOT / "tools"
 if str(TOOLS) not in sys.path:
     sys.path.insert(0, str(TOOLS))
 
-from aos_paths import AosPathError, aos_root, resolve_root_relative
+from aos_paths import AuthorityError, AosPathError, aos_root, assert_authoritative_root, resolve_root_relative
 
 
 class AosPathsTest(unittest.TestCase):
@@ -43,6 +43,19 @@ class AosPathsTest(unittest.TestCase):
                 resolve_root_relative("/tmp/outside.txt", root=root)
             with self.assertRaises(AosPathError):
                 resolve_root_relative(r"C:\Users\Admin\outside.txt", root=root)
+
+    def test_linux_native_authority_is_accepted(self):
+        with tempfile.TemporaryDirectory(dir="/tmp") as tmp:
+            self.assertEqual(Path(tmp).resolve(), assert_authoritative_root(tmp))
+
+    def test_native_windows_authority_is_rejected(self):
+        with patch("aos_paths.os.name", "nt"), patch("aos_paths.sys.platform", "win32"):
+            with self.assertRaisesRegex(AuthorityError, "requires Linux/POSIX"):
+                assert_authoritative_root(r"C:\AgenticOS")
+
+    def test_windows_mount_authority_is_rejected(self):
+        with self.assertRaisesRegex(AuthorityError, "Windows-mounted roots"):
+            assert_authoritative_root("/mnt/c/AgenticOS")
 
 
 if __name__ == "__main__":

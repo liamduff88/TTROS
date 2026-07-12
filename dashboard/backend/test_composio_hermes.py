@@ -1,4 +1,5 @@
 import importlib.util
+import asyncio
 import datetime
 import json
 import re
@@ -24,12 +25,23 @@ class _FastAPI:
         return lambda function: function
 
     post = get
+    middleware = get
 
 
 class _HTTPException(Exception):
     def __init__(self, status_code, detail):
         self.status_code = status_code
         self.detail = detail
+
+
+class _Request:
+    method = "GET"
+
+
+class _JSONResponse(dict):
+    def __init__(self, status_code, content):
+        super().__init__(content)
+        self.status_code = status_code
 
 
 class _BaseModel:
@@ -42,10 +54,13 @@ if importlib.util.find_spec("fastapi") is None:
     fastapi = types.ModuleType("fastapi")
     fastapi.FastAPI = _FastAPI
     fastapi.HTTPException = _HTTPException
+    fastapi.Request = _Request
     middleware = types.ModuleType("fastapi.middleware")
     cors = types.ModuleType("fastapi.middleware.cors")
+    responses = types.ModuleType("fastapi.responses")
     cors.CORSMiddleware = object
-    sys.modules.update({"fastapi": fastapi, "fastapi.middleware": middleware, "fastapi.middleware.cors": cors})
+    responses.JSONResponse = _JSONResponse
+    sys.modules.update({"fastapi": fastapi, "fastapi.middleware": middleware, "fastapi.middleware.cors": cors, "fastapi.responses": responses})
 
 if importlib.util.find_spec("pydantic") is None:
     pydantic = types.ModuleType("pydantic")
@@ -60,6 +75,16 @@ SPEC.loader.exec_module(backend)
 
 
 class HermesComposioTests(unittest.TestCase):
+    def test_telegram_status_preserves_contract_without_inspecting_protected_runtime(self):
+        result = backend.telegram_connector_status()
+        expected = {
+            "status", "running", "bridge_file", "env_file", "allowed_chats",
+            "pilot_report_file", "pilot_report_count", "operator_chat_configured", "pilot_id",
+        }
+        self.assertTrue(expected.issubset(result))
+        self.assertEqual("not_checked", result["status"])
+        self.assertEqual("unknown", result["running"])
+
     RUN_RESULT = {"success": True, "output": "PASS", "stdout": "PASS", "stderr": "", "returncode": 0}
 
     def route(self, task):
@@ -67,6 +92,30 @@ class HermesComposioTests(unittest.TestCase):
              patch.object(backend, "_log_token_usage"):
             result = backend.wsl_hermes(backend.TaskRun(task=task))
         return run.call_args.args[0], result
+
+    def test_dashboard_http_mutation_is_rejected_before_endpoint_dispatch(self):
+        request = types.SimpleNamespace(method="POST")
+        dispatched = []
+
+        async def call_next(_request):
+            dispatched.append(True)
+            return {"unexpected": True}
+
+        with patch.object(backend, "_require_authority", side_effect=backend.AuthorityError("unsupported root")):
+            response = asyncio.run(backend.linux_authority_boundary(request, call_next))
+        self.assertEqual(503, response.status_code)
+        self.assertEqual([], dispatched)
+
+    def test_dashboard_http_read_is_not_forced_to_mutate_or_initialize_state(self):
+        request = types.SimpleNamespace(method="GET")
+
+        async def call_next(_request):
+            return {"success": True}
+
+        with patch.object(backend, "_require_authority") as authority:
+            response = asyncio.run(backend.linux_authority_boundary(request, call_next))
+        authority.assert_not_called()
+        self.assertEqual({"success": True}, response)
 
     def route_with_prompt_file(self, task):
         seen = {}
@@ -105,7 +154,9 @@ class HermesComposioTests(unittest.TestCase):
         self.assertFalse(stopped["http_reachable"])
         self.assertTrue(stopped["supported"])
         self.assertEqual(stopped["url"], "http://127.0.0.1:8081")
-        self.assertIn("wsl -d AgenticOSClean --user liam", stopped["launch_command"])
+        self.assertEqual(stopped["root"], str(backend.BASE_DIR))
+        self.assertNotIn("wsl", stopped["launch_command"])
+        self.assertIn(str(backend.BASE_DIR), stopped["launch_command"])
         self.assertIn("bash tools/aos-hermes-dashboard.sh start", stopped["launch_command"])
 
         with patch.object(backend, "_http_endpoint_headers", return_value={"success": True, "headers": {}, "status_code": 200, "final_url": "http://127.0.0.1:8081/"}), \
@@ -146,15 +197,23 @@ class HermesComposioTests(unittest.TestCase):
         self.assertTrue(result["reachable"])
         self.assertTrue(result["already_running"])
 
-    def test_hermes_ui_launch_uses_explicit_wsl_command(self):
+    def test_hermes_launcher_uses_one_current_install_dist_and_skip_build_contract(self):
+        launcher = backend.HERMES_DASHBOARD_LAUNCHER.read_text(encoding="utf-8")
+        self.assertIn('HERMES_AGENT_ROOT="${HERMES_AGENT_ROOT:-${HOME}/.hermes/hermes-agent}"', launcher)
+        self.assertIn('HERMES_WEB_DIST="$WEB_DIST"', launcher)
+        self.assertIn("--skip-build", launcher)
+        self.assertIn("npm run typecheck --workspace web", launcher)
+        self.assertNotIn("nohup npm", launcher)
+        self.assertIn("dashboard_pid", launcher)
+
+    def test_hermes_ui_launch_uses_current_linux_bash(self):
         with patch.object(backend.subprocess, "run") as run:
             run.return_value = types.SimpleNamespace(stdout="ok", stderr="", returncode=0)
             backend._run_wsl("cd /tmp && bash tools/aos-hermes-dashboard.sh start", timeout=20)
 
         args = run.call_args.args[0]
-        self.assertEqual(args[:6], ["wsl", "-d", "AgenticOSClean", "--user", "liam", "--"])
-        self.assertIn("bash", args)
-        self.assertIn("-lc", args)
+        self.assertEqual(args[:2], ["bash", "-lc"])
+        self.assertNotIn("wsl", args)
         self.assertNotEqual(args[0], str(backend.HERMES_DASHBOARD_LAUNCHER))
 
     def test_hermes_ui_launch_does_not_execute_script_natively_on_windows(self):
@@ -1540,7 +1599,7 @@ class HermesComposioTests(unittest.TestCase):
                 )
                 self.assertIn(f"- ID: {item_id}", prompt)
                 self.assertIn("- Title: Patch dashboard queue prompt copy", prompt)
-                self.assertIn("## Launch from PowerShell", prompt)
+                self.assertIn("## Launch from Linux", prompt)
                 self.assertIn("Do not launch agents automatically.", prompt)
             codex_prompt = codex["prompt"]
             claude_prompt = claude["prompt"]
@@ -2309,23 +2368,15 @@ class HermesComposioTests(unittest.TestCase):
         self.assertIn("Next action:\n  - Add a queue item or continue normal Hermes work.", result["output"])
         self.assertEqual(backend._queue_items_path(), backend.BASE_DIR / "queue" / "work_items.jsonl")
 
-    def test_hermes_coordinator_uses_wsl_path_for_windows_backend_path(self):
+    def test_hermes_coordinator_rejects_windows_backend_path(self):
         windows_script = PureWindowsPath(r"Z:\workspace\tools\aos-hermes-coordinator.sh")
-        with patch.object(backend, "HERMES_COORDINATOR", windows_script), \
-             patch.object(backend, "_run_wsl", return_value=self.RUN_RESULT) as run, \
-             patch.object(backend, "_log_token_usage"):
-            result = backend.wsl_hermes(backend.TaskRun(task="summarize the queue"))
+        with patch.object(backend, "HERMES_COORDINATOR", windows_script):
+            with self.assertRaisesRegex(RuntimeError, "Windows and Windows-mounted paths"):
+                backend.wsl_hermes(backend.TaskRun(task="summarize the queue"))
 
-        command = run.call_args.args[0]
-        self.assertTrue(command.startswith("/mnt/z/workspace/tools/aos-hermes-coordinator.sh "))
-        self.assertNotIn(r"Z:\workspace", command)
-        self.assertEqual(result["selected_route"], "hermes_coordinator")
-
-    def test_wsl_path_helper_preserves_posix_paths(self):
-        self.assertEqual(
-            backend._path_for_wsl_command("/mnt/c/workspace/tools/aos-hermes-coordinator.sh"),
-            "/mnt/c/workspace/tools/aos-hermes-coordinator.sh",
-        )
+    def test_runtime_path_helper_rejects_windows_mount_and_preserves_linux(self):
+        with self.assertRaisesRegex(RuntimeError, "Windows and Windows-mounted paths"):
+            backend._path_for_wsl_command("/mnt/c/workspace/tools/aos-hermes-coordinator.sh")
         self.assertEqual(
             backend._path_for_wsl_command("/home/liam/workspace/tools/aos-hermes-coordinator.sh"),
             "/home/liam/workspace/tools/aos-hermes-coordinator.sh",

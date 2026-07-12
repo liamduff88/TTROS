@@ -1,5 +1,7 @@
 import builtins
 import json
+import subprocess
+import sys
 import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -54,7 +56,187 @@ def item(item_id, status, **extra):
 
 
 class AosOrchestrationTests(unittest.TestCase):
-    def test_tick_lock_does_not_require_fcntl_on_windows_backend(self):
+    def test_linux_launcher_uses_only_existing_runner_watch_mode(self):
+        root = Path(__file__).resolve().parents[1]
+        launcher = (root / "tools" / "aos-linux-runtime.sh").read_text(encoding="utf-8")
+        self.assertEqual(1, launcher.count("aos-orchestration-runner.py"))
+        self.assertIn("--watch --interval", launcher)
+        self.assertNotIn("while true", launcher)
+        self.assertIn("if ! wait_http \"$BACKEND_URL\" backend; then\n    stop", launcher)
+        self.assertIn("if ! wait_http \"$FRONTEND_URL\" frontend; then\n    stop", launcher)
+        self.assertIn("grep -Ev 'grep|rg|codex|aos-linux-runtime\\.sh'", launcher)
+
+    def test_existing_runner_watch_mode_is_bounded_for_validation(self):
+        root_dir = Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory(dir="/tmp") as tmp:
+            root = Path(tmp)
+            (root / "queue").mkdir()
+            (root / "queue" / "work_items.jsonl").write_text("", encoding="utf-8")
+            result = subprocess.run(
+                [sys.executable, str(root_dir / "tools" / "aos-orchestration-runner.py"),
+                 "--root", str(root), "--skip-telegram-escalation", "--watch", "--interval", "0.05", "--max-ticks", "2"],
+                cwd=root_dir, text=True, capture_output=True, timeout=10,
+            )
+            self.assertEqual(0, result.returncode, result.stderr)
+            self.assertEqual(2, result.stdout.count('"success": true'))
+
+    def test_tick_effects_reconcile_after_final_queue_save_failure(self):
+        for mode in ("before_replace", "after_replace"):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                (root / "queue/receipts").mkdir(parents=True)
+                (root / "queue/receipts/step1.md").write_text("PASS\n", encoding="utf-8")
+                write_json(root / "queue/notifications.json", {"escalation": {}, "allowlist": {}})
+                write_items(root, [
+                    item("AOS-2026-0001", "done", parent_id="AOS-2026-0000", step_index=1,
+                         receipts=[{"path": "queue/receipts/step1.md", "created_at": "2026-07-09T00:00:00Z", "status": "done"}]),
+                    item("AOS-2026-0002", "inbox", parent_id="AOS-2026-0000", step_index=2,
+                         depends_on=["AOS-2026-0001"]),
+                ])
+                real_save = runner.save_items
+                calls = 0
+
+                def fail_final(save_root, items):
+                    nonlocal calls
+                    calls += 1
+                    if calls == 2:
+                        if mode == "after_replace":
+                            real_save(save_root, items)
+                        raise OSError("injected final queue save failure")
+                    return real_save(save_root, items)
+
+                with patch.object(runner, "save_items", side_effect=fail_final):
+                    with self.assertRaises(OSError):
+                        runner.tick(root, allow_telegram_escalation=False)
+                runner.tick(root, allow_telegram_escalation=False)
+                runner.tick(root, allow_telegram_escalation=False)
+                rows = {row["id"]: row for row in read_items(root)}
+                self.assertEqual("agent_todo", rows["AOS-2026-0002"]["status"])
+                events = runner.read_jsonl(root / runner.EVENTS_PATH)
+                self.assertEqual(1, sum(row.get("event") == "step_advanced" for row in events))
+                self.assertEqual(1, len(list((root / "queue/receipts").glob("AOS-2026-0002-runner-*.md"))))
+                tokens = runner.read_jsonl(root / runner.TOKEN_LEDGER_PATH)
+                self.assertEqual(1, sum(row.get("event") == "step_advanced" for row in tokens))
+
+    def test_notification_send_attempt_is_suppressed_after_queue_save_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_json(root / "queue/notifications.json", {
+                "escalation": {"unanswered_minutes": 1},
+                "allowlist": {"telegram": ["1320777128"], "agentmail_internal": []},
+            })
+            stale = (datetime.now(timezone.utc) - timedelta(minutes=3)).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+            write_items(root, [item("AOS-2026-0001", "needs_input", updated_at=stale)])
+            runner.tick(root, send_telegram=lambda *_: None)
+            events = runner.read_jsonl(root / runner.EVENTS_PATH)
+            for event in events:
+                if event.get("event") == "notification_logged":
+                    event["created_at"] = stale
+            (root / runner.EVENTS_PATH).write_text(
+                "".join(json.dumps(row, sort_keys=True) + "\n" for row in events), encoding="utf-8"
+            )
+            sends = []
+            real_save = runner.save_items
+
+            def fail_after_replace(save_root, items):
+                real_save(save_root, items)
+                raise OSError("directory sync ambiguity")
+
+            with patch.object(runner, "save_items", side_effect=fail_after_replace):
+                with self.assertRaises(OSError):
+                    runner.tick(root, send_telegram=lambda chat, text: sends.append((chat, text)))
+            runner.tick(root, send_telegram=lambda chat, text: sends.append((chat, text)))
+            self.assertEqual(1, len(sends))
+            events = runner.read_jsonl(root / runner.EVENTS_PATH)
+            self.assertEqual(1, sum(row.get("event") == "telegram_escalation" and row.get("result") == "sent" for row in events))
+            sent = next(row for row in events if row.get("event") == "telegram_escalation" and row.get("result") == "sent")
+            reconciled = read_items(root)[0]
+            self.assertEqual(1, sum(row.get("path") == sent["receipt_path"] for row in reconciled["receipts"]))
+
+    def test_acceptance_artifact_receipt_and_ledgers_reconcile_after_save_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            parent_id, dep_id, final_id = "AOS-2026-0100", "AOS-2026-0102", "AOS-2026-0103"
+            result_dir = root / "results/orchestration_acceptance" / parent_id
+            result_dir.mkdir(parents=True)
+            (root / "queue/receipts").mkdir(parents=True)
+            source = f"results/orchestration_acceptance/{parent_id}/01_source_pack.md"
+            brief = f"results/orchestration_acceptance/{parent_id}/02_speed_to_lead_micro_brief.md"
+            review = f"queue/receipts/{dep_id}-review.md"
+            (root / source).write_text("source", encoding="utf-8")
+            (root / brief).write_text("brief", encoding="utf-8")
+            (root / review).write_text("approved", encoding="utf-8")
+            write_json(root / "queue/notifications.json", {"escalation": {}, "allowlist": {}})
+            write_items(root, [
+                item(parent_id, "agent_todo", owner="hermes"),
+                item(dep_id, "done", receipts=[{"path": review, "created_at": "2026-07-10T00:00:00Z", "status": "done"}]),
+                item(final_id, "agent_todo", parent_id=parent_id, step_index=3, depends_on=[dep_id],
+                     owner="delivery", workbench="local", tags=["orchestration_acceptance"],
+                     source_refs=[source, brief, review]),
+            ])
+            real_save = runner.save_items
+            calls = 0
+
+            def fail_final(save_root, items):
+                nonlocal calls
+                calls += 1
+                if calls == 2:
+                    raise OSError("queue acknowledgment failed")
+                return real_save(save_root, items)
+
+            with patch.object(runner, "save_items", side_effect=fail_final):
+                with self.assertRaises(OSError):
+                    runner.tick(root, allow_telegram_escalation=False)
+            runner.tick(root, allow_telegram_escalation=False)
+            runner.tick(root, allow_telegram_escalation=False)
+            final_artifact = root / f"results/orchestration_acceptance/{parent_id}/03_final_review_package.md"
+            self.assertTrue(final_artifact.exists())
+            self.assertEqual(1, len(list((root / "queue/receipts").glob(f"{final_id}-final-closeout-*.md"))))
+            events = runner.read_jsonl(root / runner.EVENTS_PATH)
+            self.assertEqual(1, sum(row.get("event") == "acceptance_finalized" for row in events))
+            tokens = runner.read_jsonl(root / runner.TOKEN_LEDGER_PATH)
+            self.assertEqual(1, sum(row.get("event") == "acceptance_finalized" for row in tokens))
+            rows = {row["id"]: row for row in read_items(root)}
+            self.assertEqual("done", rows[final_id]["status"])
+            self.assertEqual("done", rows[parent_id]["status"])
+    def test_tick_holds_shared_write_lock_even_when_no_rewrite_is_needed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_json(root / "queue" / "notifications.json", {"escalation": {}, "allowlist": {}})
+            write_items(root, [item("AOS-2026-0001", "inbox")])
+            real_lock = runner.queue_write_lock
+            calls = []
+
+            @runner.contextmanager
+            def observed_lock(lock_root):
+                calls.append(Path(lock_root))
+                with real_lock(lock_root):
+                    yield
+
+            with patch.object(runner, "queue_write_lock", observed_lock):
+                runner.tick(root, allow_telegram_escalation=False)
+            self.assertGreaterEqual(len(calls), 1)
+            self.assertTrue(all(call == root for call in calls))
+
+    def test_idle_tick_preserves_queue_and_persistent_tick_lock_metadata(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_json(root / "queue" / "notifications.json", {"escalation": {}, "allowlist": {}})
+            write_items(root, [item("AOS-2026-0001", "inbox")])
+            first = runner.tick(root, allow_telegram_escalation=False)
+            self.assertEqual([], first["advanced"])
+            self.assertEqual([], first["notifications"])
+            queue_path = root / runner.WORK_ITEMS_PATH
+            tick_path = root / runner.TICK_LOCK_PATH
+            queue_before = (queue_path.read_bytes(), queue_path.stat().st_mtime_ns, queue_path.stat().st_ctime_ns)
+            tick_before = (tick_path.read_bytes(), tick_path.stat().st_mtime_ns, tick_path.stat().st_ctime_ns)
+            second = runner.tick(root, allow_telegram_escalation=False)
+            self.assertEqual([], second["advanced"])
+            self.assertEqual([], second["notifications"])
+            self.assertEqual(queue_before, (queue_path.read_bytes(), queue_path.stat().st_mtime_ns, queue_path.stat().st_ctime_ns))
+            self.assertEqual(tick_before, (tick_path.read_bytes(), tick_path.stat().st_mtime_ns, tick_path.stat().st_ctime_ns))
+
+    def test_tick_lock_requires_linux_fcntl_before_creating_lock(self):
         real_import = builtins.__import__
 
         def import_without_fcntl(name, *args, **kwargs):
@@ -65,8 +247,10 @@ class AosOrchestrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             with patch.object(builtins, "__import__", side_effect=import_without_fcntl):
-                with runner.tick_lock(root):
-                    self.assertTrue((root / runner.TICK_LOCK_PATH).exists())
+                with self.assertRaises(ModuleNotFoundError):
+                    with runner.tick_lock(root):
+                        pass
+            self.assertFalse((root / runner.TICK_LOCK_PATH).exists())
 
     def test_three_step_acceptance_chain_gate_and_resume_idempotently(self):
         with tempfile.TemporaryDirectory() as tmp:

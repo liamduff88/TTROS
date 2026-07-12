@@ -1,14 +1,4 @@
-﻿$ErrorActionPreference = "SilentlyContinue"
-
-$workspace = $PSScriptRoot
-$env:AOS_ROOT = $workspace
-$frontend = Join-Path $workspace "dashboard\frontend"
-$logs = Join-Path $workspace "logs"
-New-Item -ItemType Directory -Force -Path $logs | Out-Null
-
-if (Get-NetTCPConnection -LocalPort 3010 -State Listen -ErrorAction SilentlyContinue) {
-  exit 0
-}
-
-Set-Location $frontend
-npm run dev *>> (Join-Path $logs "dashboard_frontend.log")
+# Thin Windows-to-Linux adapter. Revisit: when Linux distro/root changes. Last touched: 2026-07-11.
+$ErrorActionPreference = "Stop"
+wsl.exe -d AgenticOSClean --user liam -- bash -lc 'export AOS_ROOT=/home/liam/agentic-os-live; cd "$AOS_ROOT"; exec bash tools/aos-linux-runtime.sh start'
+exit $LASTEXITCODE

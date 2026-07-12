@@ -1,6 +1,26 @@
 # DECISIONS.md — log of decisions that change system behavior
 > One entry per behavior-affecting change. Newest first.
 
+## 2026-07-11 — Lock release is bound to exact owner identity and durable namespaces
+Queue and package directory locks now capture protocol/package identity, token,
+host, runtime, PID, process-start identity, and acquisition timestamp, and
+release only when the complete validated owner record is unchanged. Candidate,
+publication, quarantine, restoration, release, and deletion transitions fsync
+their containing directory; a publication-sync failure removes the canonical
+entry and retains noncanonical evidence. Empty orchestration ticks no longer
+rewrite queue or persistent tick-lock metadata. The existing Hermes launcher
+uses a typechecked production dist from the current install via the CLI's
+supported `HERMES_WEB_DIST`/`--skip-build` contract and PID guards duplicates.
+
+## 2026-07-11 — Linux-native storage is the sole Agentic OS authority
+The canonical live root is `/home/liam/agentic-os-live`, configurable through
+`AOS_ROOT` for ordinary Linux VMs and containers. Queue, package, ledger,
+receipt, dashboard, runner, and orchestration mutations fail closed on native
+Windows and Windows-backed mounts. POSIX durability is same-directory temp,
+flush, file fsync, atomic replace, and containing-directory fsync. Windows is
+only an optional WSL/browser adapter; the old `/mnt/c` repository is a frozen
+rollback snapshot and native-Windows mutation proofs are superseded.
+
 ## 2026-07-08 — Dashboard v1 ACCEPTED: startup + close-hook closeout
 Run 4 closed Dashboard v1 acceptance with startup hardening and live
 close-hook validation.
@@ -30,6 +50,15 @@ Telegram close-hook was live-validated end to end on 2026-07-08: API
 review-close on test item AOS-2026-0047 (`source: telegram`) ->
 `_telegram_reply_on_close` -> bridge send -> message received on Liam's phone.
 Dashboard v1 is ACCEPTED as of this date.
+
+## 2026-07-11 — Buildout read-only gates suppress subprocess bytecode
+The buildout loader's shared subprocess wrapper sets
+`PYTHONDONTWRITEBYTECODE=1`. This keeps real `inspect`, `validate`, and
+`status` validation paths read-only when they invoke the existing queue CLI
+help contract, while leaving write-command behavior and the queue contract
+unchanged. The same gate verifies locked-baseline ancestry but deliberately
+does not require a clean worktree, because reconciliation repairs are reviewed
+and validated while intentionally uncommitted.
 
 ## 2026-07-08 — Token metering hardening (fix pass on commit 315a3a9)
 Codex audit of the token-metering back end (commit 315a3a9) found four

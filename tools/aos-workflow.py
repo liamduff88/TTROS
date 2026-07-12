@@ -14,8 +14,13 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+try:
+    from aos_paths import aos_root, assert_authoritative_root
+except ModuleNotFoundError:  # package import in unittest/IDE contexts
+    from tools.aos_paths import aos_root, assert_authoritative_root
 
-DEFAULT_ROOT = Path(__file__).resolve().parents[1]
+
+DEFAULT_ROOT = aos_root()
 REGISTRY_PATH = Path("workflows/workflow_registry.json")
 RUNS_PATH = Path("results/workflow_runs")
 
@@ -146,6 +151,7 @@ def prepare_workflow(root: Path, workflow_id: str, run_id: str | None, dry_run: 
             print(path.relative_to(root).as_posix())
         return run_dir
 
+    root = assert_authoritative_root(root)
     run_dir.mkdir(parents=True, exist_ok=False)
     intake_path = write_intake_file(root, run_dir, workflow)
     (run_dir / "output_placeholder.md").write_text("Output placeholder. No workflow output has been created.\n", encoding="utf-8")

@@ -9,6 +9,8 @@ when the default loader can import it.
 from __future__ import annotations
 
 import json
+import hashlib
+import os
 import re
 import sys
 from contextlib import contextmanager
@@ -20,7 +22,8 @@ TOOLS_DIR = Path(__file__).resolve().parent
 if str(TOOLS_DIR) not in sys.path:
     sys.path.insert(0, str(TOOLS_DIR))
 
-from aos_paths import aos_root
+from aos_paths import aos_root, assert_authoritative_root
+from aos_queue_storage import durable_create_directory, durable_replace_text, fsync_directory, queue_write_lock
 
 QUEUE_DIR = Path("queue")
 WORK_ITEMS_PATH = QUEUE_DIR / "work_items.jsonl"
@@ -45,15 +48,20 @@ class OrchestrationError(Exception):
 
 @contextmanager
 def tick_lock(root: Path):
+    root = assert_authoritative_root(root)
+    import fcntl
     lock_path = root / TICK_LOCK_PATH
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-    with lock_path.open("w", encoding="utf-8") as handle:
-        try:
-            import fcntl
-        except ModuleNotFoundError:
-            yield
-            return
-
+    durable_create_directory(lock_path.parent, parents=True)
+    created = False
+    try:
+        fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_RDWR, 0o600)
+        created = True
+    except FileExistsError:
+        fd = os.open(lock_path, os.O_RDWR)
+    if created:
+        os.fsync(fd)
+        fsync_directory(lock_path.parent)
+    with os.fdopen(fd, "a", encoding="utf-8") as handle:
         try:
 
             fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
@@ -97,15 +105,44 @@ def load_items(root: Path) -> list[dict]:
 
 
 def save_items(root: Path, items: list[dict]) -> None:
-    path = root / WORK_ITEMS_PATH
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("".join(json.dumps(item, sort_keys=True, separators=(",", ":")) + "\n" for item in items), encoding="utf-8")
+    with queue_write_lock(root):
+        path = root / WORK_ITEMS_PATH
+        durable_replace_text(
+            path,
+            _items_text(items),
+        )
 
 
-def append_jsonl(path: Path, record: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(record, sort_keys=True, separators=(",", ":")) + "\n")
+def _items_text(items: list[dict]) -> str:
+    return "".join(json.dumps(item, sort_keys=True, separators=(",", ":")) + "\n" for item in items)
+
+
+def append_jsonl(path: Path, record: dict, *, root: Path | None = None) -> bool:
+    """Durably append a deterministic effect once."""
+    if root is None:
+        root = path.parent.parent if path.parent.name == "queue" else path.parent
+    root = assert_authoritative_root(root)
+    with queue_write_lock(root):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        existing = path.read_text(encoding="utf-8") if path.exists() else ""
+        effect_id = record.get("effect_id")
+        if effect_id:
+            for number, raw in enumerate(existing.splitlines(), start=1):
+                if not raw.strip():
+                    continue
+                try:
+                    row = json.loads(raw)
+                except json.JSONDecodeError as exc:
+                    raise OrchestrationError(f"malformed effect JSONL {path} line {number}") from exc
+                if row.get("effect_id") == effect_id:
+                    return False
+        durable_replace_text(path, existing + json.dumps(record, sort_keys=True, separators=(",", ":")) + "\n")
+        return True
+
+
+def effect_identity(event: str, item_id: str, key: str = "") -> str:
+    digest = hashlib.sha256("\0".join([event, item_id, key]).encode("utf-8")).hexdigest()
+    return f"orchestration:{digest}"
 
 
 def read_jsonl(path: Path) -> list[dict]:
@@ -167,13 +204,18 @@ def _telegram_prior_send_event(events: list[dict], item_id: str, key: str, recip
     return None
 
 
-def write_receipt(root: Path, item_id: str, kind: str, lines: list[str]) -> str:
+def write_receipt(root: Path, item_id: str, kind: str, lines: list[str], *, effect_id: str | None = None) -> str:
+    root = assert_authoritative_root(root)
     safe = re.sub(r"[^A-Za-z0-9_-]+", "-", item_id).strip("-") or "item"
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    stamp = hashlib.sha256(effect_id.encode("utf-8")).hexdigest()[:16] if effect_id else datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     path = RECEIPTS_DIR / f"{safe}-{kind}-{stamp}.md"
     target = root / path
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+    content = "\n".join(lines).rstrip() + "\n"
+    if target.exists() and target.read_text(encoding="utf-8") != content:
+        raise OrchestrationError(f"receipt effect identity collision: {path}")
+    if not target.exists():
+        durable_replace_text(target, content)
     return path.as_posix()
 
 
@@ -251,7 +293,7 @@ def no_agent_token_usage() -> dict:
     }
 
 
-def append_no_agent_token_line(root: Path, item: dict, event: str) -> None:
+def append_no_agent_token_line(root: Path, item: dict, event: str, *, effect_id: str | None = None) -> None:
     lane = str(item.get("owner") or "unassigned").strip().lower() or "unassigned"
     if lane == "ops":
         lane = "operations"
@@ -268,7 +310,25 @@ def append_no_agent_token_line(root: Path, item: dict, event: str) -> None:
         "budget_class": "light",
         "token_usage": no_agent_token_usage(),
         "event": event,
+        "effect_id": f"{effect_id}:tokens" if effect_id else None,
     })
+
+
+def _attach_effect_receipt(item: dict, path: str, status: str, created_at: str) -> None:
+    if not any(isinstance(row, dict) and row.get("path") == path for row in item.get("receipts", [])):
+        item.setdefault("receipts", []).append({"path": path, "created_at": created_at, "status": status})
+
+
+def _prepare_tick_intent(root: Path, items: list[dict], item: dict, effect_id: str, payload: dict) -> dict:
+    intents = item.setdefault("orchestration_effects", {})
+    existing = intents.get(effect_id)
+    if existing is None:
+        existing = {**payload, "status": "pending", "created_at": now_iso()}
+        intents[effect_id] = existing
+        save_items(root, items)
+    elif not isinstance(existing, dict) or any(existing.get(k) != v for k, v in payload.items()):
+        raise OrchestrationError(f"contradictory orchestration intent {effect_id}")
+    return existing
 
 
 def _is_acceptance_delivery_step(item: dict) -> bool:
@@ -301,12 +361,22 @@ def _first_ref(refs: list[str], suffix: str) -> str:
 
 
 def complete_acceptance_delivery_steps(root: Path, items: list[dict], events: list[dict]) -> list[dict]:
+    root = assert_authoritative_root(root)
     actions = []
     by_id = {str(item.get("id")): item for item in items}
     for item in sorted((row for row in items if _is_acceptance_delivery_step(row)), key=_step_sort_key):
         item_id = str(item.get("id") or "")
         parent_id = str(item.get("parent_id") or "")
-        if event_exists(events, "acceptance_finalized", item_id, parent_id):
+        prior = latest_event(events, "acceptance_finalized", item_id, parent_id)
+        if prior:
+            _attach_effect_receipt(item, prior["receipt_path"], DONE_STATUS, prior["created_at"])
+            item["status"] = DONE_STATUS
+            item["updated_at"] = prior["created_at"]
+            parent = by_id.get(parent_id)
+            if parent:
+                _attach_effect_receipt(parent, prior["receipt_path"], DONE_STATUS, prior["created_at"])
+                parent["status"] = DONE_STATUS
+                parent["updated_at"] = prior["created_at"]
             continue
         deps = [str(dep) for dep in item.get("depends_on") or [] if str(dep).strip()]
         if deps and not all(is_step_complete(by_id.get(dep, {})) for dep in deps):
@@ -325,9 +395,14 @@ def complete_acceptance_delivery_steps(root: Path, items: list[dict], events: li
         review_text = _read_text_if_available(root, review_receipt, 4000)
 
         final_artifact = f"results/orchestration_acceptance/{parent_id}/03_final_review_package.md"
+        stable_effect = effect_identity("acceptance_finalized", item_id, parent_id)
+        intent = _prepare_tick_intent(
+            root, items, item, stable_effect,
+            {"event": "acceptance_finalized", "key": parent_id, "target_status": DONE_STATUS},
+        )
         target = root / final_artifact
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text("\n".join([
+        artifact_text = "\n".join([
             "# Final Review Package",
             "",
             f"Acceptance-run ID: {parent_id}",
@@ -357,7 +432,11 @@ def complete_acceptance_delivery_steps(root: Path, items: list[dict], events: li
             "Source-pack excerpt:",
             source_text.strip() or "Unavailable.",
             "",
-        ]).rstrip() + "\n", encoding="utf-8")
+        ]).rstrip() + "\n"
+        if target.exists() and target.read_text(encoding="utf-8") != artifact_text:
+            raise OrchestrationError(f"artifact effect identity collision: {final_artifact}")
+        if not target.exists():
+            durable_replace_text(target, artifact_text)
 
         receipt_path = write_receipt(root, item_id, "final-closeout", [
             "PASS",
@@ -372,16 +451,16 @@ def complete_acceptance_delivery_steps(root: Path, items: list[dict], events: li
             "- Final status: done",
             "",
             "Token usage: no agent invocation",
-        ])
-        item.setdefault("receipts", []).append({"path": receipt_path, "created_at": now_iso(), "status": DONE_STATUS})
+        ], effect_id=stable_effect)
+        _attach_effect_receipt(item, receipt_path, DONE_STATUS, intent["created_at"])
         item["status"] = DONE_STATUS
-        item["updated_at"] = now_iso()
+        item["updated_at"] = intent["created_at"]
 
         parent = by_id.get(parent_id)
         if parent and parent.get("status") != DONE_STATUS:
-            parent.setdefault("receipts", []).append({"path": receipt_path, "created_at": now_iso(), "status": DONE_STATUS})
+            _attach_effect_receipt(parent, receipt_path, DONE_STATUS, intent["created_at"])
             parent["status"] = DONE_STATUS
-            parent["updated_at"] = now_iso()
+            parent["updated_at"] = intent["created_at"]
 
         record = {
             "event": "acceptance_finalized",
@@ -392,11 +471,13 @@ def complete_acceptance_delivery_steps(root: Path, items: list[dict], events: li
             "artifact_path": final_artifact,
             "receipt_path": receipt_path,
             "token_usage_text": "Token usage: no agent invocation",
-            "created_at": now_iso(),
+            "created_at": intent["created_at"],
+            "effect_id": stable_effect,
         }
         append_jsonl(root / EVENTS_PATH, record)
         events.append(record)
-        append_no_agent_token_line(root, item, "acceptance_finalized")
+        append_no_agent_token_line(root, item, "acceptance_finalized", effect_id=stable_effect)
+        intent["status"] = "applied"
         actions.append(record)
     return actions
 
@@ -435,9 +516,10 @@ def tick(
     allow_telegram_escalation: bool = True,
 ) -> dict:
     root = Path(root or aos_root()).resolve()
-    with tick_lock(root):
+    with tick_lock(root), queue_write_lock(root):
         current_time = now or datetime.now(timezone.utc)
         items = load_items(root)
+        initial_items_text = _items_text(items)
         by_id = {str(item.get("id")): item for item in items}
         completed = {item_id: item for item_id, item in by_id.items() if is_step_complete(item)}
         events = read_jsonl(root / EVENTS_PATH)
@@ -456,7 +538,12 @@ def tick(
                 ]
                 deps = [str(other.get("id")) for other in previous[-1:]]
             key = ",".join(deps)
-            if event_exists(events, "step_advanced", item_id, key):
+            prior = latest_event(events, "step_advanced", item_id, key)
+            if prior:
+                append_source_refs(item, list(prior.get("source_refs_added") or []))
+                _attach_effect_receipt(item, prior["receipt_path"], prior["status"], prior["created_at"])
+                item["status"] = prior["status"]
+                item["updated_at"] = prior["created_at"]
                 continue
             refs: list[str] = []
             for dep in deps:
@@ -466,8 +553,11 @@ def tick(
             target_status = str(item.get("on_complete") or "").strip().lower()
             if target_status not in GATE_STATUSES:
                 target_status = READY_STATUS
-            item["status"] = target_status
-            item["updated_at"] = now_iso()
+            stable_effect = effect_identity("step_advanced", item_id, key)
+            intent = _prepare_tick_intent(
+                root, items, item, stable_effect,
+                {"event": "step_advanced", "key": key, "target_status": target_status},
+            )
             receipt_path = write_receipt(root, item_id, "runner", [
                 "PASS",
                 "",
@@ -482,8 +572,10 @@ def tick(
                 f"- Status: {target_status}",
                 f"- Source refs added: {', '.join(added_refs) if added_refs else 'none'}",
                 "- Token usage: no agent invocation",
-            ])
-            item.setdefault("receipts", []).append({"path": receipt_path, "created_at": now_iso(), "status": target_status})
+            ], effect_id=stable_effect)
+            _attach_effect_receipt(item, receipt_path, target_status, intent["created_at"])
+            item["status"] = target_status
+            item["updated_at"] = intent["created_at"]
             record = {
                 "event": "step_advanced",
                 "item_id": item_id,
@@ -493,11 +585,13 @@ def tick(
                 "source_refs_added": added_refs,
                 "receipt_path": receipt_path,
                 "token_usage_text": "Token usage: no agent invocation",
-                "created_at": now_iso(),
+                "created_at": intent["created_at"],
+                "effect_id": stable_effect,
             }
             append_jsonl(root / EVENTS_PATH, record)
             events.append(record)
-            append_no_agent_token_line(root, item, "step_advanced")
+            append_no_agent_token_line(root, item, "step_advanced", effect_id=stable_effect)
+            intent["status"] = "applied"
             actions.append(record)
 
         local_actions = complete_acceptance_delivery_steps(root, items, events)
@@ -511,7 +605,8 @@ def tick(
             now=current_time,
             allow_telegram_escalation=allow_telegram_escalation,
         )
-        save_items(root, items)
+        if _items_text(items) != initial_items_text:
+            save_items(root, items)
         return {
             "success": True,
             "advanced": actions,
@@ -535,7 +630,10 @@ def load_notifications(root: Path) -> dict:
     }
 
 
-def log_notification_receipt(root: Path, item: dict, kind: str, status: str, result: str, detail: str) -> str:
+def log_notification_receipt(
+    root: Path, item: dict, kind: str, status: str, result: str, detail: str,
+    *, effect_id: str | None = None,
+) -> str:
     path = write_receipt(root, str(item.get("id")), kind, [
         "PASS" if result in {"logged", "sent", "blocked"} else "NEEDS ATTENTION",
         "",
@@ -546,8 +644,8 @@ def log_notification_receipt(root: Path, item: dict, kind: str, status: str, res
         f"- Result: {result}",
         f"- Detail: {detail}",
         "- Token usage: no agent invocation",
-    ])
-    item.setdefault("receipts", []).append({"path": path, "created_at": now_iso(), "status": status})
+    ], effect_id=effect_id)
+    _attach_effect_receipt(item, path, status, now_iso())
     return path
 
 
@@ -569,9 +667,18 @@ def process_notifications(
             continue
         for channel in ("originating_channel", "needs_me_rail"):
             key = f"{status}:{channel}"
-            if event_exists(events, "notification_logged", item_id, key):
+            prior = latest_event(events, "notification_logged", item_id, key)
+            if prior:
+                _attach_effect_receipt(item, prior["receipt_path"], status, prior["created_at"])
                 continue
-            receipt_path = log_notification_receipt(root, item, "notification", status, "logged", channel)
+            stable_effect = effect_identity("notification_logged", item_id, key)
+            intent = _prepare_tick_intent(
+                root, items, item, stable_effect,
+                {"event": "notification_logged", "key": key, "target_status": status},
+            )
+            receipt_path = log_notification_receipt(
+                root, item, "notification", status, "logged", channel, effect_id=stable_effect
+            )
             record = {
                 "event": "notification_logged",
                 "item_id": item_id,
@@ -579,11 +686,13 @@ def process_notifications(
                 "status": status,
                 "channel": channel,
                 "receipt_path": receipt_path,
-                "created_at": now_iso(),
+                "created_at": intent["created_at"],
+                "effect_id": stable_effect,
             }
             append_jsonl(root / EVENTS_PATH, record)
             events.append(record)
-            append_no_agent_token_line(root, item, "notification_logged")
+            append_no_agent_token_line(root, item, "notification_logged", effect_id=stable_effect)
+            intent["status"] = "applied"
             actions.append(record)
 
         origin_key = f"{status}:originating_channel"
@@ -604,7 +713,10 @@ def process_notifications(
         record = attempt_telegram_send(root, item, recipient, message, send_telegram=send_telegram, key=key)
         append_jsonl(root / EVENTS_PATH, record)
         events.append(record)
-        append_no_agent_token_line(root, item, "telegram_escalation")
+        append_no_agent_token_line(
+            root, item, "telegram_escalation",
+            effect_id=str(record.get("effect_id") or effect_identity("telegram_escalation", item_id, key)),
+        )
         actions.append(record)
     return actions
 
@@ -656,8 +768,12 @@ def attempt_telegram_send(
     item_id = str(item.get("id") or "")
     recipient = str(recipient)
     stable_key = telegram_idempotency_key(item_id, "telegram_escalation", key, recipient)
+    stable_effect = effect_identity("telegram_escalation", item_id, f"{key}|{recipient}")
     if str(recipient) not in set(config["telegram"]):
-        receipt_path = log_notification_receipt(root, item, "telegram-escalation", str(item.get("status") or ""), "blocked", f"recipient_not_allowlisted:{recipient}")
+        receipt_path = log_notification_receipt(
+            root, item, "telegram-escalation", str(item.get("status") or ""), "blocked",
+            f"recipient_not_allowlisted:{recipient}", effect_id=stable_effect,
+        )
         return {
             "event": "telegram_escalation",
             "item_id": item_id,
@@ -669,9 +785,14 @@ def attempt_telegram_send(
             "reason": "recipient_not_allowlisted",
             "receipt_path": receipt_path,
             "created_at": now_iso(),
+            "effect_id": f"{stable_effect}:result",
         }
     prior = _telegram_prior_send_event(read_jsonl(root / EVENTS_PATH), item_id, key, recipient)
     if prior:
+        prior_receipt = prior.get("receipt_path")
+        prior_created = prior.get("created_at")
+        if isinstance(prior_receipt, str) and prior_receipt and isinstance(prior_created, str) and prior_created:
+            _attach_effect_receipt(item, prior_receipt, str(item.get("status") or ""), prior_created)
         return {
             "event": "telegram_escalation",
             "item_id": item_id,
@@ -681,15 +802,42 @@ def attempt_telegram_send(
             "result": "already_sent",
             "sent": False,
             "duplicate_blocked": True,
-            "prior_receipt_path": prior.get("receipt_path"),
-            "prior_created_at": prior.get("created_at"),
+            "prior_receipt_path": prior_receipt,
+            "prior_created_at": prior_created,
+            "created_at": now_iso(),
+            "effect_id": f"{stable_effect}:result",
+        }
+    intent_record = {
+        "event": "telegram_send_intent",
+        "item_id": item_id,
+        "key": key,
+        "recipient": recipient,
+        "idempotency_key": stable_key,
+        "effect_id": f"{stable_effect}:intent",
+        "created_at": now_iso(),
+    }
+    if not append_jsonl(root / EVENTS_PATH, intent_record):
+        return {
+            "event": "telegram_escalation",
+            "item_id": item_id,
+            "key": key,
+            "recipient": recipient,
+            "idempotency_key": stable_key,
+            "result": "ambiguous_not_retried",
+            "sent": False,
+            "duplicate_blocked": True,
+            "reason": "durable send intent exists without acknowledged result; operator reconciliation required",
+            "effect_id": f"{stable_effect}:result",
             "created_at": now_iso(),
         }
     sender = send_telegram or default_bridge_send
     try:
         sender(recipient, message)
     except Exception as exc:
-        receipt_path = log_notification_receipt(root, item, "telegram-escalation", str(item.get("status") or ""), "send_failed", type(exc).__name__)
+        receipt_path = log_notification_receipt(
+            root, item, "telegram-escalation", str(item.get("status") or ""), "send_failed",
+            type(exc).__name__, effect_id=stable_effect,
+        )
         return {
             "event": "telegram_escalation",
             "item_id": item_id,
@@ -701,8 +849,12 @@ def attempt_telegram_send(
             "error": type(exc).__name__,
             "receipt_path": receipt_path,
             "created_at": now_iso(),
+            "effect_id": f"{stable_effect}:result",
         }
-    receipt_path = log_notification_receipt(root, item, "telegram-escalation", str(item.get("status") or ""), "sent", f"recipient:{recipient}")
+    receipt_path = log_notification_receipt(
+        root, item, "telegram-escalation", str(item.get("status") or ""), "sent",
+        f"recipient:{recipient}", effect_id=stable_effect,
+    )
     return {
         "event": "telegram_escalation",
         "item_id": item_id,
@@ -715,4 +867,5 @@ def attempt_telegram_send(
         "bridge_function": "connectors.telegram_bridge.telegram_bridge.send",
         "receipt_path": receipt_path,
         "created_at": now_iso(),
+        "effect_id": f"{stable_effect}:result",
     }

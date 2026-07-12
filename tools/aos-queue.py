@@ -8,6 +8,8 @@ external services, run agents, start schedulers, or update dashboards.
 from __future__ import annotations
 
 import argparse
+import functools
+import hashlib
 import json
 import shutil
 import subprocess
@@ -23,7 +25,8 @@ REPO_DIR = TOOLS_DIR.parent
 if str(TOOLS_DIR) not in sys.path:
     sys.path.insert(0, str(TOOLS_DIR))
 
-from aos_paths import aos_root
+from aos_paths import AuthorityError, aos_root, assert_authoritative_root
+from aos_queue_storage import QueueStorageError, durable_replace_text, queue_write_lock
 
 DEFAULT_ROOT = aos_root()
 QUEUE_DIR = Path("queue")
@@ -68,6 +71,7 @@ def now_iso() -> str:
 
 
 def ensure_queue(root: Path) -> None:
+    root = assert_authoritative_root(root)
     queue = root / QUEUE_DIR
     queue.mkdir(parents=True, exist_ok=True)
     (root / RECEIPTS_DIR).mkdir(parents=True, exist_ok=True)
@@ -75,10 +79,13 @@ def ensure_queue(root: Path) -> None:
     (root / SCHEMAS_DIR).mkdir(parents=True, exist_ok=True)
     work_items = root / WORK_ITEMS_PATH
     if not work_items.exists():
-        work_items.write_text("", encoding="utf-8")
+        with queue_write_lock(root):
+            if not work_items.exists():
+                durable_replace_text(work_items, "")
     registry = root / REGISTRY_PATH
     if not registry.exists():
-        registry.write_text(
+        durable_replace_text(
+            registry,
             json.dumps(
                 {
                     "version": 1,
@@ -87,7 +94,6 @@ def ensure_queue(root: Path) -> None:
                 indent=2,
             )
             + "\n",
-            encoding="utf-8",
         )
 
 
@@ -96,8 +102,12 @@ def read_json(path: Path) -> Any:
 
 
 def load_registry(root: Path) -> dict:
-    ensure_queue(root)
-    registry = read_json(root / REGISTRY_PATH)
+    path = root / REGISTRY_PATH
+    if not path.exists():
+        # Read-only commands must not initialize state. Mutating create calls
+        # ensure_queue first; isolated fixtures may use the built-in registry.
+        return {"version": 1, "agents": [{"id": agent, "name": agent.title()} for agent in STARTER_AGENTS]}
+    registry = read_json(path)
     if not isinstance(registry.get("agents"), list):
         raise QueueError("Agent registry must contain an agents list")
     return registry
@@ -118,9 +128,11 @@ def validate_status(status: str) -> None:
 
 
 def load_items(root: Path) -> list[dict]:
-    ensure_queue(root)
+    path = root / WORK_ITEMS_PATH
+    if not path.exists():
+        raise QueueError(f"Work queue not found: {path}")
     items = []
-    for line_number, line in enumerate((root / WORK_ITEMS_PATH).read_text(encoding="utf-8").splitlines(), start=1):
+    for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
         if not line.strip():
             continue
         try:
@@ -132,9 +144,19 @@ def load_items(root: Path) -> list[dict]:
 
 
 def save_items(root: Path, items: list[dict]) -> None:
-    ensure_queue(root)
-    text = "".join(json.dumps(item, sort_keys=True, separators=(",", ":")) + "\n" for item in items)
-    (root / WORK_ITEMS_PATH).write_text(text, encoding="utf-8")
+    with queue_write_lock(root):
+        ensure_queue(root)
+        text = "".join(json.dumps(item, sort_keys=True, separators=(",", ":")) + "\n" for item in items)
+        durable_replace_text(root / WORK_ITEMS_PATH, text)
+
+
+def locked_queue_mutation(function):
+    """Hold the shared ledger lock across the complete read/modify/write."""
+    @functools.wraps(function)
+    def wrapped(root: Path, *args, **kwargs):
+        with queue_write_lock(root):
+            return function(root, *args, **kwargs)
+    return wrapped
 
 
 def find_item(items: list[dict], item_id: str) -> dict:
@@ -456,10 +478,24 @@ def _validate_against_schema(line: dict, schema_path: Path) -> str | None:
     return None
 
 
-def _append_jsonl(path: Path, line: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(line, separators=(",", ":")) + "\n")
+def _append_jsonl(root: Path, path: Path, line: dict, *, effect_id: str | None = None) -> bool:
+    """Durably append one logical row unless its deterministic key exists."""
+    with queue_write_lock(root):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        existing = path.read_text(encoding="utf-8") if path.exists() else ""
+        if effect_id:
+            for number, raw in enumerate(existing.splitlines(), start=1):
+                if not raw.strip():
+                    continue
+                try:
+                    row = json.loads(raw)
+                except json.JSONDecodeError as exc:
+                    raise QueueError(f"malformed JSONL effect store {path} line {number}") from exc
+                if row.get("effect_id") == effect_id:
+                    return False
+            line = {**line, "effect_id": effect_id}
+        durable_replace_text(path, existing + json.dumps(line, separators=(",", ":")) + "\n")
+        return True
 
 
 def _write_receipt_token_usage(root: Path, item_id: str, receipt_path: str | None, block: dict, invocation: dict) -> str:
@@ -472,7 +508,7 @@ def _write_receipt_token_usage(root: Path, item_id: str, receipt_path: str | Non
     payload = {"token_usage": block, "profile_invocation": invocation}
     sidecar = root / RECEIPTS_DIR / f"{item_id}.token_usage.json"
     sidecar.parent.mkdir(parents=True, exist_ok=True)
-    sidecar.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    durable_replace_text(sidecar, json.dumps(payload, indent=2) + "\n")
 
     if receipt_path:
         md = root / receipt_path
@@ -485,7 +521,7 @@ def _write_receipt_token_usage(root: Path, item_id: str, receipt_path: str | Non
                     + json.dumps(payload, indent=2)
                     + "\n```\n"
                 )
-                md.write_text(existing + block_md, encoding="utf-8")
+                durable_replace_text(md, existing + block_md)
     return str(sidecar.relative_to(root)) if sidecar.is_relative_to(root) else str(sidecar)
 
 
@@ -502,6 +538,8 @@ def finalize_done(
     model_requested: str | None = None,
     model_confirmed: str | None = None,
     skill: str | None = None,
+    effect_id: str | None = None,
+    effect_timestamp: str | None = None,
 ) -> dict:
     """Run the coordinator side-effects for a real transition into `done`:
     profile resolution/invocation, dual ledger write, and token metering.
@@ -528,7 +566,7 @@ def finalize_done(
     resolved_model_requested = model_requested or routes_meta.get("model") or "configured externally"
     resolved_model_confirmed = model_confirmed or confirmed or "unavailable"
     block = _recompute_totals_and_cost(block, load_prices(), resolved_model_confirmed)
-    timestamp = now_iso()
+    timestamp = effect_timestamp or now_iso()
     # The sidecar path is deterministic from item id alone, so it can be used
     # in run_line for schema validation before the file is actually written.
     sidecar_rel_path = str(RECEIPTS_DIR / f"{item['id']}.token_usage.json")
@@ -570,8 +608,9 @@ def finalize_done(
         raise QueueError(f"token_ledger line failed schema; refusing done-transition: {token_err}")
 
     sidecar_path = _write_receipt_token_usage(root, item["id"], resolved_receipt, block, invocation)
-    _append_jsonl(root / RUN_LEDGER_PATH, run_line)
-    _append_jsonl(root / TOKEN_LEDGER_PATH, token_line)
+    stable_effect = effect_id or f"done:{item['id']}:{timestamp}"
+    _append_jsonl(root, root / RUN_LEDGER_PATH, run_line, effect_id=f"{stable_effect}:run")
+    _append_jsonl(root, root / TOKEN_LEDGER_PATH, token_line, effect_id=f"{stable_effect}:tokens")
 
     return {
         "item_id": item["id"],
@@ -580,7 +619,41 @@ def finalize_done(
         "run_ledger_line": run_line,
         "token_ledger_line": token_line,
         "token_usage_sidecar": sidecar_path,
+        "effect_id": stable_effect,
     }
+
+
+def _done_effect_id(item: dict, receipt_path: str | None, mode: str) -> str:
+    material = "\0".join([str(item.get("id") or ""), mode, receipt_path or "", str(item.get("updated_at") or "")])
+    return "done:" + hashlib.sha256(material.encode("utf-8")).hexdigest()
+
+
+def _prepare_done_intent(root: Path, items: list[dict], item: dict, effect_id: str, receipt_path: str | None) -> dict:
+    effects = item.setdefault("transition_effects", {})
+    intent = effects.get(effect_id)
+    if intent is None:
+        intent = {"kind": "done", "status": "pending", "created_at": now_iso(), "receipt_path": receipt_path}
+        effects[effect_id] = intent
+        # No auxiliary effect may run until the intent is durably visible in
+        # the authoritative queue. A surfaced post-replace ambiguity is safe:
+        # retry reloads this same deterministic intent.
+        save_items(root, items)
+    elif not isinstance(intent, dict) or intent.get("kind") != "done" or intent.get("receipt_path") != receipt_path:
+        raise QueueError(f"contradictory done transition intent for {item.get('id')}")
+    return intent
+
+
+def _finish_done(root: Path, items: list[dict], item: dict, effect_id: str, intent: dict, receipt_path: str | None) -> None:
+    timestamp = intent["created_at"]
+    if receipt_path and not any(
+        isinstance(row, dict) and row.get("path") == receipt_path and row.get("status") == DONE_STATUS
+        for row in item.get("receipts", [])
+    ):
+        item.setdefault("receipts", []).append({"path": receipt_path, "created_at": timestamp, "status": DONE_STATUS})
+    item["status"] = DONE_STATUS
+    item["updated_at"] = timestamp
+    intent["status"] = "applied"
+    save_items(root, items)
 
 
 def _load_json_arg(value: str | None) -> dict | None:
@@ -595,7 +668,9 @@ def _load_json_arg(value: str | None) -> dict | None:
         raise QueueError(f"Invalid JSON argument: {exc}") from exc
 
 
+@locked_queue_mutation
 def create_item(root: Path, args: argparse.Namespace) -> dict:
+    ensure_queue(root)
     validate_status(args.status)
     if args.owner and args.owner_type == "agent" and args.owner != "unassigned":
         validate_agent(root, args.owner)
@@ -642,6 +717,7 @@ def list_items(root: Path, status: str | None = None, owner: str | None = None) 
     return sorted(items, key=lambda item: (-int(item.get("priority", 0)), item.get("created_at", ""), item.get("id", "")))
 
 
+@locked_queue_mutation
 def claim_item(root: Path, item_id: str, agent_id: str) -> dict:
     validate_agent(root, agent_id)
     items = load_items(root)
@@ -657,6 +733,7 @@ def claim_item(root: Path, item_id: str, agent_id: str) -> dict:
     return item
 
 
+@locked_queue_mutation
 def release_item(root: Path, item_id: str, status: str) -> dict:
     validate_status(status)
     items = load_items(root)
@@ -669,6 +746,7 @@ def release_item(root: Path, item_id: str, status: str) -> dict:
     return item
 
 
+@locked_queue_mutation
 def update_status(root: Path, item_id: str, status: str) -> dict:
     """Update an item's status. A transition into `done` runs finalize_done
     first: if the token_usage block can't be built or fails schema validation,
@@ -679,13 +757,18 @@ def update_status(root: Path, item_id: str, status: str) -> dict:
     item = find_item(items, item_id)
     previous_status = item.get("status")
     if status == DONE_STATUS and previous_status != DONE_STATUS:
-        finalize_done(root, item)
+        effect_id = _done_effect_id(item, None, "status")
+        intent = _prepare_done_intent(root, items, item, effect_id, None)
+        finalize_done(root, item, effect_id=effect_id, effect_timestamp=intent["created_at"])
+        _finish_done(root, items, item, effect_id, intent, None)
+        return item
     item["status"] = status
     item["updated_at"] = now_iso()
     save_items(root, items)
     return item
 
 
+@locked_queue_mutation
 def attach_receipt(root: Path, item_id: str, receipt_path: str, status: str | None = None) -> dict:
     """Attach a receipt, optionally setting status. A transition into `done`
     runs finalize_done first (see update_status) so a refusal leaves the item
@@ -697,7 +780,14 @@ def attach_receipt(root: Path, item_id: str, receipt_path: str, status: str | No
     previous_status = item.get("status")
     timestamp = now_iso()
     if status == DONE_STATUS and previous_status != DONE_STATUS:
-        finalize_done(root, item, receipt_path=receipt_path)
+        effect_id = _done_effect_id(item, receipt_path, "receipt")
+        intent = _prepare_done_intent(root, items, item, effect_id, receipt_path)
+        finalize_done(
+            root, item, receipt_path=receipt_path, effect_id=effect_id,
+            effect_timestamp=intent["created_at"],
+        )
+        _finish_done(root, items, item, effect_id, intent, receipt_path)
+        return item
     receipt = {"path": receipt_path, "created_at": timestamp}
     if status:
         receipt["status"] = status
@@ -708,6 +798,7 @@ def attach_receipt(root: Path, item_id: str, receipt_path: str, status: str | No
     return item
 
 
+@locked_queue_mutation
 def done_item(root: Path, args: argparse.Namespace) -> dict:
     """Explicit coordinator close: run the metering/ledger side-effects with
     full metadata first, then attach the optional receipt and set status done.
@@ -728,6 +819,8 @@ def done_item(root: Path, args: argparse.Namespace) -> dict:
     # finalize_done only reads item fields already present (owner, tags,
     # created_at, receipts) — the pending receipt path is passed explicitly,
     # so it need not be attached in memory first for route/budget resolution.
+    effect_id = _done_effect_id(item, args.receipt, "reclose" if args.reclose else "done")
+    intent = _prepare_done_intent(root, items, item, effect_id, args.receipt)
     record = finalize_done(
         root,
         item,
@@ -740,16 +833,10 @@ def done_item(root: Path, args: argparse.Namespace) -> dict:
         model_requested=args.model_requested,
         model_confirmed=args.model_confirmed,
         skill=args.skill,
+        effect_id=effect_id,
+        effect_timestamp=intent["created_at"],
     )
-
-    timestamp = now_iso()
-    if args.receipt:
-        item.setdefault("receipts", []).append(
-            {"path": args.receipt, "created_at": timestamp, "status": DONE_STATUS}
-        )
-    item["status"] = DONE_STATUS
-    item["updated_at"] = timestamp
-    save_items(root, items)
+    _finish_done(root, items, item, effect_id, intent, args.receipt)
     return record
 
 
@@ -879,7 +966,7 @@ def main(argv: list[str] | None = None) -> int:
             print_json(done_item(root, args))
         else:
             parser.error(f"Unknown command: {args.command}")
-    except (QueueError, json.JSONDecodeError, OSError) as exc:
+    except (AuthorityError, QueueError, QueueStorageError, json.JSONDecodeError, OSError) as exc:
         print(f"NEEDS ATTENTION: {exc}", file=sys.stderr)
         return 1
     return 0

@@ -1,7 +1,11 @@
 # Agentic OS Path Convention
+> Revisit: when the canonical runtime root or mount policy changes. · Last touched: 2026-07-11.
 
-- `AOS_ROOT` is the runtime root convention for Agentic OS.
+- `/home/liam/agentic-os-live` is the canonical live installation.
+- `AOS_ROOT` is the portable runtime root contract; code defaults from its repository location.
 - Code should resolve runtime files from `AOS_ROOT` or root-relative paths.
-- New code should not add hardcoded Windows or WSL absolute workspace paths.
-- User-facing launch command text may still show Windows or WSL paths when the operator needs to copy or inspect those commands.
+- Authoritative mutation is Linux/POSIX-only on a Linux-native filesystem.
+- `/mnt/c`, other Windows drive mounts, NTFS/DrvFS/9p/fuseblk roots, native Windows Python, and Windows APIs are unsupported for queue, package, receipt, artifact, runner, dashboard, and orchestration mutation.
+- The old `/mnt/c/Users/Admin/Documents/A-Time to revenue/Agentic OS Live` tree is a frozen rollback snapshot.
+- Windows may only invoke the Linux launcher and open the Linux-hosted dashboard.
 - Secrets stay outside git and are re-provisioned during migration.

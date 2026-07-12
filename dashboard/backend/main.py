@@ -1,5 +1,6 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from pathlib import Path
 import argparse
@@ -27,8 +28,9 @@ BACKEND_DIR = Path(__file__).resolve().parent
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from aos_paths import AosPathError, aos_root, resolve_root_relative
+from aos_paths import AuthorityError, AosPathError, aos_root, assert_authoritative_root, resolve_root_relative
 import aos_orchestration
+from aos_queue_storage import durable_append_text, durable_replace_text, queue_write_lock
 import aos_indexer
 import latitude_telemetry
 
@@ -51,9 +53,6 @@ CONNECTORS_FILE = CONNECTORS_DIR / "CONNECTORS.md"
 DATA_DIR = BASE_DIR / "dashboard" / "data"
 QUEUE_TOOL = BASE_DIR / "tools" / "aos-queue.py"
 
-for d in [PACKETS_DIR, LOGS_DIR, RESULTS_DIR, CONNECTORS_DIR, DATA_DIR]:
-    d.mkdir(parents=True, exist_ok=True)
-
 TRACKER_FILE = DATA_DIR / "tracker.json"
 TOKEN_USAGE_FILE = LOGS_DIR / "token_usage.jsonl"
 QUEUE_DIR = BASE_DIR / "queue"
@@ -61,6 +60,23 @@ BACKUP_RECEIPTS_FILE = QUEUE_DIR / "receipts" / "backups.jsonl"
 NOTIFICATIONS_FILE = QUEUE_DIR / "notifications.json"
 TOKEN_LEDGER_FILE = QUEUE_DIR / "token_ledger.jsonl"
 ROOT_TOKEN_LEDGER_FILE = BASE_DIR / "token_ledger.jsonl"
+_IMPORTED_BASE_DIR = BASE_DIR
+
+
+def _authoritative_append_target(path: Path) -> tuple[Path, Path]:
+    """Resolve module constants against a runtime-configured/test root."""
+    path = Path(path)
+    if BASE_DIR != _IMPORTED_BASE_DIR:
+        try:
+            path = BASE_DIR / path.relative_to(_IMPORTED_BASE_DIR)
+        except ValueError:
+            pass
+    try:
+        path.relative_to(BASE_DIR)
+        return BASE_DIR, path
+    except ValueError:
+        # A deliberately injected disposable ledger owns its own lock root.
+        return path.parent, path
 SKILL_TRUST_FILE = QUEUE_DIR / "skill_trust.jsonl"
 WORKFLOWS_DIR = BASE_DIR / "workflows"
 WORKFLOW_REGISTRY_FILE = WORKFLOWS_DIR / "workflow_registry.json"
@@ -69,7 +85,22 @@ MEMORY_INDEX_DIR = BASE_DIR / "memory_index"
 GRAPHIFY_BRAIN_DIR = BASE_DIR.parent / "Graphify Brain"
 GRAPHIFY_OUT_DIR = GRAPHIFY_BRAIN_DIR / "brain_graph" / "source" / "graphify-out"
 PROMPT_LIBRARY_DIRS = [QUEUE_DIR / "templates", WORKFLOWS_DIR / "prompt_templates"]
-CLAUDE_USAGE_READER_WSL = "/mnt/c/Users/Admin/Documents/A-Time to revenue/Agentic OS Live/dashboard/backend/claude_usage.py"
+CLAUDE_USAGE_READER_WSL = str(BASE_DIR / "dashboard" / "backend" / "claude_usage.py")
+
+
+def _require_authority() -> Path:
+    return assert_authoritative_root(BASE_DIR)
+
+
+@app.middleware("http")
+async def linux_authority_boundary(request: Request, call_next):
+    """Reject every HTTP mutation before an endpoint can create side effects."""
+    if request.method.upper() not in {"GET", "HEAD", "OPTIONS"}:
+        try:
+            _require_authority()
+        except AuthorityError as exc:
+            return JSONResponse(status_code=503, content={"success": False, "detail": str(exc)})
+    return await call_next(request)
 
 ENTITIES = [
     {
@@ -143,7 +174,7 @@ ENTITIES = [
         "role": "Knowledge Base",
         "status": "local_live",
         "statusLabel": "Agentic OS Live only",
-        "command": r"C:\Users\Admin\Documents\A-Time to revenue\Agentic OS Live",
+        "command": str(BASE_DIR),
         "commandHint": "Opens the Agentic OS Live folder",
         "commandType": "path",
         "capabilities": ["Note storage", "Reference lookup", "Packet archive", "Results review"],
@@ -161,7 +192,6 @@ ALLOWLISTED_LAUNCHERS = {
 
 @app.get("/api/health")
 def health():
-    latitude_telemetry.trace("backend.status", "dashboard_backend", "ok")
     return {
         "status": "ok",
         "version": "0.1.0",
@@ -411,7 +441,7 @@ def update_tracker(data: TrackerUpdate):
     existing["estimatedHoursSaved"] = data.estimatedHoursSaved
     existing["estimatedValue"] = round(data.hourlyRate * data.estimatedHoursSaved, 2)
     existing["updatedAt"] = datetime.datetime.utcnow().isoformat() + "Z"
-    TRACKER_FILE.write_text(json.dumps(existing, indent=2))
+    durable_replace_text(TRACKER_FILE, json.dumps(existing, indent=2) + "\n")
     return existing
 
 
@@ -525,7 +555,7 @@ def create_packet(packet: PacketCreate):
         "created": datetime.datetime.utcnow().isoformat() + "Z",
         "status": "pending",
     }
-    (PACKETS_DIR / filename).write_text(json.dumps(data, indent=2))
+    durable_replace_text(PACKETS_DIR / filename, json.dumps(data, indent=2) + "\n")
     return {"success": True, "filename": filename, "packet": data}
 
 
@@ -549,13 +579,12 @@ def launch_entity(entity_id: str):
 
 
 # ---------------------------------------------------------------------------
-# WSL / AgenticOSClean runtime endpoints
+# Linux / AgenticOSClean-compatible runtime endpoints
 # ---------------------------------------------------------------------------
 
-WSL_ENV = 'export PATH="$HOME/.local/npm/bin:$HOME/.local/bin:$PATH"'
-WSL_COMMAND = "wsl"
+WSL_ENV = 'export PATH="$HOME/.local/npm/bin:$HOME/.local/bin:$HOME/.composio:$PATH"'
 WSL_DISTRO = "AgenticOSClean"
-WSL_USER = "liam"
+WSL_USER = os.environ.get("USER", "linux")
 COMPOSIO_PATH = "/home/liam/.composio:/home/liam/.local/bin:/home/liam/.composio:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/usr/lib/wsl/lib"
 HERMES_COORDINATOR = BASE_DIR / "tools" / "aos-hermes-coordinator.sh"
 HERMES_DASHBOARD_LAUNCHER = BASE_DIR / "tools" / "aos-hermes-dashboard.sh"
@@ -569,19 +598,23 @@ QUEUE_STUCK_TIMEOUT_SECONDS = QUEUE_WORKER_TIMEOUT_SECONDS + QUEUE_HERMES_REVIEW
 
 def _path_for_wsl_command(path) -> str:
     raw = str(path)
-    match = re.match(r"^([A-Za-z]):[\\/](.*)$", raw)
-    if not match:
-        return raw
-    drive, rest = match.groups()
-    return f"/mnt/{drive.lower()}/{rest.replace(chr(92), '/')}"
+    if re.match(r"^[A-Za-z]:[\\/]", raw) or re.match(r"^/mnt/[a-z](?:/|$)", raw, re.IGNORECASE):
+        raise AuthorityError("Windows and Windows-mounted paths are unsupported by the Linux backend runtime")
+    return raw
+
+
+def _quoted_linux_path(path: Path | str) -> str:
+    raw = _path_for_wsl_command(path)
+    return "'" + raw.replace("'", "'\"'\"'") + "'"
 
 
 def _run_wsl(bash_cmd: str, timeout: int = 60) -> dict:
-    """Run a bash command inside the AgenticOSClean WSL distro and return output."""
+    """Compatibility name for running a command in the current Linux runtime."""
     full_cmd = f"{WSL_ENV}; {bash_cmd}"
     try:
         result = subprocess.run(
-            [WSL_COMMAND, "-d", WSL_DISTRO, "--user", WSL_USER, "--", "bash", "-lc", full_cmd],
+            ["bash", "-lc", full_cmd],
+            cwd=str(BASE_DIR),
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -610,48 +643,14 @@ def _run_wsl(bash_cmd: str, timeout: int = 60) -> dict:
             "timeout_seconds": timeout,
         }
     except FileNotFoundError:
-        return {"success": False, "output": "wsl.exe not found — WSL not available on this machine", "returncode": -1}
+        return {"success": False, "output": "bash not found — Linux runtime unavailable", "returncode": -1}
     except Exception as e:
         return {"success": False, "output": f"Error: {e}", "returncode": -1}
 
 
 def _run_agentic_os_clean_bash(bash_cmd: str, timeout: int = 60) -> dict:
-    """Run in AgenticOSClean, using direct bash when already inside the distro."""
-    if os.name == "nt" or shutil.which(WSL_COMMAND):
-        return _run_wsl(bash_cmd, timeout=timeout)
-    full_cmd = f"{WSL_ENV}; {bash_cmd}"
-    try:
-        result = subprocess.run(
-            ["bash", "-lc", full_cmd],
-            cwd=str(BASE_DIR),
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=timeout,
-        )
-        stdout = result.stdout.strip()
-        stderr = result.stderr.strip()
-        output = stdout if stdout else stderr
-        return {
-            "success": result.returncode == 0,
-            "output": output or "(no output)",
-            "stdout": stdout,
-            "stderr": stderr,
-            "returncode": result.returncode,
-        }
-    except subprocess.TimeoutExpired:
-        return {
-            "success": False,
-            "output": f"Command timed out after {timeout}s",
-            "stdout": "",
-            "stderr": f"Command timed out after {timeout}s",
-            "returncode": -1,
-            "timed_out": True,
-            "timeout_seconds": timeout,
-        }
-    except Exception as e:
-        return {"success": False, "output": f"Error: {e}", "stdout": "", "stderr": f"Error: {e}", "returncode": -1}
+    """Run directly in the current supported Linux runtime."""
+    return _run_wsl(bash_cmd, timeout=timeout)
 
 
 def _http_endpoint_reachable(url: str, timeout: int = 2) -> bool:
@@ -759,10 +758,7 @@ def _hermes_dashboard_launcher_command(action: str) -> str:
 
 def _hermes_dashboard_operator_command(action: str = "start") -> str:
     workspace = _path_for_wsl_command(BASE_DIR)
-    return (
-        f"{WSL_COMMAND} -d {WSL_DISTRO} --user {WSL_USER} -- bash -lc "
-        f"{shlex.quote(f'{WSL_ENV}; cd {shlex.quote(workspace)}; bash tools/aos-hermes-dashboard.sh {action}')}"
-    )
+    return f"cd {shlex.quote(workspace)} && bash tools/aos-hermes-dashboard.sh {shlex.quote(action)}"
 
 
 def _hermes_ui_status() -> dict:
@@ -803,6 +799,9 @@ def _hermes_ui_status() -> dict:
         "host": HERMES_DASHBOARD_HOST,
         "port": HERMES_DASHBOARD_PORT,
         "version": fields.get("version", ""),
+        "pid": fields.get("pid", ""),
+        "root": fields.get("root", str(BASE_DIR)),
+        "dist": fields.get("dist", ""),
         "reason": fields.get("reason", ""),
         "last_error": "" if http_reachable or result.get("success") else result.get("stderr") or result.get("output") or "",
         "target": "Hermes dashboard web UI",
@@ -819,7 +818,8 @@ def _hermes_ui_status() -> dict:
 
 
 def _write_agent_prompt_file(prompt: str, prefix: str = "aos_prompt_") -> tuple[Path, str]:
-    """Persist one prompt outside the shell command line and return WSL path."""
+    """Persist one prompt outside the shell command line and return Linux path."""
+    _require_authority()
     prompt_dir = BASE_DIR / "queue" / "run_prompts"
     prompt_dir.mkdir(parents=True, exist_ok=True)
     handle = tempfile.NamedTemporaryFile(
@@ -908,7 +908,7 @@ def _hermes_useful_output(result: dict) -> tuple[str, str] | None:
 def _write_hermes_result(content: str) -> str:
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     filename = f"hermes_{timestamp}.md"
-    (RESULTS_DIR / filename).write_text(content.rstrip() + "\n", encoding="utf-8")
+    durable_replace_text(RESULTS_DIR / filename, content.rstrip() + "\n")
     return filename
 
 
@@ -1459,7 +1459,7 @@ def _agentmail_provider_payload(digest: dict, idempotency_key: str, config: dict
 
 
 def _run_agentmail_composio_send(action: str, payload: dict) -> dict:
-    workspace = "/mnt/c/Users/Admin/Documents/A-Time to revenue/Agentic OS Live"
+    workspace = str(BASE_DIR)
     command = (
         f"cd {shlex.quote(workspace)}; python3 connectors/composio_access_adapter.py "
         f"run agent_mail {shlex.quote(action)} --data {shlex.quote(json.dumps(payload, separators=(',', ':')))} "
@@ -1488,8 +1488,7 @@ def _agentmail_provider_reference(response: dict) -> str | None:
 
 
 def _write_agentmail_receipt(receipt: dict, path: Path) -> Path:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    durable_replace_text(path, json.dumps(receipt, indent=2, sort_keys=True) + "\n")
     return path
 
 
@@ -1726,8 +1725,8 @@ def _append_simple_token_ledger(task_id: str, component: str, token_usage: dict)
         except (TypeError, ValueError):
             return
     try:
-        with ROOT_TOKEN_LEDGER_FILE.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(_simple_token_line(task_id, component, tokens, "exact"), separators=(",", ":")) + "\n")
+        append_root, append_path = _authoritative_append_target(ROOT_TOKEN_LEDGER_FILE)
+        durable_append_text(append_root, append_path, json.dumps(_simple_token_line(task_id, component, tokens, "exact"), separators=(",", ":")) + "\n")
     except OSError:
         return
 
@@ -1915,8 +1914,9 @@ def _dashboard_backend_log(event: dict) -> None:
         "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
         **event,
     }
-    with (LOGS_DIR / "dashboard_backend.log").open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
+    path = LOGS_DIR / "dashboard_backend.log"
+    append_root, path = _authoritative_append_target(path)
+    durable_append_text(append_root, path, json.dumps(payload, ensure_ascii=False) + "\n")
 
 
 def _telegram_configured_operator_chat() -> str | None:
@@ -2211,9 +2211,8 @@ def _log_token_usage(
         "no_agent_invocation": False,
         **(route_metadata or {}),
     }
-    TOKEN_USAGE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    with TOKEN_USAGE_FILE.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+    append_root, append_path = _authoritative_append_target(TOKEN_USAGE_FILE)
+    durable_append_text(append_root, append_path, json.dumps(record, ensure_ascii=False) + "\n")
     _append_simple_token_ledger(
         str((route_metadata or {}).get("item_id") or task[:80] or route),
         agent or route,
@@ -2494,11 +2493,11 @@ def _run_hermes_message(text: str) -> dict:
     )
     usage_path = Path(usage_handle.name)
     usage_handle.close()
-    usage_wsl_path = _path_for_wsl_command(usage_path)
+    usage_wsl_path = _quoted_linux_path(usage_path)
     command = (
-        f"{shlex.quote(_path_for_wsl_command(HERMES_COORDINATOR))} "
-        f"--usage-file {shlex.quote(usage_wsl_path)} "
-        f"--prompt-file {shlex.quote(prompt_wsl_path)}"
+        f"{_quoted_linux_path(HERMES_COORDINATOR)} "
+        f"--usage-file {usage_wsl_path} "
+        f"--prompt-file {_quoted_linux_path(prompt_wsl_path)}"
     )
     try:
         result = _run_agentic_os_clean_bash(command, timeout=120)
@@ -2631,9 +2630,8 @@ def _append_hermes_decomposition_token_ledger(result: dict, item_id: str = "AOS-
         "basis": "exact" if available else "estimate",
         "event": "hermes_decomposition",
     }
-    TOKEN_LEDGER_FILE.parent.mkdir(parents=True, exist_ok=True)
-    with TOKEN_LEDGER_FILE.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(record, sort_keys=True, separators=(",", ":")) + "\n")
+    append_root, append_path = _authoritative_append_target(TOKEN_LEDGER_FILE)
+    durable_append_text(append_root, append_path, json.dumps(record, sort_keys=True, separators=(",", ":")) + "\n")
 
 
 def _create_hermes_question_item(question: str, source_refs: list[str]) -> dict:
@@ -2752,7 +2750,11 @@ class _QueueToolFallback:
 
     @staticmethod
     def save_items(root: Path, items: list[dict]):
-        _queue_items_path().write_text("".join(json.dumps(item, sort_keys=True, separators=(",", ":")) + "\n" for item in items), encoding="utf-8")
+        with queue_write_lock(root):
+            durable_replace_text(
+                Path(root) / "queue" / "work_items.jsonl",
+                "".join(json.dumps(item, sort_keys=True, separators=(",", ":")) + "\n" for item in items),
+            )
 
     @staticmethod
     def find_item(items: list[dict], item_id: str):
@@ -2775,9 +2777,10 @@ class _QueueToolFallback:
         return f"{prefix}{max_number + 1:04d}"
 
     def create_item(self, root: Path, args):
-        items = self.load_items(root)
-        now = self.now_iso()
-        item = {
+        with queue_write_lock(root):
+            items = self.load_items(root)
+            now = self.now_iso()
+            item = {
             "id": self._next_id(items, now),
             "title": args.title,
             "requested_by": args.requested_by,
@@ -2802,32 +2805,34 @@ class _QueueToolFallback:
             "claim": {"claimed_by": None, "claimed_at": None},
             "created_at": now,
             "updated_at": now,
-        }
-        items.append(item)
-        self.save_items(root, items)
-        return item
+            }
+            items.append(item)
+            self.save_items(root, items)
+            return item
 
     def update_status(self, root: Path, item_id: str, status: str):
-        self._refuse_done_transition(status)
-        items = self.load_items(root)
-        item = self.find_item(items, item_id)
-        item["status"] = status
-        item["updated_at"] = self.now_iso()
-        self.save_items(root, items)
-        return item
+        with queue_write_lock(root):
+            self._refuse_done_transition(status)
+            items = self.load_items(root)
+            item = self.find_item(items, item_id)
+            item["status"] = status
+            item["updated_at"] = self.now_iso()
+            self.save_items(root, items)
+            return item
 
     def attach_receipt(self, root: Path, item_id: str, receipt_path: str, status: str | None = None):
-        self._refuse_done_transition(status)
-        items = self.load_items(root)
-        item = self.find_item(items, item_id)
-        receipt = {"path": receipt_path, "created_at": self.now_iso()}
-        if status:
-            receipt["status"] = status
-            item["status"] = status
-        item.setdefault("receipts", []).append(receipt)
-        item["updated_at"] = self.now_iso()
-        self.save_items(root, items)
-        return item
+        with queue_write_lock(root):
+            self._refuse_done_transition(status)
+            items = self.load_items(root)
+            item = self.find_item(items, item_id)
+            receipt = {"path": receipt_path, "created_at": self.now_iso()}
+            if status:
+                receipt["status"] = status
+                item["status"] = status
+            item.setdefault("receipts", []).append(receipt)
+            item["updated_at"] = self.now_iso()
+            self.save_items(root, items)
+            return item
 
 
 def _queue_create_text(task: str) -> str | None:
@@ -3052,12 +3057,13 @@ def _queue_priority_value(value: object) -> int:
 
 
 def _queue_apply_source_refs(queue_tool, item_id: str, source_refs: list[str]) -> dict:
-    items = queue_tool.load_items(BASE_DIR)
-    item = queue_tool.find_item(items, item_id)
-    item["source_refs"] = source_refs
-    item["updated_at"] = queue_tool.now_iso()
-    queue_tool.save_items(BASE_DIR, items)
-    return item
+    with queue_write_lock(BASE_DIR):
+        items = queue_tool.load_items(BASE_DIR)
+        item = queue_tool.find_item(items, item_id)
+        item["source_refs"] = source_refs
+        item["updated_at"] = queue_tool.now_iso()
+        queue_tool.save_items(BASE_DIR, items)
+        return item
 
 
 def _queue_create_dashboard_item(body: QueueItemCreate) -> dict:
@@ -3114,8 +3120,7 @@ def _queue_write_receipt(item_id: str, receipt_text: str) -> str:
         raise ValueError("receipt_text must not be empty")
     receipt_path = _queue_receipt_path(item_id)
     target = BASE_DIR / receipt_path
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(text.rstrip() + "\n", encoding="utf-8")
+    durable_replace_text(target, text.rstrip() + "\n")
     return receipt_path
 
 
@@ -3222,8 +3227,7 @@ def _queue_write_run_receipt(item_id: str, receipt_text: str) -> str:
         raise ValueError("receipt_text must not be empty")
     receipt_path = _queue_run_receipt_path(item_id)
     target = BASE_DIR / receipt_path
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(text.rstrip() + "\n", encoding="utf-8")
+    durable_replace_text(target, text.rstrip() + "\n")
     return receipt_path
 
 
@@ -3873,19 +3877,20 @@ def orchestration_tick():
 @app.post("/api/orchestration/telegram-send-test")
 def orchestration_telegram_send_test(body: TelegramSendValidation):
     """Validation hook for the allowlisted existing Telegram bridge send path."""
-    try:
-        item = _queue_find_item(body.item_id)
-    except KeyError:
-        raise HTTPException(status_code=404, detail="queue item not found")
-    result = aos_orchestration.attempt_telegram_send(BASE_DIR, item, body.recipient, body.message, key="api_validation")
-    aos_orchestration.append_jsonl(BASE_DIR / aos_orchestration.EVENTS_PATH, result)
-    items = _read_queue_items()
-    for index, existing in enumerate(items):
-        if existing.get("id") == item.get("id"):
-            items[index] = item
-            break
-    _load_queue_tool().save_items(BASE_DIR, items)
-    return {"success": result.get("result") in {"sent", "already_sent", "blocked", "send_failed"}, **result}
+    with queue_write_lock(BASE_DIR):
+        try:
+            item = _queue_find_item(body.item_id)
+        except KeyError:
+            raise HTTPException(status_code=404, detail="queue item not found")
+        result = aos_orchestration.attempt_telegram_send(BASE_DIR, item, body.recipient, body.message, key="api_validation")
+        aos_orchestration.append_jsonl(BASE_DIR / aos_orchestration.EVENTS_PATH, result)
+        items = _read_queue_items()
+        for index, existing in enumerate(items):
+            if existing.get("id") == item.get("id"):
+                items[index] = item
+                break
+        _load_queue_tool().save_items(BASE_DIR, items)
+        return {"success": result.get("result") in {"sent", "already_sent", "blocked", "send_failed"}, **result}
 
 
 @app.post("/api/queue/items/{item_id}/status")
@@ -4020,10 +4025,9 @@ def queue_artifact_open_folder(body: QueueArtifactFolderOpen):
         artifact = _queue_read_artifact(body.path)
         target = resolve_root_relative(artifact["path"], root=BASE_DIR).parent
         target.relative_to(BASE_DIR.resolve())
-        if hasattr(os, "startfile"):
-            os.startfile(str(target))
-        else:
-            subprocess.Popen(["powershell.exe", "-NoProfile", "-Command", "Start-Process", str(target)])
+        opener = shutil.which("xdg-open")
+        if opener:
+            subprocess.Popen([opener, str(target)])
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="artifact not found")
     except (AosPathError, ValueError) as exc:
@@ -4584,7 +4588,7 @@ def dashboard_save_skill(body: DashboardSkillSave):
         description = body.description.strip()
         if not name:
             raise ValueError("name must not be empty")
-        path.write_text(_render_markdown_frontmatter(parsed["frontmatter_lines"], name, description, body.body), encoding="utf-8")
+        durable_replace_text(path, _render_markdown_frontmatter(parsed["frontmatter_lines"], name, description, body.body))
         updated = path.read_text(encoding="utf-8", errors="replace")
         updated_parsed = _parse_markdown_frontmatter(updated)
     except FileNotFoundError:
@@ -4607,10 +4611,9 @@ def dashboard_open_path(body: DashboardOpenPath):
         target = path.parent if body.kind == "folder" else path
         if not target.exists():
             raise FileNotFoundError(str(target))
-        if hasattr(os, "startfile"):
-            os.startfile(str(target))
-        else:
-            subprocess.Popen(["powershell.exe", "-NoProfile", "-Command", "Start-Process", str(target)])
+        opener = shutil.which("xdg-open")
+        if opener:
+            subprocess.Popen([opener, str(target)])
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="path not found")
     except ValueError as exc:
@@ -4720,7 +4723,7 @@ def dashboard_graphify():
         "graph_html": str(graph_html) if graph_html.exists() else "",
         "graph_json": str(graph_json) if graph_json.exists() else "",
         "output_files": output_files,
-        "launch_command": "cd '/mnt/c/Users/Admin/Documents/A-Time to revenue/Graphify Brain/brain_graph' && graphify ./source --code-only",
+        "launch_command": f"cd {shlex.quote(str(GRAPHIFY_BRAIN_DIR / 'brain_graph'))} && graphify ./source --code-only",
         "repos": [{"name": "Agentic OS Live", "path": _safe_relative(BASE_DIR), "node_count": "unavailable", "last_analyzed": None}],
     }
 
@@ -4823,9 +4826,9 @@ def _queue_render_prompt(item: dict, target: str) -> str:
     template_path = _queue_templates_dir() / f"{target}_task.prompt.md"
     template = template_path.read_text(encoding="utf-8")
     launch = (
-        'wsl -d AgenticOSClean --user liam -- bash -lc \'export PATH="$HOME/.local/bin:$HOME/.local/npm/bin:$HOME/.composio:$PATH"; command -v codex; codex --version; cd "/mnt/c/Users/Admin/Documents/A-Time to revenue/Agentic OS Live"; codex --sandbox workspace-write --ask-for-approval never\''
+        'export AOS_ROOT="${AOS_ROOT:-$PWD}"; cd "$AOS_ROOT"; command -v codex; codex --version; codex --sandbox workspace-write --ask-for-approval never'
         if target == "codex"
-        else 'wsl -d AgenticOSClean --user liam -- bash -lc \'export PATH="$HOME/.local/bin:$HOME/.local/npm/bin:$HOME/.composio:$PATH"; cd "/mnt/c/Users/Admin/Documents/A-Time to revenue/Agentic OS Live"; aos-claude\''
+        else 'export AOS_ROOT="${AOS_ROOT:-$PWD}"; cd "$AOS_ROOT"; aos-claude'
     )
     replacements = {
         "<WORK_SCOPE>": item.get("title") or "Local queue item",
@@ -4845,9 +4848,9 @@ def _queue_render_prompt(item: dict, target: str) -> str:
     return "\n".join((
         prompt.rstrip(),
         "",
-        "## Launch from PowerShell",
+        "## Launch from Linux",
         "",
-        'cd "C:\\Users\\Admin\\Documents\\A-Time to revenue\\Agentic OS Live"',
+        'export AOS_ROOT="${AOS_ROOT:-$PWD}"; cd "$AOS_ROOT"',
         "",
         launch,
         "",
@@ -4972,7 +4975,7 @@ def _queue_actual_run_prompt(
     if owner in DEPARTMENT_PROMPT_TARGETS:
         return _queue_actual_department_run_prompt(item, owner, attempt, revision_instructions)
     prompt = _queue_render_prompt(item, owner)
-    for marker in ("## Launch from PowerShell", "## Manual Launch", "## Manual launch"):
+    for marker in ("## Launch from Linux", "## Manual Launch", "## Manual launch"):
         if marker in prompt:
             prompt = prompt.split(marker, 1)[0].rstrip()
     prompt = "\n\n".join((
@@ -5005,7 +5008,7 @@ def _queue_token_task_label(item: dict, owner: str) -> str:
 
 
 def _hermes_coordinator_command_template(route_metadata: dict | None = None) -> str:
-    command = f"{shlex.quote(_path_for_wsl_command(HERMES_COORDINATOR))}"
+    command = _quoted_linux_path(HERMES_COORDINATOR)
     if route_metadata and route_metadata.get("explicit_model_provider_route"):
         command += f" --provider {shlex.quote(str(route_metadata['provider_requested']))}"
         command += f" --model {shlex.quote(str(route_metadata['model_requested']))}"
@@ -5584,7 +5587,7 @@ def _select_hermes_entry_route(task: str) -> dict:
 
 def _run_composio_adapter(mode: str, subject: str | None = None, json_args: dict | None = None) -> dict:
     """Call the one shared Composio adapter; never create per-connector paths."""
-    workspace = "/mnt/c/Users/Admin/Documents/A-Time to revenue/Agentic OS Live"
+    workspace = str(BASE_DIR)
     command = (
         f"cd {shlex.quote(workspace)}; python3 connectors/composio_access_adapter.py "
         f"{shlex.quote(mode)}"
@@ -5594,7 +5597,7 @@ def _run_composio_adapter(mode: str, subject: str | None = None, json_args: dict
     if json_args is not None:
         payload = json.dumps(json_args, separators=(",", ":"))
         command += f" {shlex.quote(payload)}"
-    result = _run_wsl(command, timeout=120)
+    result = _run_agentic_os_clean_bash(command, timeout=120)
     try:
         parsed = json.loads(result["output"])
         return parsed if isinstance(parsed, dict) else {"ok": False, "error": "Adapter returned non-object JSON"}
@@ -5763,53 +5766,18 @@ def composio_action(body: ComposioAction):
 
 @app.get("/api/connectors/telegram/status")
 def telegram_connector_status():
-    import json
-    import os
-    import subprocess
-    from pathlib import Path
-
-    workspace = Path(r"C:\Users\Admin\Documents\A-Time to revenue\Agentic OS Live")
-    bridge = workspace / "connectors" / "telegram_bridge" / "telegram_bridge.py"
-    env_file = workspace / "connectors" / "telegram_bridge" / ".env"
-    allowed = workspace / "connectors" / "telegram_bridge" / "allowed_chats.json"
-    reports = workspace / "pilots" / "northshore_honda_sales_demo" / "sales_reports.jsonl"
-
-    running = False
-    try:
-        cmd = [
-            "powershell.exe",
-            "-NoProfile",
-            "-Command",
-            "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*telegram_bridge.py*' -and $_.CommandLine -like '*Agentic OS Live*' } | Select-Object -First 1 -ExpandProperty ProcessId"
-        ]
-        out = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=5,
-        )
-        running = bool(out.stdout.strip())
-    except Exception:
-        running = False
-
-    report_count = 0
-    if reports.exists():
-        report_count = len([line for line in reports.read_text(encoding="utf-8", errors="ignore").splitlines() if line.strip()])
-
-    operator_configured = bool(os.environ.get("TELEGRAM_OPERATOR_CHAT_IDS", "").strip())
-
     return {
-        "status": "running" if running else "stopped",
-        "running": running,
-        "bridge_file": bridge.exists(),
-        "env_file": env_file.exists(),
-        "allowed_chats": allowed.exists(),
-        "pilot_report_file": reports.exists(),
-        "pilot_report_count": report_count,
-        "operator_chat_configured": operator_configured or allowed.exists(),
-        "pilot_id": "northshore_honda_sales_demo"
+        "status": "not_checked",
+        "running": "unknown",
+        "bridge_file": "not_checked",
+        "env_file": "not_checked",
+        "allowed_chats": "not_checked",
+        "pilot_report_file": "not_checked",
+        "pilot_report_count": "unknown",
+        "operator_chat_configured": "unknown",
+        "pilot_id": "unavailable",
+        "reason": "Protected Telegram/North Shore runtime is outside the Linux-authority cutover and was not launched or inspected.",
+        "workspace": str(BASE_DIR),
     }
 
 
@@ -5845,21 +5813,23 @@ def refresh_composio_cli_status():
     from datetime import datetime
     from pathlib import Path
 
-    workspace = Path(__file__).resolve().parents[2]
+    _require_authority()
+    workspace = BASE_DIR
     out_file = workspace / "connectors" / "composio_live_connections.txt"
     out_file.parent.mkdir(parents=True, exist_ok=True)
 
+    composio = shutil.which("composio") or "composio"
     commands = [
-        ("version", ["wsl.exe", "-d", "AgenticOSClean", "--user", "liam", "--", "/home/liam/.composio/composio", "version"]),
-        ("whoami", ["wsl.exe", "-d", "AgenticOSClean", "--user", "liam", "--", "/home/liam/.composio/composio", "whoami"]),
-        ("connections list", ["wsl.exe", "-d", "AgenticOSClean", "--user", "liam", "--", "/home/liam/.composio/composio", "connections", "list"]),
+        ("version", [composio, "version"]),
+        ("whoami", [composio, "whoami"]),
+        ("connections list", [composio, "connections", "list"]),
     ]
 
     sections = [
         "Agentic OS Composio CLI refresh",
         f"Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-        "Distro: AgenticOSClean",
-        "CLI: /home/liam/.composio/composio",
+        "Runtime: Linux/POSIX",
+        f"CLI: {composio}",
         "",
     ]
 
@@ -5889,7 +5859,7 @@ def refresh_composio_cli_status():
         sections.append("")
 
     output = "\n".join(sections)
-    out_file.write_text(output, encoding="utf-8")
+    durable_replace_text(out_file, output + "\n")
 
     return {
         "success": ok,

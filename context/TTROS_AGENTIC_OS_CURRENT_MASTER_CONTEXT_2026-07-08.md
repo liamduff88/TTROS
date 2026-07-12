@@ -47,3 +47,13 @@ Open items after runbook close:
 
 Next recommended post-WP12 pass:
 Latitude endpoint/workspace setup, then Graphify setup, then Dashboard Visual Operator Workbench polish.
+## Architecture authority update 2026-07-11
+> Revisit: after runtime/storage cutover changes. · Last touched: 2026-07-11.
+
+The canonical live repository is `/home/liam/agentic-os-live`. Linux-native
+storage is authoritative for the dashboard backend, queue, package state,
+receipts, artifacts, ledgers, runner, and orchestration. `AOS_ROOT` makes the
+same system portable to an ordinary Linux VM path. Windows is an optional WSL
+launcher/browser client only; native Windows mutation is retired. The old
+`/mnt/c/Users/Admin/Documents/A-Time to revenue/Agentic OS Live` repository is
+a frozen rollback snapshot and must not be run in parallel.
