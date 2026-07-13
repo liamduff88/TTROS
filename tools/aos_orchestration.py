@@ -487,6 +487,73 @@ def _step_sort_key(item: dict) -> tuple[int, str]:
     return (index if isinstance(index, int) else 999999, str(item.get("id") or ""))
 
 
+def _historical_acceptance_gate(item: dict, by_id: dict[str, dict]) -> bool:
+    """Retain the closed AOS acceptance fixture's step-2 review behavior only."""
+    parent = by_id.get(str(item.get("parent_id") or ""), {})
+    return (
+        item.get("step_index") == 2
+        and item.get("on_complete") in GATE_STATUSES
+        and "orchestration_acceptance" in {str(tag) for tag in parent.get("tags") or []}
+    )
+
+
+def _workflow_children(parent: dict, items: list[dict]) -> list[dict]:
+    parent_id = str(parent.get("id") or "")
+    parent_tags = {str(tag) for tag in parent.get("tags") or []}
+    identity = {tag for tag in parent_tags if tag.startswith(("pkg:", "pkgver:"))}
+    children = [row for row in items if str(row.get("parent_id") or "") == parent_id]
+    if identity:
+        children = [row for row in children if identity.issubset({str(tag) for tag in row.get("tags") or []})]
+    return children
+
+
+def finalize_workflow_parents(root: Path, items: list[dict], events: list[dict]) -> list[dict]:
+    """Move completed workflow aggregates to human_review exactly once per child set."""
+    actions: list[dict] = []
+    for parent in sorted(items, key=lambda row: str(row.get("id") or "")):
+        if parent.get("owner_type") != "workflow" or parent.get("status") in {DONE_STATUS, "human_review"}:
+            continue
+        children = _workflow_children(parent, items)
+        if not children or not all(is_step_complete(child) for child in children):
+            continue
+        parent_id = str(parent.get("id") or "")
+        child_key = ",".join(sorted(str(child.get("id") or "") for child in children))
+        prior = latest_event(events, "workflow_parent_review_ready", parent_id, child_key)
+        if prior:
+            _attach_effect_receipt(parent, prior["receipt_path"], "human_review", prior["created_at"])
+            parent["status"] = "human_review"
+            parent["updated_at"] = prior["created_at"]
+            continue
+        stable_effect = effect_identity("workflow_parent_review_ready", parent_id, child_key)
+        intent = _prepare_tick_intent(
+            root, items, parent, stable_effect,
+            {"event": "workflow_parent_review_ready", "key": child_key, "target_status": "human_review"},
+        )
+        receipt_path = write_receipt(root, parent_id, "workflow-review-ready", [
+            "PASS", "", "Workflow parent finalization:",
+            f"- Parent ID: {parent_id}",
+            f"- Completed children: {child_key}",
+            "- Status: human_review",
+            "- Token usage: no agent invocation",
+        ], effect_id=stable_effect)
+        _attach_effect_receipt(parent, receipt_path, "human_review", intent["created_at"])
+        parent["status"] = "human_review"
+        parent["updated_at"] = intent["created_at"]
+        record = {
+            "event": "workflow_parent_review_ready", "item_id": parent_id,
+            "key": child_key, "parent_id": parent_id, "status": "human_review",
+            "child_ids": child_key.split(","), "receipt_path": receipt_path,
+            "token_usage_text": "Token usage: no agent invocation",
+            "created_at": intent["created_at"], "effect_id": stable_effect,
+        }
+        append_jsonl(root / EVENTS_PATH, record)
+        events.append(record)
+        append_no_agent_token_line(root, parent, "workflow_parent_review_ready", effect_id=stable_effect)
+        intent["status"] = "applied"
+        actions.append(record)
+    return actions
+
+
 def next_steps(items: list[dict], completed: dict[str, dict]) -> list[dict]:
     ready = []
     completed_ids = set(completed)
@@ -550,9 +617,14 @@ def tick(
                 if dep in completed:
                     refs.extend(artifact_refs_for(root, completed[dep]))
             added_refs = append_source_refs(item, refs)
-            target_status = str(item.get("on_complete") or "").strip().lower()
-            if target_status not in GATE_STATUSES:
-                target_status = READY_STATUS
+            # Unlocking makes implementation executable. on_complete is a
+            # post-work destination, never permission to skip assigned work.
+            # The immutable acceptance fixture retains its tagged step-2 gate.
+            target_status = (
+                str(item.get("on_complete") or "").strip().lower()
+                if _historical_acceptance_gate(item, by_id)
+                else READY_STATUS
+            )
             stable_effect = effect_identity("step_advanced", item_id, key)
             intent = _prepare_tick_intent(
                 root, items, item, stable_effect,
@@ -596,6 +668,7 @@ def tick(
 
         local_actions = complete_acceptance_delivery_steps(root, items, events)
         actions.extend(local_actions)
+        actions.extend(finalize_workflow_parents(root, items, events))
 
         notification_actions = process_notifications(
             root,

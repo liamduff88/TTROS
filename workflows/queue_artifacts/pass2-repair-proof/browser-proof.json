@@ -1,0 +1,48 @@
+{
+  "needs_me_count": 9,
+  "needs_me_rendered": 9,
+  "aos_0078_status": "human_review",
+  "aos_0078_border_rgb": "rgb(255, 176, 32)",
+  "selected_item": "AOS-2026-0078",
+  "view_final_step_selected": "AOS-2026-0074",
+  "controls_exercised": [
+    "copy Codex prompt",
+    "Pass 2 artifact preview",
+    "finished result preview",
+    "final receipt preview",
+    "local output folder open"
+  ],
+  "token_values": {
+    "input": 239411,
+    "output": 27876,
+    "total": 267287,
+    "cached_input": 4384768,
+    "reasoning_output": 5547,
+    "model": "unavailable"
+  },
+  "console_errors": [],
+  "page_errors": [],
+  "http_errors": [],
+  "required_api_requests": [
+    "http://127.0.0.1:3010/api/dashboard/cockpit",
+    "http://127.0.0.1:3010/api/dashboard/skills",
+    "http://127.0.0.1:3010/api/dashboard/workflows",
+    "http://127.0.0.1:3010/api/health",
+    "http://127.0.0.1:3010/api/hermes-ui/status",
+    "http://127.0.0.1:3010/api/overview",
+    "http://127.0.0.1:3010/api/queue/artifact/open-folder",
+    "http://127.0.0.1:3010/api/queue/artifact?path=results%2Forchestration_acceptance%2FAOS-2026-0071%2F03_final_review_package.md",
+    "http://127.0.0.1:3010/api/queue/artifact?path=workflows%2Fqueue_artifacts%2FAOS-2026-0078_Pass_2_workbench_shell.md",
+    "http://127.0.0.1:3010/api/queue/items",
+    "http://127.0.0.1:3010/api/queue/items/AOS-2026-0078/prompt?target=codex",
+    "http://127.0.0.1:3010/api/queue/next",
+    "http://127.0.0.1:3010/api/queue/receipt?path=queue%2Freceipts%2FAOS-2026-0074-final-closeout-20260710T192815Z.md",
+    "http://127.0.0.1:3010/api/queue/status",
+    "http://127.0.0.1:3010/api/queue/summary"
+  ],
+  "screenshots": [
+    "/home/liam/agentic-os-live/workflows/queue_artifacts/pass2-repair-proof/desktop-1440-needs-me-and-selection.png",
+    "/home/liam/agentic-os-live/workflows/queue_artifacts/pass2-repair-proof/final-pass2-human-review.png",
+    "/home/liam/agentic-os-live/workflows/queue_artifacts/pass2-repair-proof/narrow-1100-needs-me-and-selection.png"
+  ]
+}

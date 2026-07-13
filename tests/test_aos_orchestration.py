@@ -56,6 +56,49 @@ def item(item_id, status, **extra):
 
 
 class AosOrchestrationTests(unittest.TestCase):
+    def test_generic_dependency_unlock_runs_work_before_human_review(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "queue/receipts").mkdir(parents=True)
+            write_json(root / "queue/notifications.json", {"escalation": {}, "allowlist": {}})
+            write_items(root, [
+                item("AOS-2026-0201", "done", receipts=[{"path": "queue/receipts/one.md", "created_at": "2026-07-11T00:00:00Z", "status": "done"}]),
+                item("AOS-2026-0202", "inbox", parent_id="AOS-2026-0200", step_index=2,
+                     depends_on=["AOS-2026-0201"], on_complete="human_review"),
+            ])
+            runner.tick(root, allow_telegram_escalation=False)
+            self.assertEqual("agent_todo", {row["id"]: row for row in read_items(root)}["AOS-2026-0202"]["status"])
+
+    def test_workflow_parent_finalizes_with_correction_and_ticks_idempotently(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "queue/receipts").mkdir(parents=True)
+            write_json(root / "queue/notifications.json", {"escalation": {}, "allowlist": {}})
+            tags = ["pkg:test", "pkgver:abc"]
+            parent = item("AOS-2026-0200", "inbox", owner_type="workflow", owner="hermes", tags=tags + ["pass:parent"])
+            child = item("AOS-2026-0201", "done", parent_id=parent["id"], step_index=1,
+                         tags=tags + ["pass:1"], receipts=[{"path": "queue/receipts/one.md", "created_at": "2026-07-11T00:00:00Z", "status": "done"}])
+            write_items(root, [parent, child])
+            first = runner.tick(root, allow_telegram_escalation=False)
+            second = runner.tick(root, allow_telegram_escalation=False)
+            rows = {row["id"]: row for row in read_items(root)}
+            self.assertEqual("human_review", rows[parent["id"]]["status"])
+            self.assertEqual(1, sum(row["event"] == "workflow_parent_review_ready" for row in first["advanced"]))
+            self.assertEqual([], second["advanced"])
+
+            rows[parent["id"]]["status"] = "inbox"
+            correction = item("AOS-2026-0202", "agent_todo", parent_id=parent["id"], step_index=2,
+                              tags=tags + ["pass:correction-1"])
+            write_items(root, list(rows.values()) + [correction])
+            runner.tick(root, allow_telegram_escalation=False)
+            self.assertEqual("inbox", {row["id"]: row for row in read_items(root)}[parent["id"]]["status"])
+            correction["status"] = "done"
+            correction["receipts"] = [{"path": "queue/receipts/correction.md", "created_at": "2026-07-11T00:01:00Z", "status": "done"}]
+            current = {row["id"]: row for row in read_items(root)}
+            current[correction["id"]] = correction
+            write_items(root, list(current.values()))
+            runner.tick(root, allow_telegram_escalation=False)
+            self.assertEqual("human_review", {row["id"]: row for row in read_items(root)}[parent["id"]]["status"])
     def test_linux_launcher_uses_only_existing_runner_watch_mode(self):
         root = Path(__file__).resolve().parents[1]
         launcher = (root / "tools" / "aos-linux-runtime.sh").read_text(encoding="utf-8")
@@ -347,8 +390,8 @@ class AosOrchestrationTests(unittest.TestCase):
             write_items(root, list(items.values()))
             second = runner.tick(root)
             items = {row["id"]: row for row in read_items(root)}
-            self.assertEqual(items["AOS-2026-0003"]["status"], "human_review")
-            self.assertTrue(any(row["event"] == "notification_logged" and row["item_id"] == "AOS-2026-0003" for row in second["notifications"]))
+            self.assertEqual(items["AOS-2026-0003"]["status"], "agent_todo")
+            self.assertFalse(any(row["event"] == "notification_logged" and row["item_id"] == "AOS-2026-0003" for row in second["notifications"]))
 
     def test_tick_is_idempotent(self):
         with tempfile.TemporaryDirectory() as tmp:

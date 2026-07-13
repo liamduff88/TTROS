@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { AlertCircle, Bot, CheckCircle2, Copy, FileUp, Play, RefreshCw, Save, Search, SlidersHorizontal, X } from 'lucide-react'
-import { askHermesMessage, createQueueChain, createQueueItem, getArtifacts, getDashboardAgents, getDashboardResults, getDashboardSystemWatch, getSearchStatus, ingestTick, reindexSearch, routeMessageBoardCommand, searchIndex } from '../api'
+import { askHermesMessage, createQueueChain, createQueueItem, getArtifacts, getDashboardAgents, getDashboardResults, getDashboardSystemWatch, getQueueArtifact, getSearchStatus, ingestTick, openQueueArtifactFolder, reindexSearch, routeMessageBoardCommand, searchIndex } from '../api'
 import { ActionButton, EmptyState, PageHeader, RowButton, SourceChip, StatusChip } from '../components/DashboardKit'
 
 const csv = value => Array.isArray(value) ? value.filter(Boolean).join(',') : String(value || '')
@@ -442,6 +442,8 @@ export function ArtifactsPage({ refresh }) {
   const [filters, setFilters] = useState({ type: '', source: '', tag: '' })
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
+  const [selected, setSelected] = useState(null)
+  const [preview, setPreview] = useState(null)
   const load = async (next = filters) => {
     setBusy(true)
     try {
@@ -452,6 +454,20 @@ export function ArtifactsPage({ refresh }) {
     }
   }
   useEffect(() => { load() }, [])
+  const visible = (data?.items || []).filter(item =>
+    (!filters.workflow || item.workflow === filters.workflow) &&
+    (!filters.lane || item.lane === filters.lane) &&
+    (!filters.type || item.kind === filters.type) &&
+    (!filters.date || String(item.modified || '').slice(0, 10) === filters.date)
+  )
+  const openPreview = async item => {
+    setSelected(item)
+    try {
+      setPreview(await getQueueArtifact(item.local_path))
+    } catch (error) {
+      setPreview({ available: false, reason: errorText(error) })
+    }
+  }
   const createFromArtifact = async item => {
     setBusy(true)
     try {
@@ -488,7 +504,24 @@ export function ArtifactsPage({ refresh }) {
       </div>
       <div className="mb-3 text-xs font-mono text-champagne">{data ? `${data.items?.length || 0} indexed items · ${data.latency_ms} ms · ${data.token_usage_text}` : 'no index yet'}</div>
       {message && <div className="mb-3 rounded border border-champagne/50 bg-graphite p-2 text-xs text-champagne">{message}</div>}
-      <div className="grid gap-2 xl:grid-cols-2">{(data?.items || []).map(item => <ResultRow key={item.path} item={item} onCreate={createFromArtifact} />)}{!(data?.items || []).length && <EmptyState title="No indexed artifacts" detail="Run a reindex or drop a supported file into queue/inbox." />}</div>
+      <section className="mb-4 rounded border border-softgraph bg-graphite/70 p-4" data-testid="new-unfiled-strip">
+        <h2 className="text-sm font-semibold text-stone">New &amp; Unfiled</h2>
+        <div className="mt-2 flex gap-2 overflow-x-auto">{(data?.new_unfiled || []).map(item => <button key={item.path} onClick={() => openPreview(item)} className="min-w-52 rounded border border-softgraph bg-ink p-2 text-left text-xs text-taupe"><span className="block truncate font-semibold text-stone">{item.title}</span><span className="mt-1 block truncate">{item.local_path}</span></button>)}</div>
+      </section>
+      <div className="mb-4 grid gap-2 rounded border border-softgraph bg-graphite/60 p-3 md:grid-cols-4">
+        <select value={filters.workflow || ''} onChange={event => setFilters({ ...filters, workflow: event.target.value })} className="h-9 rounded border border-softgraph bg-ink px-2 text-xs text-stone"><option value="">workflow</option>{['orchestration_acceptance', 'queue_artifacts', 'unfiled'].map(value => <option key={value}>{value}</option>)}</select>
+        <select value={filters.lane || ''} onChange={event => setFilters({ ...filters, lane: event.target.value })} className="h-9 rounded border border-softgraph bg-ink px-2 text-xs text-stone"><option value="">lane</option>{['marketing', 'revenue', 'delivery', 'operations', 'unassigned'].map(value => <option key={value}>{value}</option>)}</select>
+        <select value={filters.type || ''} onChange={event => setFilters({ ...filters, type: event.target.value })} className="h-9 rounded border border-softgraph bg-ink px-2 text-xs text-stone"><option value="">type</option>{['artifact', 'workflow', 'receipt', 'result'].map(value => <option key={value}>{value}</option>)}</select>
+        <input type="date" value={filters.date || ''} onChange={event => setFilters({ ...filters, date: event.target.value })} className="h-9 rounded border border-softgraph bg-ink px-2 text-xs text-stone" />
+      </div>
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3" data-testid="artifact-library">{visible.map(item => <article key={item.path} className="rounded border border-softgraph bg-graphite/70 p-3" data-artifact-path={item.local_path}>
+        <div className="flex items-start justify-between gap-2"><div className="min-w-0"><h3 className="truncate text-sm font-semibold text-stone">{item.title}</h3><div className="mt-1 text-xs text-taupe">{item.workflow} · {item.source} · {item.modified || 'unknown'}</div></div><StatusChip status={item.status}>{item.status}</StatusChip></div>
+        <div className="mt-2 text-xs text-taupe">Owner {item.owner} · lane {item.lane}</div>
+        <div className="mt-1 truncate text-xs text-taupe">Receipt: {item.receipt || 'unavailable'}</div>
+        <div className="mt-1 text-xs text-champagne">{item.token_line || 'Token usage: unavailable'}</div>
+        <div className="mt-3 flex flex-wrap gap-2"><button onClick={() => openPreview(item)} className="rounded border border-softgraph bg-ink px-2 py-1 text-xs text-stone">Preview</button><button onClick={() => navigator.clipboard?.writeText(item.local_path)} className="rounded border border-softgraph bg-ink px-2 py-1 text-xs text-stone">Copy path</button><button onClick={() => openQueueArtifactFolder(item.local_path)} className="rounded border border-softgraph bg-ink px-2 py-1 text-xs text-stone">Open folder</button>{item.receipt && <button onClick={() => navigator.clipboard?.writeText(item.receipt)} className="rounded border border-softgraph bg-ink px-2 py-1 text-xs text-stone">Receipt</button>}<button onClick={() => createFromArtifact(item)} className="rounded border border-softgraph bg-ink px-2 py-1 text-xs text-stone">Create queue item</button></div>
+      </article>)}{!visible.length && <EmptyState title="No indexed artifacts" detail="No artifact matched the current filters." />}</div>
+      <div className={`${selected ? 'fixed inset-y-0 right-0 z-30 w-full max-w-xl' : 'hidden'} border-l border-softgraph bg-graphite p-4 shadow-2xl`}><button onClick={() => { setSelected(null); setPreview(null) }} className="float-right text-taupe">Close</button><h2 className="text-lg font-semibold text-stone">{selected?.title}</h2><pre className="mt-4 max-h-[80vh] overflow-auto whitespace-pre-wrap rounded border border-softgraph bg-ink p-3 text-xs text-taupe">{preview?.available ? preview.content : preview?.reason || 'Loading preview'}</pre></div>
     </>
   )
 }
@@ -499,6 +532,7 @@ export function MissionControl() {
   const stalled = watch?.stalled || []
   const backup = watch?.backup || {}
   const latestBackup = backup?.latest
+  const schedule = watch?.schedule || []
   return (
     <>
       <PageHeader title="Mission Control" question="Read-only system watch: backend, queue tooling, stalled runs, and log tail." />
@@ -521,6 +555,25 @@ export function MissionControl() {
           <div className="md:col-span-2"><span className="text-stone">Snapshot:</span> {latestBackup?.snapshot_path || 'unavailable'}</div>
           <div className="md:col-span-2"><span className="text-stone">Receipt:</span> {backup?.latest_receipt_path || 'queue/receipts/backups.jsonl'}</div>
           <div className="md:col-span-2"><span className="text-stone">Log:</span> {backup?.latest_log_path || 'unavailable'}</div>
+        </div>
+      </section>
+      <section className="mt-4 rounded border border-softgraph bg-graphite/70 p-4" data-testid="schedule-view">
+        <div className="mb-3">
+          <h2 className="text-sm font-semibold text-stone">Read-only Schedule</h2>
+          <p className="mt-1 text-xs text-taupe">Existing status and receipt evidence only. Unknown next-run times are not inferred; this view cannot trigger, edit, register, or schedule work.</p>
+        </div>
+        <div className="space-y-2">
+          {schedule.map(row => (
+            <div key={row.id} className={`grid gap-2 rounded border p-3 text-xs md:grid-cols-[1fr_.8fr_1fr_1.4fr_.7fr] ${row.stale ? 'border-clay/70 bg-clay/10' : 'border-softgraph bg-ink'}`} data-schedule-row={row.id}>
+              <span className="font-semibold text-stone">{row.name}</span>
+              <span><strong className="text-taupe">Next:</strong> {row.next_run || 'unknown'}</span>
+              <span><strong className="text-taupe">Last:</strong> {row.last_run || 'unknown'}</span>
+              <span className="truncate"><strong className="text-taupe">Receipt:</strong> {row.receipt || 'unavailable'}</span>
+              <StatusChip status={row.stale || row.degraded ? 'Blocked' : 'Done'}>{row.stale ? 'stale' : row.degraded ? 'degraded' : row.last_result}</StatusChip>
+              <span className="md:col-span-5 text-taupe">Expected cadence: {row.expected_cadence || 'unknown'} · stale flag: {row.stale ? 'evidence-backed' : 'not asserted'}</span>
+            </div>
+          ))}
+          {!schedule.length && <EmptyState title="Schedule unavailable" detail="No existing status evidence was returned." />}
         </div>
       </section>
       <div className="mt-4 grid gap-4 xl:grid-cols-2">

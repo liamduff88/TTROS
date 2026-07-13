@@ -1,0 +1,38 @@
+{
+  "result": "PASS",
+  "url": "http://127.0.0.1:3010",
+  "viewports": [
+    {"width": 1440, "height": 1000},
+    {"width": 1100, "height": 850}
+  ],
+  "checks": {
+    "clean_initial_selection": {"highlighted": "AOS-2026-0021", "panel": "AOS-2026-0021"},
+    "refresh_selection": "AOS-2026-0021",
+    "aos_0078_selection": "AOS-2026-0078",
+    "rapid_click_final": "AOS-2026-0078",
+    "tab_return_selection": "AOS-2026-0078",
+    "focus_round_trip_selection": "AOS-2026-0078",
+    "view_final_step": {"source": "AOS-2026-0071", "selected": "AOS-2026-0074", "panel_scroll_top": 0},
+    "needs_me": {"active": 9, "aos_0078_status": "human_review", "collapse_reopen": true},
+    "tokens": {"newest_first": true, "codex_visible": true, "unattributed_visible": true, "aos_0078_total": 267287},
+    "workflow_names_have_no_delimiter_title": true,
+    "disposable_workflow_save_reload_exact": true,
+    "read_only_workflow_has_no_edit_action": true,
+    "unsafe_workflow_ids": {"traversal_http": 400, "absolute_http": 400},
+    "preserved_controls": {"copy_prompt": true, "finished_result": true, "receipt": true, "folder_enabled": true, "worker_enabled_not_run": true, "cockpit_reachable": true},
+    "final_human_review": "AOS-2026-0078"
+  },
+  "errors": {"console": [], "page": [], "failed_requests": [], "http": []},
+  "production_workflow_manifest_before_after_sha256": "4f63796d8e0e213d61beafb979e795410bc475760ba5d97ba057b0c033ee5e0f",
+  "core_queue_token_manifest_before_after_sha256": "45aa23a2ed3df9d257dc613b78d83812638ae6d517b6d4ef720d3fd00491bad6",
+  "screenshots": [
+    "workflows/queue_artifacts/pass2-final-proof/01-initial-work-queue-selection.png",
+    "workflows/queue_artifacts/pass2-final-proof/02-aos-0078-card-and-selected-panel.png",
+    "workflows/queue_artifacts/pass2-final-proof/03-tokens-newest-first.png",
+    "workflows/queue_artifacts/pass2-final-proof/04-token-source-and-unattributed.png",
+    "workflows/queue_artifacts/pass2-final-proof/05-workflow-bench-meaningful-names.png",
+    "workflows/queue_artifacts/pass2-final-proof/06-disposable-workflow-editor-save-reload.png",
+    "workflows/queue_artifacts/pass2-final-proof/07-narrow-1100-selection-and-needs-me.png",
+    "workflows/queue_artifacts/pass2-final-proof/08-final-pass2-human-review.png"
+  ]
+}

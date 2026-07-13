@@ -49,6 +49,11 @@ Codex is for code edits, file-heavy implementation, repo inspection, tests, back
 ## Closeout
 
 Return a compact receipt and create or reference a durable receipt after work is complete.
+Before exiting successfully, attach the durable receipt and leave the item in
+its honest requested terminal status (`human_review`, `done`, `needs_input`, or
+`blocked`). The enclosing `codex-run` supervisor will wait for process exit and
+reconcile the final structured usage against this exact item/session without
+requiring a `done` transition; do not select or infer a different queue item.
 
 Required closeout format:
 

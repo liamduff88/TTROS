@@ -213,12 +213,15 @@ def durable_replace_text(path: Path, text: str) -> None:
     """Flush a same-directory temp and durably replace the target."""
     assert_authoritative_root(path.parent)
     path.parent.mkdir(parents=True, exist_ok=True)
+    existing_mode = path.stat().st_mode & 0o7777 if path.exists() else None
     fd, name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
     temp = Path(name)
     try:
         with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
             handle.write(text)
             handle.flush()
+            if existing_mode is not None:
+                os.fchmod(handle.fileno(), existing_mode)
             os.fsync(handle.fileno())
         os.replace(temp, path)
         fsync_directory(path.parent)

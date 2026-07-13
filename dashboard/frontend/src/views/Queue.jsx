@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useState } from 'react'
-import { AlertCircle, CheckCircle2, Clipboard, FileText, FolderOpen, ListChecks, Plus, RefreshCw } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { AlertCircle, CheckCircle2, Clipboard, FileText, Focus, FolderOpen, ListChecks, Plus, RefreshCw } from 'lucide-react'
 import { closeQueueItemReview, createQueueItem, externalActionDryRun, getQueueArtifact, getQueueItems, getQueueNext, getQueuePrompt, getQueueReceipt, getQueueStatus, openQueueArtifactFolder } from '../api'
+import { laneColor, laneName, workbenchColor } from '../shellState'
+import { resolveQueueSelection } from '../queueState'
 
 const QUEUE_STATUSES = ['inbox', 'agent_todo', 'agent_working', 'needs_input', 'human_review', 'done', 'blocked', 'cancelled']
 const QUEUE_OWNERS = ['unassigned', 'hermes', 'codex', 'claude', 'revenue', 'marketing', 'delivery', 'operations']
@@ -82,12 +84,6 @@ const scrollFilePreviewIntoView = () => {
   })
 }
 
-const scrollSelectedDetailIntoView = () => {
-  window.requestAnimationFrame(() => {
-    document.getElementById('queue-selected-detail')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
-  })
-}
-
 const REVIEW_OR_COMPLETE_STATUSES = new Set(['human_review', 'done', 'blocked', 'needs_input'])
 
 const itemLane = item => item?.lane || item?.owner || 'unassigned'
@@ -127,6 +123,13 @@ const emptyCreateForm = {
 const emptyReviewState = { submitting: null, note: '', message: '', error: null }
 const emptyDryRunForm = { recipient: '', action: '', payload: '', confirmation: '' }
 const emptyDryRunState = { submitting: false, message: '', error: null, receiptPath: '' }
+
+// Locked safety distinction: internal-live ≠ third-party-live.
+const manualPlatformUrl = action => /linkedin|post|publish/i.test(action || '')
+  ? 'https://www.linkedin.com/'
+  : /email|mail|proposal/i.test(action || '')
+    ? 'https://mail.google.com/'
+    : ''
 
 const copyToClipboard = async text => {
   if (navigator.clipboard?.writeText) {
@@ -180,7 +183,7 @@ const FieldLabel = ({ label, children }) => (
   </label>
 )
 
-export default function Queue({ initialFilters = {} }) {
+export default function Queue({ initialFilters = {}, onViewParamsChange }) {
   const initialSelectedId = selectedIdFromParams(initialFilters)
   const [status, setStatus] = useState(null)
   const [items, setItems] = useState([])
@@ -195,6 +198,12 @@ export default function Queue({ initialFilters = {} }) {
   const [dryRunForm, setDryRunForm] = useState(emptyDryRunForm)
   const [dryRunState, setDryRunState] = useState(emptyDryRunState)
   const [finalStepSelection, setFinalStepSelection] = useState({ targetId: '', message: '' })
+  const [focusMode, setFocusMode] = useState(false)
+  const [listCollapsed, setListCollapsed] = useState(Boolean(initialSelectedId))
+  const selectedDetailRef = useRef(null)
+  const selectedIdRef = useRef(initialSelectedId)
+  const selectionRevisionRef = useRef(0)
+  const refreshRequestRef = useRef(0)
   const [filePreview, setFilePreview] = useState({
     path: '',
     category: '',
@@ -215,6 +224,7 @@ export default function Queue({ initialFilters = {} }) {
   )
   const selectedStatus = selected?.status || ''
   const finalResult = selected?.final_result || null
+  const pipeline = selected?.pipeline || null
   const latestReceipt = selected?.latest_receipt || (selected?.receipts?.length ? selected.receipts[selected.receipts.length - 1] : null)
   const hasReceipt = Boolean(receiptLabel(latestReceipt) && latestReceipt && receiptLabel(latestReceipt) !== 'Receipt path unavailable')
   const runArtifacts = Array.isArray(selected?.run_artifacts) ? selected.run_artifacts : []
@@ -229,7 +239,17 @@ export default function Queue({ initialFilters = {} }) {
       ? 'Rerun assigned worker'
       : 'Run assigned worker'
 
-  const refreshQueue = async (preferredId = selectedId) => {
+  const selectQueueItem = (id, notify = true) => {
+    selectedIdRef.current = id
+    selectionRevisionRef.current += 1
+    setSelectedId(id)
+    if (id && notify) setListCollapsed(true)
+    if (notify) onViewParamsChange?.({ ...filters, selectedId: id })
+  }
+
+  const refreshQueue = async (preferredId = null) => {
+    const requestId = ++refreshRequestRef.current
+    const selectionRevision = selectionRevisionRef.current
     setState({ loading: true, error: null })
     try {
       const [statusData, itemsData, nextData] = await Promise.all([getQueueStatus(), getQueueItems(), getQueueNext()])
@@ -239,17 +259,23 @@ export default function Queue({ initialFilters = {} }) {
 
       const list = sortQueueItemsNewestFirst(itemsData?.items || [])
       const next = nextData?.item || null
-      const preferredExists = preferredId && list.some(item => item.id === preferredId)
+      if (requestId !== refreshRequestRef.current) return
+      const resolvedId = resolveQueueSelection({
+        items: list,
+        currentId: selectedIdRef.current,
+        preferredId,
+        nextId: next?.id,
+        selectionChanged: selectionRevisionRef.current !== selectionRevision,
+      })
       setStatus(statusData)
       setItems(list)
       setNextItem(next)
-      setSelectedId(preferredExists ? preferredId : next?.id || list[0]?.id || null)
+      selectedIdRef.current = resolvedId
+      setSelectedId(resolvedId)
+      onViewParamsChange?.({ ...filters, selectedId: resolvedId })
       setState({ loading: false, error: null })
     } catch (error) {
-      setStatus(null)
-      setItems([])
-      setNextItem(null)
-      setSelectedId(null)
+      if (requestId !== refreshRequestRef.current) return
       setState({ loading: false, error })
     }
   }
@@ -261,13 +287,14 @@ export default function Queue({ initialFilters = {} }) {
   useEffect(() => {
     const explicitSelectedId = selectedIdFromParams(initialFilters)
     setFilters(filtersFromParams(initialFilters))
-    if (explicitSelectedId) setSelectedId(explicitSelectedId)
+    if (explicitSelectedId && explicitSelectedId !== selectedIdRef.current) selectQueueItem(explicitSelectedId, false)
   }, [JSON.stringify(initialFilters)])
 
   useEffect(() => {
+    if (state.loading || !items.length) return
     if (filteredItems.some(item => item.id === selectedId)) return
-    setSelectedId(filteredItems[0]?.id || null)
-  }, [filteredItems])
+    selectQueueItem(filteredItems[0]?.id || null)
+  }, [filteredItems, state.loading])
 
   useEffect(() => {
     setFilePreview({ path: '', category: '', extension: '', loading: false, content: '', error: null })
@@ -276,6 +303,16 @@ export default function Queue({ initialFilters = {} }) {
     setDryRunForm(emptyDryRunForm)
     setDryRunState(emptyDryRunState)
   }, [selectedId])
+
+  useEffect(() => {
+    if (!finalStepSelection.targetId || finalStepSelection.targetId !== selected?.id) return
+    window.requestAnimationFrame(() => {
+      const panel = selectedDetailRef.current
+      if (!panel) return
+      panel.scrollTop = 0
+      panel.scrollIntoView({ block: 'start', behavior: 'smooth' })
+    })
+  }, [selected?.id, finalStepSelection.targetId])
 
   const updateCreateField = (field, value) => {
     setCreateForm(current => ({ ...current, [field]: value }))
@@ -525,9 +562,8 @@ export default function Queue({ initialFilters = {} }) {
     const finalItemId = finalResult?.final_item_id
     if (!finalItemId) return
     setFilters({})
-    setSelectedId(finalItemId)
+    selectQueueItem(finalItemId)
     setFinalStepSelection({ targetId: finalItemId, message: 'Final step selected' })
-    scrollSelectedDetailIntoView()
   }
 
   return (
@@ -538,15 +574,10 @@ export default function Queue({ initialFilters = {} }) {
           <h1 className="mt-1 text-2xl font-semibold text-ivory">Agentic OS Work Queue</h1>
           <p className="mt-1 text-sm text-taupe">Local queue state from queue/work_items.jsonl. Creates stay local and do not launch agents.</p>
         </div>
-        <button
-          type="button"
-          onClick={() => refreshQueue()}
-          disabled={state.loading}
-          className="inline-flex items-center gap-2 rounded bg-softgraph px-3 py-2 text-xs font-mono text-taupe transition-colors hover:text-stone disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          <RefreshCw size={13} className={state.loading ? 'animate-spin' : ''} />
-          Refresh
-        </button>
+        <div className="flex gap-2">
+          <button type="button" onClick={() => setFocusMode(value => !value)} aria-pressed={focusMode} className={`inline-flex items-center gap-2 rounded border px-3 py-2 text-xs font-mono ${focusMode ? 'border-[var(--wb-codex-queued)] bg-[var(--wb-codex-done)] text-[var(--wb-codex-dark)]' : 'border-softgraph bg-ink text-taupe'}`} data-testid="focus-mode-toggle"><Focus size={13} />{focusMode ? 'Exit focus' : 'Focus task'}</button>
+          <button type="button" onClick={() => refreshQueue()} disabled={state.loading} className="inline-flex items-center gap-2 rounded bg-softgraph px-3 py-2 text-xs font-mono text-taupe transition-colors hover:text-stone disabled:cursor-not-allowed disabled:opacity-60"><RefreshCw size={13} className={state.loading ? 'animate-spin' : ''} />Refresh</button>
+        </div>
       </div>
 
       {state.error && (
@@ -576,9 +607,20 @@ export default function Queue({ initialFilters = {} }) {
         </div>
       </section>
 
-      <section className="grid gap-4 lg:grid-cols-[minmax(22rem,0.9fr)_minmax(0,1.1fr)]">
-        <div className="space-y-4">
-          <details className="rounded-lg border border-softgraph bg-graphite p-5">
+      {focusMode && (
+        <div className="flex gap-1 overflow-x-auto rounded border border-softgraph bg-graphite p-2" data-testid="focus-mini-rail">
+          {filteredItems.filter(item => item.id !== selectedId).map(item => (
+            <button key={item.id} onClick={() => selectQueueItem(item.id)} className="relative flex h-9 shrink-0 items-center gap-2 overflow-hidden rounded border border-softgraph bg-ink pl-3 pr-2 font-mono text-[10px] text-stone" aria-label={`Focus ${item.id}`}>
+              <span className="absolute inset-y-0 left-0 w-1" style={{ backgroundColor: workbenchColor(item.workbench || item.owner, item.status) }} />
+              <span>{item.id}</span><span className="h-2 w-2 rounded-full" style={{ backgroundColor: workbenchColor(item.workbench || item.owner, item.status) }} />
+            </button>
+          ))}
+        </div>
+      )}
+
+      <section className={`grid gap-4 ${focusMode ? 'grid-cols-1' : listCollapsed ? 'lg:grid-cols-[10rem_minmax(0,1fr)]' : 'lg:grid-cols-[minmax(22rem,0.9fr)_minmax(0,1.1fr)]'}`} data-list-collapsed={listCollapsed ? 'true' : 'false'}>
+        <div className={`space-y-4 ${focusMode ? 'hidden' : ''}`}>
+          <details className={`rounded-lg border border-softgraph bg-graphite p-5 ${listCollapsed ? 'hidden' : ''}`}>
             <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wider text-champagne">Advanced / manual create</summary>
           <form onSubmit={submitCreate} className="mt-4">
             <div className="mb-4 flex items-center justify-between gap-3">
@@ -589,7 +631,7 @@ export default function Queue({ initialFilters = {} }) {
               <button
                 type="submit"
                 disabled={createState.submitting}
-                className="inline-flex items-center gap-2 rounded bg-champagne px-3 py-2 text-xs font-mono font-semibold text-ink transition-colors hover:bg-stone disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex items-center gap-2 rounded bg-champagne px-3 py-2 text-xs font-mono font-semibold text-ivory transition-colors hover:bg-well disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {createState.submitting ? 'Creating...' : 'Create'}
               </button>
@@ -726,13 +768,13 @@ export default function Queue({ initialFilters = {} }) {
           </form>
           </details>
 
-          <div className="rounded-lg border border-softgraph bg-graphite p-5">
+          <div className={`rounded-lg border border-softgraph bg-graphite ${listCollapsed ? 'p-2' : 'p-5'}`}>
             <div className="mb-4 flex items-center justify-between gap-3">
               <div className="flex items-center gap-2">
                 <ListChecks size={14} className="text-taupe" />
-                <h2 className="text-xs font-semibold uppercase tracking-wider text-taupe">Work items</h2>
+                <h2 className="text-xs font-semibold uppercase tracking-wider text-taupe">{listCollapsed ? 'Queue' : 'Work items'}</h2>
               </div>
-              <div className="flex items-center gap-2">
+              <div className={`items-center gap-2 ${listCollapsed ? 'hidden' : 'flex'}`}>
                 {(filters.status || filters.workbench || filters.lane || filters.source) && (
                   <button
                     type="button"
@@ -754,23 +796,23 @@ export default function Queue({ initialFilters = {} }) {
                   <button
                     type="button"
                     key={item.id}
-                    onClick={() => setSelectedId(item.id)}
-                    className={`w-full rounded border px-3 py-3 text-left transition-colors ${
-                      selectedId === item.id ? 'border-champagne bg-softgraph' : 'border-softgraph bg-ink hover:border-taupe'
-                    }`}
+                    onClick={() => selectQueueItem(item.id)}
+                    className={`w-full rounded border text-left transition-colors ${listCollapsed ? 'px-2 py-2' : 'px-3 py-3'} ${selectedId === item.id ? 'bg-softgraph' : 'bg-ink hover:bg-well'}`}
+                    style={{ borderColor: workbenchColor(item.workbench || item.owner, item.status) }}
+                    data-queue-card-id={item.id}
+                    aria-pressed={selectedId === item.id}
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <div className="font-mono text-[11px] text-champagne">{item.id || 'No ID'}</div>
-                        <div className="mt-1 truncate text-sm font-semibold text-ivory">{item.title || 'Untitled queue item'}</div>
+                        {!listCollapsed && <div className="mt-1 truncate text-sm font-semibold text-ivory">{item.title || 'Untitled queue item'}</div>}
                       </div>
                       {nextItem?.id === item.id && <CheckCircle2 size={14} className="mt-1 flex-shrink-0 text-champagne" />}
                     </div>
-                    <div className="mt-2 flex flex-wrap gap-2 font-mono text-[11px] text-taupe">
+                    <div className={`${listCollapsed ? 'mt-1' : 'mt-2'} flex flex-wrap items-center gap-2 font-mono text-[11px] text-taupe`}>
+                      <span className="rounded px-1.5 py-0.5 text-[10px] font-bold text-white" style={{ backgroundColor: laneColor(laneName(item)) }}>{laneName(item)}</span>
                       <span>{formatStatus(item.status)}</span>
-                      <span>{item.owner || 'unassigned'}</span>
-                      <span>Priority {item.priority ?? 0}</span>
-                      {item.source && <span>{item.source}</span>}
+                      {!listCollapsed && <><span>{item.owner || 'unassigned'}</span><span>Priority {item.priority ?? 0}</span>{item.source && <span>{item.source}</span>}</>}
                     </div>
                   </button>
                 ))}
@@ -789,21 +831,29 @@ export default function Queue({ initialFilters = {} }) {
           </div>
         </div>
 
-        <div id="queue-selected-detail" className="rounded-lg border border-softgraph bg-graphite p-5">
+        <div id="queue-selected-detail" ref={selectedDetailRef} className="rounded-lg border bg-graphite p-5" style={{ borderColor: selected ? workbenchColor(selected.workbench || selected.owner, selected.status) : 'var(--hairline)' }} data-testid="queue-selected-detail" data-selected-item-id={selected?.id || ''}>
           <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <h2 className="text-xs font-semibold uppercase tracking-wider text-taupe">Selected item</h2>
-              <div className="mt-2 font-mono text-xs text-champagne">{selected?.id || 'No item selected'}</div>
+              <div className="mt-2 flex items-center gap-2 font-mono text-xs text-champagne">
+                {selected?.id || 'No item selected'}
+                {selected && <span className="rounded px-1.5 py-0.5 text-[10px] font-bold text-white" style={{ backgroundColor: laneColor(laneName(selected)) }}>{laneName(selected)}</span>}
+              </div>
             </div>
             {selected && (
               <div className="flex flex-wrap gap-2 sm:justify-end">
+                {listCollapsed && !focusMode && (
+                  <button type="button" onClick={() => setListCollapsed(false)} className="inline-flex items-center gap-2 rounded border border-softgraph bg-ink px-3 py-2 text-xs font-mono text-stone hover:border-champagne">
+                    <ListChecks size={13} />Expand work items
+                  </button>
+                )}
                 <PromptButton target="codex" busy={promptCopy.target === 'codex'} onCopy={copyPrompt} />
                 <PromptButton target="claude" busy={promptCopy.target === 'claude'} onCopy={copyPrompt} />
                 <button
                   type="button"
                   onClick={runAssignedWorker}
                   disabled={runState.running || (isWorkerRunning && !isStuckWorker)}
-                  className="inline-flex items-center gap-2 rounded bg-champagne px-3 py-2 text-xs font-mono font-semibold text-ink transition-colors hover:bg-stone disabled:cursor-not-allowed disabled:opacity-60"
+                  className="inline-flex items-center gap-2 rounded bg-champagne px-3 py-2 text-xs font-mono font-semibold text-ivory transition-colors hover:bg-well disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   <RefreshCw size={13} className={runState.running ? 'animate-spin' : ''} />
                   {runState.running ? 'Running assigned worker...' : runButtonLabel}
@@ -908,6 +958,36 @@ export default function Queue({ initialFilters = {} }) {
                 </div>
               )}
 
+              {pipeline?.nodes?.length > 0 && (
+                <div className="rounded border border-softgraph bg-ink" data-testid="pipeline-visualization">
+                  <div className="border-b border-softgraph px-3 py-2">
+                    <div className="text-sm font-semibold text-ivory">Workflow pipeline</div>
+                    <div className="mt-1 text-xs font-mono text-taupe">{pipeline.mode === 'workflow_chain' ? `Recorded chain ${pipeline.parent_id}` : 'Honest status-stage fallback; no step contract recorded'}</div>
+                  </div>
+                  <div className="overflow-x-auto p-3">
+                    <div className="flex min-w-max items-stretch gap-2">
+                      {pipeline.nodes.map((node, index) => (
+                        <div key={node.id} className="flex items-center gap-2">
+                          {index > 0 && <span className="text-champagne" aria-hidden="true">→</span>}
+                          <article className="w-56 rounded border border-softgraph bg-graphite p-3 text-xs" data-pipeline-node={node.id}>
+                            <div className="flex items-start justify-between gap-2"><span className="font-semibold text-stone">{node.name}</span><span className="rounded bg-softgraph px-1.5 py-0.5 text-[10px] text-taupe">{formatStatus(node.status)}</span></div>
+                            <div className="mt-2 text-taupe">{node.timestamp || 'timestamp unavailable'}</div>
+                            <div className="mt-1 text-taupe">{node.execution}</div>
+                            <div className="mt-1 text-taupe">Depends on: {node.depends_on?.join(', ') || 'none recorded'}</div>
+                            {node.gate && <div className="mt-2 rounded border border-champagne/50 bg-champagne/10 p-1.5 text-champagne">Gate: {formatStatus(node.gate)}</div>}
+                            <div className="mt-2 flex flex-wrap gap-1">
+                              {(node.receipts || []).map((receipt, receiptIndex) => <button key={`${node.id}-receipt-${receiptIndex}`} onClick={() => viewReceipt(receipt)} className="rounded border border-softgraph bg-ink px-1.5 py-1 text-[10px] text-stone">Receipt</button>)}
+                              {(node.artifacts || []).map((path, artifactIndex) => <button key={`${node.id}-artifact-${artifactIndex}`} onClick={() => viewArtifact({ path, category: 'Pipeline artifact' })} className="rounded border border-softgraph bg-ink px-1.5 py-1 text-[10px] text-stone">Artifact</button>)}
+                            </div>
+                          </article>
+                        </div>
+                      ))}
+                    </div>
+                    {pipeline.history?.length > 0 && <div className="mt-3 rounded border border-softgraph bg-graphite p-2 text-xs text-taupe">Review/auto-resume history: {pipeline.history.map(row => `${row.event} ${row.item_id || ''} ${row.timestamp || ''}`).join(' · ')}</div>}
+                  </div>
+                </div>
+              )}
+
               {finalResult?.complete && (
                 <div className="rounded border border-champagne/40 bg-ink">
                   <div className="border-b border-softgraph px-3 py-2">
@@ -923,7 +1003,7 @@ export default function Queue({ initialFilters = {} }) {
                       aria-label="Open Final Review Package"
                       onClick={() => viewArtifact({ ...finalArtifact, category: 'Final review package', extension: finalArtifact?.extension || '.md' })}
                       disabled={!finalArtifact?.path}
-                      className="inline-flex min-h-11 w-full min-w-0 items-center justify-center gap-2 whitespace-normal rounded bg-champagne px-4 py-3 text-center text-xs font-mono font-semibold leading-5 text-ink transition-colors hover:bg-stone disabled:cursor-not-allowed disabled:opacity-60"
+                      className="inline-flex min-h-11 w-full min-w-0 items-center justify-center gap-2 whitespace-normal rounded bg-champagne px-4 py-3 text-center text-xs font-mono font-semibold leading-5 text-ivory transition-colors hover:bg-well disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       <FileText size={14} className="shrink-0" />
                       <span className="min-w-0 break-words">Open Finished Result</span>
@@ -991,7 +1071,16 @@ export default function Queue({ initialFilters = {} }) {
                 <div className="rounded border border-softgraph bg-ink">
                   <div className="border-b border-softgraph px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-taupe">Human review controls</div>
                   <div className="space-y-3 px-3 py-3">
-                    <FieldLabel label="Review note optional">
+                    <div className="rounded border border-champagne/40 bg-graphite p-3" data-testid="approval-card">
+                      <div className="text-xs font-semibold uppercase tracking-wider text-champagne">Approval package</div>
+                      <div className="mt-2 text-xs text-taupe">Approving: <span className="text-stone">{selected.id} · {selected.title}</span></div>
+                      <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap rounded border border-softgraph bg-ink p-2 text-xs text-stone">{selected.context || latestReceipt?.content || 'Exact payload preview unavailable; inspect linked evidence before approval.'}</pre>
+                      <div className="mt-2 break-all text-xs text-taupe">Source artifacts: {selected.integrated_review_artifact?.path || renderList(selected.source_refs) || 'unavailable'}</div>
+                      {selected.integrated_review_artifact?.available && <button type="button" onClick={() => viewArtifact({ ...selected.integrated_review_artifact, category: 'Final integrated review' })} className="mt-2 rounded border border-softgraph bg-ink px-2 py-1 text-xs text-stone">Open final integrated review</button>}
+                      <div className="mt-1 break-all text-xs text-taupe">Receipt: {latestReceiptPath || 'unavailable'}</div>
+                      <div className="mt-2 text-xs text-stone">Approve writes one idempotent local review receipt and runs the deterministic dependency-resume tick. Needs changes requires one operator note and uses the existing bounded correction path.</div>
+                    </div>
+                    <FieldLabel label={selected.owner_type === 'workflow' ? 'Consolidated correction note (required for Needs changes)' : 'Review note optional'}>
                       <textarea
                         className={`${fieldBase} min-h-[4rem] resize-y`}
                         maxLength={500}
@@ -1008,10 +1097,14 @@ export default function Queue({ initialFilters = {} }) {
                           onClick={() => markReviewStatus(reviewStatus)}
                           disabled={Boolean(reviewState.submitting)}
                           className={`inline-flex items-center gap-2 rounded px-3 py-2 text-xs font-mono font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
-                            reviewStatus === 'done' ? 'bg-champagne text-ink hover:bg-stone' : 'border border-softgraph bg-graphite text-stone hover:border-champagne'
+                            reviewStatus === 'done' ? 'bg-champagne text-ivory hover:bg-well' : 'border border-softgraph bg-graphite text-stone hover:border-champagne'
                           }`}
                         >
-                          {reviewState.submitting === reviewStatus ? `Marking ${formatStatus(reviewStatus)}...` : `Mark ${formatStatus(reviewStatus)}`}
+                          {reviewState.submitting === reviewStatus
+                            ? `Marking ${selected.owner_type === 'workflow' && reviewStatus === 'needs_input' ? 'Needs changes' : formatStatus(reviewStatus)}...`
+                            : selected.owner_type === 'workflow' && reviewStatus === 'needs_input'
+                              ? 'Needs changes'
+                              : `Mark ${formatStatus(reviewStatus)}`}
                         </button>
                       ))}
                     </div>
@@ -1020,15 +1113,16 @@ export default function Queue({ initialFilters = {} }) {
                         {reviewState.error || reviewState.message}
                       </div>
                     )}
-                    <div className="text-xs font-mono text-taupe">Mark done attaches a local review receipt and runs the deterministic local orchestration tick. It does not launch agents.</div>
+                    <div className="text-xs font-mono text-taupe">Mark done attaches a local review receipt and runs the deterministic local orchestration tick. For workflow parents, Needs changes creates the single bounded Codex correction child and requires the consolidated note. It does not launch agents.</div>
                   </div>
                 </div>
               )}
 
-              <form onSubmit={submitDryRun} className="rounded border border-champagne/30 bg-ink">
+              <form onSubmit={submitDryRun} className="rounded border border-champagne/30 bg-ink" data-testid="manual-handoff">
                 <div className="border-b border-softgraph px-3 py-2">
-                  <div className="text-[11px] font-semibold uppercase tracking-wider text-champagne">Third-party send gate / dry-run only</div>
-                  <div className="mt-1 text-xs font-mono text-taupe">Typed confirmation records what would be sent. WP11 never transmits externally.</div>
+                  <div className="text-[11px] font-semibold uppercase tracking-wider text-champagne">Manual third-party handoff / dry-run only</div>
+                  <div className="mt-1 text-xs font-mono text-taupe">internal-live ≠ third-party-live · status: not sent / handed off manually</div>
+                  <div className="mt-1 text-xs font-mono text-taupe">Typed confirmation records what would be handed off. This surface never transmits externally.</div>
                 </div>
                 <div className="space-y-3 px-3 py-3">
                   <div className="grid gap-3 md:grid-cols-2">
@@ -1046,10 +1140,16 @@ export default function Queue({ initialFilters = {} }) {
                     <input className={fieldBase} value={dryRunForm.confirmation} onChange={event => updateDryRunField('confirmation', event.target.value)} placeholder={`SEND ${dryRunForm.recipient || '<recipient>'}`} />
                   </FieldLabel>
                   <div className="flex flex-wrap items-center gap-2">
-                    <button type="submit" disabled={dryRunState.submitting} className="inline-flex items-center gap-2 rounded border border-champagne/50 bg-graphite px-3 py-2 text-xs font-mono font-semibold text-champagne transition-colors hover:bg-champagne hover:text-ink disabled:cursor-not-allowed disabled:opacity-60">
+                    <button type="submit" disabled={dryRunState.submitting} className="inline-flex items-center gap-2 rounded border border-champagne/50 bg-graphite px-3 py-2 text-xs font-mono font-semibold text-champagne transition-colors hover:bg-champagne hover:text-ivory disabled:cursor-not-allowed disabled:opacity-60">
                       {dryRunState.submitting ? 'Writing dry-run receipt...' : 'Confirm dry-run only'}
                     </button>
                     <span className="text-xs font-mono text-taupe">dry_run: true / transmitted: false</span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button type="button" onClick={() => copyToClipboard(dryRunForm.recipient)} className="rounded border border-softgraph bg-graphite px-2 py-1 text-xs text-stone">Copy recipient</button>
+                    <button type="button" onClick={() => copyToClipboard(dryRunForm.action)} className="rounded border border-softgraph bg-graphite px-2 py-1 text-xs text-stone">Copy action</button>
+                    <button type="button" onClick={() => copyToClipboard(dryRunForm.payload)} className="rounded border border-softgraph bg-graphite px-2 py-1 text-xs text-stone">Copy payload</button>
+                    {manualPlatformUrl(dryRunForm.action) && <a href={manualPlatformUrl(dryRunForm.action)} target="_blank" rel="noreferrer" className="rounded border border-softgraph bg-graphite px-2 py-1 text-xs text-stone">Open platform manually</a>}
                   </div>
                   {(dryRunState.message || dryRunState.error) && (
                     <div className={`rounded border px-3 py-2 text-xs font-mono ${dryRunState.error ? 'border-clay/40 bg-clay/10 text-clay' : 'border-champagne/30 bg-champagne/10 text-champagne'}`}>
@@ -1110,7 +1210,7 @@ export default function Queue({ initialFilters = {} }) {
                               <div className="min-w-0">
                                 <div className="flex flex-wrap gap-2">
                                   {isPrimaryOutput && (
-                                    <span className="rounded bg-champagne px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-ink">
+                                    <span className="rounded bg-champagne px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-ivory">
                                       Work output / what was done
                                     </span>
                                   )}

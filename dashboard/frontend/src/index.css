@@ -3,6 +3,43 @@
 @tailwind utilities;
 
 @layer base {
+  :root {
+    color-scheme: light;
+
+    --surface-0: #FFFFFF;
+    --surface-1: #F7F8FA;
+    --surface-2: #EFF1F4;
+    --hairline: #E5E7EB;
+    --text: #17181C;
+    --text-dim: #5B616E;
+
+    --wb-claude-working: #A03E1E;
+    --wb-claude-queued: #D85A30;
+    --wb-claude-done: #F5CDBD;
+    --wb-claude-dark: #7A2E15;
+    --wb-codex-working: #1F5FA8;
+    --wb-codex-queued: #378ADD;
+    --wb-codex-done: #C9E2F8;
+    --wb-codex-dark: #16456F;
+    --wb-hermes-working: #B87413;
+    --wb-hermes-queued: #EF9F27;
+    --wb-hermes-done: #FBE6C2;
+    --wb-hermes-dark: #7C4E0C;
+    --wb-anti-working: #147A66;
+    --wb-anti-queued: #1FA98C;
+    --wb-anti-done: #C4EDE3;
+    --wb-anti-dark: #0E5546;
+
+    --lane-marketing: #2E9E5B;
+    --lane-revenue: #7C5CD6;
+    --lane-delivery: #D6559A;
+    --lane-operations: #6B7280;
+    --lane-unassigned: #8A8178;
+
+    --needs-review: #FFB020;
+    --needs-review-text: #4A3000;
+  }
+
   body {
     @apply bg-ink text-ivory font-sans;
   }

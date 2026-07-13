@@ -52,18 +52,23 @@ class _BaseModel:
 
 if importlib.util.find_spec("fastapi") is None:
     fastapi = types.ModuleType("fastapi")
+    fastapi.__spec__ = importlib.util.spec_from_loader("fastapi", loader=None)
     fastapi.FastAPI = _FastAPI
     fastapi.HTTPException = _HTTPException
     fastapi.Request = _Request
     middleware = types.ModuleType("fastapi.middleware")
     cors = types.ModuleType("fastapi.middleware.cors")
     responses = types.ModuleType("fastapi.responses")
+    middleware.__spec__ = importlib.util.spec_from_loader("fastapi.middleware", loader=None)
+    cors.__spec__ = importlib.util.spec_from_loader("fastapi.middleware.cors", loader=None)
+    responses.__spec__ = importlib.util.spec_from_loader("fastapi.responses", loader=None)
     cors.CORSMiddleware = object
     responses.JSONResponse = _JSONResponse
     sys.modules.update({"fastapi": fastapi, "fastapi.middleware": middleware, "fastapi.middleware.cors": cors, "fastapi.responses": responses})
 
 if importlib.util.find_spec("pydantic") is None:
     pydantic = types.ModuleType("pydantic")
+    pydantic.__spec__ = importlib.util.spec_from_loader("pydantic", loader=None)
     pydantic.BaseModel = _BaseModel
     sys.modules["pydantic"] = pydantic
 
@@ -75,6 +80,28 @@ SPEC.loader.exec_module(backend)
 
 
 class HermesComposioTests(unittest.TestCase):
+    def test_unavailable_all_zero_token_block_is_not_counted_as_exact_zero(self):
+        unavailable = {
+            "token_usage": {
+                "orchestrator": {"input": 0, "output": 0},
+                "subagents": [],
+                "workbenches": [],
+                "totals": {"input": 0, "output": 0},
+                "unavailable": ["workbench session totals"],
+            }
+        }
+        known_partial = {
+            "token_usage": {
+                "orchestrator": {"input": 12, "output": 3},
+                "subagents": [],
+                "workbenches": [],
+                "totals": {"input": 12, "output": 3},
+                "unavailable": ["workbench session totals"],
+            }
+        }
+        self.assertEqual((None, "unavailable"), backend._ledger_tokens_basis(unavailable))
+        self.assertEqual((15, "exact"), backend._ledger_tokens_basis(known_partial))
+
     def test_telegram_status_preserves_contract_without_inspecting_protected_runtime(self):
         result = backend.telegram_connector_status()
         expected = {
@@ -1482,6 +1509,26 @@ class HermesComposioTests(unittest.TestCase):
             {"AOS-2026-0001", "AOS-2026-0002", "AOS-2026-0003"},
         )
 
+    def test_dashboard_cockpit_returns_every_human_needed_item_without_truncation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            items = [{
+                "id": f"AOS-2026-{index:04d}",
+                "title": f"Human gate {index}",
+                "status": ("needs_input", "human_review", "blocked")[index % 3],
+                "owner": "codex",
+                "priority": index,
+                "created_at": f"2026-07-05T10:{index:02d}:00Z",
+            } for index in range(1, 10)]
+            self.write_queue_items(root, items)
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_dashboard_token_summary", return_value={"by_tool": [], "strip": {}, "records": []}), \
+                 patch.object(backend, "_recent_file_items", return_value=[]):
+                cockpit = backend.dashboard_cockpit()
+
+        self.assertEqual(cockpit["needs_me_count"], 9)
+        self.assertEqual(len(cockpit["needs_me"]), cockpit["needs_me_count"])
+
     def test_telegram_send_test_endpoint_is_idempotent(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -1603,10 +1650,63 @@ class HermesComposioTests(unittest.TestCase):
                 self.assertIn("Do not launch agents automatically.", prompt)
             codex_prompt = codex["prompt"]
             claude_prompt = claude["prompt"]
-            self.assertIn("codex --sandbox workspace-write --ask-for-approval never", codex_prompt)
+            self.assertIn(f"python3 tools/aos-queue.py codex-run {item_id} --prompt-file -", codex_prompt)
+            self.assertIn("explicit work-item ID is retained through process exit", codex_prompt)
             self.assertNotIn("aos-codex", codex_prompt)
             self.assertIn("aos-claude", claude_prompt)
             self.assertNotIn("aos-hermes claude", claude_prompt)
+
+    def test_cockpit_command_routes_to_local_queue_without_agent_call(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            route = {
+                "matched": True,
+                "confidence": "exact match",
+                "pattern": "fit call",
+                "work_order": {
+                    "title": "fit_call_prep: Prep the fit call",
+                    "owner": "revenue",
+                    "priority": "high",
+                    "tags": ["fit_call_prep", "message_board"],
+                    "source_refs": [],
+                    "allowed_actions": ["local_read"],
+                    "stop_conditions": ["external_send"],
+                    "definition_of_done": "Call brief is ready.",
+                    "workbench": "lane",
+                    "workflow": "fit_call_prep",
+                    "steps": [{"id": "collect"}],
+                },
+            }
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_match_command_route", return_value=route), \
+                 patch.object(backend, "_run_wsl") as run:
+                result = backend.dashboard_cockpit_command(backend.CockpitCommandCreate(command="Prep the fit call"))
+
+            run.assert_not_called()
+            self.assertTrue(result["success"])
+            self.assertTrue(result["local_only"])
+            self.assertEqual(result["token_usage_text"], "Token usage: no agent invocation")
+            self.assertEqual(result["item"]["owner"], "revenue")
+            self.assertEqual(result["item"]["status"], "agent_todo")
+            self.assertEqual(result["item"]["source"], "dashboard/cockpit_command")
+            self.assertIn("cockpit_command", result["item"]["tags"])
+            self.assertEqual(result["route"]["workflow"], "fit_call_prep")
+
+    def test_unmatched_cockpit_command_uses_existing_owner_inference_then_hermes_fallback(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            unmatched = {"matched": False, "confidence": "unmatched"}
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_match_command_route", return_value=unmatched), \
+                 patch.object(backend, "_run_wsl") as run:
+                codex = backend.dashboard_cockpit_command(backend.CockpitCommandCreate(command="Get Codex to inspect the dashboard"))
+                fallback = backend.dashboard_cockpit_command(backend.CockpitCommandCreate(command="Organize the new request"))
+
+            run.assert_not_called()
+            self.assertEqual(codex["item"]["owner"], "codex")
+            self.assertEqual(codex["item"]["workbench"], "codex")
+            self.assertEqual(fallback["item"]["owner"], "hermes")
+            self.assertEqual(fallback["route"]["confidence"], "fallback")
 
     def test_dashboard_queue_hermes_and_department_prompts_are_local_only(self):
         owners = ("hermes", "revenue", "marketing", "delivery", "operations")
@@ -1751,6 +1851,70 @@ class HermesComposioTests(unittest.TestCase):
                 self.assertEqual(result["item"]["status"], review_status)
                 self.assertEqual(result["item"]["receipts"][0]["status"], review_status)
 
+    def test_workflow_review_creates_one_bounded_correction_and_returns_to_review(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            parent = self.sample_queue_items()[0]
+            parent.update({
+                "id": "AOS-2026-0200", "status": "human_review", "owner_type": "workflow",
+                "owner": "hermes", "tags": ["pkg:test", "pkgver:abc", "pass:parent"],
+                "sources": ["_buildout_package/workflow_definition.json"],
+            })
+            child = self.sample_queue_items()[1]
+            child.update({
+                "id": "AOS-2026-0201", "status": "done", "parent_id": parent["id"],
+                "step_index": 9, "tags": ["pkg:test", "pkgver:abc", "pass:9"],
+                "receipts": [{"path": "queue/receipts/pass9.md", "created_at": "2026-07-11T00:00:00Z", "status": "done"}],
+            })
+            self.write_queue_items(root, [parent, child])
+            with patch.object(backend, "BASE_DIR", root), patch.object(backend, "_run_wsl"):
+                result = backend.close_queue_item_review(
+                    parent["id"], backend.QueueReviewClose(status="needs_input", review_note="Fix the final spacing and rerun everything."),
+                )
+                correction = result["correction_item"]
+                self.assertEqual("inbox", result["status"])
+                self.assertEqual("agent_todo", correction["status"])
+                self.assertEqual("agent", correction["owner_type"])
+                self.assertEqual("codex", correction["owner"])
+                self.assertEqual("codex", correction["workbench"])
+                self.assertEqual(parent["id"], correction["parent_id"])
+                self.assertEqual(10, correction["step_index"])
+                self.assertIn("pass:correction-1", correction["tags"])
+                self.assertIn("Fix the final spacing", correction["context"])
+                self.assertIn("complete validation obligation", correction["definition_of_done"])
+                with self.assertRaises(backend.HTTPException) as second:
+                    backend.close_queue_item_review(
+                        parent["id"], backend.QueueReviewClose(status="needs_input", review_note="More changes."),
+                    )
+                self.assertIn("new work item or package definition version", second.exception.detail)
+                rows = backend._read_queue_items()
+                corr = next(row for row in rows if row["id"] == correction["id"])
+                corr["status"] = "done"
+                corr["receipts"] = [{"path": "queue/receipts/correction.md", "created_at": "2026-07-11T00:01:00Z", "status": "done"}]
+                backend._load_queue_tool().save_items(root, rows)
+                backend.aos_orchestration.tick(root, allow_telegram_escalation=False)
+                self.assertEqual("human_review", backend._queue_find_item(parent["id"])["status"])
+                approved = backend.close_queue_item_review(
+                    parent["id"], backend.QueueReviewClose(status="done", review_note="Approved."),
+                )
+                repeated = backend.close_queue_item_review(
+                    parent["id"], backend.QueueReviewClose(status="done", review_note="Approved again."),
+                )
+                self.assertEqual("done", approved["status"])
+                self.assertEqual(approved["receipt_path"], repeated["receipt_path"])
+                self.assertIn("-final-closeout-", approved["receipt_path"])
+                self.assertEqual(
+                    1, len(list((root / "queue/receipts").glob(f"{parent['id']}-final-closeout-*.md")))
+                )
+
+    def test_frontend_labels_workflow_correction_as_needs_changes(self):
+        root = Path(__file__).resolve().parents[2]
+        queue_view = (root / "dashboard/frontend/src/views/Queue.jsx").read_text(encoding="utf-8")
+        dashboard_view = (root / "dashboard/frontend/src/views/DashboardV1.jsx").read_text(encoding="utf-8")
+        self.assertIn("Needs changes", queue_view)
+        self.assertIn("Needs changes", dashboard_view)
+        self.assertIn("single bounded Codex correction child", queue_view)
+
     def test_dashboard_queue_review_close_rejects_non_review_items(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -1863,6 +2027,65 @@ class HermesComposioTests(unittest.TestCase):
             self.assertIn("PASS", latest["summary"])
             self.assertIn("dashboard/frontend/src/views/Queue.jsx", latest["summary"])
 
+    def test_dashboard_queue_exact_sidecar_outranks_receipt_unavailable_and_no_agent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            items = self.sample_queue_items()
+            items[1]["status"] = "human_review"
+            items[1]["receipts"] = [
+                {"path": "queue/receipts/latest.md", "status": "human_review", "created_at": "2026-07-12T00:00:00Z"},
+            ]
+            self.write_queue_items(root, items)
+            receipt_dir = root / "queue" / "receipts"
+            receipt_dir.mkdir(parents=True)
+            (receipt_dir / "latest.md").write_text(
+                "PASS\n\nToken usage: unavailable from current CLI output.\nToken usage: no agent invocation\n",
+                encoding="utf-8",
+            )
+            exact = {
+                "token_usage": {
+                    "orchestrator": {"input": 0, "output": 0},
+                    "subagents": [],
+                    "workbenches": [{"tool": "codex", "session_id": "session-proof", "input": 20, "output": 10, "source": "reported"}],
+                    "totals": {"input": 20, "output": 10},
+                    "est_cost_usd": 0.0,
+                    "unavailable": ["Codex model identity"],
+                },
+                "profile_invocation": {"invoked": True, "session_id": "session-proof"},
+                "capture_evidence": {
+                    "input_tokens": 20, "output_tokens": 10, "total_tokens": 30,
+                    "cached_input_tokens": 100, "reasoning_output_tokens": 4,
+                    "model_identity": "unavailable",
+                },
+            }
+            (receipt_dir / "AOS-2026-0002.token_usage.json").write_text(json.dumps(exact), encoding="utf-8")
+            with patch.object(backend, "BASE_DIR", root), patch.object(backend, "_run_wsl") as run:
+                result = backend.queue_item("AOS-2026-0002")
+
+            run.assert_not_called()
+            latest = result["item"]["latest_receipt"]
+            self.assertEqual("exact", latest["token_usage_precedence"])
+            self.assertEqual([
+                "Token usage: exact", "Input: 20", "Output: 10", "Total: 30",
+                "Cached input: 100", "Reasoning output (subset of output): 4", "Model: unavailable",
+            ], latest["token_usage_lines"])
+
+    def test_dashboard_ledger_exact_precedence_deduplicates_identity_and_suppresses_placeholder(self):
+        unavailable = {
+            "item_id": "AOS-2026-0002", "session_id": "session-proof",
+            "token_usage": {"workbenches": [{"tool": "codex", "source": "unavailable", "input": 0, "output": 0}], "totals": {"input": 0, "output": 0}, "unavailable": ["Codex token usage"]},
+        }
+        exact = {
+            "item_id": "AOS-2026-0002", "session_id": "session-proof",
+            "token_usage": {"workbenches": [{"tool": "codex", "source": "reported", "input": 20, "output": 10}], "totals": {"input": 20, "output": 10}, "unavailable": []},
+        }
+        no_agent = {
+            "item_id": "AOS-2026-0002",
+            "token_usage": {"workbenches": [], "totals": {"input": 0, "output": 0}, "unavailable": ["no agent invocation"]},
+        }
+        effective = backend._effective_token_ledger_records([unavailable, no_agent, exact])
+        self.assertEqual([exact], effective)
+
     def test_dashboard_queue_artifact_reads_safe_local_text_artifacts(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -1974,6 +2197,139 @@ class HermesComposioTests(unittest.TestCase):
             self.assertNotEqual(skill["name"], "---")
             self.assertNotIn("---", skill["content"].splitlines()[:2])
             self.assertIn("Body text.", skill["preview"])
+
+    def test_token_rows_sort_by_real_time_and_keep_invalid_timestamps_last_stably(self):
+        rows = [
+            {"item_id": "Z", "timestamp": "bad", "event": "malformed"},
+            {"item_id": "A", "timestamp": "2026-07-12T10:00:00-07:00", "event": "same-b"},
+            {"item_id": "B", "timestamp": "2026-07-12T17:00:00Z", "event": "same-a"},
+            {"item_id": "C", "timestamp": "2026-07-12T18:00:00Z", "event": "newest"},
+            {"item_id": "D", "event": "missing"},
+        ]
+        first = backend._sort_token_records_newest(rows)
+        second = backend._sort_token_records_newest(list(reversed(rows)))
+        self.assertEqual(["C", "B", "A", "Z", "D"], [row["item_id"] for row in first])
+        self.assertEqual([row["item_id"] for row in first], [row["item_id"] for row in second])
+        self.assertEqual(
+            backend._parse_record_timestamp(first[1]["timestamp"]),
+            backend._parse_record_timestamp(first[2]["timestamp"]),
+        )
+
+    def test_token_source_requires_explicit_invocation_evidence(self):
+        owner_only = {"item_id": "owner", "owner": "codex", "lane": "codex", "workbench": "codex", "token_usage": {"totals": {"input": 4, "output": 2}, "unavailable": []}}
+        reported = {"item_id": "reported", "token_usage": {"totals": {"input": 4, "output": 2}, "workbenches": [{"tool": "codex", "source": "reported", "input": 4, "output": 2}], "unavailable": []}}
+        deterministic = {"item_id": "local", "token_usage": {"totals": {"input": 0, "output": 0}, "unavailable": ["no agent invocation"]}}
+        unavailable = {"item_id": "gap", "token_usage": {"unavailable": ["usage unavailable"]}}
+        self.assertEqual(("Unattributed", "no authoritative invocation source"), backend._token_invocation_source(owner_only))
+        self.assertEqual("Codex", backend._token_invocation_source(reported)[0])
+        self.assertEqual("No agent invocation", backend._token_invocation_source(deterministic)[0])
+        views = [backend._token_record_view(row) for row in (owner_only, reported, deterministic, unavailable)]
+        self.assertEqual(["exact", "exact", "no_agent_invocation", "unavailable"], [row["availability_state"] for row in views])
+
+    def test_token_source_summary_preserves_cached_and_reasoning_semantics(self):
+        row = {
+            "item_id": "AOS-2026-0078", "session_id": "session-proof", "timestamp": "2026-07-12T21:42:32Z",
+            "capture_evidence": {"cached_input_tokens": 100, "reasoning_output_tokens": 4},
+            "token_usage": {"totals": {"input": 20, "output": 10}, "workbenches": [{"tool": "codex", "source": "reported", "input": 20, "output": 10}], "unavailable": []},
+        }
+        codex = next(group for group in backend._token_source_summary([row]) if group["source"] == "Codex")
+        self.assertEqual((20, 10, 30), (codex["input"], codex["output"], codex["total"]))
+        self.assertEqual(100, codex["cached_input"])
+        self.assertEqual(4, codex["reasoning_output"])
+
+    def test_workflow_name_fallback_chain_ignores_frontmatter_delimiters(self):
+        path = Path("workflows/unit/workflow.md")
+        cases = [
+            ("---\ntitle: Explicit title\nname: Other\n---\n# Heading", "opaque-123456789012345678901234", {}, "Explicit title"),
+            ("---\nname: Explicit name\n---\n# Heading", "opaque-123456789012345678901234", {}, "Explicit name"),
+            ("# Heading", "revenue_sales_prep", {}, "Revenue Sales Prep"),
+            ("# Heading fallback", "0123456789abcdef0123456789abcdef", {}, "Heading fallback"),
+            ("---\nbad metadata\n---\n", "0123456789abcdef0123456789abcdef", {}, "Unit"),
+            ("", "0123456789abcdef0123456789abcdef", {}, "Unit"),
+        ]
+        for text, workflow_id, metadata, expected in cases:
+            with self.subTest(expected=expected):
+                self.assertEqual(expected, backend._workflow_display_name(path, text, workflow_id, metadata))
+                self.assertEqual(expected, backend._workflow_display_name(path, text, workflow_id, metadata))
+                self.assertNotEqual("---", expected)
+        duplicate_text = "---\ntitle: Shared operator name\n---\n# One\n"
+        self.assertEqual(
+            backend._workflow_display_name(Path("workflows/one/workflow.md"), duplicate_text, "one"),
+            backend._workflow_display_name(Path("workflows/two/workflow.md"), duplicate_text, "two"),
+        )
+
+    def test_workflow_editor_disposable_save_reload_stale_and_validation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            target = root / "workflows" / "fixture" / "workflow.md"
+            target.parent.mkdir(parents=True)
+            original = "---\ntitle: Fixture workflow\n---\n# Fixture\n\nOriginal.\n"
+            target.write_text(original, encoding="utf-8")
+            target.chmod(0o640)
+            with patch.object(backend, "BASE_DIR", root), patch.object(backend, "_run_wsl") as run:
+                loaded = backend.dashboard_workflow("fixture")
+                edited = original.replace("Original.", "Edited safely.")
+                saved = backend.dashboard_save_workflow(backend.DashboardWorkflowSave(workflow_id="fixture", content=edited, expected_revision=loaded["revision"]))
+                reloaded = backend.dashboard_workflow("fixture")
+                with self.assertRaises(backend.HTTPException) as stale:
+                    backend.dashboard_save_workflow(backend.DashboardWorkflowSave(workflow_id="fixture", content=original, expected_revision=loaded["revision"]))
+                before_invalid = target.read_bytes()
+                with self.assertRaises(backend.HTTPException) as invalid:
+                    backend.dashboard_save_workflow(backend.DashboardWorkflowSave(workflow_id="fixture", content="   ", expected_revision=reloaded["revision"]))
+            run.assert_not_called()
+            self.assertFalse(saved["executed"])
+            self.assertEqual(edited, reloaded["content"])
+            self.assertEqual(before_invalid, target.read_bytes())
+            self.assertEqual(0o640, target.stat().st_mode & 0o777)
+            self.assertEqual(409, stale.exception.status_code)
+            self.assertEqual(400, invalid.exception.status_code)
+
+    def test_workflow_bench_uses_shared_names_and_marks_noncanonical_sources_read_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            canonical = root / "workflows" / "canonical" / "workflow.md"
+            canonical.parent.mkdir(parents=True)
+            canonical.write_text("---\ntitle: Canonical title\n---\n# Ignored heading\n", encoding="utf-8")
+            readme = root / "workflows" / "reference" / "README.md"
+            readme.parent.mkdir(parents=True)
+            readme.write_text("# Reference workflow\n", encoding="utf-8")
+            (root / "workflows" / "workflow_registry.json").write_text(json.dumps({"workflows": [
+                {"id": "canonical", "name": "Registry name", "source_path": "workflows/canonical/workflow.md", "owner_agent": "Operations"},
+                {"id": "reference", "name": "Reference from registry", "source_path": "workflows/reference/README.md", "owner_agent": "Delivery"},
+            ]}), encoding="utf-8")
+            with patch.object(backend, "BASE_DIR", root), patch.object(backend, "_run_wsl") as run:
+                result = backend.dashboard_workflows()
+            run.assert_not_called()
+            by_id = {row["id"]: row for row in result["workflows"]}
+            self.assertEqual("Canonical title", by_id["canonical"]["name"])
+            self.assertTrue(by_id["canonical"]["editable"])
+            self.assertEqual("Reference from registry", by_id["reference"]["name"])
+            self.assertFalse(by_id["reference"]["editable"])
+            self.assertIn("canonical", by_id["reference"]["read_only_reason"].lower())
+            self.assertNotIn("---", [row["name"] for row in result["workflows"]])
+
+    def test_workflow_editor_rejects_unsafe_identifiers_and_symlink_escape(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "workflows").mkdir()
+            outside = root / "outside.md"
+            outside.write_text("# Outside\n", encoding="utf-8")
+            link_dir = root / "workflows" / "linked"
+            link_dir.mkdir()
+            (link_dir / "workflow.md").symlink_to(outside)
+            directory_target = root / "workflows" / "directory" / "workflow.md"
+            directory_target.mkdir(parents=True)
+            with patch.object(backend, "BASE_DIR", root), patch.object(backend, "_run_wsl") as run:
+                for workflow_id in ("../outside", str(outside), "fixture.txt", "tokens"):
+                    with self.subTest(workflow_id=workflow_id):
+                        with self.assertRaises((ValueError, FileNotFoundError)):
+                            backend._workflow_path_for_id(workflow_id, writable=True)
+                with self.assertRaises(ValueError):
+                    backend._workflow_path_for_id("linked", writable=True)
+                with self.assertRaises(ValueError):
+                    backend._workflow_path_for_id("directory", writable=True)
+            run.assert_not_called()
+            self.assertEqual("# Outside\n", outside.read_text(encoding="utf-8"))
 
     def test_dashboard_skill_save_preserves_frontmatter_and_updates_body(self):
         with tempfile.TemporaryDirectory() as tmp:

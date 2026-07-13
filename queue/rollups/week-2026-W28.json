@@ -2,10 +2,10 @@
   "week": "2026-W28",
   "generated_from": "queue/token_ledger.jsonl",
   "model_prices": "scripts/model_prices.json (placeholder rates until filled)",
-  "line_count": 1,
+  "line_count": 45,
   "totals": {
-    "input": 20500,
-    "output": 5840,
+    "input": 667635,
+    "output": 71961,
     "est_cost_usd": 0.1491
   },
   "by_lane": {
@@ -13,7 +13,37 @@
       "input": 20500,
       "output": 5840,
       "est_cost_usd": 0.1491,
+      "count": 5
+    },
+    "marketing": {
+      "input": 0,
+      "output": 0,
+      "est_cost_usd": 0.0,
+      "count": 10
+    },
+    "codex": {
+      "input": 647135,
+      "output": 66121,
+      "est_cost_usd": 0.0,
+      "count": 5
+    },
+    "unassigned": {
+      "input": 0,
+      "output": 0,
+      "est_cost_usd": 0.0,
       "count": 1
+    },
+    "revenue": {
+      "input": 0,
+      "output": 0,
+      "est_cost_usd": 0.0,
+      "count": 4
+    },
+    "operations": {
+      "input": 0,
+      "output": 0,
+      "est_cost_usd": 0.0,
+      "count": 20
     }
   },
   "by_profile": {
@@ -21,6 +51,24 @@
       "input": 20500,
       "output": 5840,
       "est_cost_usd": 0.1491,
+      "count": 1
+    },
+    "aos-marketing": {
+      "input": 0,
+      "output": 0,
+      "est_cost_usd": 0.0,
+      "count": 3
+    },
+    "default": {
+      "input": 647135,
+      "output": 66121,
+      "est_cost_usd": 0.0,
+      "count": 40
+    },
+    "aos-revenue": {
+      "input": 0,
+      "output": 0,
+      "est_cost_usd": 0.0,
       "count": 1
     }
   },
@@ -30,6 +78,12 @@
       "output": 0,
       "est_cost_usd": 0.0,
       "count": 1
+    },
+    "codex": {
+      "input": 647135,
+      "output": 66121,
+      "est_cost_usd": 0.0,
+      "count": 2
     }
   },
   "by_model": {
@@ -40,18 +94,24 @@
       "count": 2
     },
     "unavailable": {
-      "input": 0,
-      "output": 0,
+      "input": 647135,
+      "output": 66121,
       "est_cost_usd": 0.0,
-      "count": 1
+      "count": 3
     }
   },
   "by_budget_class": {
     "standard": {
-      "input": 20500,
-      "output": 5840,
+      "input": 667635,
+      "output": 71961,
       "est_cost_usd": 0.1491,
-      "count": 1
+      "count": 9
+    },
+    "light": {
+      "input": 0,
+      "output": 0,
+      "est_cost_usd": 0.0,
+      "count": 36
     }
   },
   "escalation": {
@@ -68,9 +128,96 @@
       "input": 20500,
       "output": 5840,
       "est_cost_usd": 0.1491
+    },
+    {
+      "item_id": "AOS-2026-0077",
+      "lane": "codex",
+      "budget_class": "standard",
+      "escalated": false,
+      "input": 407724,
+      "output": 38245,
+      "est_cost_usd": 0.0
+    },
+    {
+      "item_id": "AOS-2026-0078",
+      "lane": "codex",
+      "budget_class": "standard",
+      "escalated": false,
+      "input": 239411,
+      "output": 27876,
+      "est_cost_usd": 0.0
+    },
+    {
+      "item_id": "AOS-2026-0018",
+      "lane": "marketing",
+      "budget_class": "standard",
+      "escalated": false,
+      "input": 0,
+      "output": 0,
+      "est_cost_usd": 0
+    },
+    {
+      "item_id": "AOS-2026-0046",
+      "lane": "codex",
+      "budget_class": "light",
+      "escalated": false,
+      "input": 0,
+      "output": 0,
+      "est_cost_usd": 0
+    },
+    {
+      "item_id": "AOS-2026-0046",
+      "lane": "codex",
+      "budget_class": "light",
+      "escalated": false,
+      "input": 0,
+      "output": 0,
+      "est_cost_usd": 0
+    },
+    {
+      "item_id": "AOS-2026-0047",
+      "lane": "unassigned",
+      "budget_class": "standard",
+      "escalated": false,
+      "input": 0,
+      "output": 0,
+      "est_cost_usd": 0
+    },
+    {
+      "item_id": "AOS-2026-0019",
+      "lane": "revenue",
+      "budget_class": "standard",
+      "escalated": false,
+      "input": 0,
+      "output": 0,
+      "est_cost_usd": 0
+    },
+    {
+      "item_id": "AOS-2026-0061",
+      "lane": "marketing",
+      "budget_class": "light",
+      "escalated": false,
+      "input": 0,
+      "output": 0,
+      "est_cost_usd": 0
+    },
+    {
+      "item_id": "AOS-2026-0020",
+      "lane": "operations",
+      "budget_class": "light",
+      "escalated": false,
+      "input": 0,
+      "output": 0,
+      "est_cost_usd": 0
     }
   ],
   "unavailable_components": {
-    "claude-code session totals": 1
+    "claude-code session totals": 1,
+    "orchestrator tokens": 8,
+    "subagent tokens": 8,
+    "workbench session totals": 8,
+    "no agent invocation": 34,
+    "Codex model identity": 2,
+    "cost for unavailable Codex model": 2
   }
 }

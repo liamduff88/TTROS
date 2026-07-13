@@ -1,6 +1,58 @@
 # DECISIONS.md — log of decisions that change system behavior
 > One entry per behavior-affecting change. Newest first.
 
+## 2026-07-12 — Cockpit commands are deterministic local queue intake
+
+Cockpit plain-language commands reuse command-route matching, owner inference,
+and the existing queue creator. A submission creates one local `agent_todo`
+item and never invokes a model or connector; unmatched commands route to the
+explicitly named owner when present and otherwise to Hermes for later triage.
+Selecting a Work Queue item collapses the list to a compact rail so the item
+detail becomes the primary workspace, with an explicit expand control.
+
+## 2026-07-12 — Dashboard shell uses ephemeral IDE sessions and a recoverable focus rail
+
+Dashboard destinations now live in one grouped, collapsible sidebar while the
+top bar is utility-only. Session tabs remain React view state: Cockpit is
+pinned first, one preview is reused until pinned, and eight tabs is the cap.
+Queue focus mode collapses non-selected tasks into an ID/color/state rail, and
+Needs Me collapses to a visible amber count strip. No tab, focus, or rail state
+is written to the backend, queue, filesystem, or browser durable storage.
+
+## 2026-07-12 — Unavailable token usage is never rendered as exact zero
+
+Dashboard token summaries treat an all-zero usage block with a non-empty
+`unavailable` list as unavailable, not known zero. Ledger rows say
+`unavailable`; periods containing both exact usage and missing components say
+`known + gaps`; periods with no known usage say `unavailable`. This preserves
+the schema's structural zeros without presenting them as reported model usage.
+
+## 2026-07-12 — Buildout uses one final integrated human review
+
+Definition `linux-authority-r3` removes the obsolete routine Pass 2 operator
+checkpoint. Pass 2 performs its automated/build/browser/screenshot/visual proof
+inside its implementation session, closes `done`, and unlocks Pass 3 through
+the existing dependency runner. Normal Passes 1–9 continue sequentially; the
+non-executable parent enters the one planned integrated `human_review` only
+after all normal children have done evidence. Existing exceptional safety
+states and the one bounded consolidated correction cycle remain unchanged.
+
+## 2026-07-11 — Workflow aggregates and one bounded correction cycle
+
+`owner_type=workflow` now marks a queue record as a non-executable aggregate;
+all starter-agent `next` and direct claim paths reject it regardless of display
+owner/status. Dependency advancement routes generic children to executable
+`agent_todo` before any review gate, while the tagged historical acceptance
+fixture retains its established behavior. When all package-identity children
+are done with done receipts, deterministic orchestration moves the parent to
+`human_review`. The existing review-close endpoint permits one consolidated
+Needs changes note, creates one Codex `pass:correction-1` child, holds the
+parent in non-actionable `inbox`, then returns it to review after correction;
+a second request for that definition version is rejected.
+Final workflow approval writes one idempotent `final-closeout` review receipt,
+distinct from the earlier Needs-changes receipt even when both actions occur
+within the same timestamp second.
+
 ## 2026-07-11 — Lock release is bound to exact owner identity and durable namespaces
 Queue and package directory locks now capture protocol/package identity, token,
 host, runtime, PID, process-start identity, and acquisition timestamp, and
@@ -59,6 +111,60 @@ help contract, while leaving write-command behavior and the queue contract
 unchanged. The same gate verifies locked-baseline ancestry but deliberately
 does not require a clean worktree, because reconciliation repairs are reviewed
 and validated while intentionally uncommitted.
+
+## 2026-07-12 — Direct Codex usage reconciles only after process exit
+The existing `tools/aos-queue.py` coordinator now owns the Direct Codex
+launch boundary. `codex-run` requires an explicit work-item ID, uses the
+installed CLI's supported noninteractive JSONL mode, captures combined output,
+waits for exit, and replaces that completed item's existing receipt sidecar,
+receipt block, and single token-ledger row from the terminal usage event.
+`codex-reconcile` applies the identical in-place path to authoritative pasted
+post-exit evidence. Neither path selects the newest item, appends a correction
+row, invents a model identity, or creates a second runner/ledger/store.
+Cached-input and reasoning-output counts remain capture-evidence metadata while
+the standard input/output totals retain their existing schema meaning.
+
+## 2026-07-12 — Codex invocation usage is independent of queue status
+Codex reconciliation now keys exact persistence by work-item ID + session ID
+and runs at supervised process exit for every honest queue state, including
+`human_review`. Structured `turn.completed` usage outranks the same supervisor's
+terminal summary; controlled operator evidence is the recovery fallback.
+Unavailable may reconcile to exact, exact may not downgrade, conflicting exact
+replays fail closed, and separate sessions remain separate token-ledger rows.
+The existing item-level sidecar and one replaceable receipt block remain the
+canonical dashboard surfaces; no second token store or queue was introduced.
+
+## 2026-07-12 — Pass 2 rails and selection use canonical live identity
+The existing Cockpit response now returns its complete derived
+`human_review`/`needs_input`/`blocked` set instead of truncating the payload to
+eight. The rail refreshes from the existing lightweight canonical queue-summary
+endpoint, so unrelated Cockpit token/backup aggregation cannot hide operator
+gates; a failed refresh retains the last good rail state. Queue selection records selection revisions
+and request sequence so an older refresh cannot reapply its preferred item
+after a newer click. No queue state, endpoint family, store, or lifecycle
+semantics were added.
+
+## 2026-07-12 — Dashboard Passes 3–9 remain projections over existing evidence
+Lane cards, activity, schedule, artifact, pipeline, launcher, approval, and
+handoff surfaces are projections over the existing queue, receipts, artifacts,
+run/token ledgers, workflow contracts, and local status endpoints. No second
+store, scheduler, queue, workflow builder, or approval layer was introduced.
+Unknown cadence/token/status fields remain unavailable; Graphify Brain data is
+not probed; and third-party output is explicitly manual/dry-run. The last child
+uses generic orchestration to place the existing non-executable workflow parent
+in `human_review`, preserving the one-note bounded correction contract.
+
+## 2026-07-12 — Final Pass 2 selection, token provenance, and safe workflow editing
+Queue selection now persists its canonical ID through the existing session-tab
+parameters and validated browser session snapshot, preserving the prior
+request-sequencing race guard. Token display sorts normalized authoritative
+event timestamps newest-first and labels an invocation source only from explicit
+persisted invocation evidence; owner, lane, profile, classification, and model
+do not imply source. Workflow Bench uses one backend naming fallback and an
+ID-only, stale-checked, atomic editor limited to canonical workflow definitions
+plus the dedicated dashboard test-fixture root. Saving never executes. These
+are Item 1's original Pass 2 defect repair and Liam-authorized Items 2–3 only;
+no Pass 3–9 surface was added.
 
 ## 2026-07-08 — Token metering hardening (fix pass on commit 315a3a9)
 Codex audit of the token-metering back end (commit 315a3a9) found four

@@ -127,7 +127,7 @@ export default function Tracker() {
               <button
                 onClick={handleSave}
                 disabled={saving}
-                className="flex items-center gap-2 px-4 py-2 rounded bg-champagne text-ink text-sm font-semibold hover:bg-stone disabled:opacity-40 transition-colors"
+                className="flex items-center gap-2 px-4 py-2 rounded bg-champagne text-ivory text-sm font-semibold hover:bg-well disabled:opacity-40 transition-colors"
               >
                 {saved ? <Check size={13} /> : <Save size={13} />}
                 {saving ? 'Saving…' : saved ? 'Saved' : 'Save'}

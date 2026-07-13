@@ -122,7 +122,7 @@ function LaunchButton({ entity }) {
         disabled={loading || !entity.launchable}
         className={`flex items-center gap-2 rounded px-4 py-2 text-sm font-medium transition-colors ${
           entity.launchable
-            ? 'bg-champagne text-ink hover:bg-stone'
+            ? 'bg-champagne text-ivory hover:bg-well'
             : 'cursor-not-allowed bg-softgraph text-taupe'
         }`}
       >
@@ -212,7 +212,7 @@ function CommandBar() {
   }
 
   return (
-    <section className="rounded-lg border border-softgraph bg-graphite p-5 shadow-2xl shadow-black/20">
+    <section className="rounded-lg border border-softgraph bg-graphite p-5 shadow-2xl shadow-softgraph/50">
       <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
         <div>
           <div className="mb-2 flex items-center gap-2">
@@ -255,7 +255,7 @@ function CommandBar() {
           onChange={e => setTask(e.target.value)}
           placeholder="Example: Review the dashboard command bar, tighten the UI, run focused validation, and return a compact closeout."
           rows={4}
-          className="min-h-[116px] w-full resize-none rounded border border-softgraph bg-black/20 px-3 py-3 text-sm leading-relaxed text-ivory placeholder-taupe/50 focus:border-champagne focus:outline-none"
+          className="min-h-[116px] w-full resize-none rounded border border-softgraph bg-well px-3 py-3 text-sm leading-relaxed text-ivory placeholder-taupe/50 focus:border-champagne focus:outline-none"
         />
         <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
           <div className="text-xs text-taupe">
@@ -264,7 +264,7 @@ function CommandBar() {
           <button
             onClick={() => run(route)}
             disabled={!canLaunch}
-            className="flex items-center gap-2 rounded bg-champagne px-4 py-2 text-sm font-semibold text-ink transition-colors hover:bg-stone disabled:cursor-not-allowed disabled:opacity-40"
+            className="flex items-center gap-2 rounded bg-champagne px-4 py-2 text-sm font-semibold text-ivory transition-colors hover:bg-well disabled:cursor-not-allowed disabled:opacity-40"
             title={!task.trim() ? 'Enter a task first' : ''}
           >
             <Play size={14} />
@@ -299,7 +299,7 @@ function CommandBar() {
                 Task: <span className="text-stone">{result.task}</span>
               </div>
             )}
-            <pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded border border-softgraph bg-black/20 p-3 text-xs leading-relaxed text-stone">
+            <pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded border border-softgraph bg-well p-3 text-xs leading-relaxed text-stone">
               {running ? 'Waiting for compact closeout from AgenticOSClean...' : result?.output || result?.message || '(no output)'}
             </pre>
           </div>

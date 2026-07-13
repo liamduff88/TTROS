@@ -52,7 +52,12 @@
       "type": "string"
     },
     "owner_type": {
-      "type": "string"
+      "type": "string",
+      "description": "agent identifies executable work; workflow identifies a non-executable aggregate record.",
+      "examples": [
+        "agent",
+        "workflow"
+      ]
     },
     "owner": {
       "type": "string"

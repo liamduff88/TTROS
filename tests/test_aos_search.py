@@ -132,18 +132,30 @@ class AosSearchTest(unittest.TestCase):
                 def get(self, *args, **kwargs):
                     return lambda function: function
                 post = get
+                middleware = get
 
             class _HTTPException(Exception):
                 def __init__(self, status_code, detail):
                     self.status_code = status_code
                     self.detail = detail
 
+            class _Request:
+                pass
+
             fastapi.FastAPI = _FastAPI
             fastapi.HTTPException = _HTTPException
+            fastapi.Request = _Request
             middleware = types.ModuleType("fastapi.middleware")
             cors = types.ModuleType("fastapi.middleware.cors")
+            responses = types.ModuleType("fastapi.responses")
             cors.CORSMiddleware = object
-            sys.modules.update({"fastapi": fastapi, "fastapi.middleware": middleware, "fastapi.middleware.cors": cors})
+            responses.JSONResponse = object
+            sys.modules.update({
+                "fastapi": fastapi,
+                "fastapi.middleware": middleware,
+                "fastapi.middleware.cors": cors,
+                "fastapi.responses": responses,
+            })
         if importlib.util.find_spec("pydantic") is None:
             pydantic = types.ModuleType("pydantic")
 

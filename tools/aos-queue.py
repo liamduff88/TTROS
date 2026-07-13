@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""Local Agentic OS work queue.
+"""Local Agentic OS work queue and explicit workbench launch boundary.
 
-This tool only moves work items through local JSONL files. It does not call
-external services, run agents, start schedulers, or update dashboards.
+Queue mutations stay local. The ``codex-run`` command is the one bounded
+exception: it launches the installed Codex CLI for an explicit work-item ID,
+waits for exit, then reconciles the CLI's final token summary into the existing
+receipt/sidecar/token-ledger path.
 """
 
 from __future__ import annotations
@@ -11,9 +13,11 @@ import argparse
 import functools
 import hashlib
 import json
+import re
 import shutil
 import subprocess
 import sys
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -47,6 +51,14 @@ TOKEN_LEDGER_SCHEMA_PATH = QUEUE_DIR / "token_ledger_schema.json"
 MODEL_PRICES_PATH = REPO_DIR / "scripts" / "model_prices.json"
 HERMES_PROBE_TIMEOUT_S = 20
 DONE_STATUS = "done"
+CODEX_TOKEN_SUMMARY_RE = re.compile(
+    r"^Token usage:\s*total=(?P<total>[\d,]+)\s+"
+    r"input=(?P<input>[\d,]+)"
+    r"(?:\s+\(\+\s*(?P<cached>[\d,]+)\s+cached\))?\s+"
+    r"output=(?P<output>[\d,]+)"
+    r"(?:\s+\(reasoning\s+(?P<reasoning>[\d,]+)\))?\s*$",
+    re.MULTILINE,
+)
 
 APPROVED_STATUSES = {
     "inbox",
@@ -59,6 +71,7 @@ APPROVED_STATUSES = {
     "cancelled",
 }
 AVAILABLE_STATUSES = {"inbox", "agent_todo"}
+APPROVED_OWNER_TYPES = {"agent", "workflow"}
 STARTER_AGENTS = ["hermes", "codex", "claude", "revenue", "marketing", "delivery", "operations"]
 
 
@@ -508,7 +521,9 @@ def _write_receipt_token_usage(root: Path, item_id: str, receipt_path: str | Non
     payload = {"token_usage": block, "profile_invocation": invocation}
     sidecar = root / RECEIPTS_DIR / f"{item_id}.token_usage.json"
     sidecar.parent.mkdir(parents=True, exist_ok=True)
-    durable_replace_text(sidecar, json.dumps(payload, indent=2) + "\n")
+    existing_payload = _read_json_or(None, sidecar) if sidecar.exists() else None
+    if not (_token_payload_is_exact(existing_payload) and not _token_payload_is_exact(payload)):
+        durable_replace_text(sidecar, json.dumps(payload, indent=2) + "\n")
 
     if receipt_path:
         md = root / receipt_path
@@ -523,6 +538,386 @@ def _write_receipt_token_usage(root: Path, item_id: str, receipt_path: str | Non
                 )
                 durable_replace_text(md, existing + block_md)
     return str(sidecar.relative_to(root)) if sidecar.is_relative_to(root) else str(sidecar)
+
+
+def _token_payload_is_exact(payload: object) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    evidence = payload.get("capture_evidence") if isinstance(payload.get("capture_evidence"), dict) else {}
+    if all(_coerce_int(evidence.get(key)) is not None for key in ("input_tokens", "output_tokens", "total_tokens")):
+        return evidence["total_tokens"] == evidence["input_tokens"] + evidence["output_tokens"]
+    usage = payload.get("token_usage") if isinstance(payload.get("token_usage"), dict) else {}
+    for workbench in usage.get("workbenches") or []:
+        if isinstance(workbench, dict) and workbench.get("source") == "reported" and all(_coerce_int(workbench.get(key)) is not None for key in ("input", "output")):
+            return True
+    unavailable = usage.get("unavailable") if isinstance(usage.get("unavailable"), list) else ["unknown"]
+    totals = usage.get("totals") if isinstance(usage.get("totals"), dict) else {}
+    return not unavailable and all(_coerce_int(totals.get(key)) is not None for key in ("input", "output"))
+
+
+def parse_codex_token_summary(output: str) -> dict:
+    """Return the final exact Codex token summary from combined process output."""
+    terminal_matches = list(CODEX_TOKEN_SUMMARY_RE.finditer(output or ""))
+    # ``codex exec --json`` is the supported machine-readable exiting mode in
+    # codex-cli 0.144.1. Its terminal turn.completed event carries the exact
+    # breakdown. Structured evidence has precedence over a terminal cross-check.
+    for raw in reversed((output or "").splitlines()):
+        try:
+            event = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        usage = event.get("usage") if event.get("type") == "turn.completed" else None
+        if not isinstance(usage, dict):
+            continue
+        values = {
+            "input": _coerce_int(usage.get("input_tokens")),
+            "output": _coerce_int(usage.get("output_tokens")),
+            "cached": _coerce_int(usage.get("cached_input_tokens")),
+            "reasoning": _coerce_int(usage.get("reasoning_output_tokens")),
+        }
+        if values["input"] is None or values["output"] is None:
+            continue
+        if any(value is not None and value < 0 for value in values.values()):
+            raise QueueError("Codex JSON token summary contains a negative value")
+        parsed = {
+            **values,
+            "total": values["input"] + values["output"],
+            "raw_summary": raw.strip(),
+            "summary_format": "turn.completed JSONL",
+        }
+        _validate_codex_summary(parsed)
+        if terminal_matches:
+            terminal = {
+                key: int(value.replace(",", "")) if value is not None else None
+                for key, value in terminal_matches[-1].groupdict().items()
+            }
+            _validate_codex_summary(terminal)
+            structured_values = tuple(parsed.get(key) for key in ("input", "output", "total", "cached", "reasoning"))
+            terminal_values = tuple(terminal.get(key) for key in ("input", "output", "total", "cached", "reasoning"))
+            if structured_values != terminal_values:
+                raise QueueError("Codex structured usage conflicts with terminal summary cross-check")
+            parsed["terminal_summary_cross_check"] = terminal_matches[-1].group(0).strip()
+        return parsed
+
+    if terminal_matches:
+        match = terminal_matches[-1]
+        parsed = {
+            key: int(value.replace(",", "")) if value is not None else None
+            for key, value in match.groupdict().items()
+        }
+        parsed["raw_summary"] = match.group(0).strip()
+        parsed["summary_format"] = "text"
+        _validate_codex_summary(parsed)
+        return parsed
+    raise QueueError("Codex exited without a parseable final token summary")
+
+
+def _validate_codex_summary(summary: dict) -> None:
+    for key in ("input", "output", "total"):
+        if _coerce_int(summary.get(key)) is None or summary[key] < 0:
+            raise QueueError(f"Codex token summary {key} must be a non-negative integer")
+    if summary["total"] != summary["input"] + summary["output"]:
+        raise QueueError("Codex token summary total does not equal input + output")
+    for key in ("cached", "reasoning"):
+        value = summary.get(key)
+        if value is not None and (_coerce_int(value) is None or value < 0):
+            raise QueueError(f"Codex token summary {key} must be a non-negative integer")
+    if summary.get("reasoning") is not None and summary["reasoning"] > summary["output"]:
+        raise QueueError("Codex reasoning output must be a subset of output")
+
+
+def parse_codex_session_id(output: str) -> str | None:
+    """Extract the supervised Codex thread/session identity from JSONL output."""
+    for raw in (output or "").splitlines():
+        try:
+            event = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        if event.get("type") != "thread.started":
+            continue
+        for key in ("thread_id", "session_id", "id"):
+            value = event.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+    return None
+
+
+def _codex_usage_block(summary: dict | None, session_id: str) -> dict:
+    if summary is None:
+        return {
+            "orchestrator": {"input": 0, "output": 0},
+            "subagents": [],
+            "workbenches": [{
+                "tool": "codex", "session_id": session_id,
+                "input": 0, "output": 0, "source": "unavailable",
+            }],
+            "totals": {"input": 0, "output": 0},
+            "est_cost_usd": 0.0,
+            "unavailable": ["Codex token usage", "Codex model identity"],
+        }
+    unavailable = ["Codex model identity", "cost for unavailable Codex model"]
+    return {
+        "orchestrator": {"input": 0, "output": 0},
+        "subagents": [],
+        "workbenches": [{
+            "tool": "codex",
+            "session_id": session_id,
+            "input": summary["input"],
+            "output": summary["output"],
+            "source": "reported",
+        }],
+        "totals": {"input": summary["input"], "output": summary["output"]},
+        "est_cost_usd": 0.0,
+        "unavailable": unavailable,
+    }
+
+
+def _codex_capture_evidence(summary: dict | None, cli_version: str, source: str) -> dict:
+    if summary is None:
+        return {
+            "source": source,
+            "captured_after_process_exit": True,
+            "summary_format": "unavailable",
+            "cli_version": cli_version or "unavailable",
+            "model_identity": "unavailable",
+        }
+    evidence = {
+        "source": source,
+        "captured_after_process_exit": True,
+        "raw_summary": summary["raw_summary"],
+        "summary_format": summary.get("summary_format", "unavailable"),
+        "input_tokens": summary["input"],
+        "output_tokens": summary["output"],
+        "total_tokens": summary["total"],
+        "cli_version": cli_version or "unavailable",
+        "model_identity": "unavailable",
+        "component_scope": {
+            "orchestrator": "not invoked by direct Codex launch",
+            "subagents": "none invoked",
+            "workbench": "Codex CLI reported exact usage",
+        },
+    }
+    if summary.get("cached") is not None:
+        evidence["cached_input_tokens"] = summary["cached"]
+    if summary.get("reasoning") is not None:
+        evidence["reasoning_output_tokens"] = summary["reasoning"]
+    if summary.get("terminal_summary_cross_check"):
+        evidence["terminal_summary_cross_check"] = summary["terminal_summary_cross_check"]
+    return evidence
+
+
+def _replace_receipt_token_usage(
+    root: Path,
+    item_id: str,
+    receipt_path: str,
+    payload: dict,
+) -> None:
+    md = root / receipt_path
+    if not md.is_file() or md.suffix.lower() != ".md":
+        raise QueueError(f"Codex reconciliation receipt not found: {receipt_path}")
+    marker = f"<!-- token_usage:{item_id} -->"
+    replacement = f"{marker}\n## token_usage\n```json\n{json.dumps(payload, indent=2)}\n```"
+    existing = md.read_text(encoding="utf-8")
+    block_re = re.compile(
+        rf"{re.escape(marker)}\s*\n## token_usage\s*\n```json\s*\n.*?\n```",
+        re.DOTALL,
+    )
+    blocks = list(block_re.finditer(existing))
+    if len(blocks) > 1:
+        updated = block_re.sub("", existing).rstrip() + "\n\n" + replacement + "\n"
+    elif blocks:
+        updated = block_re.sub(replacement, existing, count=1)
+    elif marker in existing:
+        raise QueueError(f"Malformed existing token_usage block in {receipt_path}")
+    else:
+        placeholder_re = re.compile(
+            r"(?im)^\s*(?:-\s*)?Token usage:\s*(?:unavailable(?: from current CLI output)?\.?|no agent invocation)\s*$"
+        )
+        placeholders = list(placeholder_re.finditer(existing))
+        if len(placeholders) > 1:
+            updated = placeholder_re.sub("", existing).rstrip() + "\n\n" + replacement + "\n"
+        elif placeholders:
+            updated = placeholder_re.sub(replacement, existing, count=1)
+        else:
+            updated = existing.rstrip() + "\n\n" + replacement + "\n"
+    updated = updated if updated.endswith("\n") else updated + "\n"
+    if updated != existing:
+        durable_replace_text(md, updated)
+
+
+@locked_queue_mutation
+def reconcile_codex_usage(
+    root: Path,
+    item_id: str,
+    summary: dict | None,
+    cli_version: str,
+    session_id: str,
+    *,
+    source: str = "Codex supervisor final structured usage event",
+) -> dict:
+    """Reconcile one Codex invocation independently of the queue status lifecycle."""
+    item = find_item(load_items(root), item_id)
+    if not session_id.strip():
+        raise QueueError("Codex reconciliation requires an explicit session ID")
+    session_id = session_id.strip()
+    if summary is not None:
+        _validate_codex_summary(summary)
+    receipt_path = _latest_receipt_path(item, None)
+    if not receipt_path:
+        raise QueueError(f"{item_id} has no receipt for Codex token reconciliation")
+
+    ledger_path = root / TOKEN_LEDGER_PATH
+    rows: list[dict] = []
+    matches: list[int] = []
+    ledger_text = ledger_path.read_text(encoding="utf-8") if ledger_path.exists() else ""
+    for line_number, raw in enumerate(ledger_text.splitlines(), start=1):
+        if not raw.strip():
+            continue
+        try:
+            row = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise QueueError(f"Invalid token ledger JSONL at line {line_number}") from exc
+        if row.get("item_id") == item_id and row.get("session_id") == session_id:
+            matches.append(len(rows))
+        rows.append(row)
+    if len(matches) > 1:
+        raise QueueError(f"Duplicate token-ledger identity for {item_id} + {session_id}")
+
+    block = _codex_usage_block(summary, session_id)
+    evidence = _codex_capture_evidence(summary, cli_version, source)
+    existing = rows[matches[0]] if matches else None
+    if existing:
+        existing_workbenches = (existing.get("token_usage") or {}).get("workbenches") or []
+        existing_exact = any(work.get("tool") == "codex" and work.get("source") == "reported" for work in existing_workbenches)
+        if existing_exact and summary is None:
+            reconciled = existing
+            block = existing["token_usage"]
+            evidence = existing.get("capture_evidence") or evidence
+        elif existing_exact:
+            old = existing.get("capture_evidence") or {}
+            old_values = (
+                old.get("input_tokens"), old.get("output_tokens"), old.get("total_tokens"),
+                old.get("cached_input_tokens"), old.get("reasoning_output_tokens"),
+            )
+            new_values = (
+                summary["input"], summary["output"], summary["total"],
+                summary.get("cached"), summary.get("reasoning"),
+            )
+            if old_values != new_values:
+                raise QueueError(f"Conflicting exact Codex usage for {item_id} + {session_id}")
+            reconciled = existing
+            block = existing["token_usage"]
+            evidence = existing.get("capture_evidence") or evidence
+        else:
+            reconciled = {**existing, "model_confirmed": "unavailable", "token_usage": block, "capture_evidence": evidence}
+    else:
+        reconciled = {
+            "item_id": item_id,
+            "session_id": session_id,
+            "invocation_id": session_id,
+            "event": "codex_process_exit",
+            "lane": item.get("owner") or "codex",
+            "profile": "default",
+            "timestamp": now_iso(),
+            "escalated": False,
+            "model_requested": "Codex workbench session",
+            "model_confirmed": "unavailable",
+            "budget_class": _derive_budget_class(item, None),
+            "token_usage": block,
+            "capture_evidence": evidence,
+            "effect_id": f"codex:{item_id}:{session_id}:tokens",
+        }
+    token_err = _validate_against_schema(reconciled, root / TOKEN_LEDGER_SCHEMA_PATH)
+    if token_err:
+        raise QueueError(f"reconciled token_ledger line failed schema: {token_err}")
+
+    invocation = {
+        "invoked": True,
+        "tool": "codex",
+        "session_id": session_id,
+        "lifecycle": "process_exit",
+        "queue_status_at_reconciliation": item.get("status"),
+    }
+    payload = {
+        "token_usage": block,
+        "profile_invocation": invocation,
+        "capture_evidence": evidence,
+    }
+    if matches:
+        rows[matches[0]] = reconciled
+    else:
+        rows.append(reconciled)
+    reconciled_ledger_text = "".join(json.dumps(row, separators=(",", ":")) + "\n" for row in rows)
+    if reconciled_ledger_text != ledger_text:
+        durable_replace_text(ledger_path, reconciled_ledger_text)
+    sidecar = root / RECEIPTS_DIR / f"{item_id}.token_usage.json"
+    sidecar_text = json.dumps(payload, indent=2) + "\n"
+    existing_sidecar_text = sidecar.read_text(encoding="utf-8") if sidecar.exists() else ""
+    if sidecar_text != existing_sidecar_text:
+        durable_replace_text(sidecar, sidecar_text)
+    _replace_receipt_token_usage(root, item_id, receipt_path, payload)
+    return {
+        "item_id": item_id,
+        "session_id": session_id,
+        "queue_status": item.get("status"),
+        "receipt": receipt_path,
+        "token_usage_sidecar": str(sidecar.relative_to(root)),
+        "token_usage": block,
+        "capture_evidence": evidence,
+    }
+
+
+def run_codex_work_item(root: Path, item_id: str, prompt: str, *, codex_bin: str | None = None) -> dict:
+    """Run Codex noninteractively, capture merged output, wait, and reconcile."""
+    find_item(load_items(root), item_id)  # explicit association must exist before launch
+    executable = codex_bin or shutil.which("codex")
+    if not executable:
+        raise QueueError("codex CLI not found on PATH")
+    version_proc = subprocess.run(
+        [executable, "--version"], capture_output=True, text=True, timeout=20, check=False,
+    )
+    cli_version = ((version_proc.stdout or "") + (version_proc.stderr or "")).strip() or "unavailable"
+    command = [
+        executable,
+        "--sandbox", "workspace-write",
+        "--ask-for-approval", "never",
+        "-C", str(root),
+        "exec", "--skip-git-repo-check", "--json", "--color", "never", "-",
+    ]
+    proc = subprocess.Popen(
+        command,
+        cwd=root,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    supervisor_invocation_id = f"supervisor-{uuid.uuid4()}"
+    combined, _ = proc.communicate(prompt)
+    sys.stdout.write(combined or "")
+    sys.stdout.flush()
+    session_id = parse_codex_session_id(combined or "") or supervisor_invocation_id
+    try:
+        summary = parse_codex_token_summary(combined or "")
+    except QueueError as exc:
+        if "without a parseable final token summary" not in str(exc):
+            raise
+        result = reconcile_codex_usage(
+            root, item_id, None, cli_version, session_id,
+            source="Codex supervisor process exit; usage unavailable",
+        )
+    else:
+        source = (
+            "Codex supervisor final structured usage event"
+            if summary.get("summary_format") == "turn.completed JSONL"
+            else "Codex supervisor final terminal usage summary"
+        )
+        result = reconcile_codex_usage(root, item_id, summary, cli_version, session_id, source=source)
+    if proc.returncode != 0:
+        raise QueueError(f"Codex exited with status {proc.returncode}; process-exit usage was reconciled")
+    return result
 
 
 def finalize_done(
@@ -672,6 +1067,8 @@ def _load_json_arg(value: str | None) -> dict | None:
 def create_item(root: Path, args: argparse.Namespace) -> dict:
     ensure_queue(root)
     validate_status(args.status)
+    if args.owner_type not in APPROVED_OWNER_TYPES:
+        raise QueueError(f"Invalid owner_type: {args.owner_type}; use agent or workflow")
     if args.owner and args.owner_type == "agent" and args.owner != "unassigned":
         validate_agent(root, args.owner)
     items = load_items(root)
@@ -722,6 +1119,8 @@ def claim_item(root: Path, item_id: str, agent_id: str) -> dict:
     validate_agent(root, agent_id)
     items = load_items(root)
     item = find_item(items, item_id)
+    if item.get("owner_type") == "workflow":
+        raise QueueError(f"{item_id} is a workflow aggregate and cannot be claimed")
     claimed_by = item.get("claim", {}).get("claimed_by")
     if claimed_by and claimed_by != agent_id:
         raise QueueError(f"Work item already claimed by {claimed_by}")
@@ -841,6 +1240,8 @@ def done_item(root: Path, args: argparse.Namespace) -> dict:
 
 
 def item_is_available_for(item: dict, agent_id: str) -> bool:
+    if item.get("owner_type") == "workflow":
+        return False
     if item.get("status") not in AVAILABLE_STATUSES:
         return False
     if item.get("claim", {}).get("claimed_by"):
@@ -935,6 +1336,26 @@ def build_parser() -> argparse.ArgumentParser:
     done.add_argument("--model-confirmed", help="Model confirmed for the token ledger")
     done.add_argument("--escalated", action="store_true", help="Mark the run as escalated")
     done.add_argument("--reclose", action="store_true", help="Force ledger append even if already done")
+
+    codex_run = subparsers.add_parser(
+        "codex-run",
+        help="Run Codex exec for an explicit item, wait for exit, and reconcile its final token summary",
+    )
+    codex_run.add_argument("item_id", metavar="ITEM_ID")
+    codex_run.add_argument(
+        "--prompt-file",
+        default="-",
+        metavar="PATH",
+        help="Prompt file, or - to read the complete prompt from stdin (default)",
+    )
+    codex_reconcile = subparsers.add_parser(
+        "codex-reconcile",
+        help="Reconcile pasted final Codex CLI evidence for one explicit item/session",
+    )
+    codex_reconcile.add_argument("item_id", metavar="ITEM_ID")
+    codex_reconcile.add_argument("--session-id", required=True, help="Exact Codex session ID")
+    codex_reconcile.add_argument("--summary", required=True, help="Exact final Codex Token usage: summary")
+    codex_reconcile.add_argument("--cli-version", default="unavailable", help="Exact codex --version output when known")
     return parser
 
 
@@ -964,6 +1385,20 @@ def main(argv: list[str] | None = None) -> int:
             print_json(item if item else {})
         elif args.command == "done":
             print_json(done_item(root, args))
+        elif args.command == "codex-run":
+            prompt = sys.stdin.read() if args.prompt_file == "-" else Path(args.prompt_file).read_text(encoding="utf-8")
+            if not prompt.strip():
+                raise QueueError("Codex prompt is empty")
+            print_json(run_codex_work_item(root, args.item_id, prompt))
+        elif args.command == "codex-reconcile":
+            print_json(reconcile_codex_usage(
+                root,
+                args.item_id,
+                parse_codex_token_summary(args.summary),
+                args.cli_version,
+                args.session_id,
+                source="operator-supplied terminal evidence",
+            ))
         else:
             parser.error(f"Unknown command: {args.command}")
     except (AuthorityError, QueueError, QueueStorageError, json.JSONDecodeError, OSError) as exc:

@@ -1,4 +1,6 @@
-import { X, Zap, LockKeyhole, ChevronRight } from 'lucide-react'
+import { useState } from 'react'
+import { X, Zap, LockKeyhole, ChevronLeft, ChevronRight } from 'lucide-react'
+import { workbenchColor } from '../shellState'
 
 export const STATUS_LABELS = {
   inbox: 'Ready',
@@ -31,8 +33,9 @@ export function statusLabel(status) {
 }
 
 export function StatusChip({ status, children }) {
-  const label = children || statusLabel(status)
-  return <span className={`inline-flex items-center rounded border px-2 py-0.5 text-[11px] font-semibold ${tone[label] || tone.Unavailable}`}>{label}</span>
+  const toneLabel = statusLabel(status)
+  const label = children || toneLabel
+  return <span className={`inline-flex items-center rounded border px-2 py-0.5 text-[11px] font-semibold ${tone[toneLabel] || tone.Unavailable}`}>{label}</span>
 }
 
 export function SourceChip({ source }) {
@@ -46,7 +49,7 @@ export function ActionButton({ kind = 'neutral', children, className = '', type 
     neutral: 'border-softgraph bg-softgraph/40 text-stone hover:bg-softgraph',
     token: 'border-champagne/60 bg-champagne/10 text-champagne hover:bg-champagne/20',
     locked: 'border-clay/60 bg-clay/10 text-clay hover:bg-clay/20',
-    primary: 'border-champagne/80 bg-champagne text-ink hover:bg-stone',
+    primary: 'border-champagne/80 bg-champagne text-ivory hover:bg-well',
   }
   return (
     <button {...props} type={type} className={`inline-flex h-8 items-center justify-center gap-1.5 rounded border px-3 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${styles[kind]} ${className}`}>
@@ -171,21 +174,36 @@ export function TokenRail({ tokens, onNavigate }) {
 }
 
 export function NeedsMeRail({ cockpit, onNavigate }) {
+  const [collapsed, setCollapsed] = useState(false)
   const items = cockpit?.needs_me || []
+  const itemCount = items.length
   const strip = cockpit?.tokens?.strip || {}
   const backup = cockpit?.backup || {}
   const backupAttention = backup?.needs_attention
+  if (collapsed) {
+    return (
+      <aside className="flex w-11 shrink-0 border-l border-softgraph bg-graphite/80" data-testid="needs-me-rail" data-collapsed="true">
+        <button onClick={() => setCollapsed(false)} className="flex h-full w-full flex-col items-center gap-2 py-4 text-[var(--needs-review-text)] hover:bg-well" aria-label={`Open Needs Me, ${itemCount} active`}>
+          <ChevronLeft size={14} />
+          <span className="rounded bg-[var(--needs-review)] px-1.5 py-1 text-xs font-bold">{itemCount}</span>
+          <span className="mt-1 [writing-mode:vertical-rl] text-[10px] font-bold uppercase tracking-widest">Needs Me</span>
+        </button>
+      </aside>
+    )
+  }
   return (
-    <aside className="hidden min-h-0 w-72 shrink-0 overflow-y-auto border-l border-softgraph bg-graphite/80 p-4 xl:block">
-      <div className="text-xs font-mono text-champagne">NEEDS ME</div>
-      <div className="mt-2 text-xl font-semibold text-ivory">{items.length} active</div>
+    <aside className="min-h-0 w-56 shrink-0 overflow-y-auto border-l border-softgraph bg-graphite/80 p-3 xl:w-64" data-testid="needs-me-rail" data-collapsed="false">
+      <div className="flex items-center justify-between gap-2">
+        <div><div className="text-xs font-mono text-[var(--needs-review-text)]">NEEDS ME</div><div className="mt-1 text-lg font-semibold text-ivory" data-testid="needs-me-count">{itemCount} active</div></div>
+        <button onClick={() => setCollapsed(true)} className="rounded p-1.5 text-taupe hover:bg-well hover:text-stone" aria-label="Collapse Needs Me"><ChevronRight size={14} /></button>
+      </div>
       <div className="mt-4 space-y-2">
-        {items.slice(0, 8).map(item => (
-          <button key={item.id} onClick={() => onNavigate('work-queue', { q: item.id, selectedId: item.id })} className="w-full rounded border border-softgraph bg-ink p-2 text-left hover:border-champagne/50">
+        {items.map(item => (
+          <button key={item.id} onClick={() => onNavigate('work-queue', { q: item.id, selectedId: item.id })} className="w-full rounded border bg-ink p-2 text-left" style={{ borderColor: workbenchColor(item.workbench || item.owner, item.status) }} data-needs-me-id={item.id}>
             <div className="truncate text-xs font-semibold text-stone">{item.title}</div>
             <div className="mt-1 flex items-center justify-between gap-2 text-[10px] text-taupe">
               <span>{item.id}</span>
-              <StatusChip status={item.honest_status || item.status}>{item.stalled_minutes ? 'stalled' : statusLabel(item.status)}</StatusChip>
+              <StatusChip status={item.honest_status || item.status}>{item.stalled_minutes ? 'stalled' : item.status}</StatusChip>
             </div>
           </button>
         ))}
@@ -202,7 +220,6 @@ export function NeedsMeRail({ cockpit, onNavigate }) {
         <div className="mt-2">{strip.current_task?.label || 'Token usage: unavailable from current CLI output'}</div>
         <div className="mt-1">{strip.last_task?.label || 'Token usage: unavailable from current CLI output'}</div>
         <div className="mt-1">{strip.today?.label || 'Token usage: unavailable from current CLI output'}</div>
-        <div className="mt-2 text-[10px]">Token usage: no agent invocation</div>
       </div>
       <button onClick={() => onNavigate('mission-control')} className="mt-4 text-xs font-semibold text-champagne hover:text-stone">Open Mission Control</button>
     </aside>

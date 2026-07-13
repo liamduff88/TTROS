@@ -57,6 +57,253 @@ def parse_json(stdout):
 
 
 class AosQueueTest(unittest.TestCase):
+    def _write_codex_reconcile_fixture(
+        self, root, item_id="AOS-2026-0001", *, status="human_review",
+        session_id="session-implementation", receipt_placeholder=False,
+    ):
+        (root / "queue/receipts").mkdir(parents=True)
+        shutil.copy(ROOT / "queue/token_ledger_schema.json", root / "queue/token_ledger_schema.json")
+        receipt = f"queue/receipts/{item_id}.md"
+        receipt_text = (
+            "PASS\n\nToken usage: unavailable from current CLI output.\nToken usage: no agent invocation\n"
+            if receipt_placeholder else
+            f"PASS\n\n<!-- token_usage:{item_id} -->\n## token_usage\n```json\n{{\"token_usage\":{{}}}}\n```\n"
+        )
+        (root / receipt).write_text(receipt_text, encoding="utf-8")
+        item = {
+            "id": item_id,
+            "title": "Codex capture fixture",
+            "status": status,
+            "owner": "codex",
+            "receipts": [{"path": receipt, "created_at": "2026-07-12T00:00:00Z", "status": status}],
+        }
+        (root / "queue/work_items.jsonl").write_text(json.dumps(item) + "\n", encoding="utf-8")
+        unavailable = {
+            "orchestrator": {"input": 0, "output": 0},
+            "subagents": [],
+            "workbenches": [],
+            "totals": {"input": 0, "output": 0},
+            "est_cost_usd": 0.0,
+            "unavailable": ["workbench session totals"],
+        }
+        ledger = {
+            "item_id": item_id,
+            "session_id": session_id,
+            "invocation_id": session_id,
+            "lane": "codex",
+            "profile": "default",
+            "timestamp": "2026-07-12T00:00:00Z",
+            "escalated": False,
+            "model_requested": "Codex workbench session",
+            "model_confirmed": "unavailable",
+            "budget_class": "standard",
+            "token_usage": unavailable,
+            "effect_id": f"codex:{item_id}:{session_id}:tokens",
+        }
+        (root / "queue/token_ledger.jsonl").write_text(json.dumps(ledger) + "\n", encoding="utf-8")
+        (root / f"queue/receipts/{item_id}.token_usage.json").write_text(
+            json.dumps({"token_usage": unavailable, "profile_invocation": {"invoked": True, "session_id": session_id}}) + "\n",
+            encoding="utf-8",
+        )
+        return receipt
+
+    def test_codex_summary_parser_uses_final_exact_summary_and_checks_total(self):
+        module = load_tool_module()
+        output = "Token usage: total=3 input=2 output=1\nnoise\nToken usage: total=445,969 input=407,724 (+ 11,271,424 cached) output=38,245 (reasoning 12,856)\n"
+        parsed = module.parse_codex_token_summary(output)
+        self.assertEqual(445_969, parsed["total"])
+        self.assertEqual(407_724, parsed["input"])
+        self.assertEqual(38_245, parsed["output"])
+        self.assertEqual(11_271_424, parsed["cached"])
+        self.assertEqual(12_856, parsed["reasoning"])
+        with self.assertRaisesRegex(module.QueueError, "input \\+ output"):
+            module.parse_codex_token_summary("Token usage: total=4 input=2 output=1")
+
+        json_parsed = module.parse_codex_token_summary(
+            '{"type":"turn.completed","usage":{"input_tokens":12477,"cached_input_tokens":9984,'
+            '"output_tokens":9,"reasoning_output_tokens":0}}\n'
+        )
+        self.assertEqual(12_486, json_parsed["total"])
+        self.assertEqual("turn.completed JSONL", json_parsed["summary_format"])
+        preferred = module.parse_codex_token_summary(
+            "Token usage: total=13 input=8 output=5\n"
+            '{"type":"turn.completed","usage":{"input_tokens":8,"output_tokens":5}}\n'
+        )
+        self.assertEqual(13, preferred["total"])
+        self.assertEqual("turn.completed JSONL", preferred["summary_format"])
+        self.assertEqual("Token usage: total=13 input=8 output=5", preferred["terminal_summary_cross_check"])
+        with self.assertRaisesRegex(module.QueueError, "conflicts"):
+            module.parse_codex_token_summary(
+                "Token usage: total=3 input=2 output=1\n"
+                '{"type":"turn.completed","usage":{"input_tokens":8,"output_tokens":5}}\n'
+            )
+        with self.assertRaisesRegex(module.QueueError, "subset"):
+            module.parse_codex_token_summary(
+                "Token usage: total=3 input=2 output=1 (reasoning 2)"
+            )
+
+    def test_codex_reconciliation_replaces_one_row_and_receipt_block_idempotently(self):
+        module = load_tool_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            receipt = self._write_codex_reconcile_fixture(root)
+            summary = module.parse_codex_token_summary(
+                "Token usage: total=445,969 input=407,724 (+ 11,271,424 cached) output=38,245 (reasoning 12,856)"
+            )
+            first = module.reconcile_codex_usage(
+                root, "AOS-2026-0001", summary, "codex-cli 0.144.1", "session-implementation"
+            )
+            second = module.reconcile_codex_usage(
+                root, "AOS-2026-0001", summary, "codex-cli 0.144.1", "session-implementation"
+            )
+            rows = [json.loads(line) for line in (root / "queue/token_ledger.jsonl").read_text().splitlines()]
+            sidecar = json.loads((root / "queue/receipts/AOS-2026-0001.token_usage.json").read_text())
+            receipt_text = (root / receipt).read_text()
+
+            self.assertEqual(first, second)
+            self.assertEqual(1, len(rows))
+            self.assertEqual({"input": 407_724, "output": 38_245}, rows[0]["token_usage"]["totals"])
+            self.assertEqual(rows[0]["token_usage"], sidecar["token_usage"])
+            self.assertEqual(11_271_424, sidecar["capture_evidence"]["cached_input_tokens"])
+            self.assertEqual(445_969, sidecar["capture_evidence"]["total_tokens"])
+            self.assertEqual(12_856, rows[0]["capture_evidence"]["reasoning_output_tokens"])
+            self.assertEqual("unavailable", rows[0]["model_confirmed"])
+            self.assertEqual(1, receipt_text.count("<!-- token_usage:AOS-2026-0001 -->"))
+            self.assertEqual(1, receipt_text.count("## token_usage"))
+            self.assertEqual(1, receipt_text.count("## token_usage"))
+
+    def test_codex_reconciliation_is_status_independent_and_preserves_status(self):
+        module = load_tool_module()
+        summary = module.parse_codex_token_summary("Token usage: total=30 input=20 output=10")
+        for status in ("human_review", "done", "needs_input", "blocked"):
+            with self.subTest(status=status), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                self._write_codex_reconcile_fixture(root, status=status)
+                result = module.reconcile_codex_usage(
+                    root, "AOS-2026-0001", summary, "codex-cli test", "session-implementation"
+                )
+                self.assertEqual(status, result["queue_status"])
+                item = json.loads((root / "queue/work_items.jsonl").read_text())
+                self.assertEqual(status, item["status"])
+
+    def test_done_review_sidecar_cannot_downgrade_existing_exact_usage(self):
+        module = load_tool_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "queue/receipts").mkdir(parents=True)
+            receipt = root / "queue/receipts/AOS-2026-0001-review.md"
+            receipt.write_text("PASS\n", encoding="utf-8")
+            exact = {
+                "orchestrator": {"input": 0, "output": 0},
+                "subagents": [],
+                "workbenches": [{"tool": "codex", "input": 20, "output": 10, "source": "reported"}],
+                "totals": {"input": 20, "output": 10},
+                "est_cost_usd": 0.0,
+                "unavailable": ["Codex model identity"],
+            }
+            unavailable = {
+                "orchestrator": {"input": 0, "output": 0},
+                "subagents": [], "workbenches": [],
+                "totals": {"input": 0, "output": 0},
+                "est_cost_usd": 0.0,
+                "unavailable": ["workbench session totals"],
+            }
+            module._write_receipt_token_usage(root, "AOS-2026-0001", None, exact, {"invoked": True})
+            module._write_receipt_token_usage(
+                root, "AOS-2026-0001", "queue/receipts/AOS-2026-0001-review.md",
+                unavailable, {"invoked": False},
+            )
+            sidecar = json.loads((root / "queue/receipts/AOS-2026-0001.token_usage.json").read_text())
+            self.assertEqual({"input": 20, "output": 10}, sidecar["token_usage"]["totals"])
+            self.assertEqual(1, receipt.read_text().count("<!-- token_usage:AOS-2026-0001 -->"))
+
+    def test_codex_unavailable_exact_and_conflict_reconciliation_rules(self):
+        module = load_tool_module()
+        exact = module.parse_codex_token_summary(
+            "Token usage: total=30 input=20 (+ 100 cached) output=10 (reasoning 4)"
+        )
+        conflict = module.parse_codex_token_summary("Token usage: total=31 input=20 output=11")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._write_codex_reconcile_fixture(root, receipt_placeholder=True)
+            module.reconcile_codex_usage(root, "AOS-2026-0001", None, "codex-cli test", "session-implementation")
+            upgraded = module.reconcile_codex_usage(root, "AOS-2026-0001", exact, "codex-cli test", "session-implementation")
+            retained = module.reconcile_codex_usage(root, "AOS-2026-0001", None, "codex-cli test", "session-implementation")
+            self.assertEqual({"input": 20, "output": 10}, upgraded["token_usage"]["totals"])
+            self.assertEqual(upgraded["token_usage"], retained["token_usage"])
+            with self.assertRaisesRegex(module.QueueError, "Conflicting exact"):
+                module.reconcile_codex_usage(root, "AOS-2026-0001", conflict, "codex-cli test", "session-implementation")
+            receipt_text = (root / upgraded["receipt"]).read_text()
+            self.assertNotIn("unavailable from current CLI output", receipt_text)
+            self.assertEqual(1, receipt_text.count("<!-- token_usage:AOS-2026-0001 -->"))
+
+    def test_codex_sessions_remain_separate_and_do_not_merge(self):
+        module = load_tool_module()
+        implementation = module.parse_codex_token_summary("Token usage: total=30 input=20 output=10")
+        repair = module.parse_codex_token_summary("Token usage: total=12 input=7 output=5")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._write_codex_reconcile_fixture(root)
+            module.reconcile_codex_usage(root, "AOS-2026-0001", implementation, "codex-cli test", "session-implementation")
+            module.reconcile_codex_usage(root, "AOS-2026-0001", repair, "codex-cli test", "session-repair")
+            rows = [json.loads(line) for line in (root / "queue/token_ledger.jsonl").read_text().splitlines()]
+            identities = [(row["item_id"], row.get("session_id")) for row in rows]
+            self.assertEqual(1, identities.count(("AOS-2026-0001", "session-implementation")))
+            self.assertEqual(1, identities.count(("AOS-2026-0001", "session-repair")))
+            self.assertEqual([30, 12], [row["token_usage"]["totals"]["input"] + row["token_usage"]["totals"]["output"] for row in rows])
+            sidecar = json.loads((root / "queue/receipts/AOS-2026-0001.token_usage.json").read_text())
+            self.assertEqual("session-repair", sidecar["profile_invocation"]["session_id"])
+
+    def test_codex_runner_waits_for_fake_process_exit_then_reconciles_explicit_item(self):
+        module = load_tool_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._write_codex_reconcile_fixture(root)
+            fake = root / "fake-codex"
+            fake.write_text(
+                "#!/usr/bin/env python3\n"
+                "import sys\n"
+                "if '--version' in sys.argv:\n"
+                "    print('codex-cli 0.144.1')\n"
+                "else:\n"
+                "    sys.stdin.read()\n"
+                "    print('worker closeout')\n"
+                "    print('Token usage: total=30 input=20 (+ 100 cached) output=10 (reasoning 4)')\n",
+                encoding="utf-8",
+            )
+            fake.chmod(0o755)
+            result = module.run_codex_work_item(
+                root, "AOS-2026-0001", "bounded fixture prompt", codex_bin=str(fake)
+            )
+            self.assertEqual({"input": 20, "output": 10}, result["token_usage"]["totals"])
+            self.assertTrue(result["capture_evidence"]["captured_after_process_exit"])
+            self.assertEqual("codex-cli 0.144.1", result["capture_evidence"]["cli_version"])
+
+    def test_codex_runner_reconciles_process_exit_usage_before_nonzero_failure(self):
+        module = load_tool_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._write_codex_reconcile_fixture(root)
+            fake = root / "fake-codex"
+            fake.write_text(
+                "#!/usr/bin/env python3\n"
+                "import sys\n"
+                "if '--version' in sys.argv:\n"
+                "    print('codex-cli test')\n"
+                "else:\n"
+                "    sys.stdin.read()\n"
+                "    print('{\"type\":\"thread.started\",\"thread_id\":\"session-failed\"}')\n"
+                "    print('{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":9,\"output_tokens\":2}}')\n"
+                "    raise SystemExit(2)\n",
+                encoding="utf-8",
+            )
+            fake.chmod(0o755)
+            with self.assertRaisesRegex(module.QueueError, "usage was reconciled"):
+                module.run_codex_work_item(root, "AOS-2026-0001", "bounded fixture prompt", codex_bin=str(fake))
+            rows = [json.loads(line) for line in (root / "queue/token_ledger.jsonl").read_text().splitlines()]
+            failed = next(row for row in rows if row.get("session_id") == "session-failed")
+            self.assertEqual({"input": 9, "output": 2}, failed["token_usage"]["totals"])
+
     def test_queue_release_requires_exact_complete_acquired_owner(self):
         changes = {
             "token": "replacement-token",
@@ -373,6 +620,40 @@ class AosQueueTest(unittest.TestCase):
             self.assertEqual(12, len(rows))
             self.assertEqual(12, len({row["id"] for row in rows}))
 
+    def test_concurrent_readers_never_observe_partial_jsonl(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            stop = threading.Event()
+            failures = []
+            observations = []
+
+            def reader():
+                while not stop.is_set():
+                    path = root / "queue/work_items.jsonl"
+                    if path.exists():
+                        try:
+                            rows = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+                            observations.append(len(rows))
+                        except (OSError, json.JSONDecodeError) as exc:
+                            failures.append(str(exc))
+
+            thread = threading.Thread(target=reader)
+            thread.start()
+            try:
+                with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+                    results = list(pool.map(
+                        lambda n: run_cli(root, "create", "--title", f"Reader burst {n}"), range(12)
+                    ))
+            finally:
+                stop.set()
+                thread.join(5)
+            self.assertTrue(all(result.returncode == 0 for result in results), [r.stderr for r in results])
+            self.assertEqual([], failures)
+            self.assertTrue(observations)
+            rows = [json.loads(line) for line in (root / "queue/work_items.jsonl").read_text().splitlines()]
+            self.assertEqual(12, len(rows))
+            self.assertEqual(12, len({row["id"] for row in rows}))
+
     def test_second_owner_cannot_enter_critical_section(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -555,6 +836,26 @@ class AosQueueTest(unittest.TestCase):
             self.assertEqual("AOS-2026-0001", item["parent_id"])
             self.assertEqual(["AOS-2026-0001"], item["depends_on"])
             self.assertEqual("human_review", item["on_complete"])
+
+    def test_workflow_parent_is_never_next_or_claimable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            created = run_cli(
+                root, "create", "--title", "Aggregate", "--owner-type", "workflow",
+                "--owner", "hermes", "--status", "inbox",
+            )
+            self.assertEqual(0, created.returncode, created.stderr)
+            parent = parse_json(created.stdout)
+            for agent in ("hermes", "codex", "claude", "revenue", "marketing", "delivery", "operations"):
+                nxt = run_cli(root, "next", agent)
+                self.assertEqual({}, parse_json(nxt.stdout), agent)
+            claimed = run_cli(root, "claim", parent["id"], "hermes")
+            self.assertNotEqual(0, claimed.returncode)
+            self.assertIn("workflow aggregate", claimed.stderr)
+
+            invalid = run_cli(root, "create", "--title", "Bad type", "--owner-type", "worker")
+            self.assertNotEqual(0, invalid.returncode)
+            self.assertIn("Invalid owner_type", invalid.stderr)
 
     def test_queue_json_files_and_schemas_load(self):
         json.loads((ROOT / "queue" / "agent_registry.json").read_text(encoding="utf-8"))
@@ -739,6 +1040,36 @@ class AosQueueTest(unittest.TestCase):
             self.assertEqual(ledger_line["token_usage"]["est_cost_usd"], 3.8)
             self.assertEqual(rolled["totals"]["est_cost_usd"], 3.8)
             self.assertEqual(rolled["by_model"]["claude-sonnet-5"]["est_cost_usd"], 3.0)
+
+    def test_rollup_exact_invocation_outranks_same_item_placeholders(self):
+        rollup = load_rollup_module()
+        usage = {
+            "orchestrator": {"input": 0, "output": 0}, "subagents": [],
+            "workbenches": [{"tool": "codex", "input": 0, "output": 0, "source": "unavailable"}],
+            "totals": {"input": 0, "output": 0}, "unavailable": ["Codex token usage"],
+        }
+        unavailable = {
+            "item_id": "AOS-2026-0001", "session_id": "session-proof", "timestamp": "2026-07-12T00:00:00Z",
+            "lane": "codex", "profile": "default", "budget_class": "light", "escalated": False,
+            "token_usage": usage,
+        }
+        placeholder = {
+            **unavailable, "session_id": None,
+            "token_usage": {**usage, "workbenches": [], "unavailable": ["no agent invocation"]},
+        }
+        exact = {
+            **unavailable,
+            "token_usage": {
+                **usage,
+                "workbenches": [{"tool": "codex", "input": 20, "output": 10, "source": "reported"}],
+                "totals": {"input": 20, "output": 10},
+                "unavailable": ["Codex model identity"],
+            },
+        }
+        rolled = rollup.rollup_week("2026-W28", [unavailable, placeholder, exact], {})
+        self.assertEqual(1, rolled["line_count"])
+        self.assertEqual({"input": 20, "output": 10, "est_cost_usd": 0.0}, rolled["totals"])
+        self.assertNotIn("no agent invocation", rolled["unavailable_components"])
 
 
 if __name__ == "__main__":

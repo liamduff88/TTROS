@@ -1,0 +1,33 @@
+{
+  "url": "http://127.0.0.1:3010/",
+  "viewports": [
+    {
+      "width": 1440,
+      "height": 1000,
+      "status": 200,
+      "lane_cards": 2,
+      "needs_me_count": "9 active",
+      "body_width": 1440,
+      "scroll_width": 1440,
+      "client_width": 1440,
+      "destinations": [],
+      "screenshot": "workflows/queue_artifacts/final-parent-review-proof/dashboard-1440x1000.png"
+    },
+    {
+      "width": 1100,
+      "height": 850,
+      "status": 200,
+      "lane_cards": 2,
+      "needs_me_count": "9 active",
+      "body_width": 1100,
+      "scroll_width": 1100,
+      "client_width": 1100,
+      "destinations": [],
+      "screenshot": "workflows/queue_artifacts/final-parent-review-proof/dashboard-1100x850.png"
+    }
+  ],
+  "console_errors": [],
+  "page_errors": [],
+  "http_errors": [],
+  "pass": true
+}

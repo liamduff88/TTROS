@@ -1,6 +1,7 @@
-import { Bot, Circle, Copy, ExternalLink, MessageSquare, Monitor, RefreshCw, Search } from 'lucide-react'
+import { Bot, Circle, Copy, Monitor, RefreshCw, Search } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { getHermesUiStatus, launchHermesUi } from '../api'
+import { launcherPrompt } from '../launcherPrompts'
 
 export default function TopBar({ backendOk, cockpit, onNavigate, onRefresh }) {
   const [refreshing, setRefreshing] = useState(false)
@@ -20,15 +21,6 @@ export default function TopBar({ backendOk, cockpit, onNavigate, onRefresh }) {
   const latitudeTitle = latitude.workspace_url
     ? 'Open configured Latitude workspace'
     : (latitude.degraded_reason || 'Latitude workspace URL not configured')
-  const tabs = [
-    ['message-board', 'Message Board'],
-    ['cockpit', 'Cockpit'],
-    ['work-queue', 'Queue'],
-    ['agents', 'Agents'],
-    ['artifacts', 'Artifacts'],
-    ['mission-control', 'Mission Control'],
-  ]
-
   useEffect(() => {
     getHermesUiStatus().then(setHermesUi).catch(() => setHermesUi({ state: 'configuration_missing' }))
   }, [])
@@ -39,19 +31,14 @@ export default function TopBar({ backendOk, cockpit, onNavigate, onRefresh }) {
     setTimeout(() => setRefreshing(false), 600)
   }
 
-  const openTelegramApp = () => {
-    window.location.href = 'tg://'
-  }
-
   const copyTelegramFallback = async () => {
-    await navigator.clipboard?.writeText('Open Telegram Desktop from the Windows Start menu if the tg:// app link does not open.')
+    await navigator.clipboard?.writeText('Telegram is instructions-only in this dashboard. Use the existing installed client or the established internal bridge outside this surface; no message is sent here.')
     setCopied('telegram')
     setTimeout(() => setCopied(''), 1400)
   }
 
   const copyPrompt = async target => {
-    const prompt = `Open Agentic OS Live and work only from the active queue item assigned to ${target}. Preserve receipts, token usage lines, and local-only boundaries.`
-    await navigator.clipboard?.writeText(prompt)
+    await navigator.clipboard?.writeText(launcherPrompt(target))
     setCopied(target)
     setTimeout(() => setCopied(''), 1400)
   }
@@ -88,26 +75,13 @@ export default function TopBar({ backendOk, cockpit, onNavigate, onRefresh }) {
   const statusColor = blocked ? 'text-clay fill-clay' : needs ? 'text-champagne fill-champagne' : backendOk ? 'text-olive fill-olive' : 'text-taupe fill-taupe'
 
   return (
-    <header className="flex flex-col gap-2 bg-graphite px-4 py-3 border-b border-softgraph flex-shrink-0">
-      <div className="flex min-w-0 items-center justify-between gap-3">
-        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-          {tabs.map(([id, label]) => (
-            <button key={id} onClick={() => onNavigate(id)} className="inline-flex h-8 items-center gap-1.5 rounded border border-softgraph bg-ink px-2.5 text-xs font-semibold text-stone hover:border-champagne/50">
-              {id === 'message-board' && <MessageSquare size={13} />}
-              {label}
-            </button>
-          ))}
-        </div>
-        <div className="hidden items-center gap-1.5 md:flex">
+    <header className="flex flex-nowrap items-center gap-2 overflow-x-auto bg-graphite px-3 py-2 border-b border-softgraph flex-shrink-0" data-testid="utility-topbar">
+      <div className="flex shrink-0 flex-nowrap items-center gap-1.5">
+        <div className="mr-1 hidden items-center gap-1.5 md:flex">
           <Circle size={8} className={statusColor} />
           <span className="text-xs font-mono text-taupe">{blocked ? `${blocked} blocked` : needs ? `${needs} needs me` : backendOk ? 'ready' : 'API offline'}</span>
         </div>
-      </div>
-
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex flex-wrap gap-1.5">
-          <button onClick={openTelegramApp} className="inline-flex h-8 items-center gap-1.5 rounded border border-softgraph bg-softgraph/40 px-2.5 text-xs text-stone hover:bg-softgraph" title="Attempts to open Telegram Desktop with tg://"><ExternalLink size={13} />Open Telegram App</button>
-          <button onClick={copyTelegramFallback} className="inline-flex h-8 items-center gap-1.5 rounded border border-softgraph bg-ink px-2.5 text-xs text-stone hover:border-champagne/50" title="Copy fallback if Windows does not have tg:// registered"><Copy size={13} />{copied === 'telegram' ? 'Copied Telegram fallback' : 'Copy: Open from Start'}</button>
+          <button onClick={copyTelegramFallback} className="inline-flex h-8 items-center gap-1.5 rounded border border-softgraph bg-ink px-2.5 text-xs text-stone hover:border-champagne/50" title="Copy Telegram instructions; this dashboard does not send messages"><Copy size={13} />{copied === 'telegram' ? 'Copied Telegram instructions' : 'Telegram instructions'}</button>
           <button
             onClick={openHermesUi}
             disabled={hermesUiBusy || hermesUi?.supported === false}
@@ -134,8 +108,8 @@ export default function TopBar({ backendOk, cockpit, onNavigate, onRefresh }) {
           </button>
           <button onClick={() => copyPrompt('codex')} className="inline-flex h-8 items-center gap-1.5 rounded border border-softgraph bg-ink px-2.5 text-xs text-stone hover:border-champagne/50"><Copy size={13} />{copied === 'codex' ? 'Copied Codex' : 'Codex copy-prompt'}</button>
           <button onClick={() => copyPrompt('claude-code')} className="inline-flex h-8 items-center gap-1.5 rounded border border-softgraph bg-ink px-2.5 text-xs text-stone hover:border-champagne/50"><Copy size={13} />{copied === 'claude-code' ? 'Copied Claude' : 'Claude Code copy-prompt'}</button>
-        </div>
-        <form onSubmit={submitSearch} className="flex h-8 min-w-56 items-center rounded border border-softgraph bg-ink px-2 text-xs text-stone focus-within:border-champagne/60">
+      </div>
+        <form onSubmit={submitSearch} className="flex h-8 min-w-48 shrink-0 items-center rounded border border-softgraph bg-ink px-2 text-xs text-stone focus-within:border-champagne/60">
           <Search size={13} className="text-taupe" />
           <input value={query} onChange={event => setQuery(event.target.value)} placeholder="Search local index" className="ml-2 w-44 bg-transparent outline-none placeholder:text-taupe" />
         </form>
@@ -144,7 +118,6 @@ export default function TopBar({ backendOk, cockpit, onNavigate, onRefresh }) {
         <button onClick={handleRefresh} className="text-taupe hover:text-stone transition-colors" title="Refresh dashboard">
           <RefreshCw size={13} className={refreshing ? 'animate-spin' : ''} />
         </button>
-      </div>
     </header>
   )
 }

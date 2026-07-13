@@ -3,10 +3,12 @@ import { CheckCircle2, Columns3, Copy, Database, Edit3, ExternalLink, FolderOpen
 import {
   attachQueueReceipt,
   closeQueueItemReview,
+  createCockpitCommand,
   createDashboardTask,
   createQueueItem,
   getDashboardCockpit,
   getDashboardGraphify,
+  getLatitudeStatus,
   getHermesUiStatus,
   getDashboardMemory,
   getDashboardPrompts,
@@ -15,11 +17,14 @@ import {
   getDashboardSkills,
   getDashboardTokens,
   getDashboardWorkflows,
+  getDashboardWorkflow,
   getQueueItems,
   launchHermesUi,
   openDashboardPath,
   saveDashboardSkill,
+  saveDashboardWorkflow,
 } from '../api'
+import { launcherPrompt } from '../launcherPrompts'
 import { ActionButton, DetailPanel, EmptyState, FilterBar, PageHeader, RowButton, SourceChip, StatTile, StatusChip, statusLabel } from '../components/DashboardKit'
 
 const age = value => {
@@ -31,6 +36,45 @@ const age = value => {
 }
 
 const itemLane = item => item?.lane || item?.owner || 'unassigned'
+
+const laneColor = lane => `var(--lane-${lane === 'unassigned' ? 'unassigned' : lane})`
+const laneTitle = lane => lane === 'unassigned' ? 'Unassigned' : `${lane.slice(0, 1).toUpperCase()}${lane.slice(1)}`
+const laneTokenText = usage => usage?.state === 'exact'
+  ? `${Number(usage.total).toLocaleString()} exact · ${Number(usage.input).toLocaleString()} in / ${Number(usage.output).toLocaleString()} out`
+  : 'unavailable'
+
+function LaneActivityCard({ lane, onNavigate }) {
+  const items = lane.items || []
+  const active = lane.current_assigned_work || []
+  const review = Number(lane.counts?.human_review || 0)
+  const border = review ? 'var(--needs-review)' : `var(--wb-${lane.shortcut?.workbench || 'hermes'}-queued)`
+  return (
+    <article className="min-w-0 rounded border bg-graphite/70 p-3" style={{ borderColor: border }} data-lane-card={lane.lane}>
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <span className="rounded px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-ivory" style={{ backgroundColor: laneColor(lane.lane) }}>{laneTitle(lane.lane)}</span>
+          <div className="mt-2 text-xs text-taupe">{items.length} queue items · {lane.degraded ? 'data unavailable' : 'live local data'}</div>
+        </div>
+        {review > 0 && <StatusChip status="human_review">Needs review</StatusChip>}
+      </div>
+      <div className="mt-3 grid grid-cols-4 gap-1 text-center text-[10px] text-taupe">
+        {['agent_todo', 'agent_working', 'blocked', 'human_review'].map(status => <div key={status} className="rounded bg-ink p-1.5"><strong className="block text-sm text-stone">{lane.counts?.[status] || 0}</strong>{status.replace('agent_', '').replace('_', ' ')}</div>)}
+      </div>
+      <div className="mt-3 space-y-2 text-xs">
+        <div><span className="text-taupe">Current:</span> <span className="text-stone">{active.length ? active.map(item => item.id).join(', ') : 'none assigned'}</span></div>
+        <div><span className="text-taupe">Last done:</span> <span className="text-stone">{lane.last_completed_item?.id || 'unavailable'}</span></div>
+        <div className="truncate"><span className="text-taupe">Receipt:</span> <span className="text-stone">{lane.latest_receipt?.path || 'unavailable'}</span></div>
+        <div className="truncate"><span className="text-taupe">Artifact:</span> <span className="text-stone">{lane.latest_artifact?.path || 'unavailable'}</span></div>
+        <div><span className="text-taupe">Tokens:</span> <span className="text-stone">{laneTokenText(lane.token_usage)}</span></div>
+        <div><span className="text-taupe">Last run:</span> <span className="text-stone">{lane.last_successful_run ? (lane.last_successful_run.timestamp || lane.last_successful_run.completed_at || lane.last_successful_run.created_at || 'recorded') : 'unavailable'}</span></div>
+      </div>
+      <div className="mt-3 flex flex-wrap gap-1">
+        {items.slice(0, 8).map(item => <button key={item.id} onClick={() => onNavigate('work-queue', { q: item.id, selectedId: item.id })} className="rounded border border-softgraph bg-ink px-1.5 py-1 text-[10px] text-taupe hover:text-stone" data-lane-item={item.id}>{item.id} · {item.owner || 'unassigned'} / {item.workbench || 'no workbench'}</button>)}
+      </div>
+      <button onClick={() => onNavigate('work-queue', { lane: lane.lane, workbench: lane.shortcut?.workbench || '' })} className="mt-3 w-full rounded border border-softgraph bg-ink px-2 py-1.5 text-xs font-semibold text-stone hover:border-champagne/40">Open filtered queue</button>
+    </article>
+  )
+}
 const textMatch = (item, q) => !q || JSON.stringify(item).toLowerCase().includes(q.toLowerCase())
 const byFilters = (item, filters) =>
   (!filters.status || item.status === filters.status) &&
@@ -86,13 +130,51 @@ function MarkdownPreview({ content }) {
 
 export function Cockpit({ cockpit, onNavigate, refresh }) {
   const [selected, setSelected] = useState(null)
+  const [command, setCommand] = useState('')
+  const [commandState, setCommandState] = useState({ busy: false, message: '', error: '' })
   const data = cockpit || {}
   const counts = data.counts || {}
   const needs = data.needs_me || []
   const recent = data.recent_output || []
+  const laneActivity = data.lane_activity || []
+  const submitCommand = async event => {
+    event.preventDefault()
+    const text = command.trim()
+    if (!text || commandState.busy) return
+    setCommandState({ busy: true, message: '', error: '' })
+    try {
+      const result = await createCockpitCommand(text)
+      if (!result?.item?.id) throw new Error('Local queue item was not created')
+      setCommand('')
+      setCommandState({ busy: false, message: `${result.item.id} routed to ${result.item.owner}.`, error: '' })
+      await refresh?.()
+      onNavigate('work-queue', { selectedId: result.item.id })
+    } catch (error) {
+      setCommandState({ busy: false, message: '', error: error?.response?.data?.detail || error?.message || 'Command could not be queued' })
+    }
+  }
   return (
     <>
       <PageHeader title="Cockpit" question="What needs me right now, and what is the OS doing/spending?" actions={<ActionButton onClick={refresh}><RefreshCw size={13} />Refresh</ActionButton>} />
+      <form onSubmit={submitCommand} className="mb-4 rounded border border-champagne/40 bg-graphite p-4" data-testid="cockpit-command-input">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
+          <label className="min-w-0 flex-1">
+            <span className="text-xs font-mono text-champagne">COMMAND THE OS</span>
+            <textarea
+              value={command}
+              onChange={event => { setCommand(event.target.value); setCommandState(current => ({ ...current, message: '', error: '' })) }}
+              maxLength={2000}
+              placeholder="Describe the work in plain language"
+              className="mt-2 min-h-20 w-full resize-y rounded border border-softgraph bg-ink px-3 py-2 text-sm text-stone outline-none placeholder:text-taupe focus:border-champagne/60"
+            />
+          </label>
+          <ActionButton kind="primary" type="submit" disabled={commandState.busy || !command.trim()}>
+            <Plus size={14} />{commandState.busy ? 'Routing…' : 'Add to Work Queue'}
+          </ActionButton>
+        </div>
+        <p className="mt-2 text-xs text-taupe">Deterministic local intake only. This creates a routed work item; it does not call a model or take external action.</p>
+        {(commandState.message || commandState.error) && <div className={`mt-2 text-xs font-mono ${commandState.error ? 'text-clay' : 'text-champagne'}`}>{commandState.error || commandState.message}</div>}
+      </form>
       <section className="rounded border border-champagne/40 bg-graphite p-4">
         <div className="mb-3 flex items-center justify-between">
           <div>
@@ -122,6 +204,16 @@ export function Cockpit({ cockpit, onNavigate, refresh }) {
           </div>
         </div>
         <BackupStatusCard backup={data.backup} />
+      </section>
+      <section className="mt-4 rounded border border-softgraph bg-graphite/50 p-4" data-testid="lane-activity">
+        <div className="mb-3">
+          <h2 className="text-sm font-semibold text-stone">Lane Activity</h2>
+          <p className="mt-1 text-xs text-taupe">Queue drilldowns grouped by recorded lane tag or lane owner; workbench and status remain separate real fields.</p>
+        </div>
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+          {laneActivity.map(lane => <LaneActivityCard key={lane.lane} lane={lane} onNavigate={onNavigate} />)}
+        </div>
+        {!laneActivity.length && <EmptyState title="Lane activity unavailable" detail="The existing queue and ledgers could not be summarized." />}
       </section>
       <section className="mt-4 grid gap-4 xl:grid-cols-2">
         <div className="rounded border border-softgraph bg-graphite/70 p-4">
@@ -211,7 +303,7 @@ export function WorkQueueV1({ initialFilters = {} }) {
         <MarkdownPreview content={JSON.stringify(selected, null, 2)} />
         {selected?.status === 'human_review' && <div className="mt-4 rounded border border-softgraph bg-ink p-3">
           <textarea value={note} onChange={e => setNote(e.target.value)} placeholder="Close note" className="min-h-20 w-full rounded border border-softgraph bg-graphite px-3 py-2 text-sm text-stone" />
-          <div className="mt-3 flex flex-wrap gap-2"><ActionButton onClick={() => close('done')}>Close Done</ActionButton><ActionButton onClick={() => close('needs_input')}>Needs Input</ActionButton><ActionButton onClick={() => close('blocked')}>Blocked</ActionButton></div>
+          <div className="mt-3 flex flex-wrap gap-2"><ActionButton onClick={() => close('done')}>Close Done</ActionButton><ActionButton onClick={() => close('needs_input')}>{selected?.owner_type === 'workflow' ? 'Needs changes' : 'Needs Input'}</ActionButton><ActionButton onClick={() => close('blocked')}>Blocked</ActionButton></div>
         </div>}
       </DetailPanel>
     </>
@@ -242,8 +334,83 @@ function FileBoard({ title, question, loader, listKey, renderMeta, tokenAction }
 }
 
 export function WorkflowBench() {
+  const [filters, setFilters] = useState({})
+  const [selected, setSelected] = useState(null)
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState('')
+  const [loaded, setLoaded] = useState(null)
+  const [message, setMessage] = useState('')
+  const [errorMessage, setErrorMessage] = useState('')
+  const [reloadKey, setReloadKey] = useState(0)
+  const { loading, data, error } = useAsync(getDashboardWorkflows, [reloadKey])
+  const workflows = (data?.workflows || []).filter(item => textMatch(item, filters.q || '') && (!filters.lane || item.lane === filters.lane))
   const run = item => createDashboardTask({ title: `Run workflow: ${item.name}`, owner: item.lane === 'operations' ? 'operations' : item.lane, tags: `workflow,${item.id}`, context: `Run workflow from ${item.path}.`, sources: item.path, definition_of_done: 'Workflow run is completed with receipt and token usage block.' })
-  return <FileBoard title="Workflow Bench" question="What repeatable workflows do I have, and how do I run one now?" loader={getDashboardWorkflows} listKey="workflows" renderMeta={item => `${item.lane} · receipts ${item.receipt_count} · avg tokens ${item.avg_tokens}`} tokenAction={run} />
+  const beginEdit = async () => {
+    setMessage('')
+    setErrorMessage('')
+    try {
+      const workflow = await getDashboardWorkflow(selected.id)
+      setLoaded(workflow)
+      setDraft(workflow.content)
+      setEditing(true)
+    } catch (error) {
+      setErrorMessage(error?.response?.data?.detail || error.message || 'Workflow load failed')
+    }
+  }
+  const cancelEdit = () => {
+    setEditing(false)
+    setDraft('')
+    setLoaded(null)
+    setMessage('Edit cancelled; persisted content was not changed.')
+  }
+  const reloadEdit = async () => {
+    setEditing(false)
+    await beginEdit()
+    setMessage('Reloaded exact persisted content.')
+  }
+  const saveEdit = async () => {
+    setMessage('')
+    setErrorMessage('')
+    try {
+      const saved = await saveDashboardWorkflow({ workflow_id: selected.id, content: draft, expected_revision: loaded.revision })
+      setLoaded(saved)
+      setDraft(saved.content)
+      setSelected(current => ({ ...current, name: saved.name, content: saved.content, revision: saved.revision }))
+      setEditing(false)
+      setMessage(`Saved and verified ${saved.path}; workflow was not executed.`)
+      setReloadKey(key => key + 1)
+    } catch (error) {
+      setErrorMessage(error?.response?.data?.detail || error.message || 'Workflow save failed')
+    }
+  }
+  const dirty = Boolean(editing && loaded && draft !== loaded.content)
+  return (
+    <>
+      <PageHeader title="Workflow Bench" question="View repeatable workflow sources and safely edit eligible canonical definitions." actions={<ActionButton onClick={() => setReloadKey(key => key + 1)}><RefreshCw size={13} />Refresh</ActionButton>} />
+      <FilterBar filters={filters} onChange={setFilters} />
+      {loading && <EmptyState title="Loading" detail="Reading local workflow sources." />}
+      {error && <EmptyState title="Unavailable" detail={error} />}
+      <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+        {workflows.map(item => <RowButton key={item.id} title={item.name} meta={`${item.identifier} · ${item.lane} · ${item.path} · ${item.editable ? 'editable' : 'read-only'}`} onClick={() => { setSelected(item); setEditing(false); setLoaded(null); setMessage(''); setErrorMessage('') }} />)}
+      </div>
+      {!loading && !workflows.length && <EmptyState title="No local entries" detail="Nothing matched the current filters." />}
+      <DetailPanel item={selected} title={selected?.name} subtitle={`${selected?.identifier || selected?.id} · ${selected?.path || ''}`} onClose={() => { setSelected(null); setEditing(false); setLoaded(null) }}>
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          {!editing && <ActionButton kind="token" onClick={() => run(selected)}>Create queue item</ActionButton>}
+          {!editing && selected?.editable && <ActionButton onClick={beginEdit}><Edit3 size={13} />Edit source</ActionButton>}
+          {editing && <ActionButton kind="primary" onClick={saveEdit} disabled={!dirty}><Save size={13} />Save deliberately</ActionButton>}
+          {editing && <ActionButton onClick={reloadEdit}><RefreshCw size={13} />Reload persisted</ActionButton>}
+          {editing && <ActionButton onClick={cancelEdit}><X size={13} />Cancel</ActionButton>}
+          {!editing && <ActionButton onClick={() => navigator.clipboard?.writeText(selected?.content || '')}><Copy size={13} />Copy</ActionButton>}
+          {editing && <span className={`text-xs font-mono ${dirty ? 'text-champagne' : 'text-taupe'}`}>{dirty ? 'Unsaved changes' : 'No changes'}</span>}
+        </div>
+        {!selected?.editable && <div className="mb-3 rounded border border-softgraph bg-ink p-3 text-xs text-taupe">Read-only: {selected?.read_only_reason || 'No safely resolvable editable source is available.'}</div>}
+        {message && <div className="mb-3 rounded border border-olive/40 bg-olive/10 p-2 text-xs text-stone">{message}</div>}
+        {errorMessage && <div className="mb-3 rounded border border-clay/50 bg-clay/10 p-2 text-xs text-clay">{errorMessage}</div>}
+        {editing ? <textarea aria-label="Workflow source editor" value={draft} onChange={event => setDraft(event.target.value)} className="min-h-[58vh] w-full rounded border border-softgraph bg-ink px-3 py-2 font-mono text-xs leading-5 text-stone outline-none focus:border-champagne/60" /> : <MarkdownPreview content={selected?.content || ''} />}
+      </DetailPanel>
+    </>
+  )
 }
 
 export function SkillsBoard() {
@@ -367,19 +534,75 @@ export function SkillsBoard() {
 }
 
 export function ResultsReceipts() {
-  return <FileBoard title="Results & Receipts" question="What happened, and is it safe to close?" loader={getDashboardResults} listKey="items" renderMeta={item => `${item.source} · ${age(item.modified)} · ${item.path}`} />
+  const { data, loading, error } = useAsync(getDashboardResults)
+  const [filters, setFilters] = useState({})
+  const [selected, setSelected] = useState(null)
+  const activity = (data?.activity || []).filter(item =>
+    textMatch(item, filters.q || '') &&
+    (!filters.lane || item.lane === filters.lane) &&
+    (!filters.workbench || item.workbench === filters.workbench) &&
+    (!filters.status || item.status === filters.status) &&
+    (!filters.source || String(item.source || '').toLowerCase() === filters.source.toLowerCase()) &&
+    (!filters.date || String(item.time || '').slice(0, 10) === filters.date)
+  )
+  return (
+    <>
+      <PageHeader title="Activity & Receipts" question="Newest-first evidence from existing receipts and ledgers. Read-only; viewing makes no model calls." />
+      <FilterBar filters={filters} onChange={setFilters} />
+      <div className="mb-4 flex items-center gap-2 rounded border border-softgraph bg-graphite/60 p-3">
+        <label className="text-xs text-taupe" htmlFor="activity-date">Date</label>
+        <input id="activity-date" type="date" value={filters.date || ''} onChange={event => setFilters({ ...filters, date: event.target.value })} className="h-9 rounded border border-softgraph bg-ink px-2 text-xs text-stone" />
+        <span className="ml-auto text-xs text-taupe">{data?.token_usage_text || 'Token usage: no agent invocation'}</span>
+      </div>
+      {loading && <EmptyState title="Loading" detail="Reading existing receipts and ledgers." />}
+      {error && <EmptyState title="Unavailable" detail={error} />}
+      <div className="space-y-2" data-testid="activity-feed">
+        {activity.map(item => (
+          <button key={item.path} onClick={() => setSelected(item)} className="grid w-full gap-2 rounded border border-softgraph bg-graphite/60 p-3 text-left text-xs text-taupe hover:border-champagne/40 lg:grid-cols-[1.1fr_.8fr_1fr_.7fr_1.5fr_1.2fr_1.2fr]" data-activity-path={item.path}>
+            <span>{item.time || 'time unavailable'}</span>
+            <span className="text-stone">{item.component} / {item.lane}</span>
+            <span>{item.item_id}</span>
+            <StatusChip status={item.status}>{item.status}</StatusChip>
+            <span className="truncate text-stone">{item.receipt || item.artifact}</span>
+            <span>{item.token_line || 'Token usage: unavailable'}</span>
+            <span>{item.next_action}</span>
+          </button>
+        ))}
+        {!loading && !activity.length && <EmptyState title="No activity" detail="No existing evidence matched the current filters." />}
+      </div>
+      <DetailPanel item={selected} title={selected?.title} subtitle={selected?.path} onClose={() => setSelected(null)}>
+        <div className="mb-3 flex flex-wrap gap-2"><SourceChip source={selected?.source} /><StatusChip status={selected?.status}>{selected?.status}</StatusChip><span className="text-xs text-taupe">{selected?.token_line}</span></div>
+        <MarkdownPreview content={selected?.preview || 'Preview unavailable.'} />
+      </DetailPanel>
+    </>
+  )
 }
 
 export function TokensROI() {
   const { data, loading, error } = useAsync(getDashboardTokens)
   const records = data?.records || []
+  const rowTokenTotal = row => {
+    const totals = row.token_usage?.totals
+    if (!totals || !Number.isFinite(Number(totals.input)) || !Number.isFinite(Number(totals.output))) return 'unavailable'
+    const total = Number(totals.input) + Number(totals.output)
+    return total > 0 || !row.token_usage?.unavailable?.length ? total.toLocaleString() : 'unavailable'
+  }
+  const rowCost = row => (row.token_usage?.unavailable || []).some(part => String(part).toLowerCase().includes('cost'))
+    ? 'cost unavailable'
+    : `$${Number(row.token_usage?.est_cost_usd || 0).toFixed(2)}`
+  const periodValue = period => period?.unavailable
+    ? period.known ? `${Number(period.tokens || 0).toLocaleString()} known + gaps` : 'unavailable'
+    : period?.known ? Number(period.tokens || 0).toLocaleString() : 'unavailable'
+  const periodCost = period => period?.unavailable
+    ? period.known ? `partial $${Number(period.cost || 0).toFixed(2)}` : 'unavailable'
+    : period?.known ? `$${Number(period.cost || 0).toFixed(2)}` : 'unavailable'
   return (
     <>
       <PageHeader title="Tokens & ROI" question="Where is my token money going and is it worth it?" />
       {loading && <EmptyState title="Loading" detail="Reading queue/token_ledger.jsonl." />}
       {error && <EmptyState title="Unavailable" detail={error} />}
       {data && <div className="grid gap-4 xl:grid-cols-3">
-        {['today', 'week', 'month'].map(period => <StatTile key={period} label={period} value={data.periods?.[period]?.known ? Number(data.periods[period].tokens).toLocaleString() : 'unavailable'} sub={`cost ${data.periods?.[period]?.known ? `$${Number(data.periods[period].cost).toFixed(2)}` : 'unavailable'}`} />)}
+        {['today', 'week', 'month'].map(period => <StatTile key={period} label={period} value={periodValue(data.periods?.[period])} sub={`cost ${periodCost(data.periods?.[period])}`} />)}
         <div className="rounded border border-softgraph bg-graphite/70 p-4 xl:col-span-3">
           <h2 className="mb-3 text-sm font-semibold text-stone">Spend Over Time</h2>
           <div className="flex h-40 items-end gap-2 border-b border-softgraph">
@@ -387,8 +610,13 @@ export function TokensROI() {
           </div>
         </div>
         <div className="rounded border border-softgraph bg-graphite/70 p-4 xl:col-span-3">
-          <h2 className="mb-3 text-sm font-semibold text-stone">Ledger Rows</h2>
-          <div className="space-y-2">{records.map((row, index) => <div key={`${row.item_id}-${index}`} className="grid gap-2 rounded border border-softgraph bg-ink p-2 text-xs text-taupe md:grid-cols-6"><span className="text-stone">{row.item_id}</span><span>{row.lane}</span><span>{row.profile}</span><span>{row.model_confirmed || 'unavailable'}</span><span>{row.token_usage?.totals ? Number((row.token_usage.totals.input || 0) + (row.token_usage.totals.output || 0)).toLocaleString() : 'unavailable'}</span><span>{row.token_usage?.unavailable?.length ? 'unavailable parts' : `$${Number(row.token_usage?.est_cost_usd || 0).toFixed(2)}`}</span></div>)}</div>
+          <h2 className="mb-1 text-sm font-semibold text-stone">Usage by actual invocation source</h2>
+          <p className="mb-3 text-xs text-taupe">Source is taken only from persisted invocation evidence. Queue owner, lane, profile, workbench classification, and model are not treated as source proof.</p>
+          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">{(data.source_summary || []).map(group => <div key={group.source} className="rounded border border-softgraph bg-ink p-3 text-xs text-taupe"><div className="font-semibold text-stone">{group.source}</div><div className="mt-2">Exact rows {group.exact_rows} · estimates {group.estimate_rows} · unavailable {group.unavailable_rows} · deterministic {group.no_agent_invocation_rows}</div><div className="mt-1">Exact only: input {group.input.toLocaleString()} · output {group.output.toLocaleString()} · total {group.total.toLocaleString()}</div><div className="mt-1">Cached input {group.cached_input.toLocaleString()} separate · reasoning {group.reasoning_output.toLocaleString()} subset of output</div></div>)}</div>
+        </div>
+        <div className="rounded border border-softgraph bg-graphite/70 p-4 xl:col-span-3">
+          <h2 className="mb-3 text-sm font-semibold text-stone">Invocation ledger · newest first</h2>
+          <div className="space-y-2">{records.map((row, index) => <div key={`${row.item_id}-${row.session_id || row.invocation_id || index}`} className="grid gap-2 rounded border border-softgraph bg-ink p-3 text-xs text-taupe lg:grid-cols-[1.1fr_1.1fr_1fr_1.2fr_1fr_1fr]"><span className="text-stone">{row.item_id}<small className="mt-1 block break-all text-taupe">{row.session_id || row.invocation_id || 'session unavailable'}</small></span><span>{row.event_timestamp_utc || `${row.event_timestamp || 'timestamp missing'} · invalid`}</span><span className="text-stone">{row.invocation_source}<small className="mt-1 block text-taupe">{row.invocation_source_evidence}</small></span><span>{row.model_identity || 'unavailable'}<small className="mt-1 block">model identity (separate)</small></span><span>{row.availability_state === 'no_agent_invocation' ? 'No agent invocation' : row.total_tokens === null ? 'Unavailable' : `${Number(row.input_tokens || 0).toLocaleString()} in / ${Number(row.output_tokens || 0).toLocaleString()} out / ${Number(row.total_tokens).toLocaleString()} total`}</span><span>{row.cached_input_tokens == null ? 'cached unavailable' : `${Number(row.cached_input_tokens).toLocaleString()} cached separate`}<small className="mt-1 block">{row.reasoning_output_tokens == null ? 'reasoning unavailable' : `${Number(row.reasoning_output_tokens).toLocaleString()} reasoning ⊂ output`}</small><small className="mt-1 block">{rowCost(row)}</small></span></div>)}</div>
         </div>
       </div>}
     </>
@@ -460,12 +688,15 @@ export function RepoIngest() {
 
 export function SettingsLaunchers() {
   const { data, loading, error } = useAsync(getHermesUiStatus)
+  const { data: graphify } = useAsync(getDashboardGraphify)
+  const { data: latitude } = useAsync(getLatitudeStatus)
   const [statusData, setStatusData] = useState(null)
   const [launching, setLaunching] = useState(false)
   const [refreshingStatus, setRefreshingStatus] = useState(false)
   const [showEmbedded, setShowEmbedded] = useState(false)
   const [iframeState, setIframeState] = useState('idle')
   const [copied, setCopied] = useState(false)
+  const [copiedWorkbench, setCopiedWorkbench] = useState('')
   const status = statusData || data || {}
   useEffect(() => {
     if (data) setStatusData(data)
@@ -507,6 +738,11 @@ export function SettingsLaunchers() {
     setCopied(true)
     setTimeout(() => setCopied(false), 1400)
   }
+  const copyWorkbench = async target => {
+    await navigator.clipboard?.writeText(launcherPrompt(target))
+    setCopiedWorkbench(target)
+    setTimeout(() => setCopiedWorkbench(''), 1400)
+  }
   return (
     <>
       <PageHeader title="Settings / Launchers" question="Local launch commands and dashboard preferences." />
@@ -547,8 +783,15 @@ export function SettingsLaunchers() {
             </div>
           )}
         </div>
-        <EmptyState title="Telegram bridge" detail="Read-only status; no bridge code changes in this pass." action={<ActionButton>Check status</ActionButton>} />
+        <EmptyState title="Telegram instructions" detail="Instructions only. Use the established client or internal bridge outside this surface; no message or bridge action is exposed here." />
       </div>
+      <section className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3" data-testid="launcher-status-grid">
+        <div className="rounded border border-softgraph bg-graphite/70 p-4" data-launcher="graphify"><div className="flex justify-between gap-2"><h2 className="font-semibold text-stone">Graphify</h2><StatusChip status={graphify?.installed ? 'Ready' : 'Unavailable'} /></div><p className="mt-2 text-xs text-taupe">{graphify?.status || 'Status unavailable'}.</p><p className="mt-1 text-xs text-taupe">Data inspected: {graphify?.data_inspected ? 'yes' : 'no'}</p></div>
+        <div className="rounded border border-softgraph bg-graphite/70 p-4" data-launcher="latitude"><div className="flex justify-between gap-2"><h2 className="font-semibold text-stone">Latitude</h2><StatusChip status={latitude?.connected ? 'Ready' : latitude?.configured ? 'Needs Me' : 'Unavailable'} /></div><p className="mt-2 text-xs text-taupe">Additive observability: {latitude?.connected ? 'connected' : latitude?.configured ? 'configured / degraded' : 'not configured'}.</p><p className="mt-1 text-xs text-taupe">{latitude?.degraded_reason || 'No expanded trace payload shown.'}</p></div>
+        <div className="rounded border border-softgraph bg-graphite/70 p-4" data-launcher="agentmail"><div className="flex justify-between gap-2"><h2 className="font-semibold text-stone">AgentMail</h2><StatusChip status="Ready">internal-live</StatusChip></div><p className="mt-2 text-xs text-taupe">Status only: olmec1@agentmail.to → liam@timetorevenue.com.</p><p className="mt-1 text-xs text-taupe">No send control on this surface.</p></div>
+        <div className="rounded border border-softgraph bg-graphite/70 p-4" data-launcher="telegram"><div className="flex justify-between gap-2"><h2 className="font-semibold text-stone">Telegram</h2><StatusChip status="Unavailable">instructions only</StatusChip></div><p className="mt-2 text-xs text-taupe">Use the established client/bridge outside this surface. No bridge edit or message control.</p></div>
+        {['codex', 'claude-code'].map(target => <div key={target} className="rounded border border-softgraph bg-graphite/70 p-4" data-launcher={target}><div className="flex justify-between gap-2"><h2 className="font-semibold text-stone">{target === 'codex' ? 'Codex' : 'Claude Code'}</h2><StatusChip status="Ready">copy prompt</StatusChip></div><p className="mt-2 text-xs text-taupe">Canonical Linux launch and exact scoped permission header.</p><ActionButton className="mt-3" onClick={() => copyWorkbench(target)}>{copiedWorkbench === target ? 'Copied' : 'Copy prompt'}</ActionButton></div>)}
+      </section>
       {showEmbedded && status.http_reachable && status.embeddable && (
         <section className="mt-4 rounded border border-softgraph bg-graphite/70 p-3">
           <div className="mb-2 flex items-center justify-between gap-2">

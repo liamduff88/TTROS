@@ -179,14 +179,14 @@ export default function Connectors() {
   const actionBlocked = actionLoading || !parsedPayload.ok || (selectedPreset.requiresIntent && !operatorIntent)
 
   return (
-    <div className="min-h-full bg-[#111315] px-6 py-8 text-[#F7F3EA]">
+    <div className="min-h-full bg-[var(--surface-1)] px-6 py-8 text-[var(--text)]">
       <section className="mx-auto max-w-7xl space-y-6">
-        <div className="rounded-3xl border border-[#2B2F32] bg-[#0D1418] p-6 shadow-xl">
+        <div className="rounded-3xl border border-[var(--hairline)] bg-[var(--surface-0)] p-6 shadow-xl">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div>
-              <p className="text-xs uppercase tracking-[0.28em] text-[#B89B63]">Agentic OS</p>
+              <p className="text-xs uppercase tracking-[0.28em] text-[var(--wb-hermes-queued)]">Agentic OS</p>
               <h1 className="mt-2 text-3xl font-semibold">Connector Controls</h1>
-              <p className="mt-2 max-w-3xl text-sm text-[#D8D0C2]">
+              <p className="mt-2 max-w-3xl text-sm text-[var(--text-dim)]">
                 Cockpit actions use the existing Composio route into clean WSL AgenticOSClean.
                 Read, search, status, and draft preparation stay visible here; external sends,
                 writes, and pushes require explicit operator intent.
@@ -197,7 +197,7 @@ export default function Connectors() {
               <button
                 type="button"
                 onClick={loadStatus}
-                className="inline-flex items-center justify-center gap-2 rounded-xl border border-[#4E5A50] px-4 py-2 text-sm text-[#F7F3EA] hover:border-[#B89B63]"
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-[var(--lane-marketing)] px-4 py-2 text-sm text-[var(--text)] hover:border-[var(--wb-hermes-queued)]"
               >
                 <RefreshCw size={15} />
                 Reload Status
@@ -207,7 +207,7 @@ export default function Connectors() {
                 type="button"
                 onClick={refreshComposio}
                 disabled={refreshing}
-                className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#B89B63] px-4 py-2 text-sm font-semibold text-[#111315] disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-[var(--wb-hermes-queued)] px-4 py-2 text-sm font-semibold text-[var(--text)] disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {refreshing ? <Loader2 size={15} className="animate-spin" /> : <ShieldCheck size={15} />}
                 {refreshing ? 'Refreshing...' : 'Refresh CLI Status'}
@@ -216,35 +216,35 @@ export default function Connectors() {
           </div>
 
           <div className="mt-5 grid gap-3 text-sm md:grid-cols-3">
-            <div className="rounded-2xl border border-[#2B2F32] bg-[#111315] p-4">
-              <div className="text-xs uppercase tracking-[0.2em] text-[#7A746A]">Updated</div>
-              <div className="mt-1 text-[#F7F3EA]">{status?.updated || 'Loading...'}</div>
+            <div className="rounded-2xl border border-[var(--hairline)] bg-[var(--surface-1)] p-4">
+              <div className="text-xs uppercase tracking-[0.2em] text-[var(--text-dim)]">Updated</div>
+              <div className="mt-1 text-[var(--text)]">{status?.updated || 'Loading...'}</div>
             </div>
-            <div className="rounded-2xl border border-[#2B2F32] bg-[#111315] p-4">
-              <div className="text-xs uppercase tracking-[0.2em] text-[#7A746A]">Route</div>
-              <div className="mt-1 font-mono text-xs text-[#F7F3EA]">POST /api/connectors/composio/action</div>
+            <div className="rounded-2xl border border-[var(--hairline)] bg-[var(--surface-1)] p-4">
+              <div className="text-xs uppercase tracking-[0.2em] text-[var(--text-dim)]">Route</div>
+              <div className="mt-1 font-mono text-xs text-[var(--text)]">POST /api/connectors/composio/action</div>
             </div>
-            <div className="rounded-2xl border border-[#2B2F32] bg-[#111315] p-4">
-              <div className="text-xs uppercase tracking-[0.2em] text-[#7A746A]">Composio CLI</div>
-              <div className="mt-1 text-[#F7F3EA]">{status?.composio_cli?.status || 'Not loaded'}</div>
+            <div className="rounded-2xl border border-[var(--hairline)] bg-[var(--surface-1)] p-4">
+              <div className="text-xs uppercase tracking-[0.2em] text-[var(--text-dim)]">Composio CLI</div>
+              <div className="mt-1 text-[var(--text)]">{status?.composio_cli?.status || 'Not loaded'}</div>
             </div>
           </div>
         </div>
 
         {error && (
-          <div className="rounded-2xl border border-[#A56C53] bg-[#1b1110] p-4 text-sm text-[#F7F3EA]">
+          <div className="rounded-2xl border border-[var(--wb-claude-working)] bg-[var(--surface-2)] p-4 text-sm text-[var(--text)]">
             {error}
           </div>
         )}
 
         <section className="grid gap-5 xl:grid-cols-[1.05fr_0.95fr]">
-          <div className="rounded-3xl border border-[#2B2F32] bg-[#0D1418] p-5">
+          <div className="rounded-3xl border border-[var(--hairline)] bg-[var(--surface-0)] p-5">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <p className="text-xs uppercase tracking-[0.24em] text-[#B89B63]">Quick actions</p>
+                <p className="text-xs uppercase tracking-[0.24em] text-[var(--wb-hermes-queued)]">Quick actions</p>
                 <h2 className="mt-1 text-xl font-semibold">Composio Operator Panel</h2>
               </div>
-              <span className="rounded-full border border-[#4E5A50] px-3 py-1 text-xs text-[#D8D0C2]">
+              <span className="rounded-full border border-[var(--lane-marketing)] px-3 py-1 text-xs text-[var(--text-dim)]">
                 PowerShell fallback
               </span>
             </div>
@@ -260,72 +260,72 @@ export default function Connectors() {
                     onClick={() => selectPreset(preset)}
                     className={`min-h-[132px] rounded-2xl border p-4 text-left transition ${
                       active
-                        ? 'border-[#B89B63] bg-[#171B1D]'
-                        : 'border-[#2B2F32] bg-[#111315] hover:border-[#4E5A50]'
+                        ? 'border-[var(--wb-hermes-queued)] bg-[var(--surface-2)]'
+                        : 'border-[var(--hairline)] bg-[var(--surface-1)] hover:border-[var(--lane-marketing)]'
                     }`}
                   >
                     <div className="flex items-start justify-between gap-3">
-                      <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#2B2F32] text-[#B89B63]">
+                      <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--hairline)] text-[var(--wb-hermes-queued)]">
                         <Icon size={18} />
                       </div>
-                      <span className="rounded-full border border-[#4E5A50] px-2.5 py-1 text-[11px] uppercase tracking-[0.14em] text-[#D8D0C2]">
+                      <span className="rounded-full border border-[var(--lane-marketing)] px-2.5 py-1 text-[11px] uppercase tracking-[0.14em] text-[var(--text-dim)]">
                         {preset.intent}
                       </span>
                     </div>
-                    <h3 className="mt-4 text-base font-semibold text-[#F7F3EA]">{preset.title}</h3>
-                    <p className="mt-2 text-sm leading-5 text-[#D8D0C2]">{preset.description}</p>
+                    <h3 className="mt-4 text-base font-semibold text-[var(--text)]">{preset.title}</h3>
+                    <p className="mt-2 text-sm leading-5 text-[var(--text-dim)]">{preset.description}</p>
                   </button>
                 )
               })}
             </div>
           </div>
 
-          <div className="rounded-3xl border border-[#2B2F32] bg-[#0D1418] p-5">
+          <div className="rounded-3xl border border-[var(--hairline)] bg-[var(--surface-0)] p-5">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <p className="text-xs uppercase tracking-[0.24em] text-[#B89B63]">Payload</p>
+                <p className="text-xs uppercase tracking-[0.24em] text-[var(--wb-hermes-queued)]">Payload</p>
                 <h2 className="mt-1 text-xl font-semibold">Action Request</h2>
               </div>
-              <span className="rounded-full border border-[#2B2F32] px-3 py-1 font-mono text-xs text-[#D8D0C2]">
+              <span className="rounded-full border border-[var(--hairline)] px-3 py-1 font-mono text-xs text-[var(--text-dim)]">
                 {selectedPreset.intent}
               </span>
             </div>
 
-            <label className="mt-5 block text-xs uppercase tracking-[0.18em] text-[#7A746A]" htmlFor="tool-slug">
+            <label className="mt-5 block text-xs uppercase tracking-[0.18em] text-[var(--text-dim)]" htmlFor="tool-slug">
               Tool slug
             </label>
             <input
               id="tool-slug"
               value={toolSlug}
               onChange={(event) => setToolSlug(event.target.value)}
-              className="mt-2 w-full rounded-xl border border-[#2B2F32] bg-[#111315] px-3 py-2 font-mono text-sm text-[#F7F3EA] outline-none focus:border-[#B89B63]"
+              className="mt-2 w-full rounded-xl border border-[var(--hairline)] bg-[var(--surface-1)] px-3 py-2 font-mono text-sm text-[var(--text)] outline-none focus:border-[var(--wb-hermes-queued)]"
               spellCheck="false"
             />
 
-            <label className="mt-4 block text-xs uppercase tracking-[0.18em] text-[#7A746A]" htmlFor="payload-json">
+            <label className="mt-4 block text-xs uppercase tracking-[0.18em] text-[var(--text-dim)]" htmlFor="payload-json">
               JSON args
             </label>
             <textarea
               id="payload-json"
               value={payloadText}
               onChange={(event) => setPayloadText(event.target.value)}
-              className="mt-2 min-h-[190px] w-full resize-y rounded-xl border border-[#2B2F32] bg-[#111315] px-3 py-3 font-mono text-xs leading-5 text-[#F7F3EA] outline-none focus:border-[#B89B63]"
+              className="mt-2 min-h-[190px] w-full resize-y rounded-xl border border-[var(--hairline)] bg-[var(--surface-1)] px-3 py-3 font-mono text-xs leading-5 text-[var(--text)] outline-none focus:border-[var(--wb-hermes-queued)]"
               spellCheck="false"
             />
 
             {!parsedPayload.ok && (
-              <div className="mt-3 flex items-start gap-2 rounded-xl border border-[#A56C53] bg-[#1b1110] p-3 text-sm text-[#F7F3EA]">
-                <AlertTriangle size={16} className="mt-0.5 flex-shrink-0 text-[#A56C53]" />
+              <div className="mt-3 flex items-start gap-2 rounded-xl border border-[var(--wb-claude-working)] bg-[var(--surface-2)] p-3 text-sm text-[var(--text)]">
+                <AlertTriangle size={16} className="mt-0.5 flex-shrink-0 text-[var(--wb-claude-working)]" />
                 <span>Payload must be a JSON object: {parsedPayload.error}</span>
               </div>
             )}
 
-            <label className="mt-4 flex items-start gap-3 rounded-xl border border-[#2B2F32] bg-[#111315] p-3 text-sm text-[#D8D0C2]">
+            <label className="mt-4 flex items-start gap-3 rounded-xl border border-[var(--hairline)] bg-[var(--surface-1)] p-3 text-sm text-[var(--text-dim)]">
               <input
                 type="checkbox"
                 checked={operatorIntent}
                 onChange={(event) => setOperatorIntent(event.target.checked)}
-                className="mt-1 h-4 w-4 accent-[#B89B63]"
+                className="mt-1 h-4 w-4 accent-[var(--wb-hermes-queued)]"
               />
               <span>
                 I explicitly intend this action if it sends, writes, drafts, pushes, or mutates
@@ -337,7 +337,7 @@ export default function Connectors() {
               type="button"
               onClick={runAction}
               disabled={actionBlocked}
-              className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#B89B63] px-4 py-3 text-sm font-semibold text-[#111315] disabled:cursor-not-allowed disabled:opacity-50"
+              className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--wb-hermes-queued)] px-4 py-3 text-sm font-semibold text-[var(--text)] disabled:cursor-not-allowed disabled:opacity-50"
             >
               {actionLoading ? <Loader2 size={16} className="animate-spin" /> : <Play size={16} />}
               {actionLoading ? 'Running action...' : 'Run Selected Action'}
@@ -346,72 +346,72 @@ export default function Connectors() {
         </section>
 
         <section className="grid gap-5 xl:grid-cols-[0.85fr_1.15fr]">
-          <div className="rounded-3xl border border-[#2B2F32] bg-[#0D1418] p-5">
+          <div className="rounded-3xl border border-[var(--hairline)] bg-[var(--surface-0)] p-5">
             <div className="mb-4 flex items-center justify-between gap-3">
               <h2 className="text-lg font-semibold">Connector Status</h2>
-              <span className="text-xs text-[#7A746A]">{connectors.length} local records</span>
+              <span className="text-xs text-[var(--text-dim)]">{connectors.length} local records</span>
             </div>
 
             {loading ? (
-              <div className="rounded-2xl border border-[#2B2F32] bg-[#111315] p-4 text-sm text-[#D8D0C2]">
+              <div className="rounded-2xl border border-[var(--hairline)] bg-[var(--surface-1)] p-4 text-sm text-[var(--text-dim)]">
                 Loading connector status...
               </div>
             ) : connectors.length ? (
               <div className="grid gap-3">
                 {connectors.map((connector) => (
-                  <article key={connector.name} className="rounded-2xl border border-[#2B2F32] bg-[#111315] p-4">
+                  <article key={connector.name} className="rounded-2xl border border-[var(--hairline)] bg-[var(--surface-1)] p-4">
                     <div className="flex items-start justify-between gap-3">
                       <h3 className="text-base font-semibold">{connector.name}</h3>
-                      <span className="rounded-full border border-[#4E5A50] px-3 py-1 text-xs text-[#D8D0C2]">
+                      <span className="rounded-full border border-[var(--lane-marketing)] px-3 py-1 text-xs text-[var(--text-dim)]">
                         {connector.status}
                       </span>
                     </div>
-                    <p className="mt-3 text-xs uppercase tracking-[0.2em] text-[#7A746A]">Current path</p>
-                    <p className="mt-1 break-words font-mono text-xs text-[#D8D0C2]">
+                    <p className="mt-3 text-xs uppercase tracking-[0.2em] text-[var(--text-dim)]">Current path</p>
+                    <p className="mt-1 break-words font-mono text-xs text-[var(--text-dim)]">
                       {connector.current_path || connector.current_path_or_connection || '-'}
                     </p>
-                    <p className="mt-3 text-xs uppercase tracking-[0.2em] text-[#7A746A]">Policy</p>
-                    <p className="mt-1 text-sm text-[#F7F3EA]">{connector.action_policy || '-'}</p>
+                    <p className="mt-3 text-xs uppercase tracking-[0.2em] text-[var(--text-dim)]">Policy</p>
+                    <p className="mt-1 text-sm text-[var(--text)]">{connector.action_policy || '-'}</p>
                   </article>
                 ))}
               </div>
             ) : (
-              <div className="rounded-2xl border border-[#2B2F32] bg-[#111315] p-4 text-sm text-[#D8D0C2]">
+              <div className="rounded-2xl border border-[var(--hairline)] bg-[var(--surface-1)] p-4 text-sm text-[var(--text-dim)]">
                 No connector status records returned.
               </div>
             )}
           </div>
 
-          <div className="rounded-3xl border border-[#2B2F32] bg-[#0D1418] p-5">
+          <div className="rounded-3xl border border-[var(--hairline)] bg-[var(--surface-0)] p-5">
             <div className="mb-4 flex items-center justify-between gap-3">
               <h2 className="text-lg font-semibold">Response Preview</h2>
               {actionResponse?.ok ? (
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-[#4E5A50] px-3 py-1 text-xs text-[#D8D0C2]">
-                  <CheckCircle2 size={13} className="text-[#B89B63]" />
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--lane-marketing)] px-3 py-1 text-xs text-[var(--text-dim)]">
+                  <CheckCircle2 size={13} className="text-[var(--wb-hermes-queued)]" />
                   OK
                 </span>
               ) : (
-                <span className="rounded-full border border-[#2B2F32] px-3 py-1 text-xs text-[#7A746A]">
+                <span className="rounded-full border border-[var(--hairline)] px-3 py-1 text-xs text-[var(--text-dim)]">
                   Awaiting action
                 </span>
               )}
             </div>
 
             {actionLoading ? (
-              <div className="flex min-h-[260px] items-center justify-center rounded-2xl border border-[#2B2F32] bg-[#111315] text-sm text-[#D8D0C2]">
-                <Loader2 size={18} className="mr-2 animate-spin text-[#B89B63]" />
+              <div className="flex min-h-[260px] items-center justify-center rounded-2xl border border-[var(--hairline)] bg-[var(--surface-1)] text-sm text-[var(--text-dim)]">
+                <Loader2 size={18} className="mr-2 animate-spin text-[var(--wb-hermes-queued)]" />
                 Waiting for shared adapter response...
               </div>
             ) : actionError ? (
-              <div className="min-h-[260px] rounded-2xl border border-[#A56C53] bg-[#1b1110] p-4 text-sm text-[#F7F3EA]">
+              <div className="min-h-[260px] rounded-2xl border border-[var(--wb-claude-working)] bg-[var(--surface-2)] p-4 text-sm text-[var(--text)]">
                 {actionError}
               </div>
             ) : actionResponse ? (
-              <pre className="max-h-[520px] min-h-[260px] overflow-auto whitespace-pre-wrap rounded-2xl bg-[#111315] p-4 font-mono text-xs text-[#D8D0C2]">
+              <pre className="max-h-[520px] min-h-[260px] overflow-auto whitespace-pre-wrap rounded-2xl bg-[var(--surface-1)] p-4 font-mono text-xs text-[var(--text-dim)]">
                 {formatJson(actionResponse)}
               </pre>
             ) : (
-              <div className="min-h-[260px] rounded-2xl border border-[#2B2F32] bg-[#111315] p-4 text-sm text-[#D8D0C2]">
+              <div className="min-h-[260px] rounded-2xl border border-[var(--hairline)] bg-[var(--surface-1)] p-4 text-sm text-[var(--text-dim)]">
                 No connector action has been run from this panel.
               </div>
             )}
@@ -419,12 +419,12 @@ export default function Connectors() {
         </section>
 
         {refreshOutput && (
-          <section className="rounded-3xl border border-[#2B2F32] bg-[#0D1418] p-5">
+          <section className="rounded-3xl border border-[var(--hairline)] bg-[var(--surface-0)] p-5">
             <div className="mb-3 flex items-center justify-between gap-3">
               <h2 className="text-lg font-semibold">Latest Composio CLI Refresh</h2>
-              <span className="text-xs text-[#7A746A]">connectors/composio_live_connections.txt</span>
+              <span className="text-xs text-[var(--text-dim)]">connectors/composio_live_connections.txt</span>
             </div>
-            <pre className="max-h-[520px] overflow-auto whitespace-pre-wrap rounded-2xl bg-[#111315] p-4 font-mono text-xs text-[#D8D0C2]">
+            <pre className="max-h-[520px] overflow-auto whitespace-pre-wrap rounded-2xl bg-[var(--surface-1)] p-4 font-mono text-xs text-[var(--text-dim)]">
               {refreshOutput}
             </pre>
           </section>

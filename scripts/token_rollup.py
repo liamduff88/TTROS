@@ -58,6 +58,46 @@ def load_prices() -> dict:
     return prices.get("models", {}) if isinstance(prices, dict) else {}
 
 
+def _no_agent_invocation(line: dict) -> bool:
+    usage = line.get("token_usage") if isinstance(line.get("token_usage"), dict) else {}
+    unavailable = usage.get("unavailable") if isinstance(usage.get("unavailable"), list) else []
+    return bool(
+        line.get("no_agent_invocation")
+        or usage.get("no_agent_invocation")
+        or any(str(value).strip().lower() == "no agent invocation" for value in unavailable)
+    )
+
+
+def _exact_invocation(line: dict) -> bool:
+    usage = line.get("token_usage") if isinstance(line.get("token_usage"), dict) else {}
+    return any(
+        isinstance(workbench, dict) and workbench.get("source") == "reported"
+        for workbench in (usage.get("workbenches") or [])
+    )
+
+
+def effective_ledger_lines(lines: list[dict]) -> list[dict]:
+    """Apply invocation deduplication and exact-over-placeholder precedence."""
+    exact_items = {str(line.get("item_id") or "") for line in lines if _exact_invocation(line)}
+    selected: dict[tuple[str, str], tuple[int, int, dict]] = {}
+    passthrough: list[tuple[int, dict]] = []
+    for position, line in enumerate(lines):
+        item_id = str(line.get("item_id") or "")
+        if item_id in exact_items and not line.get("session_id") and _no_agent_invocation(line):
+            continue
+        session_id = str(line.get("session_id") or line.get("invocation_id") or "")
+        if not item_id or not session_id:
+            passthrough.append((position, line))
+            continue
+        rank = 2 if _exact_invocation(line) else 0 if _no_agent_invocation(line) else 1
+        key = (item_id, session_id)
+        prior = selected.get(key)
+        if prior is None or rank > prior[0] or (rank == prior[0] and position > prior[1]):
+            selected[key] = (rank, position, line)
+    combined = passthrough + [(position, line) for _, position, line in selected.values()]
+    return [line for _, line in sorted(combined, key=lambda value: value[0])]
+
+
 def cost_for(model: str | None, inp: int, outp: int, prices: dict) -> float:
     rate = prices.get(model) if model else None
     if not isinstance(rate, dict):
@@ -81,6 +121,7 @@ def _bucket(store: dict, key: str) -> dict:
 
 
 def rollup_week(week: str, lines: list[dict], prices: dict) -> dict:
+    lines = effective_ledger_lines(lines)
     totals = {"input": 0, "output": 0, "est_cost_usd": 0.0}
     by_lane: dict[str, dict] = {}
     by_profile: dict[str, dict] = {}

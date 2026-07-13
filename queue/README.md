@@ -2,6 +2,11 @@
 
 Minimal local work movement layer for Agentic OS.
 
+Items with `owner_type: agent` are executable work. Items with
+`owner_type: workflow` are human-visible aggregates: `next` and `claim`
+exclude them for every registered starter agent regardless of display owner
+or status. Their child items remain ordinary executable work.
+
 This queue is intentionally boring:
 
 - JSONL/local files only
@@ -63,6 +68,12 @@ python3 tools/aos-queue.py next codex
 # Coordinator close: resolve lane->profile, write run+token ledgers, meter tokens.
 # Token numbers come from a harness usage source (never estimated); omit them to record "unavailable".
 python3 tools/aos-queue.py done AOS-2026-0001 --receipt queue/receipts/AOS-2026-0001.md --usage-file /tmp/hermes_usage.json
+# Direct Codex: explicit item ID + prompt on stdin; waits for exit and reconciles
+# usage independently of whether the item honestly ends in human_review, done,
+# needs_input, blocked, or another supported status.
+python3 tools/aos-queue.py codex-run AOS-2026-0001 --prompt-file - < /tmp/AOS-2026-0001.prompt.md
+# Historical pasted evidence uses the same path and an explicit session identity.
+python3 tools/aos-queue.py codex-reconcile AOS-2026-0001 --session-id SESSION_ID --summary 'Token usage: total=3 input=2 output=1' --cli-version 'codex-cli 0.144.1'
 python3 scripts/token_rollup.py            # weekly rollups -> queue/rollups/
 ```
 
@@ -72,6 +83,17 @@ and `queue/token_ledger.jsonl` and writes the `token_usage` block into the
 receipt. The `status`/`receipt` paths keep queue liveness on a metering hiccup
 (surfaced as `NEEDS ATTENTION (metering)` on stderr); the explicit `done`
 command is the strict path.
+
+`codex-run` uses the installed CLI's noninteractive `codex exec --json` command,
+captures stdout and stderr together, waits for process exit, and prefers the
+final structured `turn.completed` usage event over a terminal-summary
+cross-check. It reconciles by work-item ID + Codex session ID, regardless of
+queue status. Repeating identical evidence is a no-op; unavailable can upgrade
+to exact; exact cannot downgrade; conflicting exact evidence fails closed;
+different sessions remain separate ledger invocations. The canonical item
+sidecar and one receipt block expose the selected invocation to dashboard
+consumers. Cached input remains separate from input+output total, and reasoning
+output remains a labelled subset of output.
 
 Approved statuses:
 

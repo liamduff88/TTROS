@@ -336,7 +336,32 @@ def api_ingest_tick():
 
 @app.get("/api/artifacts")
 def api_artifacts(type: str = "", tag: str = "", source: str = "", limit: int = 50):
-    return aos_indexer.artifacts(kind=type, tag=tag, source=source, limit=limit)
+    result = aos_indexer.artifacts(kind=type, tag=tag, source=source, limit=limit)
+    queue_items = {str(row.get("id") or ""): row for row in _read_queue_items()}
+    enriched = []
+    for row in result.get("items") or []:
+        indexed_path = str(row.get("path") or "")
+        local_path = indexed_path.split(":", 1)[1] if ":" in indexed_path else indexed_path
+        match = re.search(r"AOS-\d{4}-\d{4}", local_path)
+        item_id = match.group(0) if match else ""
+        item = queue_items.get(item_id, {})
+        receipt = _queue_latest_receipt(item) if item else None
+        canonical = _queue_canonical_token_usage(item_id) if item_id else None
+        parts = Path(local_path).parts
+        workflow = parts[1] if len(parts) > 2 and parts[0] == "workflows" else "orchestration_acceptance" if "orchestration_acceptance" in parts else "unfiled"
+        enriched.append({
+            **row,
+            "local_path": local_path,
+            "item_id": item_id or "unattributed",
+            "linked": bool(item),
+            "workflow": workflow,
+            "lane": _queue_item_lane(item) if item else "unassigned",
+            "owner": item.get("owner") if item else "unassigned",
+            "status": item.get("status") if item else "unfiled",
+            "receipt": (receipt or {}).get("path") if receipt else "",
+            "token_line": (canonical or {}).get("lines", ["Token usage: unavailable"])[0],
+        })
+    return {**result, "items": enriched, "new_unfiled": [row for row in enriched if not row["linked"]][:12], "existing_index": True, "protected_content_excluded": True}
 
 
 
@@ -470,6 +495,10 @@ class QueueItemCreate(BaseModel):
     workbench: str | None = None
 
 
+class CockpitCommandCreate(BaseModel):
+    command: str
+
+
 class QueueReceiptAttach(BaseModel):
     receipt_text: str
     status: str | None = None
@@ -520,6 +549,12 @@ class DashboardSkillSave(BaseModel):
     name: str = ""
     description: str = ""
     body: str = ""
+
+
+class DashboardWorkflowSave(BaseModel):
+    workflow_id: str
+    content: str
+    expected_revision: str
 
 
 class DashboardOpenPath(BaseModel):
@@ -1267,6 +1302,108 @@ def _markdown_title(text: str, fallback: str) -> str:
     return fallback
 
 
+_WORKFLOW_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,119}$")
+_WORKFLOW_MAX_BYTES = 512 * 1024
+
+
+def _workflow_root() -> Path:
+    return BASE_DIR / "workflows"
+
+
+def _workflow_editor_roots() -> list[Path]:
+    return [_workflow_root(), BASE_DIR / "dashboard" / "test-fixtures" / "workflows"]
+
+
+def _workflow_registry_entries() -> list[dict]:
+    path = _workflow_root() / "workflow_registry.json"
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, TypeError):
+        return []
+    return [row for row in payload.get("workflows", []) if isinstance(row, dict)] if isinstance(payload, dict) else []
+
+
+def _meaningful_workflow_identifier(value: object) -> str:
+    raw = str(value or "").strip()
+    if not raw or re.fullmatch(r"[0-9a-fA-F-]{24,}", raw):
+        return ""
+    clean = re.sub(r"[_-]+", " ", raw).strip()
+    return clean.title() if re.search(r"[A-Za-z]", clean) else ""
+
+
+def _first_markdown_heading(text: str) -> str:
+    parsed = _parse_markdown_frontmatter(text)
+    for line in parsed["body"].splitlines():
+        match = re.match(r"^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$", line)
+        if match and match.group(1).strip() not in {"---", "..."}:
+            return match.group(1).strip()
+    return ""
+
+
+def _workflow_display_name(path: Path, text: str, workflow_id: str = "", metadata: dict | None = None) -> str:
+    parsed = _parse_markdown_frontmatter(text)
+    combined = {**(metadata or {}), **parsed["frontmatter"]}
+    for key in ("title", "name"):
+        value = _frontmatter_text_value(combined, key)
+        if value and value not in {"---", "..."}:
+            return value
+    identifier = combined.get("id") or combined.get("identifier") or workflow_id
+    identifier_name = _meaningful_workflow_identifier(identifier)
+    if identifier_name:
+        return identifier_name
+    heading = _first_markdown_heading(text)
+    if heading:
+        return heading
+    fallback = path.stem if path.stem.lower() != "workflow" else path.parent.name
+    return re.sub(r"[_-]+", " ", fallback).strip().title() or "Untitled workflow"
+
+
+def _workflow_revision(content: str) -> str:
+    return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+
+def _workflow_path_for_id(workflow_id: str, *, writable: bool = False) -> Path:
+    raw = str(workflow_id or "").strip()
+    if not _WORKFLOW_ID_RE.fullmatch(raw):
+        raise ValueError("workflow identifier is invalid; absolute paths and traversal are not allowed")
+    existing = [(root, root / raw / "workflow.md") for root in _workflow_editor_roots() if (root / raw / "workflow.md").exists()]
+    if len(existing) != 1:
+        if not existing:
+            raise FileNotFoundError(raw)
+        raise ValueError("workflow identifier is ambiguous across approved roots")
+    root, target = existing[0]
+    resolved_root = root.resolve()
+    try:
+        resolved_target = target.resolve(strict=True)
+        resolved_target.relative_to(resolved_root)
+    except FileNotFoundError as exc:
+        raise FileNotFoundError(raw) from exc
+    except ValueError as exc:
+        raise ValueError("workflow source must stay inside the approved workflow root") from exc
+    if target.is_symlink() or any(part.is_symlink() for part in (target.parent,)):
+        raise ValueError("symlinked workflow sources are read-only")
+    if _DASHBOARD_MARKDOWN_BLOCK_RE.search(target.relative_to(BASE_DIR).as_posix()):
+        raise ValueError("workflow source is blocked by dashboard safety policy")
+    if not target.is_file():
+        raise ValueError("workflow source must be a regular file")
+    if target.suffix.lower() != ".md" or target.name != "workflow.md":
+        raise ValueError("only canonical workflows/*/workflow.md sources are editable")
+    if target.stat().st_size > _WORKFLOW_MAX_BYTES:
+        raise ValueError("workflow source exceeds the editor size limit")
+    return resolved_target if writable else target
+
+
+def _validate_workflow_content(content: str) -> None:
+    if not isinstance(content, str):
+        raise ValueError("workflow content must be text")
+    if "\x00" in content:
+        raise ValueError("workflow content contains an invalid NUL character")
+    if len(content.encode("utf-8")) > _WORKFLOW_MAX_BYTES:
+        raise ValueError("workflow content exceeds the editor size limit")
+    if not content.strip():
+        raise ValueError("workflow content must not be blank")
+
+
 def _token_component_total(record: dict) -> tuple[int | None, int | None]:
     usage = record.get("token_usage") if isinstance(record.get("token_usage"), dict) else {}
     totals = usage.get("totals") if isinstance(usage.get("totals"), dict) else {}
@@ -1278,10 +1415,50 @@ def _token_component_total(record: dict) -> tuple[int | None, int | None]:
         return None, None
 
 
+def _ledger_no_agent_invocation(record: dict) -> bool:
+    usage = record.get("token_usage") if isinstance(record.get("token_usage"), dict) else {}
+    unavailable = usage.get("unavailable") if isinstance(usage.get("unavailable"), list) else []
+    return bool(
+        record.get("no_agent_invocation")
+        or usage.get("no_agent_invocation")
+        or any(str(value).strip().lower() == "no agent invocation" for value in unavailable)
+    )
+
+
+def _ledger_exact_invocation(record: dict) -> bool:
+    usage = record.get("token_usage") if isinstance(record.get("token_usage"), dict) else {}
+    return any(
+        isinstance(workbench, dict) and workbench.get("source") == "reported"
+        for workbench in (usage.get("workbenches") or [])
+    ) or ("tokens" in record and str(record.get("basis") or "exact") == "exact")
+
+
+def _effective_token_ledger_records(records: list[dict]) -> list[dict]:
+    """Deduplicate invocation identities and suppress item placeholders behind exact usage."""
+    exact_items = {str(row.get("item_id") or row.get("task_id") or "") for row in records if _ledger_exact_invocation(row)}
+    selected: dict[tuple[str, str], tuple[int, int, dict]] = {}
+    passthrough: list[tuple[int, dict]] = []
+    for position, row in enumerate(records):
+        item_id = str(row.get("item_id") or row.get("task_id") or "")
+        if item_id in exact_items and not row.get("session_id") and _ledger_no_agent_invocation(row):
+            continue
+        session_id = str(row.get("session_id") or row.get("invocation_id") or "")
+        if not item_id or not session_id:
+            passthrough.append((position, row))
+            continue
+        rank = 2 if _ledger_exact_invocation(row) else 0 if _ledger_no_agent_invocation(row) else 1
+        key = (item_id, session_id)
+        prior = selected.get(key)
+        if prior is None or rank > prior[0] or (rank == prior[0] and position > prior[1]):
+            selected[key] = (rank, position, row)
+    combined = passthrough + [(position, row) for _, position, row in selected.values()]
+    return [row for _, row in sorted(combined, key=lambda value: value[0])]
+
+
 def _read_token_ledger_records() -> list[dict]:
     records = _read_jsonl_file(TOKEN_LEDGER_FILE)
     records.extend(_read_jsonl_file(ROOT_TOKEN_LEDGER_FILE))
-    return records
+    return _effective_token_ledger_records(records)
 
 
 def _local_date_from_record(value: object, tz: datetime.tzinfo | None = None) -> datetime.date | None:
@@ -1296,7 +1473,7 @@ def _token_basis_bucket(record: dict) -> tuple[str, int | None]:
     basis = str(basis or "unavailable")
     if tokens is None:
         usage = record.get("token_usage") if isinstance(record.get("token_usage"), dict) else {}
-        if usage.get("no_agent_invocation"):
+        if _ledger_no_agent_invocation(record):
             return "no_agent_invocation", None
         return "unavailable", None
     if basis == "estimate":
@@ -1667,7 +1844,10 @@ def _agentmail_digest_attempt(
 
 
 def _ledger_timestamp(record: dict) -> object:
-    return record.get("timestamp") or record.get("ts")
+    for key in ("timestamp", "ts", "event_timestamp", "completed_at", "updated_at", "created_at"):
+        if record.get(key):
+            return record[key]
+    return None
 
 
 def _ledger_task_id(record: dict) -> str:
@@ -1694,7 +1874,99 @@ def _ledger_tokens_basis(record: dict) -> tuple[int | None, str]:
     input_tokens, output_tokens = _token_component_total(record)
     if input_tokens is None or output_tokens is None:
         return None, "unavailable"
+    usage = record.get("token_usage") if isinstance(record.get("token_usage"), dict) else {}
+    unavailable = usage.get("unavailable") if isinstance(usage.get("unavailable"), list) else []
+    if unavailable and input_tokens + output_tokens == 0:
+        return None, "unavailable"
     return input_tokens + output_tokens, "exact"
+
+
+def _token_invocation_source(record: dict) -> tuple[str, str]:
+    """Return a source only when persisted invocation evidence names it."""
+    if _ledger_no_agent_invocation(record):
+        return "No agent invocation", "deterministic"
+    explicit = str(record.get("invocation_source") or record.get("invocation_tool") or "").strip()
+    if explicit:
+        return explicit, "explicit ledger field"
+    usage = record.get("token_usage") if isinstance(record.get("token_usage"), dict) else {}
+    reported = {
+        str(row.get("tool") or "").strip()
+        for row in usage.get("workbenches") or []
+        if isinstance(row, dict) and row.get("source") == "reported" and row.get("tool")
+    }
+    if len(reported) == 1:
+        tool = next(iter(reported))
+        return {"codex": "Codex", "claude": "Claude Code", "claude-code": "Claude Code", "hermes": "Hermes"}.get(tool.lower(), tool), "reported workbench invocation"
+    orchestrator = usage.get("orchestrator") if isinstance(usage.get("orchestrator"), dict) else {}
+    try:
+        orchestrator_total = int(orchestrator.get("input") or 0) + int(orchestrator.get("output") or 0)
+    except (TypeError, ValueError):
+        orchestrator_total = 0
+    if orchestrator_total > 0:
+        return "Hermes", "persisted orchestrator usage"
+    return "Unattributed", "no authoritative invocation source"
+
+
+def _token_record_view(record: dict) -> dict:
+    row = dict(record)
+    parsed = _parse_record_timestamp(_ledger_timestamp(record))
+    tokens, basis = _ledger_tokens_basis(record)
+    source, source_evidence = _token_invocation_source(record)
+    usage = record.get("token_usage") if isinstance(record.get("token_usage"), dict) else {}
+    totals = usage.get("totals") if isinstance(usage.get("totals"), dict) else {}
+    evidence = record.get("capture_evidence") if isinstance(record.get("capture_evidence"), dict) else {}
+    no_agent = _ledger_no_agent_invocation(record)
+    availability = "no_agent_invocation" if no_agent else basis if tokens is not None else "unavailable"
+    row.update({
+        "item_id": _ledger_task_id(record),
+        "event_timestamp": _ledger_timestamp(record),
+        "event_timestamp_utc": parsed.astimezone(datetime.timezone.utc).isoformat().replace("+00:00", "Z") if parsed else None,
+        "timestamp_valid": parsed is not None,
+        "invocation_source": source,
+        "invocation_source_evidence": source_evidence,
+        "availability_state": availability,
+        "input_tokens": int(totals["input"]) if str(totals.get("input", "")).lstrip("-").isdigit() else None,
+        "output_tokens": int(totals["output"]) if str(totals.get("output", "")).lstrip("-").isdigit() else None,
+        "total_tokens": tokens,
+        "cached_input_tokens": evidence.get("cached_input_tokens"),
+        "reasoning_output_tokens": evidence.get("reasoning_output_tokens"),
+        "model_identity": evidence.get("model_identity") or record.get("model_confirmed") or "unavailable",
+    })
+    return row
+
+
+def _sort_token_records_newest(records: list[dict]) -> list[dict]:
+    def key(record: dict) -> tuple:
+        parsed = _parse_record_timestamp(_ledger_timestamp(record))
+        identity = str(record.get("session_id") or record.get("invocation_id") or record.get("effect_id") or record.get("event") or "")
+        digest = hashlib.sha256(json.dumps(record, sort_keys=True, default=str).encode("utf-8")).hexdigest()
+        return (0 if parsed else 1, -(parsed.timestamp() if parsed else 0), identity, digest)
+    return sorted(records, key=key)
+
+
+def _token_source_summary(records: list[dict]) -> list[dict]:
+    order = ["Codex", "Claude Code", "Hermes", "Unattributed", "No agent invocation", "Unavailable"]
+    def blank(name: str) -> dict:
+        return {"source": name, "exact_rows": 0, "estimate_rows": 0, "unavailable_rows": 0, "no_agent_invocation_rows": 0, "input": 0, "output": 0, "total": 0, "cached_input": 0, "reasoning_output": 0}
+    groups = {name: blank(name) for name in order}
+    for original in records:
+        row = _token_record_view(original)
+        source = row["invocation_source"]
+        group = groups.setdefault(source, blank(source))
+        if row["availability_state"] == "no_agent_invocation":
+            group["no_agent_invocation_rows"] += 1
+        elif row["total_tokens"] is None:
+            group["unavailable_rows"] += 1
+        elif row["availability_state"] == "estimate":
+            group["estimate_rows"] += 1
+        elif row["availability_state"] == "exact":
+            group["exact_rows"] += 1
+            group["input"] += int(row["input_tokens"] or 0)
+            group["output"] += int(row["output_tokens"] or 0)
+            group["total"] += int(row["total_tokens"])
+            group["cached_input"] += int(row["cached_input_tokens"] or 0)
+            group["reasoning_output"] += int(row["reasoning_output_tokens"] or 0)
+    return [groups[name] for name in order if name in groups] + [groups[name] for name in sorted(set(groups) - set(order))]
 
 
 def _simple_token_line(task_id: str, component: str, tokens: int, basis: str) -> dict:
@@ -1733,6 +2005,7 @@ def _append_simple_token_ledger(task_id: str, component: str, token_usage: dict)
 
 def _dashboard_token_summary() -> dict:
     records = _read_token_ledger_records()
+    chronological_records = _sort_token_records_newest(records)
     now = datetime.datetime.now().astimezone()
     today = now.date()
     week_start = today - datetime.timedelta(days=today.weekday())
@@ -1829,7 +2102,8 @@ def _dashboard_token_summary() -> dict:
         "by_tool": sorted(by_tool.values(), key=lambda row: row["tokens"], reverse=True),
         "highest_task": highest,
         "unavailable_count": sum(row.get("unavailable", 0) for row in by_tool.values()) + periods["today"]["unavailable"],
-        "records": records[-100:],
+        "records": [_token_record_view(record) for record in chronological_records[:100]],
+        "source_summary": _token_source_summary(records),
         "strip": _dashboard_token_strip(records),
         "chart": [{"date": day, "tokens": tokens} for day, tokens in sorted(chart_days.items())[-14:]],
     }
@@ -1838,7 +2112,7 @@ def _dashboard_token_summary() -> dict:
 def _token_label(record: dict | None) -> str:
     if not record:
         return "Token usage: unavailable from current CLI output"
-    if record.get("no_agent_invocation") or (record.get("token_usage") or {}).get("no_agent_invocation"):
+    if _ledger_no_agent_invocation(record):
         return "Token usage: no agent invocation"
     tokens, basis = _ledger_tokens_basis(record)
     if tokens is None:
@@ -1875,10 +2149,7 @@ def _dashboard_token_strip(records: list[dict]) -> dict:
         "current_task": {"task_id": _ledger_task_id(current) if current else None, "label": _token_label(current)},
         "last_task": {"task_id": _ledger_task_id(previous) if previous else None, "label": _token_label(previous)},
         "today": {"label": today_label},
-        "states": [
-            "Token usage: no agent invocation",
-            "Token usage: unavailable from current CLI output",
-        ],
+        "states": sorted({_token_label(record) for record in records if _ledger_no_agent_invocation(record)}),
     }
 
 
@@ -1907,6 +2178,72 @@ def _recent_file_items() -> list[dict]:
             except OSError:
                 continue
     return sorted(items, key=lambda item: item.get("modified") or "", reverse=True)
+
+
+def _dashboard_activity_feed(recent_sources: list[dict] | None = None) -> list[dict]:
+    items = _read_queue_items()
+    by_id = {str(item.get("id") or ""): item for item in items}
+    records = _read_token_ledger_records()
+    token_by_item: dict[str, list[dict]] = {}
+    for record in records:
+        token_by_item.setdefault(_ledger_task_id(record), []).append(record)
+    sources = list(recent_sources) if recent_sources is not None else _recent_file_items()
+    for receipt_root in [BASE_DIR / "search" / "receipts", BASE_DIR / "workflows"]:
+        if not receipt_root.exists():
+            continue
+        pattern = "*" if receipt_root.name == "receipts" else "*/receipts/*"
+        for path in receipt_root.glob(pattern):
+            if not path.is_file() or path.suffix.lower() not in {".md", ".txt", ".json", ".jsonl"}:
+                continue
+            try:
+                relative = _safe_relative(path)
+                content = path.read_text(encoding="utf-8", errors="replace")
+                sources.append({
+                    "id": relative,
+                    "path": relative,
+                    "title": _markdown_title(content, path.name),
+                    "source": "workflow receipt" if relative.startswith("workflows/") else "search receipt",
+                    "modified": datetime.datetime.fromtimestamp(path.stat().st_mtime, datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
+                    "preview": _redacted_preview(content, 2400),
+                })
+            except OSError:
+                continue
+    feed = []
+    seen = set()
+    for source in sorted(sources, key=lambda row: str(row.get("modified") or ""), reverse=True):
+        path = str(source.get("path") or "")
+        if not path or path in seen:
+            continue
+        seen.add(path)
+        match = re.search(r"AOS-\d{4}-\d{4}", path + " " + str(source.get("preview") or ""))
+        item_id = match.group(0) if match else ""
+        item = by_id.get(item_id, {})
+        token_records = token_by_item.get(item_id, [])
+        token_records.sort(key=lambda row: str(_ledger_timestamp(row) or ""), reverse=True)
+        token_line = _token_label(token_records[0] if token_records else None)
+        status = str(item.get("status") or "recorded")
+        next_action = {
+            "human_review": "Liam review required",
+            "needs_input": "Operator input required",
+            "blocked": "Resolve recorded blocker",
+            "agent_todo": "Claim through the existing queue",
+            "agent_working": "Workbench execution in progress",
+            "done": "Read-only record; no action required",
+        }.get(status, "Read-only record; inspect source evidence")
+        feed.append({
+            **source,
+            "time": source.get("modified"),
+            "item_id": item_id or "unattributed",
+            "lane": _queue_item_lane(item) if item else "unassigned",
+            "component": str(item.get("owner") or source.get("source") or "unassigned"),
+            "workbench": str(item.get("workbench") or ""),
+            "status": status,
+            "token_line": token_line if "unavailable" not in token_line.lower() else "Token usage: unavailable",
+            "next_action": next_action,
+            "receipt": path if path.startswith(("queue/receipts/", "workflows/", "search/receipts/")) else "",
+            "artifact": path,
+        })
+    return feed
 
 
 def _dashboard_backend_log(event: dict) -> None:
@@ -3142,6 +3479,35 @@ def _queue_write_review_receipt(item_id: str, review_note: str, status: str = "d
     return _queue_write_receipt(item_id, "\n".join(lines))
 
 
+def _queue_write_workflow_final_closeout_receipt(item_id: str, review_note: str) -> str:
+    note = str(review_note or "").strip()
+    if len(note) > 500:
+        raise ValueError("review_note must be 500 characters or fewer")
+    safe_id = re.sub(r"[^A-Za-z0-9_-]+", "-", item_id).strip("-") or "receipt"
+    timestamp = datetime.datetime.now(datetime.timezone.utc)
+    created_at = timestamp.replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    receipt_path = (
+        Path("queue") / "receipts"
+        / f"{safe_id}-final-closeout-{timestamp.strftime('%Y%m%dT%H%M%SZ')}.md"
+    ).as_posix()
+    lines = [
+        "PASS",
+        "",
+        "Review closeout:",
+        "- Reviewed by: Liam",
+        f"- Reviewed at: {created_at}",
+        "- Status: done",
+        "- Workflow result: final integrated review approved",
+        "",
+        "Token usage: no agent invocation.",
+    ]
+    if note:
+        lines.extend(["", "Review note:", note])
+    target = BASE_DIR / receipt_path
+    durable_replace_text(target, "\n".join(lines).rstrip() + "\n")
+    return receipt_path
+
+
 def _queue_existing_review_receipt(item: dict, status: str = "done") -> str:
     for receipt in reversed(item.get("receipts") or []):
         path = str(receipt.get("path") if isinstance(receipt, dict) else receipt or "").strip()
@@ -3156,6 +3522,62 @@ def _queue_existing_review_receipt(item: dict, status: str = "done") -> str:
         if "Review closeout:" in content:
             return path
     return ""
+
+
+def _workflow_correction_tags(parent: dict) -> list[str]:
+    identity = [
+        str(tag) for tag in parent.get("tags") or []
+        if str(tag).startswith(("pkg:", "pkgver:"))
+    ]
+    if len([tag for tag in identity if tag.startswith("pkg:")]) != 1 or \
+            len([tag for tag in identity if tag.startswith("pkgver:")]) != 1:
+        raise ValueError("workflow parent lacks one unambiguous package/version identity")
+    return identity + ["pass:correction-1", "lane:operations"]
+
+
+def _create_workflow_correction(parent: dict, review_note: str) -> tuple[dict, str]:
+    note = str(review_note or "").strip()
+    if not note:
+        raise ValueError("Needs changes for a workflow parent requires one consolidated operator note")
+    if len(note) > 500:
+        raise ValueError("review_note must be 500 characters or fewer")
+    tags = _workflow_correction_tags(parent)
+    items = _read_queue_items()
+    same_parent = [row for row in items if row.get("parent_id") == parent.get("id")]
+    prior = [row for row in same_parent if "pass:correction-1" in (row.get("tags") or [])]
+    if prior:
+        raise ValueError(
+            "one correction cycle has already been used for this package definition version; "
+            "a new work item or package definition version is required"
+        )
+    if parent.get("status") != "human_review":
+        raise ValueError("only human_review workflow parents can request a correction")
+    step_index = max(
+        [int(row["step_index"]) for row in same_parent if isinstance(row.get("step_index"), int)] or [0]
+    ) + 1
+    obligation = (
+        "Implement the consolidated operator correction, then rerun the complete validation "
+        "obligation for the package (all required repository tests, cache-free Python compilation, "
+        "frontend production build, git diff --check, protected-boundary and live-mutation checks)."
+    )
+    queue_tool = _load_queue_tool()
+    args = argparse.Namespace(
+        title="Correction 1: consolidated workflow review changes",
+        requested_by="Liam", owner_type="agent", owner="codex", workbench="codex",
+        status="agent_todo", priority=int(parent.get("priority") or 5),
+        source=str(parent.get("source") or "dashboard"), tags=",".join(tags),
+        context=f"Operator note: {note}\n\nFull validation obligation: {obligation}",
+        sources=",".join(str(value) for value in parent.get("sources") or []),
+        allowed_actions="local reads,local edits,file creation,dependency installation,validation commands,local dev-server startup,browser preview,screenshot capture",
+        stop_conditions="external or destructive action required,protected-boundary conflict,validation remains red",
+        definition_of_done=f"Operator note is fully addressed. {obligation}",
+        parent_id=str(parent.get("id")), step_index=step_index, depends_on="",
+        on_complete=None,
+    )
+    correction = queue_tool.create_item(BASE_DIR, args)
+    receipt_path = _queue_write_review_receipt(str(parent.get("id")), note, "inbox")
+    queue_tool.attach_receipt(BASE_DIR, str(parent.get("id")), receipt_path, "inbox")
+    return correction, receipt_path
 
 
 def _external_dry_run_receipt_text(body: ExternalSendDryRun) -> str:
@@ -3312,6 +3734,80 @@ def _queue_token_usage_lines(content: str) -> list[str]:
                 continue
             break
     return token_lines[:8]
+
+
+def _queue_canonical_token_usage(item_id: str) -> dict | None:
+    """Read the existing canonical item sidecar; exact invocation data wins."""
+    path = BASE_DIR / "queue" / "receipts" / f"{item_id}.token_usage.json"
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, TypeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    usage = payload.get("token_usage") if isinstance(payload.get("token_usage"), dict) else {}
+    totals = usage.get("totals") if isinstance(usage.get("totals"), dict) else {}
+    workbenches = usage.get("workbenches") if isinstance(usage.get("workbenches"), list) else []
+    exact = any(
+        isinstance(workbench, dict)
+        and workbench.get("tool") == "codex"
+        and workbench.get("source") == "reported"
+        for workbench in workbenches
+    )
+    invocation = payload.get("profile_invocation") if isinstance(payload.get("profile_invocation"), dict) else {}
+    evidence = payload.get("capture_evidence") if isinstance(payload.get("capture_evidence"), dict) else {}
+    if exact:
+        try:
+            input_tokens = int(totals["input"])
+            output_tokens = int(totals["output"])
+            total_tokens = int(evidence.get("total_tokens", input_tokens + output_tokens))
+        except (KeyError, TypeError, ValueError):
+            return None
+        if min(input_tokens, output_tokens, total_tokens) < 0 or total_tokens != input_tokens + output_tokens:
+            return None
+        cached = evidence.get("cached_input_tokens")
+        reasoning = evidence.get("reasoning_output_tokens")
+        try:
+            if cached is not None and int(cached) < 0:
+                return None
+            if reasoning is not None:
+                if int(reasoning) < 0 or int(reasoning) > output_tokens:
+                    return None
+        except (TypeError, ValueError):
+            return None
+        lines = [
+            "Token usage: exact",
+            f"Input: {input_tokens}",
+            f"Output: {output_tokens}",
+            f"Total: {total_tokens}",
+            f"Cached input: {int(cached)}" if cached is not None else "Cached input: unavailable",
+            f"Reasoning output (subset of output): {int(reasoning)}" if reasoning is not None else "Reasoning output (subset of output): unavailable",
+            f"Model: {evidence.get('model_identity') or 'unavailable'}",
+        ]
+        return {
+            "precedence": "exact",
+            "lines": lines,
+            "token_usage": usage,
+            "profile_invocation": invocation,
+            "capture_evidence": evidence,
+        }
+    if invocation.get("invoked") is True:
+        return {
+            "precedence": "unavailable",
+            "lines": ["Token usage: unavailable from current CLI output."],
+            "token_usage": usage,
+            "profile_invocation": invocation,
+            "capture_evidence": evidence,
+        }
+    if invocation.get("invoked") is False:
+        return {
+            "precedence": "no_agent_invocation",
+            "lines": ["Token usage: no agent invocation"],
+            "token_usage": usage,
+            "profile_invocation": invocation,
+            "capture_evidence": evidence,
+        }
+    return None
 
 
 def _queue_artifact_candidates_from_text(text: str) -> list[str]:
@@ -3581,13 +4077,18 @@ def _queue_latest_receipt(item: dict) -> dict | None:
         except (FileNotFoundError, ValueError, OSError):
             summary = "Receipt file is listed but could not be read from queue/receipts."
 
+    canonical_usage = _queue_canonical_token_usage(str(item.get("id") or ""))
     return {
         "path": path,
         "status": latest.get("status") or item.get("status", ""),
         "created_at": latest.get("created_at"),
         "available": bool(content),
         "content": content,
-        "token_usage_lines": _queue_token_usage_lines(content) if content else [],
+        "token_usage_lines": canonical_usage["lines"] if canonical_usage else (_queue_token_usage_lines(content) if content else []),
+        "token_usage": canonical_usage["token_usage"] if canonical_usage else None,
+        "token_usage_precedence": canonical_usage["precedence"] if canonical_usage else "receipt_text",
+        "profile_invocation": canonical_usage["profile_invocation"] if canonical_usage else None,
+        "capture_evidence": canonical_usage["capture_evidence"] if canonical_usage else None,
         **metadata,
         "summary": _bounded_hermes_answer(summary or "Receipt summary unavailable.", 900),
     }
@@ -3601,6 +4102,8 @@ def _queue_detail_item(item: dict) -> dict:
     step_progress = None
     if steps and isinstance(step_index, int):
         step_progress = {"current": max(0, min(step_index, len(steps))), "total": len(steps), "label": f"{max(0, min(step_index, len(steps)))} of {len(steps)}"}
+    integrated_review_path = f"workflows/queue_artifacts/{item.get('id')}_final_integrated_dashboard_review.md"
+    integrated_review = _queue_artifact_ref(integrated_review_path) if item.get("owner_type") == "workflow" and (BASE_DIR / integrated_review_path).is_file() else None
     public.update({
         "requested_by": item.get("requested_by", ""),
         "owner_type": item.get("owner_type", ""),
@@ -3626,9 +4129,72 @@ def _queue_detail_item(item: dict) -> dict:
         "latest_receipt": latest_receipt,
         "run_artifacts": _queue_artifact_refs(item, latest_receipt.get("content", "") if latest_receipt else ""),
         "final_result": _queue_final_result_for_item(item),
+        "integrated_review_artifact": integrated_review,
+        "pipeline": _queue_pipeline(item),
         "stuck_recovery": _queue_stuck_recovery(item),
     })
     return public
+
+
+def _queue_pipeline(item: dict) -> dict:
+    items = _read_queue_items()
+    item_id = str(item.get("id") or "")
+    parent_id = str(item.get("parent_id") or item_id)
+    children = sorted(
+        [row for row in items if str(row.get("parent_id") or "") == parent_id],
+        key=lambda row: (row.get("step_index") if isinstance(row.get("step_index"), int) else 10_000, str(row.get("id") or "")),
+    )
+    if not children:
+        return {
+            "mode": "status_fallback",
+            "parent_id": item_id,
+            "nodes": [{
+                "id": item_id,
+                "name": item.get("title") or item_id,
+                "status": item.get("status") or "unavailable",
+                "timestamp": item.get("updated_at") or item.get("created_at"),
+                "execution": "unavailable from recorded evidence",
+                "gate": None,
+                "depends_on": item.get("depends_on") or [],
+                "receipts": item.get("receipts") or [],
+                "artifacts": item.get("source_refs") or [],
+            }],
+            "history": [],
+        }
+    parent = next((row for row in items if row.get("id") == parent_id), {})
+    token_records = _read_token_ledger_records()
+    token_by_item: dict[str, list[dict]] = {}
+    for record in token_records:
+        token_by_item.setdefault(_ledger_task_id(record), []).append(record)
+    nodes = []
+    for row in [parent, *children]:
+        row_id = str(row.get("id") or "")
+        records = token_by_item.get(row_id, [])
+        records.sort(key=lambda record: str(_ledger_timestamp(record) or ""), reverse=True)
+        record = records[0] if records else None
+        execution = "deterministic" if record and _ledger_no_agent_invocation(record) else "model spend recorded" if record and _ledger_tokens_basis(record)[0] is not None else "token evidence unavailable"
+        nodes.append({
+            "id": row_id,
+            "name": row.get("title") or row_id,
+            "step_index": row.get("step_index"),
+            "status": row.get("status") or "unavailable",
+            "timestamp": row.get("updated_at") or row.get("created_at"),
+            "execution": execution,
+            "gate": row.get("on_complete"),
+            "depends_on": row.get("depends_on") or [],
+            "receipts": row.get("receipts") or [],
+            "artifacts": row.get("source_refs") or [],
+        })
+    events = [
+        row for row in _read_jsonl_file(BASE_DIR / aos_orchestration.EVENTS_PATH)
+        if str(row.get("parent_id") or "") == parent_id
+    ]
+    history = [
+        {"event": row.get("event"), "item_id": row.get("item_id"), "timestamp": _ledger_timestamp(row), "status": row.get("status") or row.get("result")}
+        for row in events
+        if row.get("event") in {"step_advanced", "acceptance_finalized", "workflow_parent_review_ready"}
+    ]
+    return {"mode": "workflow_chain", "parent_id": parent_id, "nodes": nodes, "history": history}
 
 
 def _queue_item_sort_key(item: dict) -> tuple[int, str, str]:
@@ -3722,6 +4288,100 @@ def _queue_human_needed_items(items: list[dict]) -> list[dict]:
 
 def _queue_human_needed_count(counts: dict[str, int]) -> int:
     return sum(int(counts.get(status, 0) or 0) for status in _HUMAN_NEEDED_STATUSES)
+
+
+_DASHBOARD_LANES = ("marketing", "revenue", "delivery", "operations", "unassigned")
+
+
+def _queue_item_lane(item: dict) -> str:
+    """Resolve the recorded lane without inventing a queue worker field."""
+    for tag in item.get("tags") or []:
+        value = str(tag or "").strip().lower()
+        if value.startswith("lane:"):
+            lane = value.split(":", 1)[1]
+            if lane == "ops":
+                lane = "operations"
+            return lane if lane in _DASHBOARD_LANES else "unassigned"
+    owner = str(item.get("owner") or "").strip().lower()
+    if owner == "ops":
+        owner = "operations"
+    return owner if owner in _DASHBOARD_LANES else "unassigned"
+
+
+def _dashboard_lane_activity(items: list[dict]) -> list[dict]:
+    token_rows = [_token_record_view(row) for row in _read_token_ledger_records()]
+    run_rows = _read_jsonl_file(BASE_DIR / "queue" / "run_ledger.jsonl")
+    by_token: dict[str, list[dict]] = {}
+    by_run: dict[str, list[dict]] = {}
+    for row in token_rows:
+        by_token.setdefault(str(row.get("item_id") or ""), []).append(row)
+    for row in run_rows:
+        by_run.setdefault(str(row.get("item_id") or ""), []).append(row)
+
+    groups = []
+    for lane in _DASHBOARD_LANES:
+        lane_items = [item for item in items if _queue_item_lane(item) == lane]
+        newest = sorted(
+            lane_items,
+            key=lambda row: str(row.get("updated_at") or row.get("created_at") or ""),
+            reverse=True,
+        )
+        current = [row for row in newest if row.get("status") in {"agent_todo", "agent_working"}]
+        completed = [row for row in newest if row.get("status") == "done"]
+        latest_receipt = next(
+            (_queue_latest_receipt(row) for row in newest if row.get("receipts")),
+            None,
+        )
+        artifact = next(
+            (
+                ref
+                for row in newest
+                for ref in row.get("run_artifacts") or []
+                if ref.get("available") and ref.get("path") != (latest_receipt or {}).get("path")
+            ),
+            None,
+        )
+        lane_token_rows = [
+            token
+            for row in lane_items
+            for token in by_token.get(str(row.get("id") or ""), [])
+        ]
+        exact_tokens = [row for row in lane_token_rows if row.get("availability_state") == "exact"]
+        exact_tokens.sort(key=lambda row: str(row.get("event_timestamp_utc") or ""), reverse=True)
+        latest_exact = exact_tokens[0] if exact_tokens else None
+        successful_runs = [
+            run
+            for row in lane_items
+            for run in by_run.get(str(row.get("id") or ""), [])
+            if str(run.get("status") or run.get("result") or "").lower() in {"done", "success", "passed", "pass"}
+        ]
+        successful_runs.sort(key=lambda row: str(_ledger_timestamp(row) or ""), reverse=True)
+        groups.append({
+            "lane": lane,
+            "items": newest,
+            "current_assigned_work": current[:3],
+            "last_completed_item": completed[0] if completed else None,
+            "latest_receipt": latest_receipt,
+            "latest_artifact": artifact,
+            "counts": {
+                status: sum(1 for row in lane_items if row.get("status") == status)
+                for status in ("agent_todo", "agent_working", "blocked", "human_review")
+            },
+            "token_usage": ({
+                "state": "exact",
+                "input": latest_exact.get("input_tokens"),
+                "output": latest_exact.get("output_tokens"),
+                "total": latest_exact.get("total_tokens"),
+                "item_id": latest_exact.get("item_id"),
+            } if latest_exact else {"state": "unavailable"}),
+            "last_successful_run": successful_runs[0] if successful_runs else None,
+            "degraded": not bool(lane_items),
+            "shortcut": {
+                "lane": lane,
+                "workbench": str((current[0] if current else newest[0] if newest else {}).get("workbench") or ""),
+            },
+        })
+    return groups
 
 
 @app.get("/api/queue/summary")
@@ -3939,20 +4599,28 @@ def close_queue_item_review(item_id: str, body: QueueReviewClose):
     """Close one human_review queue item with an optional local review note."""
     tick_result = None
     telegram_reply = None
+    correction_item = None
     try:
         status = _queue_validate_status(body.status)
         if status not in {"done", "needs_input", "blocked"}:
             raise ValueError("review status must be done, needs_input, or blocked")
         existing = _queue_find_item(item_id)
+        is_workflow_correction = existing.get("owner_type") == "workflow" and status == "needs_input"
         already_closed = existing.get("status") == status and status == "done"
-        if existing.get("status") != "human_review" and not already_closed:
+        if existing.get("status") != "human_review" and not already_closed and not is_workflow_correction:
             raise ValueError("only human_review items can be closed from review")
-        if already_closed:
+        if is_workflow_correction:
+            correction_item, receipt_path = _create_workflow_correction(existing, body.review_note)
+        elif already_closed:
             latest = (existing.get("receipts") or [""])[-1]
             latest_path = latest.get("path") if isinstance(latest, dict) else latest
             receipt_path = _queue_existing_review_receipt(existing, status) or str(latest_path or "")
         else:
-            receipt_path = _queue_write_review_receipt(item_id, body.review_note, status)
+            receipt_path = (
+                _queue_write_workflow_final_closeout_receipt(item_id, body.review_note)
+                if existing.get("owner_type") == "workflow" and status == "done"
+                else _queue_write_review_receipt(item_id, body.review_note, status)
+            )
             _load_queue_tool().attach_receipt(BASE_DIR, item_id, receipt_path, status)
             telegram_reply = _telegram_reply_on_close(existing, status, body.review_note, receipt_path)
         if status == "done":
@@ -3985,6 +4653,7 @@ def close_queue_item_review(item_id: str, body: QueueReviewClose):
         "final_artifact_paths": (final_result or {}).get("final_artifact_paths", []),
         "final_receipt_paths": (final_result or {}).get("final_receipt_paths", []),
         "advanced_item_ids": advanced_item_ids,
+        "correction_item": _queue_detail_item(correction_item) if correction_item else None,
         "final_result": final_result,
     }
 
@@ -4068,13 +4737,14 @@ def dashboard_cockpit():
     return {
         "success": True,
         "counts": counts,
-        "needs_me": needs_me[:8],
+        "needs_me": needs_me,
         "needs_me_count": _queue_human_needed_count(counts),
         "human_needed_count": _queue_human_needed_count(counts),
         "human_needed_statuses": sorted(_HUMAN_NEEDED_STATUSES),
         "stalled": stalled,
         "stalled_count": len(stalled),
         "queue_items": items,
+        "lane_activity": _dashboard_lane_activity(items),
         "recent_output": _recent_file_items()[:8],
         "tokens": token_summary,
         "workbenches": workbenches,
@@ -4264,6 +4934,65 @@ def _match_command_route(text: str) -> dict:
     }
 
 
+def _create_cockpit_command_item(command: str) -> tuple[dict, dict]:
+    """Route one plain-language command into the local queue without running it."""
+    text = str(command or "").strip()
+    if not text:
+        raise ValueError("command must not be empty")
+    if len(text) > 2000:
+        raise ValueError("command must be 2000 characters or fewer")
+
+    routing = _match_command_route(text)
+    work_order = routing.get("work_order") if routing.get("matched") else None
+    if work_order:
+        tags = [str(value) for value in work_order.get("tags") or [] if value]
+        tags.extend(("cockpit_command", f"lane:{work_order.get('owner') or 'unassigned'}"))
+        body = QueueItemCreate(
+            title=str(work_order.get("title") or text)[:200],
+            owner=str(work_order.get("owner") or "unassigned"),
+            priority=work_order.get("priority") or "normal",
+            tags=",".join(tags),
+            source="dashboard/cockpit_command",
+            context=text,
+            source_refs=",".join(str(value) for value in work_order.get("source_refs") or []),
+            allowed_actions=",".join(str(value) for value in work_order.get("allowed_actions") or []),
+            stop_conditions=",".join(str(value) for value in work_order.get("stop_conditions") or []),
+            definition_of_done=str(work_order.get("definition_of_done") or ""),
+            workbench=work_order.get("workbench"),
+            step_index=0 if work_order.get("steps") else None,
+        )
+        route_summary = {
+            "matched": True,
+            "confidence": routing.get("confidence"),
+            "workflow": work_order.get("workflow"),
+            "owner": work_order.get("owner"),
+            "pattern": routing.get("pattern"),
+        }
+    else:
+        inferred_owner = _infer_queue_owner(text)
+        owner = inferred_owner if inferred_owner != "unassigned" else "hermes"
+        workbench = owner if owner in {"codex", "claude"} else "lane"
+        body = QueueItemCreate(
+            title=text[:200],
+            owner=owner,
+            priority="normal",
+            tags=f"cockpit_command,intake:unmatched,lane:{owner if owner in _DASHBOARD_LANES else 'unassigned'}",
+            source="dashboard/cockpit_command",
+            context=text,
+            definition_of_done="Triage the operator command, complete the routed work, and attach a durable receipt.",
+            workbench=workbench,
+        )
+        route_summary = {
+            "matched": False,
+            "confidence": "fallback",
+            "workflow": None,
+            "owner": owner,
+            "pattern": None,
+        }
+
+    return _queue_create_dashboard_item(body), route_summary
+
+
 @app.get("/api/dashboard/command-routes")
 def dashboard_command_routes():
     return _load_command_routes()
@@ -4282,6 +5011,30 @@ def dashboard_message_board_route(body: MessageRouteRequest):
         confidence=result.get("confidence"),
     )
     return result
+
+
+@app.post("/api/dashboard/cockpit/command")
+def dashboard_cockpit_command(body: CockpitCommandCreate):
+    """Create one deterministically routed local work item; never invoke a model or connector."""
+    try:
+        item, route = _create_cockpit_command_item(body.command)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    latitude_telemetry.trace(
+        "cockpit.command_create",
+        "queue",
+        "ok",
+        item_id=item.get("id"),
+        owner=item.get("owner"),
+        matched=route.get("matched"),
+    )
+    return {
+        "success": True,
+        "item": _queue_detail_item(item),
+        "route": route,
+        "local_only": True,
+        "token_usage_text": "Token usage: no agent invocation",
+    }
 
 
 def _component_tokens(component: str, records: list[dict]) -> dict:
@@ -4398,6 +5151,69 @@ def _stalled_items(items: list[dict], minutes: int = 15) -> list[dict]:
     return stalled
 
 
+def _dashboard_schedule_rows(backup: dict, checked_at: str) -> list[dict]:
+    digest_records = []
+    for path in (QUEUE_DIR / "receipts").glob("agentmail_digest_*.json"):
+        try:
+            value = json.loads(path.read_text(encoding="utf-8", errors="replace"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if isinstance(value, dict):
+            digest_records.append((str(_ledger_timestamp(value) or value.get("digest_date") or ""), path, value))
+    digest_records.sort(key=lambda row: row[0], reverse=True)
+    ingestion = _read_jsonl_file(QUEUE_DIR / "receipts" / "ingestion.jsonl")
+    ingestion.sort(key=lambda row: str(_ledger_timestamp(row) or ""), reverse=True)
+    latest_digest = digest_records[0] if digest_records else None
+    latest_ingestion = ingestion[0] if ingestion else None
+    latest_backup = backup.get("latest") or {}
+    return [
+        {
+            "id": "automated-backup",
+            "name": "Automated backup",
+            "next_run": "unknown",
+            "last_run": latest_backup.get("ts"),
+            "last_result": latest_backup.get("status") or "unavailable",
+            "receipt": backup.get("latest_receipt_path"),
+            "degraded": bool(backup.get("needs_attention")),
+            "stale": backup.get("state") == "stale",
+            "expected_cadence": "48 hours (existing backup status contract)",
+        },
+        {
+            "id": "system-watch",
+            "name": "System Watch",
+            "next_run": "unknown",
+            "last_run": checked_at,
+            "last_result": "read-only check available",
+            "receipt": None,
+            "degraded": False,
+            "stale": False,
+            "expected_cadence": "unknown",
+        },
+        {
+            "id": "agentmail-digest",
+            "name": "AgentMail digest",
+            "next_run": "unknown",
+            "last_run": latest_digest[0] if latest_digest else None,
+            "last_result": str((latest_digest[2] if latest_digest else {}).get("status") or "unavailable"),
+            "receipt": _safe_relative(latest_digest[1]) if latest_digest else None,
+            "degraded": latest_digest is None,
+            "stale": False,
+            "expected_cadence": "unknown",
+        },
+        {
+            "id": "ingestion",
+            "name": "Ingestion",
+            "next_run": "unknown",
+            "last_run": _ledger_timestamp(latest_ingestion or {}),
+            "last_result": str((latest_ingestion or {}).get("status") or "unavailable"),
+            "receipt": "queue/receipts/ingestion.jsonl" if ingestion else None,
+            "degraded": latest_ingestion is None,
+            "stale": False,
+            "expected_cadence": "unknown",
+        },
+    ]
+
+
 @app.get("/api/dashboard/system-watch")
 def dashboard_system_watch(stalled_minutes: int = 15):
     items = [_queue_detail_item(item) for item in _read_queue_items()]
@@ -4410,8 +5226,9 @@ def dashboard_system_watch(stalled_minutes: int = 15):
     queue_tool_exists = QUEUE_TOOL.exists()
     backup = _backup_status()
     latitude = _public_latitude_status()
+    checked_at = datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
     return {
-        "backend": {"status": "ok", "checked_at": datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")},
+        "backend": {"status": "ok", "checked_at": checked_at},
         "queue_tooling": {"status": "ok" if queue_tool_exists else "missing", "path": _safe_relative(QUEUE_TOOL)},
         "bridge_status": {"status": "read-only check available outside this Phase A endpoint", "freshness": "not mutated"},
         "stalled_window_minutes": stalled_minutes,
@@ -4428,6 +5245,8 @@ def dashboard_system_watch(stalled_minutes: int = 15):
             for item in stalled
         ],
         "backup": backup,
+        "schedule": _dashboard_schedule_rows(backup, checked_at),
+        "schedule_read_only": True,
         "backup_needs_attention": backup.get("needs_attention", False),
         "latitude": latitude,
         "latitude_needs_attention": not latitude.get("configured"),
@@ -4478,40 +5297,115 @@ def external_action_dry_run(body: ExternalSendDryRun):
 
 @app.get("/api/dashboard/results")
 def dashboard_results():
-    return {"items": _recent_file_items()[:200]}
+    recent = _recent_file_items()
+    return {"items": recent[:200], "activity": _dashboard_activity_feed(recent)[:200], "read_only": True, "token_usage_text": "Token usage: no agent invocation"}
 
 
 @app.get("/api/dashboard/workflows")
 def dashboard_workflows():
     workflows = []
-    if WORKFLOWS_DIR.exists():
-        for path in sorted(WORKFLOWS_DIR.glob("*/workflow.md")):
-            try:
-                content = path.read_text(encoding="utf-8", errors="replace")
-            except OSError:
-                continue
-            slug = path.parent.name
-            lane = "operations" if any(part in slug for part in ("ops", "weekly", "ai_operations")) else "marketing" if "marketing" in slug or "content" in slug else "revenue" if any(part in slug for part in ("lead", "sales", "fit")) else "delivery"
-            receipts_dir = path.parent / "receipts"
-            receipts = sorted(receipts_dir.glob("*")) if receipts_dir.exists() else []
-            runner_contract = _workflow_runner_contract({
-                "id": slug,
-                "workflow": slug,
-                "owner": lane,
-                "workbench": "lane",
-            })
-            workflows.append({
-                "id": slug,
-                "name": _markdown_title(content, slug.replace("_", " ").title()),
-                "lane": lane,
-                "path": _safe_relative(path),
-                "last_run": datetime.datetime.fromtimestamp(receipts[-1].stat().st_mtime).isoformat() if receipts else None,
-                "receipt_count": len(receipts),
-                "avg_tokens": "unavailable",
-                "content": _redacted_preview(content, 6000),
-                "runner_contract": runner_contract,
-            })
+    root = _workflow_root()
+    registry = _workflow_registry_entries()
+    registry_by_id = {str(row.get("id")): row for row in registry if row.get("id")}
+    candidates: dict[str, tuple[Path, dict]] = {
+        path.parent.name: (path, registry_by_id.get(path.parent.name, {}))
+        for path in sorted(root.glob("*/workflow.md")) if root.exists()
+    }
+    fixture_root = BASE_DIR / "dashboard" / "test-fixtures" / "workflows"
+    if fixture_root.exists():
+        for path in sorted(fixture_root.glob("*/workflow.md")):
+            candidates.setdefault(path.parent.name, (path, {"test_fixture": True}))
+    for row in registry:
+        slug = str(row.get("id") or "").strip()
+        source = str(row.get("source_path") or "").strip().replace("\\", "/")
+        if not slug or slug in candidates or not source.startswith("workflows/"):
+            continue
+        path = BASE_DIR / source
+        candidates[slug] = (path, row)
+    for slug in sorted(candidates):
+        path, metadata = candidates[slug]
+        try:
+            content = path.read_text(encoding="utf-8", errors="strict")
+        except (OSError, UnicodeError):
+            continue
+        lane = str(metadata.get("owner_agent") or "").lower() or ("operations" if any(part in slug for part in ("ops", "weekly", "ai_operations")) else "marketing" if "marketing" in slug or "content" in slug else "revenue" if any(part in slug for part in ("lead", "sales", "fit")) else "delivery")
+        receipts_dir = path.parent / "receipts"
+        receipts = sorted(receipts_dir.glob("*")) if receipts_dir.exists() else []
+        editable = False
+        read_only_reason = "Only canonical workflows/*/workflow.md sources are editable."
+        try:
+            editable = _workflow_path_for_id(slug) == path
+            if editable:
+                read_only_reason = ""
+        except (ValueError, FileNotFoundError, OSError):
+            pass
+        workflows.append({
+            "id": slug,
+            "identifier": slug,
+            "name": _workflow_display_name(path, content, slug, metadata),
+            "lane": lane,
+            "path": _safe_relative(path),
+            "last_run": datetime.datetime.fromtimestamp(receipts[-1].stat().st_mtime).isoformat() if receipts else None,
+            "receipt_count": len(receipts),
+            "avg_tokens": "unavailable",
+            "content": _redacted_preview(content, 6000),
+            "editable": editable,
+            "test_fixture": bool(metadata.get("test_fixture")),
+            "read_only_reason": read_only_reason,
+            "revision": _workflow_revision(content),
+        })
     return {"workflows": workflows}
+
+
+@app.get("/api/dashboard/workflows/{workflow_id}")
+def dashboard_workflow(workflow_id: str):
+    try:
+        path = _workflow_path_for_id(workflow_id)
+        content = path.read_text(encoding="utf-8", errors="strict")
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="editable workflow source not found")
+    except (ValueError, UnicodeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {
+        "success": True,
+        "id": workflow_id,
+        "name": _workflow_display_name(path, content, workflow_id),
+        "path": _safe_relative(path),
+        "content": content,
+        "revision": _workflow_revision(content),
+        "editable": True,
+    }
+
+
+@app.post("/api/dashboard/workflows/save")
+def dashboard_save_workflow(body: DashboardWorkflowSave):
+    try:
+        path = _workflow_path_for_id(body.workflow_id, writable=True)
+        existing = path.read_text(encoding="utf-8", errors="strict")
+        if not body.expected_revision or body.expected_revision != _workflow_revision(existing):
+            raise RuntimeError("workflow changed after it was loaded; reload before saving")
+        _validate_workflow_content(body.content)
+        durable_replace_text(path, body.content)
+        persisted = path.read_text(encoding="utf-8", errors="strict")
+        if persisted != body.content:
+            raise OSError("workflow save verification failed")
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="editable workflow source not found")
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except (ValueError, UnicodeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"workflow save failed: {exc}")
+    return {
+        "success": True,
+        "id": body.workflow_id,
+        "name": _workflow_display_name(path, persisted, body.workflow_id),
+        "path": _safe_relative(path),
+        "content": persisted,
+        "revision": _workflow_revision(persisted),
+        "executed": False,
+    }
 
 
 @app.get("/api/dashboard/workflow-contracts")
@@ -4698,32 +5592,20 @@ def dashboard_graphify():
             version = (result.stdout or result.stderr).strip()
         except (OSError, subprocess.SubprocessError):
             version = "version unavailable"
-    output_files = []
-    if GRAPHIFY_OUT_DIR.exists():
-        expected_files = [
-            GRAPHIFY_OUT_DIR / "graph.json",
-            GRAPHIFY_OUT_DIR / ".graphify_analysis.json",
-            GRAPHIFY_OUT_DIR / "manifest.json",
-            GRAPHIFY_OUT_DIR / "cache" / "stat-index.json",
-        ]
-        for path in [p for p in expected_files if p.is_file()]:
-            output_files.append({"name": str(path.relative_to(GRAPHIFY_OUT_DIR)), "path": str(path), "bytes": path.stat().st_size})
-    graph_html = GRAPHIFY_OUT_DIR / "graph.html"
-    graph_json = GRAPHIFY_OUT_DIR / "graph.json"
     installed = bool(cli_path)
-    has_graph = graph_html.exists() or graph_json.exists() or bool(output_files)
     return {
-        "available": has_graph,
+        "available": installed,
         "installed": installed,
-        "status": "Ready" if has_graph else ("Installed, no graph output" if installed else "Unavailable"),
+        "status": "CLI installed; Graphify Brain data not inspected" if installed else "Unavailable",
         "cli_path": cli_path,
         "version": version,
-        "brain_root": str(GRAPHIFY_BRAIN_DIR),
-        "graph_output_dir": str(GRAPHIFY_OUT_DIR),
-        "graph_html": str(graph_html) if graph_html.exists() else "",
-        "graph_json": str(graph_json) if graph_json.exists() else "",
-        "output_files": output_files,
+        "brain_root": "protected; not inspected",
+        "graph_output_dir": "protected; not inspected",
+        "graph_html": "",
+        "graph_json": "",
+        "output_files": [],
         "launch_command": f"cd {shlex.quote(str(GRAPHIFY_BRAIN_DIR / 'brain_graph'))} && graphify ./source --code-only",
+        "data_inspected": False,
         "repos": [{"name": "Agentic OS Live", "path": _safe_relative(BASE_DIR), "node_count": "unavailable", "last_analyzed": None}],
     }
 
@@ -4826,7 +5708,7 @@ def _queue_render_prompt(item: dict, target: str) -> str:
     template_path = _queue_templates_dir() / f"{target}_task.prompt.md"
     template = template_path.read_text(encoding="utf-8")
     launch = (
-        'export AOS_ROOT="${AOS_ROOT:-$PWD}"; cd "$AOS_ROOT"; command -v codex; codex --version; codex --sandbox workspace-write --ask-for-approval never'
+        f'export AOS_ROOT="${{AOS_ROOT:-$PWD}}"; cd "$AOS_ROOT"; command -v codex; codex --version; python3 tools/aos-queue.py codex-run {item.get("id", "")} --prompt-file -'
         if target == "codex"
         else 'export AOS_ROOT="${AOS_ROOT:-$PWD}"; cd "$AOS_ROOT"; aos-claude'
     )
@@ -4856,7 +5738,7 @@ def _queue_render_prompt(item: dict, target: str) -> str:
         "",
         "## Manual Launch",
         "",
-        "Paste this prompt into the workbench manually. Do not launch agents automatically.",
+        "Do not launch agents automatically. For Codex, pass this prompt on standard input to the command above; the explicit work-item ID is retained through process exit and token reconciliation.",
         "",
     ))
 

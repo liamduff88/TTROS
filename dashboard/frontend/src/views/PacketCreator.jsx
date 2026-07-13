@@ -86,7 +86,7 @@ ${form.task || '[Task text will appear here]'}`
                     onClick={() => set('preset', p.id)}
                     className={`px-2.5 py-1.5 rounded text-xs font-medium transition-colors ${
                       form.preset === p.id
-                        ? 'bg-champagne text-ink'
+                        ? 'bg-champagne text-ivory'
                         : 'bg-softgraph text-taupe hover:text-stone'
                     }`}
                   >
@@ -124,7 +124,7 @@ ${form.task || '[Task text will appear here]'}`
             <button
               onClick={handleSave}
               disabled={saving || !form.task.trim()}
-              className="flex items-center gap-2 px-4 py-2 rounded bg-champagne text-ink text-sm font-semibold hover:bg-stone disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              className="flex items-center gap-2 px-4 py-2 rounded bg-champagne text-ivory text-sm font-semibold hover:bg-well disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
               <Save size={13} />
               {saving ? 'Saving…' : 'Save Packet'}
