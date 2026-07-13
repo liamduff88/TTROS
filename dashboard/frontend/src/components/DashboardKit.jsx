@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { X, Zap, LockKeyhole, ChevronLeft, ChevronRight } from 'lucide-react'
 import { workbenchColor } from '../shellState'
 
@@ -173,19 +173,22 @@ export function TokenRail({ tokens, onNavigate }) {
   )
 }
 
-export function NeedsMeRail({ cockpit, onNavigate }) {
+export function NeedsMeRail({ cockpit, onNavigate, collapseKey = null }) {
   const [collapsed, setCollapsed] = useState(false)
   const items = cockpit?.needs_me || []
   const itemCount = items.length
   const strip = cockpit?.tokens?.strip || {}
   const backup = cockpit?.backup || {}
   const backupAttention = backup?.needs_attention
+  useEffect(() => {
+    if (collapseKey) setCollapsed(true)
+  }, [collapseKey])
   if (collapsed) {
     return (
       <aside className="flex w-11 shrink-0 border-l border-softgraph bg-graphite/80" data-testid="needs-me-rail" data-collapsed="true">
         <button onClick={() => setCollapsed(false)} className="flex h-full w-full flex-col items-center gap-2 py-4 text-[var(--needs-review-text)] hover:bg-well" aria-label={`Open Needs Me, ${itemCount} active`}>
           <ChevronLeft size={14} />
-          <span className="rounded bg-[var(--needs-review)] px-1.5 py-1 text-xs font-bold">{itemCount}</span>
+          <span className="rounded bg-[var(--needs-review)] px-1.5 py-1 text-xs font-bold" data-testid="needs-me-count">{itemCount}</span>
           <span className="mt-1 [writing-mode:vertical-rl] text-[10px] font-bold uppercase tracking-widest">Needs Me</span>
         </button>
       </aside>
@@ -199,7 +202,7 @@ export function NeedsMeRail({ cockpit, onNavigate }) {
       </div>
       <div className="mt-4 space-y-2">
         {items.map(item => (
-          <button key={item.id} onClick={() => onNavigate('work-queue', { q: item.id, selectedId: item.id })} className="w-full rounded border bg-ink p-2 text-left" style={{ borderColor: workbenchColor(item.workbench || item.owner, item.status) }} data-needs-me-id={item.id}>
+          <button key={item.id} onClick={() => onNavigate('work-queue', { q: item.id, selectedId: item.id })} className="w-full rounded border bg-ink p-2 text-left" style={{ borderColor: workbenchColor(item.invocation_source, item.status) }} data-needs-me-id={item.id} data-invocation-source={item.invocation_source || 'unattributed'}>
             <div className="truncate text-xs font-semibold text-stone">{item.title}</div>
             <div className="mt-1 flex items-center justify-between gap-2 text-[10px] text-taupe">
               <span>{item.id}</span>

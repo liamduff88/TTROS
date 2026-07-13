@@ -166,12 +166,41 @@ const PromptButton = ({ target, busy, onCopy }) => (
   </button>
 )
 
-const CountTile = ({ label, value }) => (
-  <div className="rounded border border-softgraph bg-ink px-3 py-3">
-    <div className="truncate text-[10px] font-mono uppercase text-taupe">{formatStatus(label)}</div>
-    <div className="mt-1 font-mono text-lg text-stone">{value ?? 0}</div>
-  </div>
+export const toggleQueueStatusFilter = (filters, status) => {
+  if (filters.status !== status) return { ...filters, status }
+  const { status: _status, ...remainingFilters } = filters
+  return remainingFilters
+}
+
+export const CountTile = ({ status, value, active, onToggle }) => (
+  <button
+    type="button"
+    onClick={() => onToggle(status)}
+    aria-pressed={active}
+    className={`cursor-pointer rounded border px-3 py-3 text-left transition-colors ${
+      active
+        ? 'border-champagne/40 bg-champagne/10'
+        : 'border-softgraph bg-ink hover:border-champagne/40 hover:bg-champagne/10'
+    }`}
+  >
+    <div className={`truncate text-[10px] font-mono uppercase ${active ? 'text-champagne' : 'text-taupe'}`}>{formatStatus(status)}</div>
+    <div className={`mt-1 font-mono text-lg ${active ? 'text-champagne' : 'text-stone'}`}>{value ?? 0}</div>
+  </button>
 )
+
+export const QueueFilterChip = ({ filters, onClear }) => {
+  const label = [filters.status && formatStatus(filters.status), filters.workbench, filters.lane, filters.source].filter(Boolean).join(' / ')
+  if (!label) return null
+  return (
+    <button
+      type="button"
+      onClick={onClear}
+      className="inline-flex items-center gap-1.5 rounded border border-champagne/40 bg-champagne/10 px-2 py-1 text-[11px] font-mono text-champagne transition-colors hover:bg-champagne/20"
+    >
+      Filtered: {label} ×
+    </button>
+  )
+}
 
 const fieldBase =
   'mt-1 w-full rounded border border-softgraph bg-ink px-3 py-2 text-sm text-stone outline-none transition-colors placeholder:text-taupe focus:border-champagne'
@@ -283,6 +312,10 @@ export default function Queue({ initialFilters = {}, onViewParamsChange }) {
   useEffect(() => {
     refreshQueue()
   }, [])
+
+  useEffect(() => {
+    if (selectedId) setListCollapsed(true)
+  }, [selectedId])
 
   useEffect(() => {
     const explicitSelectedId = selectedIdFromParams(initialFilters)
@@ -602,7 +635,13 @@ export default function Queue({ initialFilters = {}, onViewParamsChange }) {
         </div>
         <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
           {QUEUE_STATUSES.map(queueStatus => (
-            <CountTile key={queueStatus} label={queueStatus} value={counts[queueStatus]} />
+            <CountTile
+              key={queueStatus}
+              status={queueStatus}
+              value={counts[queueStatus]}
+              active={filters.status === queueStatus}
+              onToggle={statusFilter => setFilters(current => toggleQueueStatusFilter(current, statusFilter))}
+            />
           ))}
         </div>
       </section>
@@ -611,8 +650,8 @@ export default function Queue({ initialFilters = {}, onViewParamsChange }) {
         <div className="flex gap-1 overflow-x-auto rounded border border-softgraph bg-graphite p-2" data-testid="focus-mini-rail">
           {filteredItems.filter(item => item.id !== selectedId).map(item => (
             <button key={item.id} onClick={() => selectQueueItem(item.id)} className="relative flex h-9 shrink-0 items-center gap-2 overflow-hidden rounded border border-softgraph bg-ink pl-3 pr-2 font-mono text-[10px] text-stone" aria-label={`Focus ${item.id}`}>
-              <span className="absolute inset-y-0 left-0 w-1" style={{ backgroundColor: workbenchColor(item.workbench || item.owner, item.status) }} />
-              <span>{item.id}</span><span className="h-2 w-2 rounded-full" style={{ backgroundColor: workbenchColor(item.workbench || item.owner, item.status) }} />
+              <span className="absolute inset-y-0 left-0 w-1" style={{ backgroundColor: workbenchColor(item.invocation_source, item.status) }} />
+              <span>{item.id}</span><span className="h-2 w-2 rounded-full" style={{ backgroundColor: workbenchColor(item.invocation_source, item.status) }} />
             </button>
           ))}
         </div>
@@ -775,15 +814,7 @@ export default function Queue({ initialFilters = {}, onViewParamsChange }) {
                 <h2 className="text-xs font-semibold uppercase tracking-wider text-taupe">{listCollapsed ? 'Queue' : 'Work items'}</h2>
               </div>
               <div className={`items-center gap-2 ${listCollapsed ? 'hidden' : 'flex'}`}>
-                {(filters.status || filters.workbench || filters.lane || filters.source) && (
-                  <button
-                    type="button"
-                    onClick={() => setFilters({})}
-                    className="inline-flex items-center gap-1.5 rounded border border-champagne/40 bg-champagne/10 px-2 py-1 text-[11px] font-mono text-champagne transition-colors hover:bg-champagne/20"
-                  >
-                    Filtered: {[filters.status && formatStatus(filters.status), filters.workbench, filters.lane, filters.source].filter(Boolean).join(' / ')} ×
-                  </button>
-                )}
+                <QueueFilterChip filters={filters} onClear={() => setFilters({})} />
                 <div className="font-mono text-xs text-taupe">{filteredItems.length} of {items.length}</div>
               </div>
             </div>
@@ -798,8 +829,9 @@ export default function Queue({ initialFilters = {}, onViewParamsChange }) {
                     key={item.id}
                     onClick={() => selectQueueItem(item.id)}
                     className={`w-full rounded border text-left transition-colors ${listCollapsed ? 'px-2 py-2' : 'px-3 py-3'} ${selectedId === item.id ? 'bg-softgraph' : 'bg-ink hover:bg-well'}`}
-                    style={{ borderColor: workbenchColor(item.workbench || item.owner, item.status) }}
+                    style={{ borderColor: workbenchColor(item.invocation_source, item.status) }}
                     data-queue-card-id={item.id}
+                    data-invocation-source={item.invocation_source || 'unattributed'}
                     aria-pressed={selectedId === item.id}
                   >
                     <div className="flex items-start justify-between gap-3">
@@ -831,7 +863,7 @@ export default function Queue({ initialFilters = {}, onViewParamsChange }) {
           </div>
         </div>
 
-        <div id="queue-selected-detail" ref={selectedDetailRef} className="rounded-lg border bg-graphite p-5" style={{ borderColor: selected ? workbenchColor(selected.workbench || selected.owner, selected.status) : 'var(--hairline)' }} data-testid="queue-selected-detail" data-selected-item-id={selected?.id || ''}>
+        <div id="queue-selected-detail" ref={selectedDetailRef} className="rounded-lg border bg-graphite p-5" style={{ borderColor: selected ? workbenchColor(selected.invocation_source, selected.status) : 'var(--hairline)' }} data-testid="queue-selected-detail" data-selected-item-id={selected?.id || ''} data-invocation-source={selected?.invocation_source || 'unattributed'}>
           <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <h2 className="text-xs font-semibold uppercase tracking-wider text-taupe">Selected item</h2>

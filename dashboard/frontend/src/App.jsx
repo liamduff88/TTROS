@@ -12,7 +12,7 @@ import { getDashboardCockpit, getHealth, getOverview, getQueueSummary } from './
 import { Cockpit, ConnectionsSpine, GraphifyPage, MemoryBoard, PromptLibrary, RepoIngest, ResultsReceipts, SettingsLaunchers, SkillsBoard, TokensROI, WorkflowBench } from './views/DashboardV1'
 import { ArtifactsPage, AgentsPage, MessageBoard, MissionControl, SearchPage } from './views/WorkbenchV3'
 import { NeedsMeRail } from './components/DashboardKit'
-import { closeSessionTab, openSessionTab, pinSessionTab, restoreShellSession, shellSessionSnapshot } from './shellState'
+import { closeSessionTab, needsMeCollapseKey, openSessionTab, pinSessionTab, restoreShellSession, shellSessionSnapshot } from './shellState'
 import { mergeQueueSummary, normalizeCockpitQueue } from './queueState'
 
 const VIEWS = {
@@ -144,7 +144,7 @@ export default function App() {
           <main className="flex-1 overflow-y-auto p-6">
             <ViewComponent overview={overview} cockpit={cockpit} initialFilters={viewParams} onViewParamsChange={updateActiveViewParams} onNavigate={navigate} refresh={refreshCockpit} onRefresh={() => getOverview().then(setOverview).catch(() => setOverview({ error: true }))} />
           </main>
-          <NeedsMeRail cockpit={cockpit} onNavigate={navigate} />
+          <NeedsMeRail cockpit={cockpit} onNavigate={navigate} collapseKey={needsMeCollapseKey(view, viewParams)} />
         </div>
       </div>
     </div>

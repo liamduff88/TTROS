@@ -80,6 +80,16 @@ SPEC.loader.exec_module(backend)
 
 
 class HermesComposioTests(unittest.TestCase):
+    def test_queue_worker_timeout_config_has_new_default_floor_and_override(self):
+        with patch.dict(backend.os.environ, {}, clear=True):
+            self.assertEqual(backend._timeout_seconds_from_env("AOS_QUEUE_WORKER_TIMEOUT_SECONDS", 1200, 900), 1200)
+        with patch.dict(backend.os.environ, {"AOS_QUEUE_WORKER_TIMEOUT_SECONDS": "1800"}, clear=True):
+            self.assertEqual(backend._timeout_seconds_from_env("AOS_QUEUE_WORKER_TIMEOUT_SECONDS", 1200, 900), 1800)
+        with patch.dict(backend.os.environ, {"AOS_QUEUE_WORKER_TIMEOUT_SECONDS": "60"}, clear=True):
+            self.assertEqual(backend._timeout_seconds_from_env("AOS_QUEUE_WORKER_TIMEOUT_SECONDS", 1200, 900), 900)
+        with patch.dict(backend.os.environ, {"AOS_QUEUE_WORKER_TIMEOUT_SECONDS": "invalid"}, clear=True):
+            self.assertEqual(backend._timeout_seconds_from_env("AOS_QUEUE_WORKER_TIMEOUT_SECONDS", 1200, 900), 1200)
+
     def test_unavailable_all_zero_token_block_is_not_counted_as_exact_zero(self):
         unavailable = {
             "token_usage": {
@@ -1689,6 +1699,7 @@ class HermesComposioTests(unittest.TestCase):
             self.assertEqual(result["item"]["owner"], "revenue")
             self.assertEqual(result["item"]["status"], "agent_todo")
             self.assertEqual(result["item"]["source"], "dashboard/cockpit_command")
+            self.assertEqual(result["item"]["context"], "Prep the fit call")
             self.assertIn("cockpit_command", result["item"]["tags"])
             self.assertEqual(result["route"]["workflow"], "fit_call_prep")
 
@@ -1707,6 +1718,51 @@ class HermesComposioTests(unittest.TestCase):
             self.assertEqual(codex["item"]["workbench"], "codex")
             self.assertEqual(fallback["item"]["owner"], "hermes")
             self.assertEqual(fallback["route"]["confidence"], "fallback")
+
+    def test_verbose_cockpit_command_uses_readable_title_and_preserves_full_context(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            unmatched = {"matched": False, "confidence": "unmatched"}
+            multiline = "Audit the dashboard queue\n\nRead all relevant files first, then run the complete validation suite."
+            long_single_line = "Review every relevant dashboard file and validation obligation " * 8
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_match_command_route", return_value=unmatched), \
+                 patch.object(backend, "_run_wsl") as run:
+                multiline_result = backend.dashboard_cockpit_command(backend.CockpitCommandCreate(command=multiline))
+                long_result = backend.dashboard_cockpit_command(backend.CockpitCommandCreate(command=long_single_line))
+
+            matched = {
+                "matched": True,
+                "confidence": "exact match",
+                "pattern": "dashboard queue",
+                "work_order": {
+                    "title": f"dashboard_audit: {multiline[:90]}",
+                    "owner": "operations",
+                    "priority": "normal",
+                    "tags": ["dashboard_audit", "message_board"],
+                    "source_refs": [],
+                    "allowed_actions": ["local_read"],
+                    "stop_conditions": ["external_send"],
+                    "definition_of_done": "Dashboard audit is complete.",
+                    "workbench": "lane",
+                    "workflow": "dashboard_audit",
+                    "steps": [{"id": "audit"}],
+                },
+            }
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_match_command_route", return_value=matched), \
+                 patch.object(backend, "_run_wsl") as matched_run:
+                matched_result = backend.dashboard_cockpit_command(backend.CockpitCommandCreate(command=multiline))
+
+            run.assert_not_called()
+            matched_run.assert_not_called()
+            self.assertEqual(multiline_result["item"]["title"], "Audit the dashboard queue")
+            self.assertEqual(multiline_result["item"]["context"], multiline)
+            self.assertEqual(long_result["item"]["title"], f"{long_single_line.strip()[:117].rstrip()}...")
+            self.assertLessEqual(len(long_result["item"]["title"]), 120)
+            self.assertEqual(long_result["item"]["context"], long_single_line.strip())
+            self.assertEqual(matched_result["item"]["title"], "dashboard_audit: Audit the dashboard queue")
+            self.assertEqual(matched_result["item"]["context"], multiline)
 
     def test_dashboard_queue_hermes_and_department_prompts_are_local_only(self):
         owners = ("hermes", "revenue", "marketing", "delivery", "operations")
@@ -2226,6 +2282,39 @@ class HermesComposioTests(unittest.TestCase):
         views = [backend._token_record_view(row) for row in (owner_only, reported, deterministic, unavailable)]
         self.assertEqual(["exact", "exact", "no_agent_invocation", "unavailable"], [row["availability_state"] for row in views])
 
+    def test_queue_color_attribution_uses_invocation_evidence_not_routing_metadata(self):
+        records = [
+            {
+                "item_id": "AOS-2026-0085",
+                "timestamp": "2026-07-13T01:08:22Z",
+                "owner": "hermes",
+                "lane": "operations",
+                "workbench": "hermes",
+                "token_usage": {
+                    "totals": {"input": 12, "output": 3},
+                    "workbenches": [{"tool": "codex", "source": "reported", "input": 12, "output": 3}],
+                    "unavailable": [],
+                },
+            },
+            {
+                "item_id": "owner-only",
+                "timestamp": "2026-07-13T01:09:22Z",
+                "owner": "codex",
+                "lane": "codex",
+                "workbench": "codex",
+                "token_usage": {"totals": {"input": 0, "output": 0}, "unavailable": ["usage unavailable"]},
+            },
+        ]
+        attributions = backend._queue_invocation_attributions(records)
+        self.assertEqual("Codex", attributions["AOS-2026-0085"]["invocation_source"])
+        self.assertEqual("reported workbench invocation", attributions["AOS-2026-0085"]["invocation_source_evidence"])
+        self.assertNotIn("owner-only", attributions)
+        public = backend._queue_public_item(
+            {"id": "AOS-2026-0085", "owner": "hermes", "workbench": "hermes", "status": "done"},
+            attributions,
+        )
+        self.assertEqual("Codex", public["invocation_source"])
+
     def test_token_source_summary_preserves_cached_and_reasoning_semantics(self):
         row = {
             "item_id": "AOS-2026-0078", "session_id": "session-proof", "timestamp": "2026-07-12T21:42:32Z",
@@ -2469,13 +2558,13 @@ class HermesComposioTests(unittest.TestCase):
 
         run.assert_called_once()
         self.assertIn("aos-codex", run.call_args.args[0])
-        self.assertEqual(run.call_args.kwargs["timeout"], 300)
+        self.assertEqual(run.call_args.kwargs["timeout"], backend.QUEUE_WORKER_TIMEOUT_SECONDS)
         claude.assert_not_called()
         hermes.assert_not_called()
         self.assertTrue(result["success"])
         self.assertEqual(result["assigned_worker"], "codex")
         self.assertEqual(result["attempts_used"], 1)
-        self.assertEqual(result["worker_result"]["timeout_seconds"], 300)
+        self.assertEqual(result["worker_result"]["timeout_seconds"], backend.QUEUE_WORKER_TIMEOUT_SECONDS)
 
     def test_queue_item_run_pass_sets_human_review_and_attaches_receipt(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -2594,12 +2683,12 @@ class HermesComposioTests(unittest.TestCase):
             self.write_queue_templates(root)
             timeout_result = {
                 "success": False,
-                "output": "Command timed out after 300s",
+                "output": f"Command timed out after {backend.QUEUE_WORKER_TIMEOUT_SECONDS}s",
                 "stdout": "",
-                "stderr": "Command timed out after 300s",
+                "stderr": f"Command timed out after {backend.QUEUE_WORKER_TIMEOUT_SECONDS}s",
                 "returncode": -1,
                 "timed_out": True,
-                "timeout_seconds": 300,
+                "timeout_seconds": backend.QUEUE_WORKER_TIMEOUT_SECONDS,
             }
             review_result = {
                 "success": True,
@@ -2614,13 +2703,13 @@ class HermesComposioTests(unittest.TestCase):
                 result = backend.run_queue_item("AOS-2026-0002")
 
             self.assertEqual(run.call_count, 1)
-            self.assertEqual(run.call_args_list[0].kwargs["timeout"], 300)
+            self.assertEqual(run.call_args_list[0].kwargs["timeout"], backend.QUEUE_WORKER_TIMEOUT_SECONDS)
             self.assertEqual(result["status"], "blocked")
             self.assertEqual(result["attempts_used"], 1)
             self.assertTrue(result["worker_result"]["timed_out"])
             receipt_text = (root / result["receipt_path"]).read_text(encoding="utf-8")
-            self.assertIn("Agent command timed out after 300s", receipt_text)
-            self.assertIn("Worker timed out after 300s", receipt_text)
+            self.assertIn(f"Agent command timed out after {backend.QUEUE_WORKER_TIMEOUT_SECONDS}s", receipt_text)
+            self.assertIn(f"Worker timed out after {backend.QUEUE_WORKER_TIMEOUT_SECONDS}s", receipt_text)
 
     def test_department_queue_runtime_prompt_is_compact(self):
         item = {

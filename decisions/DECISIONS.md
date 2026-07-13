@@ -1,6 +1,38 @@
 # DECISIONS.md — log of decisions that change system behavior
 > One entry per behavior-affecting change. Newest first.
 
+## 2026-07-13 — Queue workers get a configurable exploration-safe timeout
+
+Dashboard-assigned workers now default to a 1,200-second timeout, accept the
+`AOS_QUEUE_WORKER_TIMEOUT_SECONDS` environment override, and enforce a
+900-second floor.
+
+## 2026-07-13 — Verbose Cockpit commands preserve instruction context
+
+Cockpit commands longer than 120 characters or containing newlines now receive
+a concise title derived from their first non-empty line while the complete
+operator input remains in the queue item's context. Matched routes retain their
+workflow prefix; short single-line commands retain their existing title
+behavior. Command routing, ownership, and queue schema are unchanged.
+
+## 2026-07-13 — Work Queue status counts are local toggle filters
+
+Each Work Queue status-count tile now toggles that status in the view's
+existing local filter state. The active tile shares the existing filter-chip
+visual treatment, and selecting it again removes only the status filter while
+preserving any other queue filters. No API, backend, or Cockpit behavior
+changes.
+
+## 2026-07-12 — Queue agent colors require persisted invocation evidence
+
+Work Queue cards, its focus rail and selected detail, and Needs Me item borders
+now use the same explicit persisted invocation-source evidence as token
+attribution. Owner, lane, workbench, profile, and model metadata never supply an
+agent color; items without authoritative invocation evidence render with the
+neutral hairline, while human-review/input states retain the locked amber
+override. Selecting a queue item also minimizes both the Work Items list and
+Needs Me rail, with each remaining reachable from its compact rail.
+
 ## 2026-07-12 — Cockpit commands are deterministic local queue intake
 
 Cockpit plain-language commands reuse command-route matching, owner inference,

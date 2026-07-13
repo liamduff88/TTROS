@@ -626,7 +626,22 @@ HERMES_DASHBOARD_LAUNCHER = BASE_DIR / "tools" / "aos-hermes-dashboard.sh"
 HERMES_DASHBOARD_HOST = "127.0.0.1"
 HERMES_DASHBOARD_PORT = 8081
 HERMES_DASHBOARD_URL = f"http://{HERMES_DASHBOARD_HOST}:{HERMES_DASHBOARD_PORT}"
-QUEUE_WORKER_TIMEOUT_SECONDS = 300
+
+
+def _timeout_seconds_from_env(name: str, default: int, minimum: int) -> int:
+    """Read a timeout override while retaining a safe lower bound."""
+    try:
+        configured = int(os.environ.get(name, ""))
+    except ValueError:
+        configured = default
+    return max(configured or default, minimum)
+
+
+QUEUE_WORKER_TIMEOUT_SECONDS = _timeout_seconds_from_env(
+    "AOS_QUEUE_WORKER_TIMEOUT_SECONDS",
+    default=1200,
+    minimum=900,
+)
 QUEUE_HERMES_REVIEW_TIMEOUT_SECONDS = 120
 QUEUE_STUCK_TIMEOUT_SECONDS = QUEUE_WORKER_TIMEOUT_SECONDS + QUEUE_HERMES_REVIEW_TIMEOUT_SECONDS + 180
 
@@ -1905,6 +1920,35 @@ def _token_invocation_source(record: dict) -> tuple[str, str]:
     if orchestrator_total > 0:
         return "Hermes", "persisted orchestrator usage"
     return "Unattributed", "no authoritative invocation source"
+
+
+def _queue_invocation_attributions(records: list[dict] | None = None) -> dict[str, dict]:
+    """Index the latest persisted, authoritative invocation source by item."""
+    selected: dict[str, tuple[tuple[int, float, int], dict]] = {}
+    source_records = _read_token_ledger_records() if records is None else records
+    for position, record in enumerate(source_records):
+        item_id = _ledger_task_id(record)
+        source, evidence = _token_invocation_source(record)
+        if not item_id or item_id == "unavailable" or source in {"Unattributed", "No agent invocation"}:
+            continue
+        timestamp = _parse_record_timestamp(_ledger_timestamp(record))
+        rank = (
+            1 if timestamp else 0,
+            timestamp.timestamp() if timestamp else 0.0,
+            position,
+        )
+        attribution = {
+            "invocation_source": source,
+            "invocation_source_evidence": evidence,
+            "invocation_source_timestamp": (
+                timestamp.astimezone(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
+                if timestamp else None
+            ),
+        }
+        prior = selected.get(item_id)
+        if prior is None or rank > prior[0]:
+            selected[item_id] = (rank, attribution)
+    return {item_id: value for item_id, (_, value) in selected.items()}
 
 
 def _token_record_view(record: dict) -> dict:
@@ -4094,8 +4138,8 @@ def _queue_latest_receipt(item: dict) -> dict | None:
     }
 
 
-def _queue_detail_item(item: dict) -> dict:
-    public = _queue_public_item(item)
+def _queue_detail_item(item: dict, invocation_attributions: dict[str, dict] | None = None) -> dict:
+    public = _queue_public_item(item, invocation_attributions)
     latest_receipt = _queue_latest_receipt(item)
     steps = _workflow_steps_for_item(item)
     step_index = item.get("step_index")
@@ -4257,7 +4301,9 @@ def _queue_status_closeout() -> dict:
     }
 
 
-def _queue_public_item(item: dict) -> dict:
+def _queue_public_item(item: dict, invocation_attributions: dict[str, dict] | None = None) -> dict:
+    attributions = _queue_invocation_attributions() if invocation_attributions is None else invocation_attributions
+    attribution = attributions.get(str(item.get("id") or ""), {})
     return {
         "id": item.get("id", ""),
         "title": item.get("title", ""),
@@ -4266,6 +4312,9 @@ def _queue_public_item(item: dict) -> dict:
         "priority": item.get("priority", 0),
         "created_at": item.get("created_at"),
         "updated_at": item.get("updated_at"),
+        "invocation_source": attribution.get("invocation_source"),
+        "invocation_source_evidence": attribution.get("invocation_source_evidence", "no authoritative invocation source"),
+        "invocation_source_timestamp": attribution.get("invocation_source_timestamp"),
     }
 
 
@@ -4404,16 +4453,17 @@ def queue_summary():
     needs_liam = _queue_human_needed_count(counts)
     active_items = _queue_active_items(items)
     human_needed_items = _queue_human_needed_items(items)
+    invocation_attributions = _queue_invocation_attributions()
     return {
         "success": True,
         "counts": counts,
         "needsLiam": needs_liam,
         "needsMeCount": needs_liam,
         "humanNeededCount": needs_liam,
-        "needsMeItems": [_queue_public_item(item) for item in human_needed_items],
+        "needsMeItems": [_queue_public_item(item, invocation_attributions) for item in human_needed_items],
         "activeCount": len(active_items),
-        "activeItems": [_queue_public_item(item) for item in active_items[:10]],
-        "nextItem": _queue_public_item(active_items[0]) if active_items else None,
+        "activeItems": [_queue_public_item(item, invocation_attributions) for item in active_items[:10]],
+        "nextItem": _queue_public_item(active_items[0], invocation_attributions) if active_items else None,
         "nextAction": _queue_next_action(active_items, counts),
     }
 
@@ -4431,7 +4481,8 @@ def queue_items():
         items = sorted(_read_queue_items(), key=_queue_item_sort_key)
     except ValueError as exc:
         return {"success": False, "message": "Queue unavailable", "reason": str(exc), "items": []}
-    return {"success": True, "items": [_queue_detail_item(item) for item in items]}
+    invocation_attributions = _queue_invocation_attributions()
+    return {"success": True, "items": [_queue_detail_item(item, invocation_attributions) for item in items]}
 
 
 @app.get("/api/queue/items/{item_id}")
@@ -4709,7 +4760,8 @@ def queue_artifact_open_folder(body: QueueArtifactFolderOpen):
 @app.get("/api/dashboard/cockpit")
 def dashboard_cockpit():
     try:
-        items = [_queue_detail_item(item) for item in _read_queue_items()]
+        invocation_attributions = _queue_invocation_attributions()
+        items = [_queue_detail_item(item, invocation_attributions) for item in _read_queue_items()]
     except ValueError as exc:
         return {"success": False, "message": "Queue unavailable", "reason": str(exc)}
     counts = {status: 0 for status in _QUEUE_STATUSES}
@@ -4934,6 +4986,23 @@ def _match_command_route(text: str) -> dict:
     }
 
 
+def _cockpit_command_title(text: str) -> str:
+    """Keep verbose instructions intact in context without making them a garbled title."""
+    compact = " ".join(text.split())
+    if len(text) <= 120 and "\n" not in text:
+        return compact
+
+    first_line = next((line.strip() for line in text.splitlines() if line.strip()), "")
+    title = first_line or compact
+    if len(title) > 120:
+        return f"{title[:117].rstrip()}..."
+    return title
+
+
+def _cockpit_command_needs_summary(text: str) -> bool:
+    return "\n" in text or len(text) > 120
+
+
 def _create_cockpit_command_item(command: str) -> tuple[dict, dict]:
     """Route one plain-language command into the local queue without running it."""
     text = str(command or "").strip()
@@ -4947,8 +5016,14 @@ def _create_cockpit_command_item(command: str) -> tuple[dict, dict]:
     if work_order:
         tags = [str(value) for value in work_order.get("tags") or [] if value]
         tags.extend(("cockpit_command", f"lane:{work_order.get('owner') or 'unassigned'}"))
+        title = str(work_order.get("title") or text)
+        if _cockpit_command_needs_summary(text):
+            workflow = str(work_order.get("workflow") or "").strip()
+            title = f"{workflow}: {_cockpit_command_title(text)}" if workflow else _cockpit_command_title(text)
+        if len(title) > 200:
+            title = f"{title[:197].rstrip()}..."
         body = QueueItemCreate(
-            title=str(work_order.get("title") or text)[:200],
+            title=title,
             owner=str(work_order.get("owner") or "unassigned"),
             priority=work_order.get("priority") or "normal",
             tags=",".join(tags),
@@ -4973,7 +5048,7 @@ def _create_cockpit_command_item(command: str) -> tuple[dict, dict]:
         owner = inferred_owner if inferred_owner != "unassigned" else "hermes"
         workbench = owner if owner in {"codex", "claude"} else "lane"
         body = QueueItemCreate(
-            title=text[:200],
+            title=_cockpit_command_title(text),
             owner=owner,
             priority="normal",
             tags=f"cockpit_command,intake:unmatched,lane:{owner if owner in _DASHBOARD_LANES else 'unassigned'}",

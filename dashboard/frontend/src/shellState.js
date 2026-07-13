@@ -46,6 +46,8 @@ export function restoreShellSession(raw) {
 
 export const shellSessionSnapshot = (view, viewParams, sessionTabs) => JSON.stringify({ view, viewParams: viewParams || {}, sessionTabs })
 
+export const needsMeCollapseKey = (view, viewParams) => view === 'work-queue' ? viewParams?.selectedId || null : null
+
 export function openSessionTab(tabs, id, params = {}) {
   const existing = tabs.find(tab => tab.id === id)
   if (existing) return tabs.map(tab => tab.id === id ? { ...tab, params } : tab)
@@ -77,7 +79,9 @@ export const normalizeWorkbench = value => {
   const workbench = String(value || '').toLowerCase()
   if (workbench.includes('claude')) return 'claude'
   if (workbench.includes('codex')) return 'codex'
-  return 'hermes'
+  if (workbench.includes('hermes')) return 'hermes'
+  if (workbench.includes('antigravity') || workbench === 'anti') return 'anti'
+  return 'unattributed'
 }
 
 export const stateShade = status => {
@@ -88,7 +92,9 @@ export const stateShade = status => {
 
 export const workbenchColor = (workbench, status) => {
   if (['human_review', 'needs_input'].includes(status)) return 'var(--needs-review)'
-  return `var(--wb-${normalizeWorkbench(workbench)}-${stateShade(status)})`
+  const normalized = normalizeWorkbench(workbench)
+  if (normalized === 'unattributed') return 'var(--hairline)'
+  return `var(--wb-${normalized}-${stateShade(status)})`
 }
 
 export const laneName = item => {
