@@ -1,6 +1,15 @@
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+try:
+    from fastapi.responses import JSONResponse, Response
+except ImportError:  # Static-validation stubs intentionally expose JSONResponse only.
+    from fastapi.responses import JSONResponse
+
+    class Response:  # pragma: no cover - used only by dependency-light import tests
+        def __init__(self, content=b"", media_type=None, headers=None):
+            self.body = content
+            self.media_type = media_type
+            self.headers = headers or {}
 from pydantic import BaseModel
 from pathlib import Path
 import argparse
@@ -33,6 +42,7 @@ import aos_orchestration
 from aos_queue_storage import durable_append_text, durable_replace_text, queue_write_lock
 import aos_indexer
 import latitude_telemetry
+from graphify_service import GRAPH_CSP, GraphifyError, GraphifyService, RepoIdentity, validate_github_url
 
 app = FastAPI(title="Agentic OS API", version="0.1.0")
 
@@ -82,8 +92,11 @@ WORKFLOWS_DIR = BASE_DIR / "workflows"
 WORKFLOW_REGISTRY_FILE = WORKFLOWS_DIR / "workflow_registry.json"
 SKILLS_DIR = BASE_DIR / "skills"
 MEMORY_INDEX_DIR = BASE_DIR / "memory_index"
-GRAPHIFY_BRAIN_DIR = BASE_DIR.parent / "Graphify Brain"
-GRAPHIFY_OUT_DIR = GRAPHIFY_BRAIN_DIR / "brain_graph" / "source" / "graphify-out"
+GRAPHIFY_BRAIN_DIR = Path("/home/liam/graphify-brain")
+GRAPHIFY_CLONE_DIR = GRAPHIFY_BRAIN_DIR / "intake" / "cloned-repos"
+GRAPHIFY_OUT_DIR = GRAPHIFY_BRAIN_DIR / "repo_graphs"
+GRAPHIFY_RECEIPTS_DIR = GRAPHIFY_BRAIN_DIR / "receipts"
+GRAPHIFY_SERVICE = GraphifyService(brain_root=GRAPHIFY_BRAIN_DIR, repo_root=BASE_DIR)
 PROMPT_LIBRARY_DIRS = [QUEUE_DIR / "templates", WORKFLOWS_DIR / "prompt_templates"]
 CLAUDE_USAGE_READER_WSL = str(BASE_DIR / "dashboard" / "backend" / "claude_usage.py")
 
@@ -542,6 +555,24 @@ class DashboardTaskCreate(BaseModel):
     definition_of_done: str = ""
     allowed_actions: str = "local_read,local_edit,local_test"
     stop_conditions: str = "external_send,secrets_exposure,destructive_action_outside_scope"
+
+
+class GraphifyFetchRequest(BaseModel):
+    url: str
+
+
+class GraphifyRepositoryRequest(BaseModel):
+    owner: str
+    repository: str
+
+
+class GraphifyActionRequest(GraphifyRepositoryRequest):
+    action: str
+    inputs: dict = {}
+
+
+class GraphifyQueueRequest(GraphifyRepositoryRequest):
+    requested_work: str
 
 
 class DashboardSkillSave(BaseModel):
@@ -5659,29 +5690,20 @@ def dashboard_prompts():
 
 @app.get("/api/dashboard/graphify")
 def dashboard_graphify():
-    cli_path = shutil.which("graphify") or ""
-    version = ""
-    if cli_path:
-        try:
-            result = subprocess.run([cli_path, "--version"], capture_output=True, text=True, timeout=3, check=False)
-            version = (result.stdout or result.stderr).strip()
-        except (OSError, subprocess.SubprocessError):
-            version = "version unavailable"
-    installed = bool(cli_path)
+    cli_path = shutil.which("graphify") or "/home/liam/.local/bin/graphify"
+    repositories = GRAPHIFY_SERVICE.list_repositories()
     return {
-        "available": installed,
-        "installed": installed,
-        "status": "CLI installed; Graphify Brain data not inspected" if installed else "Unavailable",
+        "available": Path(cli_path).is_file(),
+        "installed": Path(cli_path).is_file(),
+        "status": f"{len(repositories)} repository graph{'s' if len(repositories) != 1 else ''} available",
         "cli_path": cli_path,
-        "version": version,
-        "brain_root": "protected; not inspected",
-        "graph_output_dir": "protected; not inspected",
-        "graph_html": "",
-        "graph_json": "",
-        "output_files": [],
-        "launch_command": f"cd {shlex.quote(str(GRAPHIFY_BRAIN_DIR / 'brain_graph'))} && graphify ./source --code-only",
-        "data_inspected": False,
-        "repos": [{"name": "Agentic OS Live", "path": _safe_relative(BASE_DIR), "node_count": "unavailable", "last_analyzed": None}],
+        "version": GRAPHIFY_SERVICE._graphify_version(),
+        "brain_root": str(GRAPHIFY_BRAIN_DIR),
+        "graph_output_dir": str(GRAPHIFY_OUT_DIR),
+        "data_inspected": True,
+        "repos": repositories,
+        "model_invoked": False,
+        "token_usage_text": "Token usage: no agent invocation",
     }
 
 
@@ -5689,10 +5711,115 @@ def dashboard_graphify():
 def dashboard_repo_ingest():
     return {
         "available": True,
-        "steps": ["Fetch", "Quarantine", "Reconstitute", "Graphify index", "Available"],
-        "repos": [],
-        "note": "Reconstitute is a queued token action in this pass; no live model call is wired.",
+        "steps": ["Fetch", "Quarantine scan", "Code-only Graphify", "Validate + publish", "Available"],
+        "repos": GRAPHIFY_SERVICE.list_repositories(),
+        "note": "All ingest steps are deterministic and model-free. Existing repositories require the explicit repository-specific Re-fetch action.",
+        "canonical_roots": {"clones": str(GRAPHIFY_CLONE_DIR), "outputs": str(GRAPHIFY_OUT_DIR), "receipts": str(GRAPHIFY_RECEIPTS_DIR)},
+        "model_invoked": False,
+        "token_usage_text": "Token usage: no agent invocation",
     }
+
+
+def _graphify_http_error(exc: GraphifyError) -> HTTPException:
+    detail = str(exc)
+    status = 409 if "already exists" in detail or "requires an existing" in detail else 400
+    return HTTPException(status_code=status, detail=detail)
+
+
+@app.post("/api/graphify/fetch")
+def graphify_fetch(body: GraphifyFetchRequest):
+    """Explicit deterministic fetch. URL validation itself never clones or invokes a model."""
+    try:
+        validate_github_url(body.url)
+        return {"success": True, "repository": GRAPHIFY_SERVICE.ingest(body.url, refetch=False), "model_invoked": False}
+    except GraphifyError as exc:
+        raise _graphify_http_error(exc) from exc
+
+
+@app.post("/api/graphify/refetch")
+def graphify_refetch(body: GraphifyFetchRequest):
+    """Explicit repository-specific replacement fetch with atomic publication."""
+    try:
+        validate_github_url(body.url)
+        return {"success": True, "repository": GRAPHIFY_SERVICE.ingest(body.url, refetch=True), "model_invoked": False}
+    except GraphifyError as exc:
+        raise _graphify_http_error(exc) from exc
+
+
+@app.post("/api/graphify/rebuild")
+def graphify_rebuild(body: GraphifyRepositoryRequest):
+    try:
+        return {"success": True, "repository": GRAPHIFY_SERVICE.rebuild(body.owner, body.repository), "model_invoked": False}
+    except GraphifyError as exc:
+        raise _graphify_http_error(exc) from exc
+
+
+@app.post("/api/graphify/action")
+def graphify_action(body: GraphifyActionRequest):
+    """Run only installed deterministic Graphify query/explain/affected/path commands."""
+    try:
+        return {"success": True, **GRAPHIFY_SERVICE.action(body.owner, body.repository, body.action, body.inputs)}
+    except (GraphifyError, ValueError, TypeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/graphify/queue-model-work")
+def graphify_queue_model_work(body: GraphifyQueueRequest):
+    """Create a normal queue item; never launch a model from the Graphify page."""
+    requested = body.requested_work.strip().lower()
+    work = {
+        "semantic-extraction": "Run a reviewed semantic extraction over this repository graph",
+        "community-naming": "Name Graphify communities with reviewed model assistance",
+        "implementation-context": "Prepare implementation context from deterministic Graphify artifacts",
+    }
+    if requested not in work:
+        raise HTTPException(status_code=400, detail="unsupported model-assisted work request")
+    try:
+        repository = GRAPHIFY_SERVICE.repository(RepoIdentity(body.owner, body.repository))
+        item = _queue_create_dashboard_item(QueueItemCreate(
+            title=f"⚡ {work[requested]} — {repository['id']}",
+            owner="hermes",
+            priority="normal",
+            tags=f"graphify,model-assisted,{requested}",
+            source="dashboard/graphify",
+            context="\n".join([
+                f"Repository identity: {repository['id']}",
+                f"Canonical URL: {repository['canonical_url']}",
+                f"Requested work: {work[requested]}",
+                "Relevant Graphify artifact paths:",
+                *[f"- {value}" for value in repository["paths"].values() if value],
+                "This queue creation does not run a model. Work begins only through the existing Open Engine/Work Queue flow.",
+            ]),
+            sources=",".join(value for value in repository["paths"].values() if value),
+            source_refs=",".join(value for value in repository["paths"].values() if value),
+            definition_of_done=f"{work[requested]} is produced with repository identity, cited Graphify paths, review evidence, receipt, and exact-or-unavailable token usage.",
+            allowed_actions="local_read,local_graph_query,create_local_artifact,model_invocation_through_open_engine",
+            stop_conditions="repository_identity_mismatch,missing_graph_artifact,external_write,secrets_exposure,destructive_action_outside_scope",
+            workbench="local",
+        ))
+    except (GraphifyError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"success": True, "item": _queue_detail_item(item), "model_started": False, "queue_item_only": True}
+
+
+@app.get("/api/graphify/artifacts/{owner}/{repository}/{artifact_path:path}")
+def graphify_artifact(owner: str, repository: str, artifact_path: str):
+    """Serve only approved, provenance-bound regular files below repo_graphs."""
+    try:
+        path, media_type = GRAPHIFY_SERVICE.artifact(owner, repository, artifact_path)
+        content = path.read_bytes()
+    except (GraphifyError, OSError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    headers = {
+        "X-Content-Type-Options": "nosniff",
+        "Referrer-Policy": "no-referrer",
+        "Cache-Control": "no-store",
+    }
+    if media_type.startswith("text/html"):
+        headers["Content-Security-Policy"] = GRAPH_CSP
+    if media_type == "application/json" and path.name == "graph.json":
+        headers["Content-Disposition"] = f'attachment; filename="{path.name}"'
+    return Response(content=content, media_type=media_type, headers=headers)
 
 
 @app.post("/api/dashboard/create-task")

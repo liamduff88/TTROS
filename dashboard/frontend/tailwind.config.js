@@ -20,9 +20,9 @@ export default {
         clay: tokenColor('--wb-claude-working'),
       },
       fontFamily: {
-        sans: ['Inter', 'system-ui', 'sans-serif'],
-        mono: ['JetBrains Mono', 'Fira Code', 'monospace'],
-        heading: ['Geist', 'Inter', 'system-ui', 'sans-serif'],
+        sans: ['system-ui', '-apple-system', 'Segoe UI', 'sans-serif'],
+        mono: ['ui-monospace', 'SFMono-Regular', 'Consolas', 'monospace'],
+        heading: ['system-ui', '-apple-system', 'Segoe UI', 'sans-serif'],
       },
     },
   },

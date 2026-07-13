@@ -1,6 +1,29 @@
 # DECISIONS.md — log of decisions that change system behavior
 > One entry per behavior-affecting change. Newest first.
 
+## 2026-07-13 — Graphify previews expose local graph interaction
+
+The self-contained Graphify graph preview now supports node click and keyboard
+selection with repository metadata and relationship highlighting, plus pointer
+pan, wheel/button zoom, and view reset. The interaction remains inline and
+dependency-free inside the existing provenance-bound artifact; the restrictive
+`sandbox="allow-scripts"` iframe and no-network content-security policy are
+unchanged.
+
+## 2026-07-13 — Repo Ingest and Graphify are deterministic local workflows
+
+The existing dashboard now owns one canonical Graphify workflow rooted at
+`/home/liam/graphify-brain`: strict public GitHub URL intake, promptless
+argv-only shallow clone, lstat quarantine scan, code-only Graphify extraction,
+self-contained graph/tree previews, provenance/receipts, and repository-bound
+atomic Fetch, Re-fetch, and Rebuild publication. Graph artifacts are served only
+through provenance-bound allowlisted routes with regular-file and containment
+checks; preview iframes use `sandbox="allow-scripts"` plus a no-network CSP.
+Query, explain, affected, and path remain deterministic. Model-assisted work is
+available only as a clearly marked queue-item creation action and never starts a
+model from Graphify. The dashboard shell also uses local system fonts so this
+surface has no runtime CDN dependency.
+
 ## 2026-07-13 — Queue workers get a configurable exploration-safe timeout
 
 Dashboard-assigned workers now default to a 1,200-second timeout, accept the

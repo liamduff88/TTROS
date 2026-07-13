@@ -8,6 +8,8 @@ import {
   createQueueItem,
   getDashboardCockpit,
   getDashboardGraphify,
+  fetchGraphifyRepository,
+  getGraphifyArtifactText,
   getLatitudeStatus,
   getHermesUiStatus,
   getDashboardMemory,
@@ -21,9 +23,14 @@ import {
   getQueueItems,
   launchHermesUi,
   openDashboardPath,
+  queueGraphifyModelWork,
+  rebuildGraphifyRepository,
+  refetchGraphifyRepository,
+  runGraphifyAction,
   saveDashboardSkill,
   saveDashboardWorkflow,
 } from '../api'
+import { validateGitHubRepositoryUrl } from '../graphifyState'
 import { launcherPrompt } from '../launcherPrompts'
 import { ActionButton, DetailPanel, EmptyState, FilterBar, PageHeader, RowButton, SourceChip, StatTile, StatusChip, statusLabel } from '../components/DashboardKit'
 
@@ -643,47 +650,138 @@ export function PromptLibrary() {
 }
 
 export function GraphifyPage() {
-  const { data } = useAsync(getDashboardGraphify)
-  const files = data?.output_files || []
+  const [data, setData] = useState(null)
+  const [selectedId, setSelectedId] = useState('')
+  const [state, setState] = useState({ loading: true, operation: '', error: '', message: '' })
+  const [actionInputs, setActionInputs] = useState({ query: '', explain: '', affected: '', depth: '2', source: '', target: '' })
+  const [actionResult, setActionResult] = useState(null)
+  const [documentView, setDocumentView] = useState({ title: '', content: '', loading: false, error: '' })
+  const refresh = async preferred => {
+    setState(current => ({ ...current, loading: true, error: '' }))
+    try {
+      const result = await getDashboardGraphify()
+      setData(result)
+      setSelectedId(current => preferred || (result.repos || []).some(repo => repo.id === current) ? (preferred || current) : result.repos?.[0]?.id || '')
+    } catch (error) {
+      setState(current => ({ ...current, error: error.response?.data?.detail || error.message || 'Graphify status unavailable.' }))
+    } finally {
+      setState(current => ({ ...current, loading: false }))
+    }
+  }
+  useEffect(() => { refresh() }, [])
+  const selected = (data?.repos || []).find(repo => repo.id === selectedId) || null
+  const operate = async (label, fn) => {
+    setState(current => ({ ...current, operation: label, error: '', message: '' }))
+    try {
+      const result = await fn()
+      setState(current => ({ ...current, message: result?.item ? `Queue item ${result.item.id} created. No model was started.` : `${label} completed.` }))
+      if (label === 'Rebuild') await refresh(selectedId)
+      return result
+    } catch (error) {
+      setState(current => ({ ...current, error: error.response?.data?.detail || error.message || `${label} failed.` }))
+      return null
+    } finally {
+      setState(current => ({ ...current, operation: '' }))
+    }
+  }
+  const runAction = async action => {
+    if (!selected) return
+    const inputs = action === 'query' ? { question: actionInputs.query, budget: 1200 }
+      : action === 'explain' ? { node: actionInputs.explain }
+        : action === 'affected' ? { node: actionInputs.affected, depth: Number(actionInputs.depth || 2) }
+          : { source: actionInputs.source, target: actionInputs.target }
+    const result = await operate(action[0].toUpperCase() + action.slice(1), () => runGraphifyAction(selected.owner, selected.repository, action, inputs))
+    if (result) setActionResult(result)
+  }
+  const showDocument = async (title, url) => {
+    setDocumentView({ title, content: '', loading: true, error: '' })
+    try {
+      const content = await getGraphifyArtifactText(url)
+      setDocumentView({ title, content: typeof content === 'string' ? content : JSON.stringify(content, null, 2), loading: false, error: '' })
+    } catch (error) {
+      setDocumentView({ title, content: '', loading: false, error: error.response?.data?.detail || error.message })
+    }
+  }
   return (
     <>
-      <PageHeader title="Graphify" question="What does the OS/repo knowledge structure look like?" />
-      <div className="min-h-[65vh] rounded border border-softgraph bg-graphite/70 p-4">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <div className="text-lg font-semibold text-stone">{data?.status || 'Unavailable'}</div>
-            <div className="mt-1 text-sm text-taupe">{data?.installed ? `${data.version || 'graphify installed'} at ${data.cli_path}` : 'Graphify CLI is not installed.'}</div>
-          </div>
-          <StatusChip status={data?.available ? 'Ready' : data?.installed ? 'Needs attention' : 'Unavailable'} />
-        </div>
-        <div className="mt-5 grid gap-3 md:grid-cols-2">
-          <div className="rounded border border-softgraph bg-ink p-4">
-            <div className="text-xs uppercase text-champagne">Brain root</div>
-            <div className="mt-2 break-words text-sm text-stone">{data?.brain_root || 'unavailable'}</div>
-          </div>
-          <div className="rounded border border-softgraph bg-ink p-4">
-            <div className="text-xs uppercase text-champagne">Graph output</div>
-            <div className="mt-2 break-words text-sm text-stone">{data?.graph_output_dir || 'unavailable'}</div>
-          </div>
-        </div>
-        <div className="mt-4 rounded border border-softgraph bg-ink p-4">
-          <div className="text-xs uppercase text-champagne">Local command</div>
-          <code className="mt-2 block whitespace-pre-wrap break-words text-xs text-stone">{data?.launch_command || 'Install Graphify first.'}</code>
-        </div>
-        {files.length ? (
-          <div className="mt-4 grid gap-2">{files.map(file => <div key={file.path} className="rounded border border-softgraph bg-ink px-3 py-2 text-sm text-stone">{file.name} · {file.bytes} bytes</div>)}</div>
-        ) : (
-          <EmptyState title="No graph output yet" detail="Graphify is installed, but no graph.html or graph.json exists in Graphify Brain." />
-        )}
+      <PageHeader title="Graphify" question="Inspect and query real code-only repository graphs. Deterministic actions are zero-token; ⚡ actions create queue items only." actions={<ActionButton onClick={() => refresh(selectedId)} disabled={state.loading}>Refresh</ActionButton>} />
+      {state.error && <div className="mb-3 rounded border border-clay/60 bg-clay/10 p-3 text-sm text-stone" role="alert">{state.error}</div>}
+      {state.message && <div className="mb-3 rounded border border-olive/60 bg-olive/10 p-3 text-sm text-stone">{state.message}</div>}
+      <div className="grid min-h-[70vh] gap-4 xl:grid-cols-[250px_minmax(0,1fr)]">
+        <aside className="rounded border border-softgraph bg-graphite/70 p-3">
+          <div className="mb-2 text-xs uppercase tracking-wider text-champagne">Ingested repositories</div>
+          <div className="space-y-2">{(data?.repos || []).map(repo => <button key={repo.id} onClick={() => setSelectedId(repo.id)} className={`w-full rounded border p-3 text-left ${repo.id === selectedId ? 'border-champagne bg-champagne/10' : 'border-softgraph bg-ink'}`}><strong className="block text-sm text-stone">{repo.id}</strong><span className="mt-1 block text-xs text-taupe">{repo.node_count} nodes · {repo.commit_hash?.slice(0, 10)}</span></button>)}</div>
+          {!state.loading && !(data?.repos || []).length && <EmptyState title="No repositories" detail="Use Repo Ingest to fetch one safely." />}
+        </aside>
+        <section className="min-w-0 rounded border border-softgraph bg-graphite/70 p-4">
+          {!selected ? <EmptyState title="Select a repository" detail="A published repository graph will appear here." /> : <>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div><h2 className="text-lg font-semibold text-stone">{selected.id}</h2><p className="mt-1 text-xs text-taupe">{selected.node_count} nodes · {selected.edge_count} edges · commit {selected.commit_hash}</p></div>
+              <div className="flex flex-wrap gap-2"><ActionButton onClick={() => operate('Rebuild', () => rebuildGraphifyRepository(selected.owner, selected.repository))} disabled={Boolean(state.operation)}>{state.operation === 'Rebuild' ? 'Rebuilding…' : 'Rebuild'}</ActionButton>{['semantic-extraction', 'community-naming', 'implementation-context'].map(work => <ActionButton key={work} kind="token" onClick={() => operate('Queue item', () => queueGraphifyModelWork(selected.owner, selected.repository, work))} disabled={Boolean(state.operation)}>⚡ {work.replace(/-/g, ' ')}</ActionButton>)}</div>
+            </div>
+            <div className="mt-4 grid gap-4 2xl:grid-cols-2">
+              <div><div className="mb-2 text-xs uppercase tracking-wider text-champagne">Graph preview</div><iframe title={`${selected.id} graph preview`} src={selected.artifacts.graph} sandbox="allow-scripts" className="h-[520px] w-full rounded border border-softgraph bg-ink" data-testid="graphify-graph-preview" /></div>
+              <div><div className="mb-2 text-xs uppercase tracking-wider text-champagne">Tree preview</div><iframe title={`${selected.id} tree preview`} src={selected.artifacts.tree} sandbox="allow-scripts" className="h-[520px] w-full rounded border border-softgraph bg-ink" data-testid="graphify-tree-preview" /></div>
+            </div>
+            <div className="mt-4 flex flex-wrap gap-2" data-testid="graphify-artifact-links">
+              {[['Report', 'report'], ['Provenance', 'provenance'], ['Receipt', 'receipt'], ['Graph JSON view', 'graph_json'], ['Quarantine scan', 'scan']].map(([label, key]) => <ActionButton key={key} onClick={() => showDocument(label, selected.artifacts[key])}>{label}</ActionButton>)}
+              <a href={selected.artifacts.graph_json} className="rounded border border-softgraph bg-ink px-3 py-2 text-xs font-semibold text-stone hover:border-champagne/40">Download graph JSON</a>
+            </div>
+            {documentView.title && <div className="mt-4 rounded border border-softgraph bg-ink p-3"><div className="mb-2 text-xs uppercase text-champagne">{documentView.title}</div><pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words text-xs text-stone">{documentView.loading ? 'Loading…' : documentView.error || documentView.content}</pre></div>}
+            <div className="mt-4 rounded border border-softgraph bg-ink p-4">
+              <div className="text-xs uppercase tracking-wider text-champagne">Deterministic graph actions · no model</div>
+              <div className="mt-3 grid gap-3 lg:grid-cols-2">
+                <label className="text-xs text-taupe">Query<input value={actionInputs.query} onChange={event => setActionInputs(value => ({ ...value, query: event.target.value }))} className="mt-1 w-full rounded border border-softgraph bg-graphite p-2 text-stone" placeholder="Which modules handle signing?" /><ActionButton className="mt-2" onClick={() => runAction('query')} disabled={Boolean(state.operation)}>Run query</ActionButton></label>
+                <label className="text-xs text-taupe">Explain node<input value={actionInputs.explain} onChange={event => setActionInputs(value => ({ ...value, explain: event.target.value }))} className="mt-1 w-full rounded border border-softgraph bg-graphite p-2 text-stone" placeholder="node name or id" /><ActionButton className="mt-2" onClick={() => runAction('explain')} disabled={Boolean(state.operation)}>Explain</ActionButton></label>
+                <label className="text-xs text-taupe">Affected node<div className="flex gap-2"><input value={actionInputs.affected} onChange={event => setActionInputs(value => ({ ...value, affected: event.target.value }))} className="mt-1 min-w-0 flex-1 rounded border border-softgraph bg-graphite p-2 text-stone" placeholder="node name or id" /><input value={actionInputs.depth} onChange={event => setActionInputs(value => ({ ...value, depth: event.target.value }))} className="mt-1 w-16 rounded border border-softgraph bg-graphite p-2 text-stone" aria-label="Affected depth" /></div><ActionButton className="mt-2" onClick={() => runAction('affected')} disabled={Boolean(state.operation)}>Find affected</ActionButton></label>
+                <label className="text-xs text-taupe">Shortest path<div className="flex gap-2"><input value={actionInputs.source} onChange={event => setActionInputs(value => ({ ...value, source: event.target.value }))} className="mt-1 min-w-0 flex-1 rounded border border-softgraph bg-graphite p-2 text-stone" placeholder="source" /><input value={actionInputs.target} onChange={event => setActionInputs(value => ({ ...value, target: event.target.value }))} className="mt-1 min-w-0 flex-1 rounded border border-softgraph bg-graphite p-2 text-stone" placeholder="target" /></div><ActionButton className="mt-2" onClick={() => runAction('path')} disabled={Boolean(state.operation)}>Find path</ActionButton></label>
+              </div>
+              {actionResult && <pre className="mt-4 max-h-72 overflow-auto whitespace-pre-wrap rounded border border-softgraph bg-graphite p-3 text-xs text-stone">{actionResult.output || '(no output)'}</pre>}
+            </div>
+          </>}
+        </section>
       </div>
     </>
   )
 }
 
 export function RepoIngest() {
-  const { data } = useAsync(getDashboardRepoIngest)
-  const reconstitute = () => createDashboardTask({ title: 'Reconstitute quarantined repo', owner: 'codex', tags: 'repo-ingest,reconstitute', context: 'Run the documented repo reconstitution skill from a quarantined repo. Do not execute quarantine code.', definition_of_done: 'Clean reconstituted repo and provenance note are produced.' })
-  return <><PageHeader title="Repo Ingest" question="How do I get an outside GitHub repo safely into my system?" actions={<ActionButton kind="token" onClick={reconstitute}>Reconstitute</ActionButton>} /><div className="rounded border border-softgraph bg-graphite/70 p-5"><div className="grid gap-2 md:grid-cols-5">{(data?.steps || []).map((step, i) => <div key={step} className="rounded border border-softgraph bg-ink p-4 text-center"><div className="text-xs text-champagne">{i + 1}</div><div className="mt-1 text-sm font-semibold text-stone">{step}</div></div>)}</div><p className="mt-4 text-sm text-taupe">{data?.note}</p></div></>
+  const [data, setData] = useState(null)
+  const [url, setUrl] = useState('')
+  const [operation, setOperation] = useState('')
+  const [result, setResult] = useState(null)
+  const [error, setError] = useState('')
+  const validation = useMemo(() => validateGitHubRepositoryUrl(url), [url])
+  const existing = validation.valid ? (data?.repos || []).find(repo => repo.id === validation.id) : null
+  const displayed = result || existing
+  const refresh = async () => { try { setData(await getDashboardRepoIngest()) } catch (requestError) { setError(requestError.message || 'Repo Ingest status unavailable.') } }
+  useEffect(() => { refresh() }, [])
+  const execute = async refetch => {
+    if (!validation.valid) return
+    setOperation(refetch ? 'Re-fetch' : 'Fetch')
+    setError('')
+    try {
+      const response = await (refetch ? refetchGraphifyRepository(validation.normalized) : fetchGraphifyRepository(validation.normalized))
+      setResult(response.repository)
+      await refresh()
+    } catch (requestError) {
+      setError(requestError.response?.data?.detail || requestError.message || `${refetch ? 'Re-fetch' : 'Fetch'} failed.`)
+    } finally {
+      setOperation('')
+    }
+  }
+  return <><PageHeader title="Repo Ingest" question="Explicitly fetch a public GitHub repository through strict validation, safe shallow clone, quarantine scan, and code-only Graphify." />
+    <div className="rounded border border-softgraph bg-graphite/70 p-5">
+      <div className="grid gap-2 md:grid-cols-5">{(data?.steps || []).map((step, i) => <div key={step} className="rounded border border-softgraph bg-ink p-4 text-center"><div className="text-xs text-champagne">{i + 1}</div><div className="mt-1 text-sm font-semibold text-stone">{step}</div></div>)}</div>
+      <label className="mt-5 block text-xs uppercase tracking-wider text-champagne">Public GitHub URL<input value={url} onChange={event => setUrl(event.target.value)} className="mt-2 w-full rounded border border-softgraph bg-ink px-3 py-3 text-sm text-stone outline-none focus:border-champagne" placeholder="https://github.com/owner/repository" autoComplete="off" spellCheck="false" /></label>
+      <div className={`mt-2 text-xs ${validation.valid ? 'text-stone' : 'text-taupe'}`}>{url ? validation.valid ? `Validated locally: ${validation.normalized}` : validation.error : 'Typing validates locally only. Nothing is fetched until you click Fetch.'}</div>
+      {existing && <div className="mt-3 rounded border border-champagne/50 bg-champagne/10 p-3 text-sm text-stone">Repository already exists at commit {existing.commit_hash}. Normal Fetch is disabled; use the explicit repository-specific Re-fetch button.</div>}
+      {error && <div className="mt-3 rounded border border-clay/60 bg-clay/10 p-3 text-sm text-stone" role="alert">{error}</div>}
+      <div className="mt-4 flex flex-wrap items-center gap-2"><ActionButton onClick={() => execute(false)} disabled={!validation.valid || Boolean(existing) || Boolean(operation)}>{operation === 'Fetch' ? 'Fetching, scanning, and Graphifying…' : 'Fetch'}</ActionButton>{existing && <ActionButton onClick={() => execute(true)} disabled={Boolean(operation)}>{operation === 'Re-fetch' ? `Re-fetching ${existing.id}…` : `Re-fetch ${existing.id}`}</ActionButton>}<span className="text-xs text-taupe">Current operation: {operation || 'idle'} · no model invocation</span></div>
+    </div>
+    {displayed && <section className="mt-4 rounded border border-olive/60 bg-graphite/70 p-5" data-testid="repo-ingest-success"><div className="flex items-center justify-between gap-3"><div><h2 className="text-lg font-semibold text-stone">Available: {displayed.id}</h2><p className="mt-1 text-xs text-taupe">Commit {displayed.commit_hash} · {displayed.node_count} nodes · Graphify {displayed.graphify_version}</p></div><StatusChip status="Ready" /></div><div className="mt-4 grid gap-3 md:grid-cols-4">{[['Files', displayed.scan_summary?.file_count], ['Directories', displayed.scan_summary?.directory_count], ['Bytes', displayed.scan_summary?.total_size], ['Scan', displayed.scan_summary?.validation_status]].map(([label, value]) => <div key={label} className="rounded border border-softgraph bg-ink p-3"><div className="text-xs uppercase text-champagne">{label}</div><div className="mt-1 text-sm text-stone">{value ?? 'unavailable'}</div></div>)}</div><div className="mt-4 flex flex-wrap gap-2">{[['Graph', 'graph'], ['Tree', 'tree'], ['Report', 'report'], ['Provenance', 'provenance'], ['Receipt', 'receipt'], ['Quarantine scan', 'scan']].map(([label, key]) => <a key={key} href={displayed.artifacts[key]} target="_blank" rel="noreferrer" className="rounded border border-softgraph bg-ink px-3 py-2 text-xs font-semibold text-stone hover:border-champagne/40">{label}</a>)}</div></section>}
+    <div className="mt-4 rounded border border-softgraph bg-graphite/70 p-4 text-xs text-taupe"><p>{data?.note}</p><p className="mt-2">Canonical clones: {data?.canonical_roots?.clones || 'loading'}</p><p>Canonical outputs: {data?.canonical_roots?.outputs || 'loading'}</p><p>Canonical receipts: {data?.canonical_roots?.receipts || 'loading'}</p></div>
+  </>
 }
 
 export function SettingsLaunchers() {

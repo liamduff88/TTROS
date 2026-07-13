@@ -1,0 +1,44 @@
+{
+  "timestamp": "2026-07-13T20:44:09.184Z",
+  "repository": "pallets/itsdangerous",
+  "iframe_sandbox": {
+    "graph": "allow-scripts",
+    "tree": "allow-scripts"
+  },
+  "content_security_policy": {
+    "graph": "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src 'none'; connect-src 'none'; object-src 'none'; media-src 'none'; frame-src 'none'; worker-src 'none'; form-action 'none'; base-uri 'none'; frame-ancestors 'self'",
+    "tree": "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src 'none'; connect-src 'none'; object-src 'none'; media-src 'none'; frame-src 'none'; worker-src 'none'; form-action 'none'; base-uri 'none'; frame-ancestors 'self'"
+  },
+  "visible_render": {
+    "graphCircles": 211,
+    "graphLines": 512,
+    "treeGroups": 18,
+    "graphStats": "211 nodes · 512 displayed edges",
+    "treeStats": "211 symbols · 18 files"
+  },
+  "interaction": {
+    "repoGraphHref": "/api/graphify/artifacts/pallets/itsdangerous/graphify-out/graph.html",
+    "repoGraphSelection": {
+      "title": ".serializer_factory()",
+      "selectedNodes": 1,
+      "relatedEdges": 2
+    },
+    "graphSelection": {
+      "title": ".serializer_factory()",
+      "selectedNodes": 1,
+      "relatedEdges": 2
+    },
+    "transformBeforeZoom": null,
+    "transformAfterZoom": "translate(-150 -90) scale(1.25)",
+    "transformAfterReset": "translate(0 0) scale(1)"
+  },
+  "artifact_access_labels": "Report\nProvenance\nReceipt\nGraph JSON view\nQuarantine scan\nDownload graph JSON",
+  "external_requests": [],
+  "graph_initiated_remote_requests": [],
+  "failed_responses": [],
+  "console_errors": [],
+  "screenshots": [
+    "01-repo-ingest-itsdangerous.png",
+    "02-graphify-itsdangerous-graph-tree.png"
+  ]
+}

@@ -3,6 +3,7 @@ import axios from 'axios'
 const api = axios.create({ baseURL: '/api', timeout: 5000 })
 // Longer timeout for WSL commands that may take up to 2 minutes
 const apiWsl = axios.create({ baseURL: '/api', timeout: 130000 })
+const apiGraphify = axios.create({ baseURL: '/api', timeout: 620000 })
 
 export const getHealth = () => api.get('/health').then(r => r.data)
 export const getEntities = () => api.get('/entities').then(r => r.data)
@@ -62,6 +63,12 @@ export const getDashboardMemory = () => api.get('/dashboard/memory').then(r => r
 export const getDashboardPrompts = () => api.get('/dashboard/prompts').then(r => r.data)
 export const getDashboardGraphify = () => api.get('/dashboard/graphify').then(r => r.data)
 export const getDashboardRepoIngest = () => api.get('/dashboard/repo-ingest').then(r => r.data)
+export const fetchGraphifyRepository = (url) => apiGraphify.post('/graphify/fetch', { url }).then(r => r.data)
+export const refetchGraphifyRepository = (url) => apiGraphify.post('/graphify/refetch', { url }).then(r => r.data)
+export const rebuildGraphifyRepository = (owner, repository) => apiGraphify.post('/graphify/rebuild', { owner, repository }).then(r => r.data)
+export const runGraphifyAction = (owner, repository, action, inputs) => apiGraphify.post('/graphify/action', { owner, repository, action, inputs }).then(r => r.data)
+export const queueGraphifyModelWork = (owner, repository, requested_work) => api.post('/graphify/queue-model-work', { owner, repository, requested_work }).then(r => r.data)
+export const getGraphifyArtifactText = (url) => apiGraphify.get(url.replace(/^\/api/, ''), { responseType: 'text', transformResponse: value => value }).then(r => r.data)
 export const createDashboardTask = (data) => api.post('/dashboard/create-task', data).then(r => r.data)
 export const saveDashboardSkill = (data) => api.post('/dashboard/skills/save', data).then(r => r.data)
 export const openDashboardPath = (data) => api.post('/dashboard/open-path', data).then(r => r.data)
