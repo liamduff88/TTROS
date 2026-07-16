@@ -3370,7 +3370,7 @@ class HermesComposioTests(unittest.TestCase):
     def test_real_workflow_runner_contracts_are_registered_and_runner_consumable(self):
         contracts = backend._workflow_runner_contracts()
         self.assertTrue(contracts["runner_consumable"])
-        self.assertEqual(len(contracts["contracts"]), 12)
+        self.assertEqual(len(contracts["contracts"]), 14)
         ids = {contract["workflow_id"] for contract in contracts["contracts"]}
         self.assertIn("linkedin_carousel_from_md", ids)
         self.assertIn("fit_call_prep", ids)
@@ -3387,7 +3387,7 @@ class HermesComposioTests(unittest.TestCase):
         registry = json.loads((source_root / "workflows" / "runner_contracts.json").read_text(encoding="utf-8"))
         route_workflows = [route["workflow"] for route in routes["routes"]]
         contract_workflows = [contract["workflow_id"] for contract in registry["contracts"]]
-        self.assertEqual(len(contract_workflows), 12)
+        self.assertEqual(len(contract_workflows), 14)
         self.assertEqual(contract_workflows, route_workflows)
         self.assertTrue(registry["runner_consumable"])
         for workflow_id in ("linkedin_carousel_from_md", "fit_call_prep"):

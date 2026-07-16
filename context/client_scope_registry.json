@@ -19,15 +19,26 @@
         "business_brain:memory/company.md",
         "business_brain:memory/delivery_model.md",
         "business_brain:memory/ideal_clients.md",
+        "business_brain:memory/ideal_clients_A.md",
+        "business_brain:memory/ideal_clients_B.md",
         "business_brain:memory/marketing_voice.md",
         "business_brain:memory/offers.md",
         "business_brain:memory/positioning.md",
+        "business_brain:memory/prospecting_query_bank.md",
+        "business_brain:memory/prospecting_rotation_plan.md",
+        "business_brain:memory/prospecting_scoring_contract.md",
         "business_brain:memory/sales_and_revenue.md",
         "business_brain:memory/website_and_content.md",
         "business_brain:operating_context/active_projects.md",
         "business_brain:operating_context/current_priorities.md",
         "business_brain:operating_context/old_vault_archive_plan.md",
         "business_brain:operating_context/protected_paths.md"
+        ,"business_brain:prospects/index.md"
+        ,"business_brain:prospects/2026-07-club-hub-ilan-puterman.md"
+        ,"business_brain:prospects/2026-07-flox-ron-efroni.md"
+        ,"business_brain:prospects/2026-07-cyborg-nicolas-dupont.md"
+        ,"business_brain:prospects/2026-07-ollama-jeffrey-morgan.md"
+        ,"business_brain:prospects/2026-07-punttai-ronnie-coleman.md"
       ],
       "search_source_identities": [
         {"source": "agentic_os_live", "path_prefix": "agentic_os_live:"},
@@ -44,15 +55,26 @@
             "business_brain:memory/company.md",
             "business_brain:memory/delivery_model.md",
             "business_brain:memory/ideal_clients.md",
+            "business_brain:memory/ideal_clients_A.md",
+            "business_brain:memory/ideal_clients_B.md",
             "business_brain:memory/marketing_voice.md",
             "business_brain:memory/offers.md",
             "business_brain:memory/positioning.md",
+            "business_brain:memory/prospecting_query_bank.md",
+            "business_brain:memory/prospecting_rotation_plan.md",
+            "business_brain:memory/prospecting_scoring_contract.md",
             "business_brain:memory/sales_and_revenue.md",
             "business_brain:memory/website_and_content.md",
             "business_brain:operating_context/active_projects.md",
             "business_brain:operating_context/current_priorities.md",
             "business_brain:operating_context/old_vault_archive_plan.md",
             "business_brain:operating_context/protected_paths.md"
+            ,"business_brain:prospects/index.md"
+            ,"business_brain:prospects/2026-07-club-hub-ilan-puterman.md"
+            ,"business_brain:prospects/2026-07-flox-ron-efroni.md"
+            ,"business_brain:prospects/2026-07-cyborg-nicolas-dupont.md"
+            ,"business_brain:prospects/2026-07-ollama-jeffrey-morgan.md"
+            ,"business_brain:prospects/2026-07-punttai-ronnie-coleman.md"
           ]
         }
       ],
@@ -69,15 +91,26 @@
             "business_brain:memory/company.md",
             "business_brain:memory/delivery_model.md",
             "business_brain:memory/ideal_clients.md",
+            "business_brain:memory/ideal_clients_A.md",
+            "business_brain:memory/ideal_clients_B.md",
             "business_brain:memory/marketing_voice.md",
             "business_brain:memory/offers.md",
             "business_brain:memory/positioning.md",
+            "business_brain:memory/prospecting_query_bank.md",
+            "business_brain:memory/prospecting_rotation_plan.md",
+            "business_brain:memory/prospecting_scoring_contract.md",
             "business_brain:memory/sales_and_revenue.md",
             "business_brain:memory/website_and_content.md",
             "business_brain:operating_context/active_projects.md",
             "business_brain:operating_context/current_priorities.md",
             "business_brain:operating_context/old_vault_archive_plan.md",
             "business_brain:operating_context/protected_paths.md"
+            ,"business_brain:prospects/index.md"
+            ,"business_brain:prospects/2026-07-club-hub-ilan-puterman.md"
+            ,"business_brain:prospects/2026-07-flox-ron-efroni.md"
+            ,"business_brain:prospects/2026-07-cyborg-nicolas-dupont.md"
+            ,"business_brain:prospects/2026-07-ollama-jeffrey-morgan.md"
+            ,"business_brain:prospects/2026-07-punttai-ronnie-coleman.md"
           ]
         }
       ],

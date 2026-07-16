@@ -21,6 +21,8 @@ EXPECTED_WORKFLOWS = {
     "marketing_content_repurposing",
     "delivery_client_kickoff",
     "operations_founder_review",
+    "prospecting_daily_run",
+    "prospecting_week_review",
 }
 
 

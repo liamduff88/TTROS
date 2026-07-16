@@ -12,7 +12,8 @@ never invents scope the skill layer hasn't earned.
 `business_efficiency_assessment`, `speed_to_lead`, `voice_agent_setup`.
 **Business workflows:** `client_memory`, `lead_gen_agent`,
 `ai_operations_support`, `marketing_content`, `weekly_review`.
-**Added post-batch:** `linkedin_carousel_from_md`, `internal_outreach_daily`.
+**Added post-batch:** `linkedin_carousel_from_md`, `internal_outreach_daily`,
+`prospecting_daily_run`, `prospecting_week_review`.
 
 ## Naming note
 Workflow folder names occasionally drop the `build_` / `_prep` prefix used

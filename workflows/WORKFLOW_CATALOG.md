@@ -12,6 +12,8 @@ The workflow shell does not execute workflow logic, call models, publish content
 | `pdf_branding` | Time to Revenue PDF Branding Workflow | Marketing | `workflows/pdf_branding/README.md` | `workflows/pdf_branding/input` |
 | `marketing_pdf_package` | Marketing PDF Package Workflow | Marketing | `workflows/marketing_pdf_package/workflow.md` | `workflows/marketing_pdf_package/templates/package_brief.md` |
 | `revenue_linkedin_outreach` | Revenue LinkedIn Relationship Outreach Workflow | Revenue | `workflows/revenue_linkedin_outreach/workflow.md` | `workflows/revenue_linkedin_outreach/templates/prospect_brief.md` |
+| `prospecting_daily_run` | LinkedIn Prospecting Daily Run | Revenue | `workflows/prospecting_daily_run/workflow.md` | canonical Business Brain ICP/query/rotation notes |
+| `prospecting_week_review` | Prospecting Week Review | Revenue | `workflows/prospecting_week_review/workflow.md` | `queue/prospects.jsonl` |
 | `delivery_ops_documents` | Delivery / Operations Document Workflow | Delivery | `workflows/delivery_ops_documents/workflow.md` | `workflows/delivery_ops_documents/input` |
 | `revenue_sales_prep` | Revenue Sales Prep Workflow | Revenue | `workflows/revenue_sales_prep/workflow.md` | `workflows/revenue_sales_prep/templates/intake_template.md` |
 | `marketing_content_repurposing` | Marketing Content Repurposing Workflow | Marketing | `workflows/marketing_content_repurposing/workflow.md` | `workflows/marketing_content_repurposing/templates/intake_template.md` |

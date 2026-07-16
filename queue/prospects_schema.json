@@ -1,0 +1,39 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "TTROS Prospect Ledger Record",
+  "description": "Append-only full snapshot for one prospect state. Latest line per prospect_id is current. Status semantics live in queue/prospect_status_vocabulary.md.",
+  "type": "object",
+  "required": [
+    "prospect_id", "name", "company", "lane", "icp_variant",
+    "signal_class", "signal_date", "signal_source_url", "source_query",
+    "score", "tier", "readiness", "wedge", "angle_type",
+    "first_touch_style", "outreach_basis", "status", "status_date",
+    "touch_count", "next_touch_due", "entity_page_path", "do_not_contact"
+  ],
+  "properties": {
+    "prospect_id": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[a-z0-9]+(?:-[a-z0-9]+)*$"},
+    "name": {"type": "string", "minLength": 1},
+    "company": {"type": "string", "minLength": 1},
+    "lane": {"type": "string", "enum": ["professional_services", "home_services_trades", "commercial_services", "property", "recruiting_hr_training", "icp_b_gtm"]},
+    "icp_variant": {"type": "string", "enum": ["A", "B"]},
+    "signal_class": {"type": "string", "enum": ["hiring_friction", "growth_event", "workflow_friction", "founder_voice", "stack_maturity"]},
+    "signal_date": {"type": "string", "format": "date"},
+    "signal_source_url": {"type": "string", "format": "uri", "pattern": "^https://"},
+    "source_query": {"type": "string", "minLength": 1},
+    "score": {"type": "integer", "minimum": 0, "maximum": 100},
+    "tier": {"type": "string", "enum": ["A", "B", "C_monitor", "D_reject"]},
+    "readiness": {"type": "string", "enum": ["now", "near_term", "monitor"]},
+    "wedge": {"type": "string", "minLength": 1},
+    "angle_type": {"type": "string", "enum": ["signal_reference", "problem_question", "proof_point", "warm_context"]},
+    "first_touch_style": {"type": "string", "enum": ["noted_request", "blank_request", "inmail", "email", "message_first"]},
+    "outreach_basis": {"type": "string", "minLength": 1, "description": "CASL/commercial-message basis recorded for the draft."},
+    "status": {"type": "string", "enum": ["identified", "drafted", "sent", "touch_2", "touch_3", "replied_positive", "replied_negative", "no_response", "call_booked", "fit_call_done", "offer_sent", "won", "lost", "nurture", "rejected", "do_not_contact", "withdrawn"]},
+    "status_date": {"type": "string", "format": "date"},
+    "touch_count": {"type": "integer", "minimum": 0, "maximum": 3},
+    "next_touch_due": {"type": ["string", "null"], "format": "date"},
+    "outcome_notes": {"type": "string"},
+    "entity_page_path": {"type": "string", "pattern": "^business_brain:prospects/[a-z0-9][a-z0-9/-]*\\.md$"},
+    "do_not_contact": {"type": "boolean"}
+  },
+  "additionalProperties": false
+}

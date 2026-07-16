@@ -38,6 +38,24 @@
       "intake_reference_path": "workflows/revenue_linkedin_outreach/input"
     },
     {
+      "id": "prospecting_daily_run",
+      "name": "LinkedIn Prospecting Daily Run",
+      "owner_agent": "Revenue",
+      "summary": "Discovers evidenced public-signal prospects, drafts relationship-first outreach, updates the local ledger, and produces a no-send review package.",
+      "source_path": "workflows/prospecting_daily_run/workflow.md",
+      "intake_template_path": null,
+      "intake_reference_path": "business_brain:memory/prospecting_rotation_plan.md"
+    },
+    {
+      "id": "prospecting_week_review",
+      "name": "Prospecting Week Review",
+      "owner_agent": "Revenue",
+      "summary": "Validates and rolls up the append-only prospect ledger, flags stale states, and proposes evidence-backed cycle changes without editing memory.",
+      "source_path": "workflows/prospecting_week_review/workflow.md",
+      "intake_template_path": null,
+      "intake_reference_path": "queue/prospects.jsonl"
+    },
+    {
       "id": "delivery_ops_documents",
       "name": "Delivery / Operations Document Workflow",
       "owner_agent": "Delivery",

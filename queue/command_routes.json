@@ -9,6 +9,24 @@
   },
   "routes": [
     {
+      "id": "prospecting_daily_run",
+      "patterns": ["prospecting daily", "daily prospecting", "today's prospecting", "run prospecting"],
+      "workflow": "prospecting_daily_run",
+      "skill": "prospecting_daily_run_SKILL",
+      "owner": "revenue",
+      "workbench": "lane",
+      "priority": "high"
+    },
+    {
+      "id": "prospecting_week_review",
+      "patterns": ["prospecting week review", "prospecting weekly review", "review prospect ledger"],
+      "workflow": "prospecting_week_review",
+      "skill": "prospecting_week_review_SKILL",
+      "owner": "revenue",
+      "workbench": "lane",
+      "priority": "normal"
+    },
+    {
       "id": "linkedin_carousel",
       "patterns": ["carousel", "linkedin slides", "slide deck from this"],
       "workflow": "linkedin_carousel_from_md",

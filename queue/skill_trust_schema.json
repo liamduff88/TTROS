@@ -9,7 +9,7 @@
     "skill": {"type": "string"},
     "version": {"type": "string", "enum": ["v0", "earned"]},
     "date": {"type": "string", "format": "date"},
-    "item_id": {"type": "string", "pattern": "^Q-[0-9]{4}-[0-9]{4}$"},
+    "item_id": {"type": "string", "pattern": "^(AOS|Q)-[0-9]{4}-[0-9]{4}$"},
     "lane": {"type": "string", "enum": ["revenue", "marketing", "delivery", "ops"]},
     "profile": {"type": "string", "enum": ["aos-orchestrator", "aos-revenue", "aos-marketing", "aos-delivery", "aos-ops"]},
     "outcome": {"type": "string", "enum": ["ACCEPT", "REVISE"]},
