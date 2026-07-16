@@ -861,7 +861,11 @@ class AosQueueTest(unittest.TestCase):
         json.loads((ROOT / "queue" / "agent_registry.json").read_text(encoding="utf-8"))
         json.loads((ROOT / "queue" / "schemas" / "work_item.schema.json").read_text(encoding="utf-8"))
         json.loads((ROOT / "queue" / "schemas" / "receipt.schema.json").read_text(encoding="utf-8"))
-        for line in (ROOT / "queue" / "work_items.jsonl").read_text(encoding="utf-8").splitlines():
+        work_items = ROOT / "queue" / "work_items.jsonl"
+        if not work_items.exists():
+            self.assertIn("*.jsonl", (ROOT / ".gitignore").read_text(encoding="utf-8").splitlines())
+            return
+        for line in work_items.read_text(encoding="utf-8").splitlines():
             if line.strip():
                 json.loads(line)
 

@@ -1,0 +1,91 @@
+Phase 6B activation files touched — exhaustive retained classification
+Expires: when this activation package is superseded. Last touched: 2026-07-15.
+
+REPOSITORY SOURCE / CONTRACT / TEST
+/home/liam/agentic-os-live/capture/README.md
+/home/liam/agentic-os-live/queue/schemas/work_item.schema.json
+/home/liam/agentic-os-live/scripts/token_rollup.py
+/home/liam/agentic-os-live/tests/test_aos_capture.py
+/home/liam/agentic-os-live/tests/test_aos_capture_live.py
+/home/liam/agentic-os-live/tools/aos_capture.py
+/home/liam/agentic-os-live/tools/aos_capture_live.py
+
+IGNORED OWNER-ONLY CAPTURE RUNTIME
+/home/liam/agentic-os-live/capture/runtime/control/state.json
+/home/liam/agentic-os-live/capture/runtime/control/activation.json
+/home/liam/agentic-os-live/capture/runtime/control/observation.json
+/home/liam/agentic-os-live/capture/runtime/control/poll_receipts.jsonl
+/home/liam/agentic-os-live/capture/runtime/control/poll.lock
+/home/liam/agentic-os-live/capture/runtime/providers/gmail-live/cursor.json
+/home/liam/agentic-os-live/capture/runtime/providers/gmail-live/processing.jsonl
+/home/liam/agentic-os-live/capture/runtime/scopes/_unresolved/raw/records.jsonl
+/home/liam/agentic-os-live/capture/runtime/scopes/_unresolved/derived/triage.jsonl
+/home/liam/agentic-os-live/capture/runtime/scopes/_unresolved/derived/metadata.jsonl
+/home/liam/agentic-os-live/capture/runtime/scopes/_unresolved/derived/operational_receipts.jsonl
+
+EXISTING QUEUE / LEDGER / ROLLUP / SEARCH STORES — ADDITIVE OR AUTHORIZED ATOMIC REINDEX
+/home/liam/agentic-os-live/queue/work_items.jsonl
+/home/liam/agentic-os-live/queue/run_ledger.jsonl
+/home/liam/agentic-os-live/queue/token_ledger.jsonl
+/home/liam/agentic-os-live/queue/rollups/index.json
+/home/liam/agentic-os-live/queue/rollups/week-2026-W29.json
+/home/liam/agentic-os-live/search/os_index.db
+
+ADDITIVE LIVE QUEUE RECEIPTS
+/home/liam/agentic-os-live/queue/receipts/AOS-2026-0094-phase-6b-capture-live.json
+/home/liam/agentic-os-live/queue/receipts/AOS-2026-0095-phase-6b-capture-live.json
+/home/liam/agentic-os-live/queue/receipts/AOS-2026-0096-phase-6b-capture-live.json
+/home/liam/agentic-os-live/queue/receipts/AOS-2026-0097-phase-6b-capture-live.json
+/home/liam/agentic-os-live/queue/receipts/AOS-2026-0098-phase-6b-capture-live.json
+/home/liam/agentic-os-live/queue/receipts/AOS-2026-0099-phase-6b-capture-live.json
+/home/liam/agentic-os-live/queue/receipts/AOS-2026-0100-phase-6b-capture-live.json
+/home/liam/agentic-os-live/queue/receipts/AOS-2026-0101-phase-6b-capture-live.json
+/home/liam/agentic-os-live/queue/receipts/AOS-2026-0102-phase-6b-capture-live.json
+/home/liam/agentic-os-live/queue/receipts/AOS-2026-0103-phase-6b-capture-live.json
+/home/liam/agentic-os-live/queue/receipts/AOS-2026-0104-phase-6b-capture-live.json
+/home/liam/agentic-os-live/queue/receipts/AOS-2026-0105-phase-6b-capture-live.json
+/home/liam/agentic-os-live/queue/receipts/AOS-2026-0106-phase-6b-capture-live.json
+/home/liam/agentic-os-live/queue/receipts/AOS-2026-0107-phase-6b-capture-live.json
+/home/liam/agentic-os-live/queue/receipts/AOS-2026-0108-phase-6b-capture-live.json
+/home/liam/agentic-os-live/queue/receipts/AOS-2026-0109-phase-6b-capture-live.json
+/home/liam/agentic-os-live/queue/receipts/AOS-2026-0110-phase-6b-capture-live.json
+/home/liam/agentic-os-live/queue/receipts/AOS-2026-0111-phase-6b-capture-live.json
+/home/liam/agentic-os-live/queue/receipts/AOS-2026-0112-phase-6b-capture-live.json
+/home/liam/agentic-os-live/queue/receipts/AOS-2026-0113-phase-6b-capture-live.json
+/home/liam/agentic-os-live/queue/receipts/AOS-2026-0114-phase-6b-capture-live.json
+/home/liam/agentic-os-live/queue/receipts/AOS-2026-0115-phase-6b-capture-live.json
+/home/liam/agentic-os-live/queue/receipts/AOS-2026-0116-phase-6b-capture-live.json
+
+EXISTING GRAPHIFY CAPTURE PROJECTION / ADDITIVE RECEIPTS
+/home/liam/graphify-brain/document_graphs/ttros-business-brain/published/capture_evidence.graph.json
+/home/liam/graphify-brain/document_graphs/ttros-business-brain/receipts/20260715T220158233179Z-capture-metadata-projection-success.json
+/home/liam/graphify-brain/document_graphs/ttros-business-brain/receipts/20260715T220218242246Z-capture-metadata-projection-success.json
+/home/liam/graphify-brain/document_graphs/ttros-business-brain/receipts/20260715T220453397160Z-capture-metadata-projection-success.json
+/home/liam/graphify-brain/document_graphs/ttros-business-brain/receipts/20260715T221535340857Z-capture-metadata-projection-success.json
+
+ACTIVATION PROOF PACKAGE
+/home/liam/agentic-os-live/proofs/brain-reconciliation/activation/ACTIVATION_CLOSEOUT_2026-07-15.md
+/home/liam/agentic-os-live/proofs/brain-reconciliation/activation/FILES_TOUCHED_2026-07-15.txt
+/home/liam/agentic-os-live/proofs/brain-reconciliation/activation/ACTIVATION_DECISION_2026-07-15.md
+/home/liam/agentic-os-live/proofs/brain-reconciliation/activation/LIVE_CONNECTION_AND_SCOPE_PROOF_2026-07-15.md
+/home/liam/agentic-os-live/proofs/brain-reconciliation/activation/KILL_SWITCH_PROOF_2026-07-15.md
+/home/liam/agentic-os-live/proofs/brain-reconciliation/activation/CURSOR_BOOTSTRAP_AND_FIRST_CYCLE_PROOF_2026-07-15.md
+/home/liam/agentic-os-live/proofs/brain-reconciliation/activation/RECURRING_SCHEDULE_PROOF_2026-07-15.md
+/home/liam/agentic-os-live/proofs/brain-reconciliation/activation/LIVE_METADATA_LEAKAGE_PROOF_2026-07-15.md
+/home/liam/agentic-os-live/proofs/brain-reconciliation/activation/OBSERVATION_WINDOW_START_2026-07-15.md
+/home/liam/agentic-os-live/proofs/brain-reconciliation/activation/PRESERVATION_MANIFEST_2026-07-15.md
+/home/liam/agentic-os-live/proofs/brain-reconciliation/activation/EXTERNAL_ACTION_BOUNDARY_2026-07-15.md
+
+HERMES EXISTING SCHEDULER MACHINERY
+/home/liam/.hermes/profiles/aos-orchestrator/scripts/ttros-gmail-capture.sh
+/home/liam/.hermes/logs/gateway.log — runtime-managed log, no credential or profile configuration inspected
+Hermes cron state via CLI — one Phase 6B no-agent job created; three legacy-workdir jobs paused; internal scheduler files not inspected
+Hermes gateway runtime — started in documented manual WSL mode; no messaging platform enabled
+
+TRANSIENT, NOT RETAINED AT CLOSEOUT
+/home/liam/.hermes/scripts/ttros-gmail-capture.sh — initial unused location created, then removed
+/tmp/ttros-phase6b-disabled-exec.trace — disabled process trace
+/tmp/ttros-phase6b-backend-venv — temporary declared-dependency validation environment
+No systemd service was installed; the installer refused because WSL systemd is unavailable.
+
+Token usage: unavailable from current CLI output.

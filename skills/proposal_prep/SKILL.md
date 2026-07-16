@@ -4,15 +4,15 @@ description: /proposal-draft — drafts a proposal from offer templates + the cl
 when-to-use: A Fit Call, scan, or assessment produced a recommended next step and Liam asks for the proposal. Owner: aos-revenue. Trust: earned.
 ---
 # /proposal-draft
-> Revisit: when offers, pricing, or delivery terms change. · Last touched: 2026-07-07
+> Revisit: when offers, pricing, or delivery terms change. · Last touched: 2026-07-15
 
 ## Purpose
 Turn a scoped recommendation into a send-ready proposal draft in Liam's voice, priced only from approved offer facts.
 
 ## Inputs
-- Client/prospect entity page (required — refuse without it).
+- Exact canonical client/prospect `business_brain:<relative-path>` supplied by the work item (required — refuse without it; never search by filename).
 - The originating artifact: Fit Call brief, Quick-Win Scan (CA$350), or Business Efficiency Assessment (CA$750) output.
-- memory/offers.md + sales_and_revenue context for pricing floors (Speed-to-Lead from CA$1,000; Voice Agent from CA$1,000 + platform/usage; Client Memory from CA$2,000; Lead Gen Agent scoped after Fit Call; custom work SCOPE-LOCKed).
+- `business_brain:memory/offers.md` + `business_brain:memory/sales_and_revenue.md` for approved offer facts and pricing context.
 
 ## Steps
 1. **Ground** — pull the client's stated bottleneck and the recommended build from the entity page + source artifact. No new diagnosis here.

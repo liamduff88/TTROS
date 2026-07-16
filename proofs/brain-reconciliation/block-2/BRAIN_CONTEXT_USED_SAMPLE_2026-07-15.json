@@ -1,0 +1,24 @@
+{
+  "brain_context_used": [
+    {
+      "note_id": "ttros-brain-memory-index",
+      "path": "business_brain:index/MEMORY_INDEX.md",
+      "client_scope": "global",
+      "retrieval_route": "pointer",
+      "content_sha256": "afcd3d1644453f763158d2b0b59430299abfd560a71e452a4d27e693b36379b7"
+    },
+    {
+      "note_id": "ttros-brain-memory-index",
+      "path": "business_brain:index/MEMORY_INDEX.md",
+      "client_scope": "global",
+      "retrieval_route": "search",
+      "content_sha256": "afcd3d1644453f763158d2b0b59430299abfd560a71e452a4d27e693b36379b7"
+    }
+  ],
+  "note_bodies_stored": false,
+  "source_proofs": [
+    "LATER_RETRIEVAL_POINTER_RAW_2026-07-15.json",
+    "LATER_RETRIEVAL_SEARCH_RAW_2026-07-15.json"
+  ],
+  "token_usage_text": "Token usage: no agent invocation"
+}

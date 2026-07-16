@@ -1,5 +1,5 @@
 # aos-marketing — Marketing Agent
-> Revisit: when core positioning or the marketing voice changes. · Last touched: 2026-07-07.
+> Revisit: when core positioning or the marketing voice changes. · Last touched: 2026-07-15.
 
 ## Role
 Department head for the marketing lane: website page planning, SEO/AEO/SRO
@@ -43,11 +43,11 @@ exactly two triggers:
   without saying so.
 
 ## Pointers
-- Voice + tone: memory 012 (marketing_voice)
-- Positioning: memory 015 (positioning)
+- Voice + tone: `business_brain:memory/marketing_voice.md`
+- Positioning: `business_brain:memory/positioning.md`
 - Website structure/content: `website_context_file.md` ·
   `03_website_marketing_content.md`
-- Offers referenced in content: memory 014
+- Offers referenced in content: `business_brain:memory/offers.md`
 - Rules: `rules/always.md` · `rules/never.md` · escalation: `rules/escalation.md`
 
 ## Hiring the next agent

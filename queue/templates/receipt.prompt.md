@@ -19,6 +19,14 @@ Artifacts:
 Sources accessed:
 - category/path-level only; no secrets or sensitive values
 
+Brain context:
+- `brain_context_used`: structured actual successful reads only
+- `brain_context_status`: `not_applicable` only for affirmative technical-only work
+- `degraded_context`: explicit safe-without-source contract when applicable
+
+Memory promotion:
+- durable proposal/receipt/write-record references only
+
 Blockers:
 - ...
 

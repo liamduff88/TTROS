@@ -1,0 +1,34 @@
+ANTIGRAVITY.md\t777\t1485\t1783476086
+CLAUDE.md\t777\t1664\t1783476086
+CODEX.md\t777\t1925\t1783476086
+ROT.md\t777\t3606\t1783476086
+agents/aos-delivery.md\t777\t2815\t1783476700
+agents/aos-ops.md\t777\t3011\t1783476700
+agents/aos-revenue.md\t777\t3422\t1783476700
+context/MEMORY_ROOT.md\t777\t2129\t1783297837
+context/OPERATING_BASELINE.md\t777\t2883\t1782462895
+dashboard/backend/graphify_service.py\t644\t53087\t1783975433
+dashboard/backend/business_brain_graph.py	MISSING
+dashboard/backend/main.py\t777\t293253\t1783970268
+dashboard/frontend/src/views/DashboardV1.jsx\t777\t70407\t1783970440
+goals/business_brain_pointer_valid.goal.md\t777\t1237\t1783476866
+goals/standing_goal_contracts.json\t777\t4422\t1783479318
+loop/verify-goals.sh\t777\t6193\t1783479370
+memory_index/INDEX.md\t777\t1810\t1783297838
+memory_index/README.md\t777\t1894\t1783297838
+operating_context/old_vault_archive_plan.md\t777\t666\t1783479159
+queue/templates/hermes_dispatcher.prompt.md\t777\t1341\t1783262863
+queue/templates/revenue_linkedin_outreach.prompt.md\t777\t4646\t1783298228
+queue/work_order_prompt.md\t777\t1420\t1783476700
+rules/always.md\t777\t1916\t1783576721
+rules/client_data_boundaries.md\t777\t1798\t1783476700
+soul.md\t777\t2732\t1783476086
+tests/test_aos_search.py\t777\t8927\t1783839786
+tests/test_business_brain.py	MISSING
+tests/test_business_brain_graph.py	MISSING
+tests/test_business_brain_vault.py	MISSING
+tests/test_dashboard_memory.py	MISSING
+tests/test_graphify_pass10.py\t644\t21697\t1783975104
+tools/aos_indexer.py\t777\t21912\t1783783526
+tools/business_brain.py	MISSING
+tools/validate_business_brain.py	MISSING

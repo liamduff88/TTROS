@@ -11,7 +11,7 @@ WSL:
 `AgenticOSClean` at `/mnt/c/Users/Admin/Documents/A-Time to revenue/Agentic OS Live`
 
 Memory root:
-`C:\Users\Admin\Documents\A-Time to revenue\TTROS Business Brain`
+`business_brain:README.md`
 
 Old AI Native Source of Truth and `C:\AI-Vault` are archive only, not live memory.
 

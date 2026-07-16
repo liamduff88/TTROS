@@ -237,6 +237,9 @@ def rollup_week(week: str, lines: list[dict], prices: dict) -> dict:
 def write_rollup(rollup: dict) -> Path:
     ROLLUPS_DIR.mkdir(parents=True, exist_ok=True)
     path = ROLLUPS_DIR / f"week-{rollup['week']}.json"
+    existing = _read_json_or({}, path)
+    if isinstance(existing, dict) and isinstance(existing.get("capture"), dict):
+        rollup["capture"] = existing["capture"]
     path.write_text(json.dumps(rollup, indent=2) + "\n", encoding="utf-8")
     return path
 

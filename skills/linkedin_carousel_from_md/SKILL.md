@@ -4,15 +4,15 @@ description: Turn one sourced .md article/transcript into a LinkedIn carousel re
 when-to-use: Liam sources a .md file (article, transcript, notes) via command bar or queue item and asks for a LinkedIn carousel. Owner: aos-marketing. Trust: v0 pre-seeded.
 ---
 # /linkedin-carousel-from-md
-> Revisit: when marketing_voice, positioning, or the P2.5 review-package schema changes. · Last touched: 2026-07-08
+> Revisit: when marketing_voice, positioning, or the P2.5 review-package schema changes. · Last touched: 2026-07-15
 
 ## Purpose
 Produce one ready-to-review LinkedIn carousel package from a source .md file: no manual slide-building, no manual voice pass — Liam opens the review package, approves or edits, then hands off to LinkedIn manually (never auto-posts).
 
 ## Inputs
 - Source `.md` file attached to the queue item (`source_refs`) — required. Refuse if no .md source is attached; do not draft from a topic alone (that's `/content-draft`).
-- memory/marketing_voice.md + memory/positioning.md (read both, every time).
-- memory/offers.md — only if the source material touches offers/pricing; never invent claims.
+- `business_brain:memory/marketing_voice.md` + `business_brain:memory/positioning.md` (read both, every time).
+- `business_brain:memory/offers.md` — only if the source material touches offers/pricing; never invent claims.
 
 ## Steps
 1. **Frame** — read the source in full. State in one line: the one insight/hook worth a carousel, and who it's for.

@@ -18,6 +18,23 @@
     "review": {"type": "string", "enum": ["ACCEPT", "REVISE", "pending"]},
     "budget_class": {"type": "string", "enum": ["light", "standard", "heavy"]},
     "receipt": {"type": "string"},
-    "memory_promotion": {"type": "array", "items": {"type": "string"}, "description": "Explicit even if empty — never silently omitted, per MEMORY_PROMOTION_POLICY.md."}
+    "memory_promotion": {"type": "array", "items": {"type": "string"}, "description": "Durable proposal/receipt/write-record references only; outcome state lives in the referenced promotion receipt."},
+    "brain_context_status": {"type": "string", "enum": ["used", "not_applicable", "degraded", "missing"]},
+    "brain_context_used": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["note_id", "path", "client_scope", "retrieval_route"],
+        "properties": {
+          "note_id": {"type": "string"},
+          "path": {"type": "string", "pattern": "^business_brain:"},
+          "client_scope": {"type": "string"},
+          "retrieval_route": {"enum": ["pointer", "graphify", "search", "direct_fallback"]},
+          "content_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+        },
+        "additionalProperties": false
+      }
+    },
+    "degraded_context": {"type": "object"}
   }
 }

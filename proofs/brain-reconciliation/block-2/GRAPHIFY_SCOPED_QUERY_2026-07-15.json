@@ -1,0 +1,15 @@
+{
+  "client_scope": "global",
+  "fallback": null,
+  "graph_state": "fresh",
+  "query": "Machine-maintained verified outcomes",
+  "targets": [
+    {
+      "path": "business_brain:index/MEMORY_INDEX.md",
+      "score": 4.0
+    }
+  ],
+  "token_usage_text": "Token usage: no agent invocation",
+  "trust_note": "Targets passed the Block 2 scope registry before return; authoritative note loading remains separate.",
+  "trusted_for_model": true
+}

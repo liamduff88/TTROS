@@ -1,0 +1,234 @@
+{
+  "authorized_mechanical_corrections": [
+    "Removed the old_vault_archive_plan UTF-8 BOM so YAML starts at byte zero.",
+    "Normalized one redundant trailing blank line in ideal_clients and positioning while inserting frontmatter."
+  ],
+  "backlinks": {
+    "README.md": 1,
+    "decisions/DECISIONS.md": 2,
+    "inbox/README.md": 2,
+    "index/MEMORY_INDEX.md": 1,
+    "memory/agentic_os.md": 1,
+    "memory/clients.md": 1,
+    "memory/company.md": 1,
+    "memory/delivery_model.md": 1,
+    "memory/ideal_clients.md": 1,
+    "memory/marketing_voice.md": 1,
+    "memory/north_shore_sales_coach.md": 1,
+    "memory/offers.md": 1,
+    "memory/positioning.md": 1,
+    "memory/sales_and_revenue.md": 1,
+    "memory/website_and_content.md": 1,
+    "operating_context/active_projects.md": 1,
+    "operating_context/current_priorities.md": 2,
+    "operating_context/old_vault_archive_plan.md": 1,
+    "operating_context/protected_paths.md": 1
+  },
+  "backup_targets": [],
+  "broken_links": [],
+  "canonical_paths": [
+    "README.md",
+    "decisions/DECISIONS.md",
+    "inbox/README.md",
+    "index/MEMORY_INDEX.md",
+    "memory/agentic_os.md",
+    "memory/clients.md",
+    "memory/company.md",
+    "memory/delivery_model.md",
+    "memory/ideal_clients.md",
+    "memory/marketing_voice.md",
+    "memory/north_shore_sales_coach.md",
+    "memory/offers.md",
+    "memory/positioning.md",
+    "memory/sales_and_revenue.md",
+    "memory/website_and_content.md",
+    "operating_context/active_projects.md",
+    "operating_context/current_priorities.md",
+    "operating_context/old_vault_archive_plan.md",
+    "operating_context/protected_paths.md"
+  ],
+  "checks": {
+    "all_canonical_notes_have_ids": true,
+    "authorized_structural_diff_only": true,
+    "backups_excluded": true,
+    "canonical_note_count": 19,
+    "obsidian_configuration_valid": true,
+    "obsidian_graph_excludes_backups": true,
+    "root_reachability_within_two_hops": true,
+    "unique_ids": true,
+    "zero_broken_wiki_links": true
+  },
+  "duplicate_ids": [],
+  "frontmatter_fields": {
+    "README.md": [
+      "id",
+      "type"
+    ],
+    "decisions/DECISIONS.md": [
+      "id",
+      "type"
+    ],
+    "inbox/README.md": [
+      "id",
+      "type"
+    ],
+    "index/MEMORY_INDEX.md": [
+      "id",
+      "type"
+    ],
+    "memory/agentic_os.md": [
+      "id",
+      "type"
+    ],
+    "memory/clients.md": [
+      "id",
+      "type"
+    ],
+    "memory/company.md": [
+      "id",
+      "type"
+    ],
+    "memory/delivery_model.md": [
+      "id",
+      "type"
+    ],
+    "memory/ideal_clients.md": [
+      "id",
+      "type"
+    ],
+    "memory/marketing_voice.md": [
+      "id",
+      "type"
+    ],
+    "memory/north_shore_sales_coach.md": [
+      "id",
+      "type"
+    ],
+    "memory/offers.md": [
+      "id",
+      "type"
+    ],
+    "memory/positioning.md": [
+      "id",
+      "type"
+    ],
+    "memory/sales_and_revenue.md": [
+      "id",
+      "type"
+    ],
+    "memory/website_and_content.md": [
+      "id",
+      "type"
+    ],
+    "operating_context/active_projects.md": [
+      "id",
+      "type"
+    ],
+    "operating_context/current_priorities.md": [
+      "id",
+      "type"
+    ],
+    "operating_context/old_vault_archive_plan.md": [
+      "id",
+      "type"
+    ],
+    "operating_context/protected_paths.md": [
+      "id",
+      "type"
+    ]
+  },
+  "ids": {
+    "ttros-brain-active-projects": "operating_context/active_projects.md",
+    "ttros-brain-agentic-os": "memory/agentic_os.md",
+    "ttros-brain-clients": "memory/clients.md",
+    "ttros-brain-company": "memory/company.md",
+    "ttros-brain-current-priorities": "operating_context/current_priorities.md",
+    "ttros-brain-decisions": "decisions/DECISIONS.md",
+    "ttros-brain-delivery-model": "memory/delivery_model.md",
+    "ttros-brain-ideal-clients": "memory/ideal_clients.md",
+    "ttros-brain-inbox": "inbox/README.md",
+    "ttros-brain-marketing-voice": "memory/marketing_voice.md",
+    "ttros-brain-memory-index": "index/MEMORY_INDEX.md",
+    "ttros-brain-north-shore-sales-coach": "memory/north_shore_sales_coach.md",
+    "ttros-brain-offers": "memory/offers.md",
+    "ttros-brain-old-vault-archive-plan": "operating_context/old_vault_archive_plan.md",
+    "ttros-brain-positioning": "memory/positioning.md",
+    "ttros-brain-protected-paths": "operating_context/protected_paths.md",
+    "ttros-brain-root": "README.md",
+    "ttros-brain-sales-and-revenue": "memory/sales_and_revenue.md",
+    "ttros-brain-website-and-content": "memory/website_and_content.md"
+  },
+  "links": {
+    "README.md": [
+      "index/MEMORY_INDEX.md",
+      "decisions/DECISIONS.md",
+      "inbox/README.md",
+      "operating_context/current_priorities.md"
+    ],
+    "decisions/DECISIONS.md": [],
+    "inbox/README.md": [],
+    "index/MEMORY_INDEX.md": [
+      "README.md",
+      "decisions/DECISIONS.md",
+      "inbox/README.md",
+      "memory/agentic_os.md",
+      "memory/clients.md",
+      "memory/company.md",
+      "memory/delivery_model.md",
+      "memory/ideal_clients.md",
+      "memory/marketing_voice.md",
+      "memory/north_shore_sales_coach.md",
+      "memory/offers.md",
+      "memory/positioning.md",
+      "memory/sales_and_revenue.md",
+      "memory/website_and_content.md",
+      "operating_context/active_projects.md",
+      "operating_context/current_priorities.md",
+      "operating_context/old_vault_archive_plan.md",
+      "operating_context/protected_paths.md"
+    ],
+    "memory/agentic_os.md": [],
+    "memory/clients.md": [],
+    "memory/company.md": [],
+    "memory/delivery_model.md": [],
+    "memory/ideal_clients.md": [],
+    "memory/marketing_voice.md": [],
+    "memory/north_shore_sales_coach.md": [],
+    "memory/offers.md": [],
+    "memory/positioning.md": [],
+    "memory/sales_and_revenue.md": [],
+    "memory/website_and_content.md": [],
+    "operating_context/active_projects.md": [],
+    "operating_context/current_priorities.md": [],
+    "operating_context/old_vault_archive_plan.md": [],
+    "operating_context/protected_paths.md": []
+  },
+  "missing_ids": [],
+  "obsidian_errors": [],
+  "root_distances": {
+    "README.md": 0,
+    "decisions/DECISIONS.md": 1,
+    "inbox/README.md": 1,
+    "index/MEMORY_INDEX.md": 0,
+    "memory/agentic_os.md": 1,
+    "memory/clients.md": 1,
+    "memory/company.md": 1,
+    "memory/delivery_model.md": 1,
+    "memory/ideal_clients.md": 1,
+    "memory/marketing_voice.md": 1,
+    "memory/north_shore_sales_coach.md": 1,
+    "memory/offers.md": 1,
+    "memory/positioning.md": 1,
+    "memory/sales_and_revenue.md": 1,
+    "memory/website_and_content.md": 1,
+    "operating_context/active_projects.md": 1,
+    "operating_context/current_priorities.md": 1,
+    "operating_context/old_vault_archive_plan.md": 1,
+    "operating_context/protected_paths.md": 1
+  },
+  "status": "PASS",
+  "token_usage_text": "Token usage: no agent invocation",
+  "unauthorized_body_changes": [],
+  "unreachable": [],
+  "vault": "/mnt/c/Users/Admin/Documents/A-Time to revenue/TTROS Business Brain"
+}

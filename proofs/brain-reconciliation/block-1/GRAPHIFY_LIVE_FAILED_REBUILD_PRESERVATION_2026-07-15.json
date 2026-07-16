@@ -1,0 +1,20 @@
+{
+  "after": {
+    "graph.json": "2506b964ea24f18ea43a594932344eab935e9a30828f3e3e7eec50a8e327c31e",
+    "projection_manifest.json": "94cc80425ab6016d5521967f74623b5390a8bf71ed83151a1a979146146fafd0",
+    "source_manifest.json": "da67448d188aa8fdf97e121936a40873f49007c093b61aecb1d29a5b56769ad4"
+  },
+  "before": {
+    "graph.json": "2506b964ea24f18ea43a594932344eab935e9a30828f3e3e7eec50a8e327c31e",
+    "projection_manifest.json": "94cc80425ab6016d5521967f74623b5390a8bf71ed83151a1a979146146fafd0",
+    "source_manifest.json": "da67448d188aa8fdf97e121936a40873f49007c093b61aecb1d29a5b56769ad4"
+  },
+  "error": "installed Graphify Python runtime is unavailable",
+  "service_status": {
+    "fallback": null,
+    "source_manifest_sha256": "342fd6209c7888eece601a15cdf21e36a72367446e4bf9d6f74f7703c3502a02",
+    "state": "fresh",
+    "trusted": true
+  },
+  "status": "PASS"
+}

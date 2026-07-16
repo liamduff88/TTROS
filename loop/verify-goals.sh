@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # loop/verify-goals.sh — read-only standing goal verifier stub.
-# Revisit: when a goal predicate changes or this stub is wired to a scheduler. · Last touched: 2026-07-07.
+# Revisit: when a goal predicate changes or this stub is wired to a scheduler. · Last touched: 2026-07-15.
 #
 # Runs the six goals/*.goal.md predicates locally/read-only. It does not call
 # connectors, send messages, mutate ledgers, trigger agents, or schedule itself.
@@ -24,8 +24,19 @@ check_os_startup_health() {
 
 check_business_brain_pointer_valid() {
   local g="business_brain_pointer_valid.goal.md"
-  local brain="/mnt/c/Users/Admin/Documents/A-Time to revenue/TTROS Business Brain/_substrate.wiki/schema.md"
-  test -r "$brain" && pass "$g" "schema readable at TTROS Business Brain" || fail "$g" "TTROS Business Brain schema not readable"
+  if python3 - "$ROOT" <<'PY'
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(sys.argv[1]) / "tools"))
+from business_brain import resolve_business_brain_pointer
+for pointer in ("business_brain:README.md", "business_brain:index/MEMORY_INDEX.md"):
+    resolve_business_brain_pointer(pointer)
+PY
+  then
+    pass "$g" "canonical Business Brain roots resolve"
+  else
+    fail "$g" "canonical Business Brain logical pointers do not resolve"
+  fi
 }
 
 check_no_old_runtime_references() {

@@ -1,0 +1,12 @@
+--- a/business_brain:index/MEMORY_INDEX.md
++++ b/business_brain:index/MEMORY_INDEX.md
+@@ -53,3 +53,9 @@
+ [[memory/ideal_clients|Ideal Clients]] · [[memory/marketing_voice|Marketing Voice]] · [[memory/north_shore_sales_coach|North Shore Sales Coach]]
+ [[memory/offers|Offers]] · [[memory/positioning|Positioning]] · [[memory/sales_and_revenue|Sales and Revenue]] · [[memory/website_and_content|Website and Content]]
+ [[operating_context/active_projects|Active Projects]] · [[operating_context/current_priorities|Current Priorities]] · [[operating_context/old_vault_archive_plan|Old Vault Archive Plan]] · [[operating_context/protected_paths|Protected Paths]]
++<!-- TTROS:MACHINE:block-2-outcome-index:BEGIN -->
++## Machine-maintained verified outcomes
++
++- Business Brain structure accepted at checkpoint 1 (2026-07-15). Source: `proofs/brain-reconciliation/block-1/BLOCK_1_CLOSEOUT_2026-07-15.md`.
++- Block 2 deterministic promotion transaction: `proofs/brain-reconciliation/block-2/DETERMINISTIC_WRITE_RECORD_2026-07-15.json`.
++<!-- TTROS:MACHINE:block-2-outcome-index:END -->

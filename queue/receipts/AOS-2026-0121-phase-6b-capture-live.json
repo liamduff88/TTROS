@@ -1,0 +1,14 @@
+{
+  "brain_context_used": [],
+  "client_scope": null,
+  "evidence_references": [
+    "capture:_unresolved:cap-d3d7137b81352e8d7e493184"
+  ],
+  "external_action": "none",
+  "item_id": "AOS-2026-0121",
+  "proposal_key": "26dd0a77a24b768ad3270b92a977e69130b7123460fbef50a4b41fb317841ba5",
+  "record_id": "cap-d3d7137b81352e8d7e493184",
+  "schema_version": 1,
+  "status": "needs_input",
+  "token_usage_text": "Token usage: no agent invocation"
+}

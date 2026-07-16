@@ -1,0 +1,39 @@
+{
+  "candidate": {
+    "change_class": "generated_marker_section",
+    "client_scope": "global",
+    "marker": "block-2-outcome-index",
+    "provenance_refs": [
+      "proof:block-2:accepted-block-1",
+      "proof:block-2:deterministic-write"
+    ],
+    "reason": "Useful outcome-index links to accepted checkpoint evidence and this deterministic transaction.",
+    "target": "business_brain:index/MEMORY_INDEX.md",
+    "write_id": "d675303903a41b6c823e6d2e"
+  },
+  "failed_attempt_receipts_preserved": [
+    "queue/receipts/brain-promotion-d675303903a41b6c823e6d2e-failed-acda3f8425fe.json"
+  ],
+  "human_preimage_is_exact_prefix": true,
+  "idempotency_proof": {
+    "duplicate": true,
+    "idempotent": true,
+    "marker_count_after_repeat": 1,
+    "second_invocation_status": "success"
+  },
+  "promotion_receipt": "queue/receipts/brain-promotion-d675303903a41b6c823e6d2e.json",
+  "promotion_result": {
+    "diff_reference": "queue/receipts/brain-promotion-d675303903a41b6c823e6d2e.patch",
+    "diff_sha256": "9eb4b6d816b7072ad912057bf47a68a44e4b98be5c8d79f9a1502baea2ede9b2",
+    "operation": "write",
+    "postimage_sha256": "afcd3d1644453f763158d2b0b59430299abfd560a71e452a4d27e693b36379b7",
+    "preimage_sha256": "a741c97bcac06b7dee5f9163bb5f8a80ab0e0aff064a19544e13d975bfae2669",
+    "refresh_state_at_write": {
+      "graphify": "stale",
+      "search": "pending"
+    },
+    "status": "success",
+    "tier": "deterministic_automatic"
+  },
+  "token_usage_text": "Token usage: no agent invocation"
+}

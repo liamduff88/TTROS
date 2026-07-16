@@ -1,0 +1,68 @@
+BLOCK 2 ATTRIBUTABLE — REPOSITORY SOURCE / CONFIGURATION / TESTS
+/home/liam/agentic-os-live/context/MEMORY_PROMOTION_POLICY.md
+/home/liam/agentic-os-live/context/client_scope_registry.json
+/home/liam/agentic-os-live/context/client_scope_registry.schema.json
+/home/liam/agentic-os-live/dashboard/backend/business_brain_graph.py
+/home/liam/agentic-os-live/dashboard/backend/main.py
+/home/liam/agentic-os-live/dashboard/frontend/src/api.js
+/home/liam/agentic-os-live/dashboard/frontend/src/views/DashboardV1.jsx
+/home/liam/agentic-os-live/memory_promotion/SKILL.md
+/home/liam/agentic-os-live/queue/memory_promotion_prompt.md
+/home/liam/agentic-os-live/queue/run_ledger_schema.json
+/home/liam/agentic-os-live/queue/schemas/work_item.schema.json
+/home/liam/agentic-os-live/queue/templates/receipt.prompt.md
+/home/liam/agentic-os-live/queue/work_order_prompt.md
+/home/liam/agentic-os-live/skills/memory_promotion/SKILL.md
+/home/liam/agentic-os-live/tests/__init__.py
+/home/liam/agentic-os-live/tests/business_brain_test_support.py
+/home/liam/agentic-os-live/tests/test_aos_search.py
+/home/liam/agentic-os-live/tests/test_business_brain_context.py
+/home/liam/agentic-os-live/tests/test_business_brain_full_loop.py
+/home/liam/agentic-os-live/tests/test_business_brain_graph.py
+/home/liam/agentic-os-live/tests/test_business_brain_promotion.py
+/home/liam/agentic-os-live/tests/test_business_brain_scope.py
+/home/liam/agentic-os-live/tests/test_business_brain_search_scope.py
+/home/liam/agentic-os-live/tests/test_dashboard_memory.py
+/home/liam/agentic-os-live/tools/aos-queue.py
+/home/liam/agentic-os-live/tools/aos_indexer.py
+/home/liam/agentic-os-live/tools/business_brain_context.py
+/home/liam/agentic-os-live/tools/business_brain_promotion.py
+/home/liam/agentic-os-live/tools/business_brain_scope.py
+
+BLOCK 2 ATTRIBUTABLE — LIVE QUEUE / RECEIPTS / SEARCH
+/home/liam/agentic-os-live/queue/work_items.jsonl (one additive AOS-2026-0091 line)
+/home/liam/agentic-os-live/queue/receipts/AOS-2026-0091-block-2-proof-rejected.md
+/home/liam/agentic-os-live/queue/receipts/brain-promotion-d675303903a41b6c823e6d2e-failed-acda3f8425fe.json
+/home/liam/agentic-os-live/queue/receipts/brain-promotion-d675303903a41b6c823e6d2e.json
+/home/liam/agentic-os-live/queue/receipts/brain-promotion-d675303903a41b6c823e6d2e.patch
+/home/liam/agentic-os-live/search/os_index.db (failure-preserving rebuild)
+/home/liam/agentic-os-live/search/os_index.db-wal (preflight transient; absent after successful DELETE-mode publication)
+/home/liam/agentic-os-live/search/os_index.db-shm (preflight transient; absent after successful DELETE-mode publication)
+
+BLOCK 2 ATTRIBUTABLE — CANONICAL BUSINESS BRAIN
+/mnt/c/Users/Admin/Documents/A-Time to revenue/TTROS Business Brain/index/MEMORY_INDEX.md
+
+BLOCK 2 ATTRIBUTABLE — BUSINESS BRAIN GRAPHIFY NAMESPACE
+/home/liam/graphify-brain/document_graphs/ttros-business-brain/published/graph.json
+/home/liam/graphify-brain/document_graphs/ttros-business-brain/published/projection_manifest.json
+/home/liam/graphify-brain/document_graphs/ttros-business-brain/published/source_manifest.json
+/home/liam/graphify-brain/document_graphs/ttros-business-brain/.history/20260715T184623464849Z/published/graph.json
+/home/liam/graphify-brain/document_graphs/ttros-business-brain/.history/20260715T184623464849Z/published/projection_manifest.json
+/home/liam/graphify-brain/document_graphs/ttros-business-brain/.history/20260715T184623464849Z/published/source_manifest.json
+/home/liam/graphify-brain/document_graphs/ttros-business-brain/receipts/20260715T184623465588Z-build-success.json
+/home/liam/graphify-brain/document_graphs/ttros-business-brain/receipts/20260715T184624120238Z-unchanged-success.json
+/home/liam/graphify-brain/document_graphs/ttros-business-brain/receipts/20260715T184652509620Z-build-failed.json
+
+BLOCK 2 ATTRIBUTABLE — PROOF PACKAGE
+/home/liam/agentic-os-live/proofs/brain-reconciliation/block-2/ (all files enumerated by WORKTREE_PATHS_AFTER_2026-07-15.txt; the package is additive and self-contained)
+
+ACCEPTED BLOCK 1 BASELINE — PRESERVED, NOT REATTRIBUTED
+/home/liam/agentic-os-live/proofs/brain-reconciliation/block-1/FILES_TOUCHED_2026-07-15.txt (complete exact list)
+
+UNRELATED PRE-EXISTING DIRTY WORK — CONTENT HASH PRESERVED, NOT TOUCHED
+/home/liam/agentic-os-live/decisions/DECISIONS.md
+/home/liam/agentic-os-live/tests/test_aos_orchestration.py
+/home/liam/agentic-os-live/tools/aos-linux-runtime.sh
+/home/liam/agentic-os-live/tests/test_aos_dashboard_cleanup.py
+
+Token usage: unavailable from current CLI output.

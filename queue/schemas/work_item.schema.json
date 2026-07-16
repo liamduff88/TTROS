@@ -74,6 +74,84 @@
     "context": {
       "type": "string"
     },
+    "client_scope": {
+      "type": "string",
+      "description": "Exact client-scope registry identity; never inferred from title, tags, or folders."
+    },
+    "context_classification": {
+      "type": "string",
+      "enum": ["knowledge_sensitive", "technical_only", "ambiguous"]
+    },
+    "brain_context_status": {
+      "type": "string",
+      "enum": ["used", "not_applicable", "degraded", "missing"]
+    },
+    "brain_context_used": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["note_id", "path", "client_scope", "retrieval_route"],
+        "properties": {
+          "note_id": {"type": "string"},
+          "path": {"type": "string", "pattern": "^business_brain:"},
+          "client_scope": {"type": "string"},
+          "retrieval_route": {"enum": ["pointer", "graphify", "search", "direct_fallback"]},
+          "content_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+        },
+        "additionalProperties": false
+      }
+    },
+    "degraded_context": {
+      "type": "object"
+    },
+    "promotion_proposal": {
+      "type": "object"
+    },
+    "capture_proposal": {
+      "type": "object",
+      "description": "Allowlisted metadata-only capture proposal; raw bodies, threads, attachments, and sender details are prohibited.",
+      "required": ["fixture_marker", "proposal_key", "record_id", "evidence_references", "client_scope", "intent", "permitted_metadata", "brain_context_used", "external_actions_allowed"],
+      "properties": {
+        "fixture_marker": {"enum": ["block-3-synthetic", "phase-6b-live"]},
+        "proposal_key": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "record_id": {"type": "string", "pattern": "^cap-[0-9a-f]{24}$"},
+        "evidence_references": {"type": "array", "items": {"type": "string", "pattern": "^capture:[a-z0-9:_-]+:cap-[0-9a-f]{24}$"}},
+        "source_fixture_ids": {
+          "type": "object",
+          "required": ["provider", "message_id", "thread_id"],
+          "properties": {
+            "provider": {"enum": ["gmail_fixture"]},
+            "message_id": {"type": "string", "pattern": "^fixture-[A-Za-z0-9_-]+$"},
+            "thread_id": {"type": "string", "pattern": "^block3-[A-Za-z0-9_-]+$"}
+          },
+          "additionalProperties": false
+        },
+        "client_scope": {"type": ["string", "null"]},
+        "linked_item_id": {"type": "string"},
+        "intent": {"type": "string"},
+        "confidence": {"type": "string"},
+        "permitted_metadata": {
+          "type": "object",
+          "required": ["subject_classification", "timestamp", "source_type", "triage_state"],
+          "properties": {
+            "subject_classification": {"enum": ["newsletter", "notification", "inbound_claimed_approval", "business_message"]},
+            "timestamp": {"type": "string", "format": "date-time"},
+            "source_type": {"enum": ["gmail", "gmail_fixture"]},
+            "triage_state": {"enum": ["triaged", "needs_input"]}
+          },
+          "additionalProperties": false
+        },
+        "brain_context_used": {"$ref": "#/properties/brain_context_used"},
+        "search_targets": {"type": "array", "items": {"type": "string", "pattern": "^(business_brain|capture):"}},
+        "graphify_targets": {"type": "array", "items": {"type": "string", "pattern": "^business_brain:"}},
+        "receipt_reference": {"type": "string", "pattern": "^(pending|queue/receipts/[A-Za-z0-9_.-]+)$"},
+        "token_references": {"type": "array", "items": {"type": "string"}},
+        "communications_fact_promotion": {"const": "liam_review_required"},
+        "inbound_approval_language_is_evidence_only": {"const": true},
+        "external_actions_allowed": {"const": false}
+      },
+      "additionalProperties": false
+    },
     "sources": {
       "type": "array",
       "items": {

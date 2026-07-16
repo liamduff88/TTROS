@@ -1,0 +1,159 @@
+BLOCK 1 ATTRIBUTABLE FILES
+
+REPOSITORY SOURCE / CONFIGURATION
+/home/liam/agentic-os-live/ANTIGRAVITY.md
+/home/liam/agentic-os-live/CLAUDE.md
+/home/liam/agentic-os-live/CODEX.md
+/home/liam/agentic-os-live/ROT.md
+/home/liam/agentic-os-live/agents/aos-delivery.md
+/home/liam/agentic-os-live/agents/aos-marketing.md
+/home/liam/agentic-os-live/agents/aos-ops.md
+/home/liam/agentic-os-live/agents/aos-revenue.md
+/home/liam/agentic-os-live/context/MEMORY_PROMOTION_POLICY.md
+/home/liam/agentic-os-live/context/MEMORY_ROOT.md
+/home/liam/agentic-os-live/context/OPERATING_BASELINE.md
+/home/liam/agentic-os-live/context/PROTECTED_PATHS.md
+/home/liam/agentic-os-live/dashboard/backend/business_brain_graph.py
+/home/liam/agentic-os-live/dashboard/backend/main.py
+/home/liam/agentic-os-live/dashboard/frontend/src/views/DashboardV1.jsx
+/home/liam/agentic-os-live/goals/business_brain_pointer_valid.goal.md
+/home/liam/agentic-os-live/goals/standing_goal_contracts.json
+/home/liam/agentic-os-live/loop/verify-goals.sh
+/home/liam/agentic-os-live/memory_index/INDEX.md
+/home/liam/agentic-os-live/memory_index/README.md
+/home/liam/agentic-os-live/memory_promotion/SKILL.md
+/home/liam/agentic-os-live/operating_context/old_vault_archive_plan.md
+/home/liam/agentic-os-live/queue/memory_promotion_prompt.md
+/home/liam/agentic-os-live/queue/work_order_prompt.md
+/home/liam/agentic-os-live/rules/always.md
+/home/liam/agentic-os-live/rules/client_data_boundaries.md
+/home/liam/agentic-os-live/skills/content_draft/SKILL.md
+/home/liam/agentic-os-live/skills/fit_call_prep/SKILL.md
+/home/liam/agentic-os-live/skills/internal_outreach_daily/SKILL.md
+/home/liam/agentic-os-live/skills/linkedin_carousel_from_md/SKILL.md
+/home/liam/agentic-os-live/skills/linkedin_outreach_prep/SKILL.md
+/home/liam/agentic-os-live/skills/memory_promotion/SKILL.md
+/home/liam/agentic-os-live/skills/proposal_prep/SKILL.md
+/home/liam/agentic-os-live/skills/weekly_review/SKILL.md
+/home/liam/agentic-os-live/soul.md
+/home/liam/agentic-os-live/tests/test_aos_search.py
+/home/liam/agentic-os-live/tests/test_business_brain.py
+/home/liam/agentic-os-live/tests/test_business_brain_graph.py
+/home/liam/agentic-os-live/tests/test_business_brain_vault.py
+/home/liam/agentic-os-live/tests/test_dashboard_memory.py
+/home/liam/agentic-os-live/tools/aos_graphify_markdown_extract.py
+/home/liam/agentic-os-live/tools/aos_indexer.py
+/home/liam/agentic-os-live/tools/business_brain.py
+/home/liam/agentic-os-live/tools/validate_business_brain.py
+/home/liam/agentic-os-live/workflows/fit_call_prep/workflow.md
+/home/liam/agentic-os-live/workflows/internal_outreach_daily/workflow.md
+/home/liam/agentic-os-live/workflows/linkedin_carousel_from_md/workflow.md
+/home/liam/agentic-os-live/workflows/marketing_content/workflow.md
+/home/liam/agentic-os-live/workflows/weekly_review/workflow.md
+
+IGNORED FRONTEND PRODUCTION-BUILD OUTPUT
+/home/liam/agentic-os-live/dashboard/frontend/dist/index.html
+/home/liam/agentic-os-live/dashboard/frontend/dist/assets/index-1w0hXtg5.css
+/home/liam/agentic-os-live/dashboard/frontend/dist/assets/index-DRT4VQoa.js
+
+CANONICAL BUSINESS BRAIN
+/mnt/c/Users/Admin/Documents/A-Time to revenue/TTROS Business Brain/.obsidian/graph.json
+/mnt/c/Users/Admin/Documents/A-Time to revenue/TTROS Business Brain/.obsidian/workspace.json
+/mnt/c/Users/Admin/Documents/A-Time to revenue/TTROS Business Brain/README.md
+/mnt/c/Users/Admin/Documents/A-Time to revenue/TTROS Business Brain/decisions/DECISIONS.md
+/mnt/c/Users/Admin/Documents/A-Time to revenue/TTROS Business Brain/inbox/README.md
+/mnt/c/Users/Admin/Documents/A-Time to revenue/TTROS Business Brain/index/MEMORY_INDEX.md
+/mnt/c/Users/Admin/Documents/A-Time to revenue/TTROS Business Brain/memory/agentic_os.md
+/mnt/c/Users/Admin/Documents/A-Time to revenue/TTROS Business Brain/memory/clients.md
+/mnt/c/Users/Admin/Documents/A-Time to revenue/TTROS Business Brain/memory/company.md
+/mnt/c/Users/Admin/Documents/A-Time to revenue/TTROS Business Brain/memory/delivery_model.md
+/mnt/c/Users/Admin/Documents/A-Time to revenue/TTROS Business Brain/memory/ideal_clients.md
+/mnt/c/Users/Admin/Documents/A-Time to revenue/TTROS Business Brain/memory/marketing_voice.md
+/mnt/c/Users/Admin/Documents/A-Time to revenue/TTROS Business Brain/memory/north_shore_sales_coach.md
+/mnt/c/Users/Admin/Documents/A-Time to revenue/TTROS Business Brain/memory/offers.md
+/mnt/c/Users/Admin/Documents/A-Time to revenue/TTROS Business Brain/memory/positioning.md
+/mnt/c/Users/Admin/Documents/A-Time to revenue/TTROS Business Brain/memory/sales_and_revenue.md
+/mnt/c/Users/Admin/Documents/A-Time to revenue/TTROS Business Brain/memory/website_and_content.md
+/mnt/c/Users/Admin/Documents/A-Time to revenue/TTROS Business Brain/operating_context/active_projects.md
+/mnt/c/Users/Admin/Documents/A-Time to revenue/TTROS Business Brain/operating_context/current_priorities.md
+/mnt/c/Users/Admin/Documents/A-Time to revenue/TTROS Business Brain/operating_context/old_vault_archive_plan.md
+/mnt/c/Users/Admin/Documents/A-Time to revenue/TTROS Business Brain/operating_context/protected_paths.md
+
+GRAPHIFY DERIVED OUTPUT
+/home/liam/graphify-brain/document_graphs/ttros-business-brain/published/graph.json
+/home/liam/graphify-brain/document_graphs/ttros-business-brain/published/projection_manifest.json
+/home/liam/graphify-brain/document_graphs/ttros-business-brain/published/source_manifest.json
+/home/liam/graphify-brain/document_graphs/ttros-business-brain/receipts/20260715T133717017144Z-build-success.json
+/home/liam/graphify-brain/document_graphs/ttros-business-brain/receipts/20260715T133717918099Z-unchanged-success.json
+/home/liam/graphify-brain/document_graphs/ttros-business-brain/receipts/20260715T133718410883Z-build-failed.json
+
+PROOF PACKAGE
+/home/liam/agentic-os-live/proofs/brain-reconciliation/block-1/ACTIVE_CONSUMER_DISPOSITION_2026-07-15.md
+/home/liam/agentic-os-live/proofs/brain-reconciliation/block-1/BEFORE_MANIFEST_ARTIFACT_HASHES_2026-07-15.sha256
+/home/liam/agentic-os-live/proofs/brain-reconciliation/block-1/BLOCK_1_CLOSEOUT_2026-07-15.md
+/home/liam/agentic-os-live/proofs/brain-reconciliation/block-1/DASHBOARD_MEMORY_API_LIVE_2026-07-15.json
+/home/liam/agentic-os-live/proofs/brain-reconciliation/block-1/EXPECTED_REPO_CONTENT_AFTER_2026-07-15.sha256
+/home/liam/agentic-os-live/proofs/brain-reconciliation/block-1/EXPECTED_REPO_CONTENT_BEFORE_2026-07-15.sha256
+/home/liam/agentic-os-live/proofs/brain-reconciliation/block-1/EXPECTED_REPO_METADATA_AFTER_2026-07-15.tsv
+/home/liam/agentic-os-live/proofs/brain-reconciliation/block-1/EXPECTED_REPO_METADATA_BEFORE_2026-07-15.tsv
+/home/liam/agentic-os-live/proofs/brain-reconciliation/block-1/EXPECTED_REPO_PATHS_BEFORE_2026-07-15.txt
+/home/liam/agentic-os-live/proofs/brain-reconciliation/block-1/FILES_TOUCHED_2026-07-15.txt
+/home/liam/agentic-os-live/proofs/brain-reconciliation/block-1/FINAL_STATE_AFTER_2026-07-15.txt
+/home/liam/agentic-os-live/proofs/brain-reconciliation/block-1/GRAPHIFY_DOCUMENTS_CLI_CAPABILITY_2026-07-15.txt
+/home/liam/agentic-os-live/proofs/brain-reconciliation/block-1/GRAPHIFY_FIXTURE_BUILD_1_2026-07-15.json
+/home/liam/agentic-os-live/proofs/brain-reconciliation/block-1/GRAPHIFY_FIXTURE_BUILD_2_2026-07-15.json
+/home/liam/agentic-os-live/proofs/brain-reconciliation/block-1/GRAPHIFY_FIXTURE_QUERY_2026-07-15.json
+/home/liam/agentic-os-live/proofs/brain-reconciliation/block-1/GRAPHIFY_FIXTURE_SOURCE_AFTER_2026-07-15.sha256
+/home/liam/agentic-os-live/proofs/brain-reconciliation/block-1/GRAPHIFY_FIXTURE_SOURCE_BEFORE_2026-07-15.sha256
+/home/liam/agentic-os-live/proofs/brain-reconciliation/block-1/GRAPHIFY_FIXTURE_STABLE_ARTIFACT_HASHES_2026-07-15.sha256
+/home/liam/agentic-os-live/proofs/brain-reconciliation/block-1/GRAPHIFY_FULL_CONTENT_AFTER_2026-07-15.sha256
+/home/liam/agentic-os-live/proofs/brain-reconciliation/block-1/GRAPHIFY_FULL_CONTENT_BEFORE_2026-07-15.sha256
+/home/liam/agentic-os-live/proofs/brain-reconciliation/block-1/GRAPHIFY_FULL_METADATA_AFTER_2026-07-15.tsv
+/home/liam/agentic-os-live/proofs/brain-reconciliation/block-1/GRAPHIFY_FULL_METADATA_BEFORE_2026-07-15.tsv
+/home/liam/agentic-os-live/proofs/brain-reconciliation/block-1/GRAPHIFY_LIVE_BUILD_1_2026-07-15.json
+/home/liam/agentic-os-live/proofs/brain-reconciliation/block-1/GRAPHIFY_LIVE_BUILD_2_2026-07-15.json
+/home/liam/agentic-os-live/proofs/brain-reconciliation/block-1/GRAPHIFY_LIVE_FAILED_REBUILD_PRESERVATION_2026-07-15.json
+/home/liam/agentic-os-live/proofs/brain-reconciliation/block-1/GRAPHIFY_LIVE_QUERY_2026-07-15.json
+/home/liam/agentic-os-live/proofs/brain-reconciliation/block-1/GRAPHIFY_LIVE_STABLE_ARTIFACT_HASHES_2026-07-15.sha256
+/home/liam/agentic-os-live/proofs/brain-reconciliation/block-1/GRAPHIFY_LIVE_STATUS_AFTER_FAILED_REBUILD_2026-07-15.json
+/home/liam/agentic-os-live/proofs/brain-reconciliation/block-1/GRAPHIFY_PASS10_INTAKE_CONTENT_AFTER_2026-07-15.sha256
+/home/liam/agentic-os-live/proofs/brain-reconciliation/block-1/GRAPHIFY_PASS10_INTAKE_CONTENT_BEFORE_2026-07-15.sha256
+/home/liam/agentic-os-live/proofs/brain-reconciliation/block-1/GRAPHIFY_PASS10_RECEIPTS_CONTENT_AFTER_2026-07-15.sha256
+/home/liam/agentic-os-live/proofs/brain-reconciliation/block-1/GRAPHIFY_PASS10_RECEIPTS_CONTENT_BEFORE_2026-07-15.sha256
+/home/liam/agentic-os-live/proofs/brain-reconciliation/block-1/GRAPHIFY_PASS10_REPO_GRAPHS_CONTENT_AFTER_2026-07-15.sha256
+/home/liam/agentic-os-live/proofs/brain-reconciliation/block-1/GRAPHIFY_PASS10_REPO_GRAPHS_CONTENT_BEFORE_2026-07-15.sha256
+/home/liam/agentic-os-live/proofs/brain-reconciliation/block-1/GRAPHIFY_SIX_POINT_REPORT_2026-07-15.md
+/home/liam/agentic-os-live/proofs/brain-reconciliation/block-1/GRAPHIFY_STALE_FALLBACK_2026-07-15.json
+/home/liam/agentic-os-live/proofs/brain-reconciliation/block-1/GRAPHIFY_UNAVAILABLE_FALLBACK_2026-07-15.json
+/home/liam/agentic-os-live/proofs/brain-reconciliation/block-1/OBSIDIAN_USABILITY_REPORT_2026-07-15.md
+/home/liam/agentic-os-live/proofs/brain-reconciliation/block-1/PREFLIGHT_STATE_BEFORE_2026-07-15.txt
+/home/liam/agentic-os-live/proofs/brain-reconciliation/block-1/PREEXISTING_WORKTREE_CONTENT_AFTER_2026-07-15.sha256
+/home/liam/agentic-os-live/proofs/brain-reconciliation/block-1/PREEXISTING_WORKTREE_CONTENT_BEFORE_2026-07-15.sha256
+/home/liam/agentic-os-live/proofs/brain-reconciliation/block-1/PREEXISTING_WORKTREE_PATHS_2026-07-15.txt
+/home/liam/agentic-os-live/proofs/brain-reconciliation/block-1/PRESERVATION_AND_COLLISION_REPORT_2026-07-15.md
+/home/liam/agentic-os-live/proofs/brain-reconciliation/block-1/PROTECTED_PATH_METADATA_AFTER_2026-07-15.tsv
+/home/liam/agentic-os-live/proofs/brain-reconciliation/block-1/PROTECTED_PATH_METADATA_BEFORE_2026-07-15.tsv
+/home/liam/agentic-os-live/proofs/brain-reconciliation/block-1/QUEUE_LEDGER_SEARCH_CONTENT_AFTER_2026-07-15.sha256
+/home/liam/agentic-os-live/proofs/brain-reconciliation/block-1/QUEUE_LEDGER_SEARCH_CONTENT_BEFORE_2026-07-15.sha256
+/home/liam/agentic-os-live/proofs/brain-reconciliation/block-1/QUEUE_LEDGER_SEARCH_METADATA_AFTER_2026-07-15.tsv
+/home/liam/agentic-os-live/proofs/brain-reconciliation/block-1/QUEUE_LEDGER_SEARCH_METADATA_BEFORE_2026-07-15.tsv
+/home/liam/agentic-os-live/proofs/brain-reconciliation/block-1/SUPPLEMENTAL_CONSUMER_CONTENT_AFTER_2026-07-15.sha256
+/home/liam/agentic-os-live/proofs/brain-reconciliation/block-1/SUPPLEMENTAL_CONSUMER_CONTENT_BEFORE_FROM_RECORDED_HEAD_2026-07-15.sha256
+/home/liam/agentic-os-live/proofs/brain-reconciliation/block-1/SUPPLEMENTAL_CONSUMER_PATHS_2026-07-15.txt
+/home/liam/agentic-os-live/proofs/brain-reconciliation/block-1/TTROS_DASHBOARD_MEMORY_2026-07-15.png
+/home/liam/agentic-os-live/proofs/brain-reconciliation/block-1/TTROS_OBSIDIAN_GRAPH_2026-07-15.png
+/home/liam/agentic-os-live/proofs/brain-reconciliation/block-1/TTROS_OBSIDIAN_MEMORY_INDEX_2026-07-15.png
+/home/liam/agentic-os-live/proofs/brain-reconciliation/block-1/TTROS_OBSIDIAN_README_2026-07-15.png
+/home/liam/agentic-os-live/proofs/brain-reconciliation/block-1/VAULT_CONTENT_AFTER_2026-07-15.sha256
+/home/liam/agentic-os-live/proofs/brain-reconciliation/block-1/VAULT_CONTENT_BEFORE_2026-07-15.sha256
+/home/liam/agentic-os-live/proofs/brain-reconciliation/block-1/VAULT_METADATA_AFTER_2026-07-15.tsv
+/home/liam/agentic-os-live/proofs/brain-reconciliation/block-1/VAULT_METADATA_BEFORE_2026-07-15.tsv
+/home/liam/agentic-os-live/proofs/brain-reconciliation/block-1/VAULT_POST_GRAPHIFY_2026-07-15.sha256
+/home/liam/agentic-os-live/proofs/brain-reconciliation/block-1/VAULT_POST_STRUCTURE_PRE_GRAPHIFY_2026-07-15.sha256
+/home/liam/agentic-os-live/proofs/brain-reconciliation/block-1/VAULT_STRUCTURE_REPORT_2026-07-15.json
+
+EXCLUDED FROM BLOCK 1 ATTRIBUTION; PRE-EXISTING AND HASH-PRESERVED
+/home/liam/agentic-os-live/decisions/DECISIONS.md
+/home/liam/agentic-os-live/tests/test_aos_orchestration.py
+/home/liam/agentic-os-live/tools/aos-linux-runtime.sh
+/home/liam/agentic-os-live/tests/test_aos_dashboard_cleanup.py

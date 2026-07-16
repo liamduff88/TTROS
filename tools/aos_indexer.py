@@ -7,25 +7,32 @@ import datetime as dt
 import json
 import os
 import re
+import shutil
 import sqlite3
 import sys
+import tempfile
 import time
+import uuid
 from pathlib import Path
 
 try:
     from aos_paths import aos_root, assert_authoritative_root, resolve_root_relative
-    from aos_queue_storage import durable_append_text, durable_replace_text
+    from aos_queue_storage import durable_append_text, durable_replace_text, fsync_directory, queue_write_lock
+    from business_brain import BUSINESS_BRAIN_ROOT, business_brain_pointer_for_path
+    from business_brain_scope import ClientScopeError, ClientScopeRegistry, load_registry
 except ModuleNotFoundError:  # package import in unittest/IDE contexts
     from tools.aos_paths import aos_root, assert_authoritative_root, resolve_root_relative
-    from tools.aos_queue_storage import durable_append_text, durable_replace_text
+    from tools.aos_queue_storage import durable_append_text, durable_replace_text, fsync_directory, queue_write_lock
+    from tools.business_brain import BUSINESS_BRAIN_ROOT, business_brain_pointer_for_path
+    from tools.business_brain_scope import ClientScopeError, ClientScopeRegistry, load_registry
 
 
 TOKEN_USAGE_TEXT = "Token usage: no agent invocation"
 LIVE_ROOT = aos_root()
-BUSINESS_BRAIN_ROOT = LIVE_ROOT.parent / "TTROS Business Brain"
 DB_PATH = LIVE_ROOT / "search" / "os_index.db"
 INGEST_CONFIG_PATH = LIVE_ROOT / "queue" / "ingest_watch.json"
 INGEST_RECEIPT_PATH = LIVE_ROOT / "queue" / "receipts" / "ingestion.jsonl"
+CLIENT_SCOPE_REGISTRY_PATH = LIVE_ROOT / "context" / "client_scope_registry.json"
 TEXT_EXTENSIONS = {".md", ".txt", ".json", ".jsonl"}
 FILENAME_ONLY_EXTENSIONS = {".pdf", ".docx", ".xlsx"}
 INDEXABLE_EXTENSIONS = TEXT_EXTENSIONS | FILENAME_ONLY_EXTENSIONS
@@ -39,12 +46,15 @@ PROTECTED_SEGMENTS = {
     "build",
     "cache",
     "north_shore_sales_coach",
+    "_backups",
 }
 PROTECTED_PATH_PARTS = (
     "connectors/telegram_bridge",
     "workspaces/north_shore_sales_coach",
+    "queue/command_routes.json",
     "queue/model_routes.json",
     "queue/lane_profiles.json",
+    "capture/runtime",
 )
 LEGACY_RE = re.compile(r"(old[_\s-]*(ubuntu|hermes|vault|runtime)|legacy|legacy_harvest|old[_\s-]*zpc|\bzpc\b)", re.I)
 SECRET_PATH_RE = re.compile(r"(^|[/.])(\.env($|\.)|.*secret.*|.*token.*|.*credential.*|.*password.*)", re.I)
@@ -158,6 +168,9 @@ def connect(db_path: Path | None = None, *, readonly: bool = False) -> sqlite3.C
         )
         """
     )
+    columns = {str(row[1]) for row in conn.execute("PRAGMA table_info(documents)").fetchall()}
+    if "client_scope" not in columns:
+        conn.execute("ALTER TABLE documents ADD COLUMN client_scope TEXT NOT NULL DEFAULT ''")
     conn.execute(
         """
         CREATE VIRTUAL TABLE IF NOT EXISTS documents_fts
@@ -166,6 +179,7 @@ def connect(db_path: Path | None = None, *, readonly: bool = False) -> sqlite3.C
     )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_documents_kind ON documents(kind)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_documents_source ON documents(source)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_documents_client_scope ON documents(client_scope)")
     conn.commit()
     return conn
 
@@ -231,7 +245,7 @@ def kind_for_path(path: Path, source: str) -> str:
     return "file"
 
 
-def document_from_path(path: Path) -> dict | None:
+def document_from_path(path: Path, *, registry: ClientScopeRegistry | None = None) -> dict | None:
     if not path.is_file() or is_excluded(path):
         return None
     suffix = path.suffix.lower()
@@ -241,6 +255,11 @@ def document_from_path(path: Path) -> dict | None:
     if source == "external":
         return None
     if is_excluded(path, root=root):
+        return None
+    pointer = business_brain_pointer_for_path(path, root=BUSINESS_BRAIN_ROOT) if source == "business_brain" else f"{source}:{relative_to_root(path, root)}"
+    gate = registry or load_registry(CLIENT_SCOPE_REGISTRY_PATH)
+    client_scope = gate.scope_for_search_identity(source, pointer)
+    if client_scope is None:
         return None
     stat = path.stat()
     rel = relative_to_root(path, root)
@@ -259,11 +278,12 @@ def document_from_path(path: Path) -> dict | None:
         body = ""
     snippet = " ".join(body.split())[:600] if body else f"{path.suffix.lower()[1:].upper()} file indexed by filename only."
     return {
-        "path": f"{source}:{rel}",
+        "path": pointer,
         "title": title,
         "kind": kind_for_path(path, source),
         "source": source,
         "source_root": str(root),
+        "client_scope": client_scope,
         "mtime": stat.st_mtime,
         "tags": ",".join(tags),
         "snippet": snippet,
@@ -281,6 +301,7 @@ def upsert_document(conn: sqlite3.Connection, doc: dict) -> bool:
         doc["kind"],
         doc["source"],
         doc["source_root"],
+        doc["client_scope"],
         doc["mtime"],
         doc["tags"],
         doc["snippet"],
@@ -293,7 +314,7 @@ def upsert_document(conn: sqlite3.Connection, doc: dict) -> bool:
         conn.execute(
             """
             UPDATE documents
-            SET path=?, title=?, kind=?, source=?, source_root=?, mtime=?, tags=?, snippet=?, body=?, indexed_at=?, size_bytes=?
+            SET path=?, title=?, kind=?, source=?, source_root=?, client_scope=?, mtime=?, tags=?, snippet=?, body=?, indexed_at=?, size_bytes=?
             WHERE id=?
             """,
             (*values, rowid),
@@ -302,8 +323,8 @@ def upsert_document(conn: sqlite3.Connection, doc: dict) -> bool:
     else:
         cur = conn.execute(
             """
-            INSERT INTO documents(path, title, kind, source, source_root, mtime, tags, snippet, body, indexed_at, size_bytes)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO documents(path, title, kind, source, source_root, client_scope, mtime, tags, snippet, body, indexed_at, size_bytes)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             values,
         )
@@ -336,49 +357,131 @@ def iter_indexable(root: Path):
                 yield path
 
 
-def scan(db_path: Path | None = None, *, roots: list[Path] | None = None) -> dict:
+def _previous_index_snapshot(db_path: Path, target: Path) -> bool:
+    if not db_path.exists():
+        return False
+    source = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    destination = sqlite3.connect(str(target))
+    try:
+        source.backup(destination)
+        destination.commit()
+    finally:
+        destination.close()
+        source.close()
+    return True
+
+
+def scan(
+    db_path: Path | None = None,
+    *,
+    roots: list[Path] | None = None,
+    registry: ClientScopeRegistry | None = None,
+    failure_injection: str | None = None,
+    capture_runtime_root: Path | None = None,
+) -> dict:
     db_path = runtime_db_path(db_path)
     ensure_default_config()
-    conn = connect(db_path)
-    reset_index(conn)
+    gate = registry or load_registry(CLIENT_SCOPE_REGISTRY_PATH)
+    default_roots = roots is None
     roots = roots or [LIVE_ROOT, BUSINESS_BRAIN_ROOT]
     indexed = 0
     skipped = 0
     failures = []
     start = time.perf_counter()
-    for root in roots:
-        if not root.exists():
-            continue
-        for path in iter_indexable(root):
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    candidate = db_path.parent / f".{db_path.name}.{uuid.uuid4().hex}.candidate"
+    previous = db_path.parent / f".{db_path.name}.{uuid.uuid4().hex}.previous"
+    published = False
+    retained_previous = db_path.exists()
+    try:
+        conn = connect(candidate)
+        reset_index(conn)
+        for root in roots:
+            if not root.exists():
+                continue
+            for path in iter_indexable(root):
+                try:
+                    doc = document_from_path(path, registry=gate)
+                    if not doc:
+                        skipped += 1
+                        continue
+                    upsert_document(conn, doc)
+                    indexed += 1
+                except Exception as exc:  # complete candidate, but never publish a partial index
+                    failures.append({"path": str(path), "error": str(exc)})
+        projection_root = Path(capture_runtime_root) if capture_runtime_root is not None else (LIVE_ROOT / "capture" / "runtime" if default_roots else None)
+        if projection_root is not None and projection_root.exists():
             try:
-                doc = document_from_path(path)
-                if not doc:
-                    skipped += 1
-                    continue
-                upsert_document(conn, doc)
-                indexed += 1
-            except Exception as exc:  # keep scan deterministic and complete
-                failures.append({"path": str(path), "error": str(exc)})
-    conn.commit()
+                try:
+                    from aos_capture import capture_document, load_capture_metadata
+                except ModuleNotFoundError:
+                    from tools.aos_capture import capture_document, load_capture_metadata
+                for projection in load_capture_metadata(projection_root):
+                    try:
+                        upsert_document(conn, capture_document(projection, registry=gate))
+                        indexed += 1
+                    except ClientScopeError:
+                        skipped += 1
+            except Exception as exc:
+                failures.append({"path": str(projection_root), "error": str(exc)})
+        conn.commit()
+        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        conn.execute("PRAGMA journal_mode=DELETE")
+        conn.close()
+        if failures:
+            raise RuntimeError("candidate index contains source failures")
+        if failure_injection == "before_publish":
+            raise RuntimeError("injected search publication failure")
+        with queue_write_lock(LIVE_ROOT):
+            had_previous = _previous_index_snapshot(db_path, previous)
+            try:
+                os.replace(candidate, db_path)
+                Path(str(db_path) + "-wal").unlink(missing_ok=True)
+                Path(str(db_path) + "-shm").unlink(missing_ok=True)
+                fsync_directory(db_path.parent)
+                if failure_injection == "after_publish":
+                    raise RuntimeError("injected search validation failure")
+                validation = connect(db_path, readonly=True)
+                validation.execute("SELECT client_scope, COUNT(*) FROM documents GROUP BY client_scope").fetchall()
+                validation.close()
+                published = True
+            except Exception:
+                if had_previous and previous.exists():
+                    os.replace(previous, db_path)
+                    Path(str(db_path) + "-wal").unlink(missing_ok=True)
+                    Path(str(db_path) + "-shm").unlink(missing_ok=True)
+                    fsync_directory(db_path.parent)
+                raise
+        retained_previous = not published and retained_previous
+        status_value = "success"
+    except Exception as exc:
+        if not failures:
+            failures.append({"path": str(db_path), "error": str(exc)})
+        status_value = "failed"
+    finally:
+        for path in (candidate, previous, Path(str(candidate) + "-wal"), Path(str(candidate) + "-shm")):
+            path.unlink(missing_ok=True)
     return {
-        "status": "success" if not failures else "partial",
+        "status": status_value,
         "indexed": indexed,
         "skipped": skipped,
         "failures": failures[:25],
         "duration_ms": round((time.perf_counter() - start) * 1000, 2),
         "indexed_at": utc_now(),
         "db_path": str(db_path),
+        "published": published,
+        "retained_previous": retained_previous,
         "token_usage_text": TOKEN_USAGE_TEXT,
     }
 
 
-def index_one(path_text: str, db_path: Path | None = None) -> dict:
+def index_one(path_text: str, db_path: Path | None = None, *, registry: ClientScopeRegistry | None = None) -> dict:
     db_path = runtime_db_path(db_path)
     ensure_default_config()
     path = Path(path_text)
     if not path.is_absolute():
         path = resolve_root_relative(path_text, root=LIVE_ROOT)
-    doc = document_from_path(path)
+    doc = document_from_path(path, registry=registry)
     if not doc:
         return {"status": "skipped", "path": str(path), "token_usage_text": TOKEN_USAGE_TEXT}
     conn = connect(db_path)
@@ -392,6 +495,11 @@ def quote_fts_query(query: str) -> str:
     return " OR ".join(f'"{term}"' for term in terms[:12])
 
 
+def quote_exact_fts_query(query: str) -> str:
+    terms = re.findall(r"[\w.-]+", query)
+    return f'"{" ".join(terms[:24])}"' if terms else '""'
+
+
 def public_row(row: sqlite3.Row) -> dict:
     value = dict(row)
     value["modified"] = dt.datetime.fromtimestamp(float(value["mtime"]), dt.timezone.utc).isoformat().replace("+00:00", "Z")
@@ -401,9 +509,23 @@ def public_row(row: sqlite3.Row) -> dict:
     return value
 
 
-def search(query: str, *, kind: str = "", tag: str = "", source: str = "", limit: int = 25, db_path: Path | None = None) -> dict:
+def search(
+    query: str,
+    *,
+    kind: str = "",
+    tag: str = "",
+    source: str = "",
+    limit: int = 25,
+    db_path: Path | None = None,
+    client_scope: str | None = None,
+    registry: ClientScopeRegistry | None = None,
+    exact: bool = False,
+    path_only: bool = False,
+) -> dict:
     db_path = runtime_db_path(db_path)
     start = time.perf_counter()
+    gate = registry or load_registry(CLIENT_SCOPE_REGISTRY_PATH)
+    scope = gate.validate_search_source(client_scope, source)
     if not db_path.exists():
         return {"query": query, "count": 0, "groups": {key: [] for key in ("files", "receipts", "queue_items", "prompts_skills_workflows", "memory", "artifacts")}, "latency_ms": 0.0, "token_usage_text": TOKEN_USAGE_TEXT}
     conn = connect(db_path, readonly=True)
@@ -411,15 +533,17 @@ def search(query: str, *, kind: str = "", tag: str = "", source: str = "", limit
     params: list[object] = []
     where = []
     join = ""
-    select = "d.*"
+    select = "d.path, d.kind, d.source, d.client_scope" if path_only else "d.*"
+    where.append("d.client_scope = ?")
+    params.append(scope.scope_id)
     if query.strip():
-        fts = quote_fts_query(query)
+        fts = quote_exact_fts_query(query) if exact else quote_fts_query(query)
         if not fts:
             fts = '""'
         join = "JOIN documents_fts f ON d.id = f.rowid"
         where.append("documents_fts MATCH ?")
         params.append(fts)
-        select = "d.*, bm25(documents_fts) AS rank"
+        select = ("d.path, d.kind, d.source, d.client_scope" if path_only else "d.*") + ", bm25(documents_fts) AS rank"
         order = "rank, d.mtime DESC"
     else:
         order = "d.mtime DESC"
@@ -437,7 +561,9 @@ def search(query: str, *, kind: str = "", tag: str = "", source: str = "", limit
         sql += " WHERE " + " AND ".join(where)
     sql += f" ORDER BY {order} LIMIT ?"
     params.append(limit)
-    rows = [public_row(row) for row in conn.execute(sql, params).fetchall()]
+    selected = conn.execute(sql, params).fetchall()
+    rows = [dict(row) if path_only else public_row(row) for row in selected]
+    conn.close()
     groups: dict[str, list[dict]] = {
         "files": [],
         "receipts": [],
@@ -588,8 +714,8 @@ def ingest_tick(db_path: Path | None = None) -> dict:
     }
 
 
-def artifacts(*, kind: str = "", tag: str = "", source: str = "", limit: int = 50, db_path: Path | None = None) -> dict:
-    result = search("", kind=kind, tag=tag, source=source, limit=limit, db_path=db_path)
+def artifacts(*, kind: str = "", tag: str = "", source: str = "", limit: int = 50, db_path: Path | None = None, client_scope: str | None = None, registry: ClientScopeRegistry | None = None) -> dict:
+    result = search("", kind=kind, tag=tag, source=source, limit=limit, db_path=db_path, client_scope=client_scope, registry=registry)
     items = []
     for group_name in ("artifacts", "receipts", "queue_items", "prompts_skills_workflows", "memory", "files"):
         items.extend(result["groups"][group_name])
@@ -608,6 +734,7 @@ def main(argv: list[str] | None = None) -> int:
     query = sub.add_parser("search")
     query.add_argument("q")
     query.add_argument("--limit", type=int, default=10)
+    query.add_argument("--client-scope", required=True)
     sub.add_parser("status")
     args = parser.parse_args(argv)
     if args.command == "scan":
@@ -617,7 +744,7 @@ def main(argv: list[str] | None = None) -> int:
     elif args.command == "watch":
         payload = ingest_tick()
     elif args.command == "search":
-        payload = search(args.q, limit=args.limit)
+        payload = search(args.q, limit=args.limit, client_scope=args.client_scope)
     elif args.command == "status":
         payload = status()
     else:

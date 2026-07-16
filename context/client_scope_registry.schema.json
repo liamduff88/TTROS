@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentic-os.local/schemas/client_scope_registry.schema.json",
+  "title": "TTROS client scope registry",
+  "type": "object",
+  "required": ["schema_version", "default_deny", "global_scope_id", "denied_brain_pointers", "scopes"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "default_deny": {"const": true},
+    "global_scope_id": {"type": "string", "minLength": 1},
+    "denied_brain_pointers": {
+      "type": "array",
+      "items": {"type": "string", "pattern": "^business_brain:[^\\\\]+$"},
+      "uniqueItems": true
+    },
+    "scopes": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "required": ["kind", "enabled", "brain_pointers", "search_source_identities", "graphify_targets", "evidence_identities"],
+        "properties": {
+          "kind": {"enum": ["global", "client"]},
+          "enabled": {"type": "boolean"},
+          "brain_pointers": {
+            "type": "array",
+            "items": {"type": "string", "pattern": "^business_brain:[^\\\\]+$"},
+            "uniqueItems": true
+          },
+          "search_source_identities": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["source"],
+              "properties": {
+                "source": {"type": "string", "minLength": 1},
+                "path_prefix": {"type": "string", "minLength": 1},
+                "paths": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}
+              },
+              "additionalProperties": false
+            }
+          },
+          "graphify_targets": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["namespace", "paths"],
+              "properties": {
+                "namespace": {"type": "string", "minLength": 1},
+                "paths": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}
+              },
+              "additionalProperties": false
+            }
+          },
+          "evidence_identities": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+          "capture_identities": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["match_type", "value_sha256"],
+              "properties": {
+                "match_type": {"enum": ["sender", "thread"]},
+                "value_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+              },
+              "additionalProperties": false
+            }
+          },
+          "capture_evidence_prefixes": {
+            "type": "array",
+            "items": {"type": "string", "pattern": "^capture:[a-z0-9][a-z0-9:_-]*:$"},
+            "uniqueItems": true
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

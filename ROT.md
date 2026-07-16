@@ -1,5 +1,5 @@
 # ROT.md — how this OS decays, and the cadence that fights it
-> Revisit: when a layer's real-world change rate shifts (new vendor, law change, faster-moving client). · Last touched: 2026-07-07.
+> Revisit: when a layer's real-world change rate shifts (new vendor, law change, faster-moving client). · Last touched: 2026-07-15.
 
 Different layers rot at different rates, like a building. The foundation holds
 for years; the food in the fridge is gone by the weekend. You do not maintain
@@ -32,8 +32,8 @@ loop catches it.
 Every layer/substrate file that can go stale carries:
 `> Revisit: <when or under what condition> · Last touched: <YYYY-MM-DD>`
 Point-in-time docs use `Expires:` instead (superseded, not refreshed).
-The full register lives in `_substrate.wiki/expiry.md` — a checklist with
-dates, not a vibe.
+The live register is the per-file Revisit/Expires metadata audited by
+`/maintain-os`; there is no separate stale wiki registry to consult.
 
 ## The three cadences (upkeep happens TO Liam)
 1. **Monthly, automatic.** A Hermes scheduled task runs /maintain-os in

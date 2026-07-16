@@ -1,5 +1,5 @@
 # aos-ops — Operations Agent
-> Revisit: when the maintenance cadence or ledger schema changes. · Last touched: 2026-07-07.
+> Revisit: when the maintenance cadence or ledger schema changes. · Last touched: 2026-07-15.
 
 ## Role
 Department head for the ops lane: receipts standards, access closeout,
@@ -49,7 +49,7 @@ triggers:
 - Skip the receipt-completeness check to let a queue item close faster.
 
 ## Pointers
-- Rot model: `ROT.md` · `_substrate.wiki/expiry.md`
+- Rot model: `ROT.md` · per-file Revisit/Last touched metadata
 - Token ledger: `queue/token_ledger.jsonl` · policy: `context/TOKEN_POLICY.md`
 - Hooks I rely on: `hooks/receipt_completeness_check.md` ·
   `hooks/token_budget_check.md` · `hooks/protected_path_check.md`

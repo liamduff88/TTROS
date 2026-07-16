@@ -1,0 +1,5 @@
+error: no LLM API key found (3 doc/paper/image file(s) need semantic extraction). Set GEMINI_API_KEY or GOOGLE_API_KEY (gemini), MOONSHOT_API_KEY (kimi), ANTHROPIC_API_KEY (claude), OPENAI_API_KEY (openai), DEEPSEEK_API_KEY (deepseek), or pass --backend. A code-only corpus needs no key. Or pass --code-only to index just the code (local AST, no key) and skip the non-code files.
+[graphify extract] scanning /tmp/ttros-graphify-fixture-20260715/vault
+[graphify extract] found 0 code, 3 docs, 0 papers, 0 images
+
+exit_code=1

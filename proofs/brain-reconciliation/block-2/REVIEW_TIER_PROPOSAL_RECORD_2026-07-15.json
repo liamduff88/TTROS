@@ -1,0 +1,23 @@
+{
+  "brain_context_used": [
+    {
+      "client_scope": "global",
+      "content_sha256": "a741c97bcac06b7dee5f9163bb5f8a80ab0e0aff064a19544e13d975bfae2669",
+      "note_id": "ttros-brain-memory-index",
+      "path": "business_brain:index/MEMORY_INDEX.md",
+      "retrieval_route": "pointer"
+    }
+  ],
+  "proposal": {
+    "candidate_diff": "--- a/business_brain:index/MEMORY_INDEX.md\n+++ b/business_brain:index/MEMORY_INDEX.md\n@@ -53,3 +53,8 @@\n [[memory/ideal_clients|Ideal Clients]] · [[memory/marketing_voice|Marketing Voice]] · [[memory/north_shore_sales_coach|North Shore Sales Coach]]\n [[memory/offers|Offers]] · [[memory/positioning|Positioning]] · [[memory/sales_and_revenue|Sales and Revenue]] · [[memory/website_and_content|Website and Content]]\n [[operating_context/active_projects|Active Projects]] · [[operating_context/current_priorities|Current Priorities]] · [[operating_context/old_vault_archive_plan|Old Vault Archive Plan]] · [[operating_context/protected_paths|Protected Paths]]\n+<!-- TTROS:MACHINE:block-2-review-proof:BEGIN -->\n+## Synthetic review-tier proof\n+\n+- Disposable proof only; no durable strategy change is approved.\n+<!-- TTROS:MACHINE:block-2-review-proof:END -->\n",
+    "canonical_target": "business_brain:index/MEMORY_INDEX.md",
+    "client_scope": "global",
+    "reason_for_review_tier": "always_review:strategy",
+    "source_provenance_references": [
+      "proof:block-2:accepted-block-1"
+    ],
+    "target_preimage_hash": "a741c97bcac06b7dee5f9163bb5f8a80ab0e0aff064a19544e13d975bfae2669",
+    "write_id": "4006a61d6fa7ec90836fd62c"
+  },
+  "token_usage_text": "Token usage: no agent invocation"
+}

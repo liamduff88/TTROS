@@ -1,0 +1,129 @@
+{
+  "schema_version": 1,
+  "default_deny": true,
+  "global_scope_id": "global",
+  "denied_brain_pointers": [
+    "business_brain:memory/north_shore_sales_coach.md"
+  ],
+  "scopes": {
+    "global": {
+      "kind": "global",
+      "enabled": true,
+      "brain_pointers": [
+        "business_brain:README.md",
+        "business_brain:decisions/DECISIONS.md",
+        "business_brain:inbox/README.md",
+        "business_brain:index/MEMORY_INDEX.md",
+        "business_brain:memory/agentic_os.md",
+        "business_brain:memory/clients.md",
+        "business_brain:memory/company.md",
+        "business_brain:memory/delivery_model.md",
+        "business_brain:memory/ideal_clients.md",
+        "business_brain:memory/marketing_voice.md",
+        "business_brain:memory/offers.md",
+        "business_brain:memory/positioning.md",
+        "business_brain:memory/sales_and_revenue.md",
+        "business_brain:memory/website_and_content.md",
+        "business_brain:operating_context/active_projects.md",
+        "business_brain:operating_context/current_priorities.md",
+        "business_brain:operating_context/old_vault_archive_plan.md",
+        "business_brain:operating_context/protected_paths.md"
+      ],
+      "search_source_identities": [
+        {"source": "agentic_os_live", "path_prefix": "agentic_os_live:"},
+        {"source": "capture_metadata", "path_prefix": "capture:global:"},
+        {
+          "source": "business_brain",
+          "paths": [
+            "business_brain:README.md",
+            "business_brain:decisions/DECISIONS.md",
+            "business_brain:inbox/README.md",
+            "business_brain:index/MEMORY_INDEX.md",
+            "business_brain:memory/agentic_os.md",
+            "business_brain:memory/clients.md",
+            "business_brain:memory/company.md",
+            "business_brain:memory/delivery_model.md",
+            "business_brain:memory/ideal_clients.md",
+            "business_brain:memory/marketing_voice.md",
+            "business_brain:memory/offers.md",
+            "business_brain:memory/positioning.md",
+            "business_brain:memory/sales_and_revenue.md",
+            "business_brain:memory/website_and_content.md",
+            "business_brain:operating_context/active_projects.md",
+            "business_brain:operating_context/current_priorities.md",
+            "business_brain:operating_context/old_vault_archive_plan.md",
+            "business_brain:operating_context/protected_paths.md"
+          ]
+        }
+      ],
+      "graphify_targets": [
+        {
+          "namespace": "ttros-business-brain",
+          "paths": [
+            "business_brain:README.md",
+            "business_brain:decisions/DECISIONS.md",
+            "business_brain:inbox/README.md",
+            "business_brain:index/MEMORY_INDEX.md",
+            "business_brain:memory/agentic_os.md",
+            "business_brain:memory/clients.md",
+            "business_brain:memory/company.md",
+            "business_brain:memory/delivery_model.md",
+            "business_brain:memory/ideal_clients.md",
+            "business_brain:memory/marketing_voice.md",
+            "business_brain:memory/offers.md",
+            "business_brain:memory/positioning.md",
+            "business_brain:memory/sales_and_revenue.md",
+            "business_brain:memory/website_and_content.md",
+            "business_brain:operating_context/active_projects.md",
+            "business_brain:operating_context/current_priorities.md",
+            "business_brain:operating_context/old_vault_archive_plan.md",
+            "business_brain:operating_context/protected_paths.md"
+          ]
+        }
+      ],
+      "evidence_identities": [
+        "proof:block-2:accepted-block-1",
+        "proof:block-2:deterministic-write",
+        "proof:block-2:later-retrieval"
+      ],
+      "capture_identities": [
+        {
+          "match_type": "sender",
+          "value_sha256": "61d78ca66f6ca6d1b522fda46c7298b266f1894dc2cb713e541c63b4180598af"
+        }
+      ],
+      "capture_evidence_prefixes": ["capture:global:"]
+    },
+    "client:block-3-fixture-a": {
+      "kind": "client",
+      "enabled": true,
+      "brain_pointers": [],
+      "search_source_identities": [
+        {"source": "capture_metadata", "path_prefix": "capture:client:block-3-fixture-a:"}
+      ],
+      "graphify_targets": [],
+      "evidence_identities": [],
+      "capture_identities": [
+        {
+          "match_type": "sender",
+          "value_sha256": "b3d82d99472b040c0fcdce37b77419a71250facb214c938f2757cd5ef822d58c"
+        },
+        {
+          "match_type": "thread",
+          "value_sha256": "d1d571f0cc8cf79fcd42f1fb8eaf2edb43b4755fd9a6b91c24fc4374cb5e6d6f"
+        }
+      ],
+      "capture_evidence_prefixes": ["capture:client:block-3-fixture-a:"]
+    },
+    "client:north-shore-sales-coach": {
+      "kind": "client",
+      "enabled": false,
+      "brain_pointers": [],
+      "search_source_identities": [],
+      "graphify_targets": [],
+      "evidence_identities": [],
+      "capture_identities": [],
+      "capture_evidence_prefixes": []
+    }
+  }
+}

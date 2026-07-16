@@ -1,0 +1,64 @@
+Block 3 files touched — exhaustive classification
+Expires: when this accepted proof package is superseded. Last touched: 2026-07-15.
+
+REPOSITORY SOURCE / POLICY / SCHEMA / TEST
+/home/liam/agentic-os-live/.gitignore
+/home/liam/agentic-os-live/capture/README.md
+/home/liam/agentic-os-live/context/MEMORY_PROMOTION_POLICY.md
+/home/liam/agentic-os-live/context/client_scope_registry.json
+/home/liam/agentic-os-live/context/client_scope_registry.schema.json
+/home/liam/agentic-os-live/dashboard/backend/business_brain_graph.py
+/home/liam/agentic-os-live/dashboard/backend/main.py
+/home/liam/agentic-os-live/queue/schemas/work_item.schema.json
+/home/liam/agentic-os-live/tests/test_aos_capture.py
+/home/liam/agentic-os-live/tools/aos-queue.py
+/home/liam/agentic-os-live/tools/aos_capture.py
+/home/liam/agentic-os-live/tools/aos_capture_fixture_proof.py
+/home/liam/agentic-os-live/tools/aos_indexer.py
+/home/liam/agentic-os-live/tools/business_brain_scope.py
+
+IGNORED CAPTURE RUNTIME — 13 FILES, ALL 0600; DIRECTORIES 0700
+/home/liam/agentic-os-live/capture/runtime/control/state.json
+/home/liam/agentic-os-live/capture/runtime/providers/gmail-fixture/cursor.json
+/home/liam/agentic-os-live/capture/runtime/providers/gmail-fixture/processing.jsonl
+/home/liam/agentic-os-live/capture/runtime/scopes/client--block-3-fixture-a/raw/records.jsonl
+/home/liam/agentic-os-live/capture/runtime/scopes/client--block-3-fixture-a/raw/evidence.jsonl
+/home/liam/agentic-os-live/capture/runtime/scopes/client--block-3-fixture-a/derived/triage.jsonl
+/home/liam/agentic-os-live/capture/runtime/scopes/client--block-3-fixture-a/derived/metadata.jsonl
+/home/liam/agentic-os-live/capture/runtime/scopes/client--block-3-fixture-a/derived/operational_receipts.jsonl
+/home/liam/agentic-os-live/capture/runtime/scopes/client--block-3-fixture-a/fixtures/business-brain/memory/block-3-fixture-a.md
+/home/liam/agentic-os-live/capture/runtime/scopes/_unresolved/raw/records.jsonl
+/home/liam/agentic-os-live/capture/runtime/scopes/_unresolved/derived/triage.jsonl
+/home/liam/agentic-os-live/capture/runtime/scopes/_unresolved/derived/metadata.jsonl
+/home/liam/agentic-os-live/capture/runtime/scopes/_unresolved/derived/operational_receipts.jsonl
+
+EXISTING QUEUE / RECEIPT / LEDGER ADDITIONS
+/home/liam/agentic-os-live/queue/work_items.jsonl — appended AOS-2026-0092 and AOS-2026-0093; review-close updated only 0092
+/home/liam/agentic-os-live/queue/run_ledger.jsonl — two appended rows for 0092/0093
+/home/liam/agentic-os-live/queue/token_ledger.jsonl — three appended exact zero-token rows
+/home/liam/agentic-os-live/queue/receipts/AOS-2026-0092-block-3-capture-fixture.json
+/home/liam/agentic-os-live/queue/receipts/AOS-2026-0092-20260715T205627Z.md
+/home/liam/agentic-os-live/queue/receipts/AOS-2026-0093-block-3-capture-fixture.json
+
+EXISTING SEARCH / GRAPHIFY ADDITIONS
+/home/liam/agentic-os-live/search/os_index.db — authorized atomic real reindex; one metadata-only capture row
+/home/liam/graphify-brain/document_graphs/ttros-business-brain/published/capture_evidence.graph.json
+/home/liam/graphify-brain/document_graphs/ttros-business-brain/receipts/20260715T205450446511Z-capture-metadata-projection-success.json
+
+PROOF PACKAGE
+/home/liam/agentic-os-live/proofs/brain-reconciliation/block-3/BLOCK_3_CLOSEOUT_2026-07-15.md
+/home/liam/agentic-os-live/proofs/brain-reconciliation/block-3/FILES_TOUCHED_2026-07-15.txt
+/home/liam/agentic-os-live/proofs/brain-reconciliation/block-3/STORAGE_CONTRACT_2026-07-15.md
+/home/liam/agentic-os-live/proofs/brain-reconciliation/block-3/CLIENT_SCOPE_AND_NO_OPEN_PROOF_2026-07-15.md
+/home/liam/agentic-os-live/proofs/brain-reconciliation/block-3/CURSOR_RECOVERY_AND_IDEMPOTENCY_PROOF_2026-07-15.md
+/home/liam/agentic-os-live/proofs/brain-reconciliation/block-3/CAPTURE_METADATA_LEAKAGE_PROOF_2026-07-15.md
+/home/liam/agentic-os-live/proofs/brain-reconciliation/block-3/FIXTURE_END_TO_END_PROOF_2026-07-15.md
+/home/liam/agentic-os-live/proofs/brain-reconciliation/block-3/EXTERNAL_ACTION_AND_ACTIVATION_BOUNDARY_2026-07-15.md
+/home/liam/agentic-os-live/proofs/brain-reconciliation/block-3/PRESERVATION_MANIFEST_2026-07-15.md
+/home/liam/agentic-os-live/proofs/brain-reconciliation/block-3/GOAL_VERIFIER_CLASSIFICATION_2026-07-15.md
+
+DISPOSABLE BACKUP PROOF (OUTSIDE REPOSITORY; RETAINED IN /tmp)
+/tmp/ttros-block3-backup-source.MtLE8W/
+/tmp/ttros-block3-backup-destination.RalXnR/agentic-os-20260715T205600Z/
+
+Token usage: unavailable from current CLI output.

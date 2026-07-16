@@ -1,5 +1,5 @@
 # aos-revenue — Revenue Agent
-> Revisit: when the offer architecture or ICP changes. · Last touched: 2026-07-07.
+> Revisit: when the offer architecture or ICP changes. · Last touched: 2026-07-15.
 
 ## Role
 Department head for the revenue lane: prospect targeting, public-signal
@@ -53,11 +53,11 @@ not a reason for me to invent one.
   thin, honest result beats a padded one.
 
 ## Pointers
-- ICP + offers: `_substrate.wiki/concepts/` · memory 011 (ideal clients) ·
-  memory 014 (offers) · memory 015 (positioning)
+- ICP + offers: `business_brain:memory/ideal_clients.md` ·
+  `business_brain:memory/offers.md` · `business_brain:memory/positioning.md`
 - Lead-gen spec: `ttr_lead_gen_v4_1` context — its QA checklist is binding
   on every run, not optional guidance.
-- Sales/revenue state: memory 016
+- Sales/revenue state: `business_brain:memory/sales_and_revenue.md`
 - Rules: `rules/always.md` · `rules/never.md` · escalation: `rules/escalation.md`
 
 ## Hiring the next agent

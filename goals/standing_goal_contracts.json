@@ -1,14 +1,14 @@
 {
   "version": 1,
   "revisit": "when a goal is added, retired, or its predicate/on-violation/retire-when changes",
-  "last_touched": "2026-07-07",
+  "last_touched": "2026-07-15",
   "registered_by": "aos-orchestrator",
   "registered_at": "2026-07-07",
   "contracts": [
     {
       "name": "business_brain_pointer_valid.goal.md",
       "path": "goals/business_brain_pointer_valid.goal.md",
-      "predicate": "the TTROS Business Brain path this OS points to\n(`C:\\Users\\Admin\\Documents\\A-Time to revenue\\TTROS Business Brain`,\n`_substrate.wiki/schema.md` readable) exists and is readable \u2014 not moved,\nnot renamed, not silently pointing at an old vault",
+      "predicate": "`business_brain:README.md` and `business_brain:index/MEMORY_INDEX.md` resolve through the shared runtime resolver to readable canonical files \u2014 never a backup or fallback vault",
       "on_violation": "wake Liam. Do not auto-fix and do not fall back to an old\nvault path \u2014 that is exactly the drift this goal exists to catch.",
       "retire_when": "the Business Brain is migrated to a new canonical location\non purpose, and this predicate is rewritten to match. Retirement is a\nhuman decision, logged.",
       "source_file_status": "satisfied"

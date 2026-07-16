@@ -13,6 +13,8 @@ invariant (LOOP_POLICY.md).
 
 Lane: {lane} · Profile: {profile} · Budget class: {budget_class}
 Escalated: {escalated}
+Client scope: {client_scope}
+Context classification: {context_classification}
 
 ### Task
 {task_description}
@@ -20,7 +22,7 @@ Escalated: {escalated}
 ### Context (read-only pointers, not pasted content)
 - {memory_pointer_1}
 - {memory_pointer_2}
-- Client entity page (delivery lane only): `_substrate.wiki/entities/{client}.md`
+- Client entity page (delivery lane only): `business_brain:{canonical_client_relative_path}`
 
 ### Allowed actions
 {allowed_actions}
@@ -41,4 +43,7 @@ Escalated: {escalated}
 ### On completion
 Write a receipt at `queue/receipts/{item_id}.md` including the `token_usage`
 block (TOKEN_POLICY.md §8.1) and an explicit `memory_promotion` field (empty
-array if nothing to promote). Report PASS or NEEDS ATTENTION — never a vibe.
+array if nothing to promote). Record `brain_context_used` only from actual
+successful scoped reads; technical-only work explicitly records
+`brain_context_status: not_applicable`. Ambiguous or missing mandatory context
+stops to `needs_input`. Report PASS or NEEDS ATTENTION — never a vibe.

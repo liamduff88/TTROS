@@ -1,0 +1,27 @@
+{
+  "brain": {
+    "available": true,
+    "root": "business_brain:README.md",
+    "index": "business_brain:index/MEMORY_INDEX.md",
+    "file_count": 18,
+    "blocked_path_count": 18,
+    "denied_pointer_count": 1
+  },
+  "brain_context_used_count": 18,
+  "promotion_state": {
+    "mode": "operational",
+    "available": true,
+    "automatic_classes": ["generated_marker_section"],
+    "review_route": "human_review",
+    "reference_count": 1,
+    "latest_safe_promotion": {
+      "receipt": "queue/receipts/brain-promotion-d675303903a41b6c823e6d2e.json",
+      "write_id": "d675303903a41b6c823e6d2e",
+      "target": "business_brain:index/MEMORY_INDEX.md"
+    }
+  },
+  "raw_note_bodies_in_this_proof": false,
+  "unscoped_search_http_status": 400,
+  "unscoped_search_error": "client_scope is required and must be exact",
+  "token_usage_text": "Token usage: no agent invocation"
+}

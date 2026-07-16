@@ -631,7 +631,30 @@ export function TokensROI() {
 }
 
 export function MemoryBoard() {
-  return <FileBoard title="Memory Board" question="Is the Business Brain current, and what's waiting to be promoted?" loader={getDashboardMemory} listKey="files" renderMeta={item => `${item.path} · ${item.revisit || 'Revisit unavailable'}`} />
+  const { data, loading, error } = useAsync(getDashboardMemory)
+  const [filters, setFilters] = useState({})
+  const [selected, setSelected] = useState(null)
+  const files = (data?.files || []).filter(item => textMatch(item, filters.q || ''))
+  return (
+    <>
+      <PageHeader title="Memory Board" question="Is the canonical Business Brain available and navigable?" />
+      {loading && <EmptyState title="Loading" detail="Reading canonical Business Brain pointers." />}
+      {error && <EmptyState title="Unavailable" detail={error} />}
+      {data && <div className="mb-4 grid gap-3 md:grid-cols-3">
+        <StatTile label="Brain" value={data.brain?.available ? 'Available' : 'Unavailable'} sub={data.brain?.root || 'business_brain:README.md'} />
+        <StatTile label="Canonical notes" value={data.brain?.file_count || 0} sub={`${data.brain?.blocked_path_count || 0} backup notes excluded`} />
+        <StatTile label="Promotion" value={data.promotion_state?.available ? 'Operational' : 'Unavailable'} sub={data.promotion_state?.reason || 'Promotion status unavailable.'} />
+      </div>}
+      <FilterBar filters={filters} onChange={setFilters} />
+      <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+        {files.map(item => <RowButton key={item.id || item.path} title={item.title} meta={`${item.path} · ${item.type || 'untyped'}`} onClick={() => setSelected(item)} />)}
+      </div>
+      {!loading && !files.length && <EmptyState title="No canonical notes" detail={data?.brain?.error || 'Nothing matched the current filters.'} />}
+      <DetailPanel item={selected} title={selected?.title} subtitle={selected?.path} onClose={() => setSelected(null)}>
+        <MarkdownPreview content={selected?.preview || 'Preview unavailable.'} />
+      </DetailPanel>
+    </>
+  )
 }
 
 export function ConnectionsSpine() {

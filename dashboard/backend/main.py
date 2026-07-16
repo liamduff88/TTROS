@@ -41,6 +41,9 @@ from aos_paths import AuthorityError, AosPathError, aos_root, assert_authoritati
 import aos_orchestration
 from aos_queue_storage import durable_append_text, durable_replace_text, queue_write_lock
 import aos_indexer
+import business_brain
+import business_brain_context
+import business_brain_scope
 import latitude_telemetry
 from graphify_service import GRAPH_CSP, GraphifyError, GraphifyService, RepoIdentity, validate_github_url
 
@@ -91,7 +94,6 @@ SKILL_TRUST_FILE = QUEUE_DIR / "skill_trust.jsonl"
 WORKFLOWS_DIR = BASE_DIR / "workflows"
 WORKFLOW_REGISTRY_FILE = WORKFLOWS_DIR / "workflow_registry.json"
 SKILLS_DIR = BASE_DIR / "skills"
-MEMORY_INDEX_DIR = BASE_DIR / "memory_index"
 GRAPHIFY_BRAIN_DIR = Path("/home/liam/graphify-brain")
 GRAPHIFY_CLONE_DIR = GRAPHIFY_BRAIN_DIR / "intake" / "cloned-repos"
 GRAPHIFY_OUT_DIR = GRAPHIFY_BRAIN_DIR / "repo_graphs"
@@ -322,8 +324,11 @@ def backups_status():
 
 
 @app.get("/api/search")
-def api_search(q: str = "", type: str = "", tag: str = "", source: str = "", limit: int = 25):
-    return aos_indexer.search(q, kind=type, tag=tag, source=source, limit=limit)
+def api_search(q: str = "", type: str = "", tag: str = "", source: str = "", limit: int = 25, client_scope: str = ""):
+    try:
+        return aos_indexer.search(q, kind=type, tag=tag, source=source, limit=limit, client_scope=client_scope)
+    except business_brain_scope.ClientScopeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @app.get("/api/search/status")
@@ -348,8 +353,11 @@ def api_ingest_tick():
 
 
 @app.get("/api/artifacts")
-def api_artifacts(type: str = "", tag: str = "", source: str = "", limit: int = 50):
-    result = aos_indexer.artifacts(kind=type, tag=tag, source=source, limit=limit)
+def api_artifacts(type: str = "", tag: str = "", source: str = "", limit: int = 50, client_scope: str = ""):
+    try:
+        result = aos_indexer.artifacts(kind=type, tag=tag, source=source, limit=limit, client_scope=client_scope)
+    except business_brain_scope.ClientScopeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     queue_items = {str(row.get("id") or ""): row for row in _read_queue_items()}
     enriched = []
     for row in result.get("items") or []:
@@ -4205,6 +4213,9 @@ def _queue_detail_item(item: dict, invocation_attributions: dict[str, dict] | No
         "run_artifacts": _queue_artifact_refs(item, latest_receipt.get("content", "") if latest_receipt else ""),
         "final_result": _queue_final_result_for_item(item),
         "integrated_review_artifact": integrated_review,
+        "client_scope": item.get("client_scope"),
+        "brain_context_used": item.get("brain_context_used") or [],
+        "capture_proposal": item.get("capture_proposal"),
         "pipeline": _queue_pipeline(item),
         "stuck_recovery": _queue_stuck_recovery(item),
     })
@@ -5625,44 +5636,94 @@ def dashboard_open_path(body: DashboardOpenPath):
 
 @app.get("/api/dashboard/memory")
 def dashboard_memory():
-    roots = [MEMORY_INDEX_DIR, BASE_DIR / "decisions", BASE_DIR / "operating_context"]
-    files = []
-    blocked = 0
-    for root in roots:
-        if not root.exists():
-            continue
-        for path in root.rglob("*.md"):
-            rel = _safe_relative(path)
-            if "old_vault" in rel.lower() or "legacy" in rel.lower():
-                blocked += 1
-                continue
-            try:
-                content = path.read_text(encoding="utf-8", errors="replace")
-                files.append({
-                    "path": rel,
-                    "title": _markdown_title(content, path.name),
-                    "modified": datetime.datetime.fromtimestamp(path.stat().st_mtime).isoformat(),
-                    "preview": _redacted_preview(content, 3000),
-                    "revisit": next((line.strip() for line in content.splitlines() if "Revisit:" in line), ""),
-                })
-            except OSError:
-                continue
-    files.sort(key=lambda item: item["modified"], reverse=True)
-    promotions = [
-        {
-            "id": item.get("id"),
-            "title": item.get("title"),
-            "receipt": (item.get("latest_receipt") or {}).get("path") if isinstance(item.get("latest_receipt"), dict) else None,
-            "status": item.get("status"),
+    root_pointer = "business_brain:README.md"
+    try:
+        registry = business_brain_scope.load_registry()
+        root_resolution = registry.resolve_brain_pointer("global", root_pointer)
+        loader = business_brain_context.ScopedBrainLoader(registry=registry)
+    except (business_brain.BusinessBrainPointerError, business_brain_scope.ClientScopeError) as exc:
+        return {
+            "brain": {
+                "available": False,
+                "root": root_pointer,
+                "file_count": 0,
+                "blocked_path_count": 0,
+                "error": str(exc),
+            },
+            "files": [],
+            "promotion_queue": [],
+            "promotion_state": {
+                "mode": "unavailable",
+                "available": False,
+                "reference_count": 0,
+                "reason": "Promotion evaluation and writing are not active in Block 1.",
+            },
         }
-        for item in _read_queue_items()
-        if "memory" in " ".join([str(item.get("title") or ""), " ".join(item.get("tags") or [])]).lower()
-        and item.get("status") in {"human_review", "needs_input", "blocked"}
-    ][:10]
+    vault = root_resolution.resolved_path.parent
+    files = []
+    backup_root = vault / "_backups"
+    blocked = sum(1 for path in backup_root.rglob("*.md") if path.is_file()) if backup_root.is_dir() else 0
+    context_used = []
+    for pointer in registry.permitted_brain_pointers("global"):
+        try:
+            retrieved = loader.retrieve(work={"client_scope": "global"}, pointers=[pointer])
+            read = retrieved.reads[0]
+            path = registry.resolve_brain_pointer("global", pointer).resolved_path
+            content = read.content
+            frontmatter, body = aos_indexer.parse_frontmatter(content)
+            files.append({
+                "id": frontmatter.get("id"),
+                "type": frontmatter.get("type"),
+                "path": pointer,
+                "title": _markdown_title(body, path.name),
+                "modified": datetime.datetime.fromtimestamp(path.stat().st_mtime).isoformat(),
+                "preview": _redacted_preview(content, 3000),
+                "revisit": next((line.strip() for line in content.splitlines() if "Revisit:" in line), ""),
+            })
+            context_used.extend(retrieved.brain_context_used)
+        except (OSError, business_brain.BusinessBrainPointerError, business_brain_scope.ClientScopeError, business_brain_context.BrainContextError):
+            continue
+    files.sort(key=lambda item: item["modified"], reverse=True)
+    promotion_references = []
+    for record in _read_jsonl_file(BASE_DIR / "queue" / "run_ledger.jsonl"):
+        values = record.get("memory_promotion")
+        if isinstance(values, list):
+            promotion_references.extend(str(value) for value in values if str(value).strip())
+    promotion_receipts = []
+    for path in sorted((BASE_DIR / "queue" / "receipts").glob("brain-promotion-*.json"), reverse=True):
+        try:
+            record = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if record.get("status") == "success":
+            promotion_receipts.append({
+                "receipt": _safe_relative(path),
+                "write_id": record.get("write_id"),
+                "target": record.get("target"),
+                "completed_at": record.get("completed_at"),
+            })
     return {
-        "brain": {"available": MEMORY_INDEX_DIR.exists(), "root": _safe_relative(MEMORY_INDEX_DIR), "file_count": len(files), "blocked_path_count": blocked},
+        "brain": {
+            "available": True,
+            "root": root_pointer,
+            "index": "business_brain:index/MEMORY_INDEX.md",
+            "file_count": len(files),
+            "blocked_path_count": blocked,
+            "denied_pointer_count": len(registry.data.get("denied_brain_pointers") or []),
+        },
         "files": files[:50],
-        "promotion_queue": promotions,
+        "brain_context_used": context_used,
+        "promotion_queue": [],
+        "promotion_state": {
+            "mode": "operational",
+            "available": True,
+            "automatic_classes": ["generated_marker_section"],
+            "review_route": "human_review",
+            "reference_count": len(promotion_references) + len(promotion_receipts),
+            "references": promotion_references[:20],
+            "latest_safe_promotion": promotion_receipts[0] if promotion_receipts else None,
+            "reason": "Scope-gated promotion machinery is available; queue titles and tags are never promotion state.",
+        },
     }
 
 

@@ -4,15 +4,15 @@ description: Draft one content piece (website page, LinkedIn post, checklist, ar
 when-to-use: Liam requests a content piece, or the marketing lane queues one from the authority cadence. Owner: aos-marketing. Trust: earned.
 ---
 # /content-draft
-> Revisit: when marketing_voice or positioning changes. · Last touched: 2026-07-07
+> Revisit: when marketing_voice or positioning changes. · Last touched: 2026-07-15
 
 ## Purpose
 Produce one publish-ready draft in Liam's voice. Draft-only; publication is Liam's decision, always.
 
 ## Inputs
 - Content brief or topic from the queue item (one piece per item).
-- memory/marketing_voice.md + memory/positioning.md (read both, every time).
-- Offer/pricing facts only from memory/offers.md and sales context — never invented.
+- `business_brain:memory/marketing_voice.md` + `business_brain:memory/positioning.md` (read both, every time).
+- Offer/pricing facts only from `business_brain:memory/offers.md` and `business_brain:memory/sales_and_revenue.md` — never invented.
 
 ## Steps
 1. **Frame** — restate the piece's job in one line: audience, the one leak/lever it addresses (effectiveness / efficiency / quality), desired next step.

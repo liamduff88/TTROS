@@ -1,9 +1,9 @@
 # PROTECTED_PATHS.md — what nothing in this OS touches uninvited
-> Revisit: on a new protected area or a boundary incident. · Last touched: 2026-07-07.
+> Revisit: on a new protected area or a boundary incident. · Last touched: 2026-07-15.
 
 ## Source of truth
 The binding list lives in the Business Brain at
-`operating_context/protected_paths.md` (mirrored into this repo's memory
+`business_brain:operating_context/protected_paths.md` (mirrored into this repo's memory
 pointers). This file is the OS-side enforcement contract for that list — it
 does not restate it in full, it commits to respecting it.
 

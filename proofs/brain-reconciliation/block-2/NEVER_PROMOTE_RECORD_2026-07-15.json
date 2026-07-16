@@ -1,0 +1,14 @@
+{
+  "brain_write_attempted": false,
+  "evaluation": {
+    "candidate_diff": null,
+    "refusal_reason": "never_promote:credentials",
+    "tier": "never_promote",
+    "writable": false
+  },
+  "promotion_reference_created": false,
+  "queue_item_created": false,
+  "vault_target_sha256_after": "a741c97bcac06b7dee5f9163bb5f8a80ab0e0aff064a19544e13d975bfae2669",
+  "vault_target_sha256_before": "a741c97bcac06b7dee5f9163bb5f8a80ab0e0aff064a19544e13d975bfae2669",
+  "token_usage_text": "Token usage: no agent invocation"
+}

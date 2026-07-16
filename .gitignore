@@ -87,5 +87,8 @@ queue/receipts/*.token_usage.json
 
 dashboard/data/
 
+# Dark capture runtime: raw communications and cursor state never enter Git.
+capture/runtime/
+
 # Runtime orchestration locks
 queue/locks/*.lock

@@ -4,7 +4,7 @@ description: Weekly rollup — open items, the week's receipts, blockers, next w
 when-to-use: Scheduled weekly (suggested Fri EOD or Mon before /maintain-os), or on Liam's command. Owner: orchestrator. Trust: earned.
 ---
 # /weekly-review
-> Revisit: if the receipt or token-ledger schema changes. · Last touched: 2026-07-07
+> Revisit: if the receipt or token-ledger schema changes. · Last touched: 2026-07-15
 
 ## Purpose
 One page that tells Liam what moved, what stalled, what it cost, and what's next. Read-and-summarize only.
@@ -12,7 +12,7 @@ One page that tells Liam what moved, what stalled, what it cost, and what's next
 ## Inputs
 - Queue: open/closed items for the week. Receipts from run_ledger.
 - queue/token_ledger.jsonl for the week's window.
-- operating_context/current_priorities.md.
+- `business_brain:operating_context/current_priorities.md`.
 
 ## Steps
 1. **Shipped** — completed items by lane, one line each, linked to receipts/artifacts.

@@ -1,0 +1,76 @@
+2026-07-15T15:09:44+01:00
+/home/liam/agentic-os-live
+8b26010772196c448e01fae4dacfbe4ef9106c4b
+8b26010772196c448e01fae4dacfbe4ef9106c4b
+8b26010772196c448e01fae4dacfbe4ef9106c4b
+# branch.oid 8b26010772196c448e01fae4dacfbe4ef9106c4b
+# branch.head main
+# branch.upstream origin/main
+# branch.ab +0 -0
+1 .M N... 100644 100644 100644 118b0dfba8d094db05a36c3f0514fc847b6b7da1 118b0dfba8d094db05a36c3f0514fc847b6b7da1 ANTIGRAVITY.md
+1 .M N... 100644 100644 100644 597b97c450780ab16882e9d648027b084427d344 597b97c450780ab16882e9d648027b084427d344 CLAUDE.md
+1 .M N... 100644 100644 100644 6d1f4dfb734434528003b13b2908c053e64f50a1 6d1f4dfb734434528003b13b2908c053e64f50a1 CODEX.md
+1 .M N... 100644 100644 100644 9a0eeb12417ce463eb753370e74b4b340bc0e37e 9a0eeb12417ce463eb753370e74b4b340bc0e37e ROT.md
+1 .M N... 100644 100644 100644 0a020aa5a45b1f57f613cbbb4f3158722a8f67d5 0a020aa5a45b1f57f613cbbb4f3158722a8f67d5 agents/aos-delivery.md
+1 .M N... 100644 100644 100644 d6b6b14d5aa0c6841690aabed255359cd5c81a17 d6b6b14d5aa0c6841690aabed255359cd5c81a17 agents/aos-marketing.md
+1 .M N... 100644 100644 100644 d26598b6b8af0349b7043c4397c9e803e8cf1481 d26598b6b8af0349b7043c4397c9e803e8cf1481 agents/aos-ops.md
+1 .M N... 100644 100644 100644 596f77f56309aff9a552e38595944de10ba91bb8 596f77f56309aff9a552e38595944de10ba91bb8 agents/aos-revenue.md
+1 .M N... 100644 100644 100644 193b0d8385223151a081b76858f5516d4a227bba 193b0d8385223151a081b76858f5516d4a227bba context/MEMORY_PROMOTION_POLICY.md
+1 .M N... 100644 100644 100644 5b2d5596c2525c432a33cc8779212ace28618f5d 5b2d5596c2525c432a33cc8779212ace28618f5d context/MEMORY_ROOT.md
+1 .M N... 100644 100644 100644 6ac04a8e1b8de7b8e2dc748c84eeaa68d8dec1c3 6ac04a8e1b8de7b8e2dc748c84eeaa68d8dec1c3 context/OPERATING_BASELINE.md
+1 .M N... 100644 100644 100644 f2da4f3c1f0a6b9a874f8739a76dabc42958f004 f2da4f3c1f0a6b9a874f8739a76dabc42958f004 context/PROTECTED_PATHS.md
+1 .M N... 100644 100644 100644 8c1a965649942fe17cc0b2e024bcbf8552673412 8c1a965649942fe17cc0b2e024bcbf8552673412 dashboard/backend/main.py
+1 .M N... 100644 100644 100644 109896022e47f49f781960b12df89dd800a865b9 109896022e47f49f781960b12df89dd800a865b9 dashboard/frontend/src/views/DashboardV1.jsx
+1 .M N... 100644 100644 100644 61c27094cbcca63319f10860fab5f077e9f85378 61c27094cbcca63319f10860fab5f077e9f85378 decisions/DECISIONS.md
+1 .M N... 100644 100644 100644 b2b5284c24fc27d9a531c9314293ed3cdeb8c755 b2b5284c24fc27d9a531c9314293ed3cdeb8c755 goals/business_brain_pointer_valid.goal.md
+1 .M N... 100644 100644 100644 5178e18c24ed3c5e1c9d5ec64ef620849d8cfb3c 5178e18c24ed3c5e1c9d5ec64ef620849d8cfb3c goals/standing_goal_contracts.json
+1 .M N... 100644 100644 100644 49fd841d8b2373750936503b455e4b8ffb103e16 49fd841d8b2373750936503b455e4b8ffb103e16 loop/verify-goals.sh
+1 .M N... 100644 100644 100644 6e0b53b699edc9a90060e96bf5a94d9e7257db2f 6e0b53b699edc9a90060e96bf5a94d9e7257db2f memory_index/INDEX.md
+1 .M N... 100644 100644 100644 318173fa89f4bd79c079d9102aab493e30d6bd76 318173fa89f4bd79c079d9102aab493e30d6bd76 memory_index/README.md
+1 .M N... 100644 100644 100644 5f90b242b9bb0c69b587f1dee16948ea29483a0d 5f90b242b9bb0c69b587f1dee16948ea29483a0d memory_promotion/SKILL.md
+1 .M N... 100644 100644 100644 7f2658c6a994968e2555e1d3d33ac3ac18390007 7f2658c6a994968e2555e1d3d33ac3ac18390007 operating_context/old_vault_archive_plan.md
+1 .M N... 100644 100644 100644 c0b500fa5738d64f880253b1fdd33614f92149d1 c0b500fa5738d64f880253b1fdd33614f92149d1 queue/memory_promotion_prompt.md
+1 .M N... 100644 100644 100644 ee203d9a7979425cfb771991f99055a4437ba071 ee203d9a7979425cfb771991f99055a4437ba071 queue/work_order_prompt.md
+1 .M N... 100644 100644 100644 d966817e60cdf062763d32e2f5c6b7757522d5e1 d966817e60cdf062763d32e2f5c6b7757522d5e1 rules/always.md
+1 .M N... 100644 100644 100644 bc9bef54ea5014bcbdfabc326fcbb664e7c970c8 bc9bef54ea5014bcbdfabc326fcbb664e7c970c8 rules/client_data_boundaries.md
+1 .M N... 100644 100644 100644 2488d8bc9e52a10df918d3a9a1f9ce62128f5175 2488d8bc9e52a10df918d3a9a1f9ce62128f5175 skills/content_draft/SKILL.md
+1 .M N... 100644 100644 100644 95c1dcc6e91acdfc0c84321183fb7e3ee0ac813d 95c1dcc6e91acdfc0c84321183fb7e3ee0ac813d skills/fit_call_prep/SKILL.md
+1 .M N... 100644 100644 100644 a51e5bb30c4e82fbeb9957c63533f8e2940d4fce a51e5bb30c4e82fbeb9957c63533f8e2940d4fce skills/internal_outreach_daily/SKILL.md
+1 .M N... 100644 100644 100644 0afe0fcf170e2dd6c0ced7daa604cc512a30b908 0afe0fcf170e2dd6c0ced7daa604cc512a30b908 skills/linkedin_carousel_from_md/SKILL.md
+1 .M N... 100644 100644 100644 4d3c860ece8f822aa920204867f8f62085ddc26e 4d3c860ece8f822aa920204867f8f62085ddc26e skills/linkedin_outreach_prep/SKILL.md
+1 .M N... 100644 100644 100644 5f90b242b9bb0c69b587f1dee16948ea29483a0d 5f90b242b9bb0c69b587f1dee16948ea29483a0d skills/memory_promotion/SKILL.md
+1 .M N... 100644 100644 100644 1a6d502164e8f2380d90090e512a3c4b60ad4feb 1a6d502164e8f2380d90090e512a3c4b60ad4feb skills/proposal_prep/SKILL.md
+1 .M N... 100644 100644 100644 fef5dedad3117e4268cd196d46124de1d5f07484 fef5dedad3117e4268cd196d46124de1d5f07484 skills/weekly_review/SKILL.md
+1 .M N... 100644 100644 100644 152ec521cc42428fb0b28609a4fc7e7c90781b2f 152ec521cc42428fb0b28609a4fc7e7c90781b2f soul.md
+1 .M N... 100644 100644 100644 d1e86885736f463105d3e34b053c95bdc2fa4220 d1e86885736f463105d3e34b053c95bdc2fa4220 tests/test_aos_orchestration.py
+1 .M N... 100644 100644 100644 cb2083652dd219fb79d48e44a9088762dff546f2 cb2083652dd219fb79d48e44a9088762dff546f2 tests/test_aos_search.py
+1 .M N... 100644 100644 100644 4011051c3ab447107d883fcb9dcae0bae38516a1 4011051c3ab447107d883fcb9dcae0bae38516a1 tools/aos-linux-runtime.sh
+1 .M N... 100644 100644 100644 7b3b533267a31dd812c45c23fc82efc3f1bf1a9e 7b3b533267a31dd812c45c23fc82efc3f1bf1a9e tools/aos_indexer.py
+1 .M N... 100644 100644 100644 0e896099496fb41c9af6349d527aa9eeb711b2eb 0e896099496fb41c9af6349d527aa9eeb711b2eb workflows/fit_call_prep/workflow.md
+1 .M N... 100644 100644 100644 c58ffdf7d1903b4593c34d5d6b3172c9cddb3d72 c58ffdf7d1903b4593c34d5d6b3172c9cddb3d72 workflows/internal_outreach_daily/workflow.md
+1 .M N... 100644 100644 100644 26ad88b31a7962e7d3ae9b5aee063e2a8289c2d6 26ad88b31a7962e7d3ae9b5aee063e2a8289c2d6 workflows/linkedin_carousel_from_md/workflow.md
+1 .M N... 100644 100644 100644 632cbbce1d39adbb4efef2a5e8c58c26fa8e46e8 632cbbce1d39adbb4efef2a5e8c58c26fa8e46e8 workflows/marketing_content/workflow.md
+1 .M N... 100644 100644 100644 824f2584841705d05397af3b168edad123ea1016 824f2584841705d05397af3b168edad123ea1016 workflows/weekly_review/workflow.md
+? dashboard/backend/business_brain_graph.py
+? operating_context/TTROS_BRAIN_RECONCILIATION_RUNBOOK_FINAL_ADOPTED_2026-07-15.md
+? operating_context/TTROS_BRAIN_RECONCILIATION_RUNBOOK_FINAL_ADOPTED_2026-07-15.md:Zone.Identifier
+? operating_context/TTROS_LOCKED_DESIGN_PACKAGING_AMENDMENT_ADOPTED_2026-07-15.md
+? operating_context/TTROS_LOCKED_DESIGN_PACKAGING_AMENDMENT_ADOPTED_2026-07-15.md:Zone.Identifier
+? proofs/brain-reconciliation/
+? tests/test_aos_dashboard_cleanup.py
+? tests/test_business_brain.py
+? tests/test_business_brain_graph.py
+? tests/test_business_brain_vault.py
+? tests/test_dashboard_memory.py
+? tools/aos_graphify_markdown_extract.py
+? tools/business_brain.py
+? tools/validate_business_brain.py
+backend=stopped root=/home/liam/agentic-os-live
+frontend=stopped root=/home/liam/agentic-os-live
+runner=stopped root=/home/liam/agentic-os-live
+backend_ready=no
+frontend_ready=no
+listeners_3010_8010=0
+graphify_processes=0
+obsidian_processes=0
+hermes_processes=0

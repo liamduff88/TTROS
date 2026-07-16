@@ -31,6 +31,7 @@ if str(TOOLS_DIR) not in sys.path:
 
 from aos_paths import AuthorityError, aos_root, assert_authoritative_root
 from aos_queue_storage import QueueStorageError, durable_replace_text, queue_write_lock
+from business_brain_context import BrainContextError, validate_completion_context
 
 DEFAULT_ROOT = aos_root()
 QUEUE_DIR = Path("queue")
@@ -978,8 +979,28 @@ def finalize_done(
         "review": review or "pending",
         "budget_class": resolved_budget,
         "receipt": resolved_receipt or sidecar_rel_path,
-        "memory_promotion": [],
+        "memory_promotion": [str(value) for value in item.get("memory_promotion") or []],
     }
+    context_fields_present = any(
+        key in item for key in ("client_scope", "context_classification", "brain_context_status", "brain_context_used", "degraded_context")
+    )
+    if context_fields_present:
+        try:
+            validated_context = validate_completion_context(
+                item,
+                brain_context_used=item.get("brain_context_used") or [],
+                brain_context_status=item.get("brain_context_status"),
+                degraded_context=item.get("degraded_context"),
+            )
+        except BrainContextError as exc:
+            raise QueueError(f"context validation failed; status must be needs_input: {exc}") from exc
+        if validated_context.get("brain_context_used"):
+            run_line["brain_context_status"] = "used"
+            run_line["brain_context_used"] = validated_context["brain_context_used"]
+        elif item.get("brain_context_status"):
+            run_line["brain_context_status"] = item["brain_context_status"]
+        if validated_context.get("degraded_context"):
+            run_line["degraded_context"] = validated_context["degraded_context"]
     token_line = {
         "item_id": item["id"],
         "lane": route["lane"],
@@ -1098,6 +1119,18 @@ def create_item(root: Path, args: argparse.Namespace) -> dict:
         "created_at": timestamp,
         "updated_at": timestamp,
     }
+    optional_values = {
+        "client_scope": getattr(args, "client_scope", None),
+        "context_classification": getattr(args, "context_classification", None),
+        "brain_context_status": getattr(args, "brain_context_status", None),
+        "brain_context_used": _load_json_arg(getattr(args, "brain_context_used", None)),
+        "degraded_context": _load_json_arg(getattr(args, "degraded_context", None)),
+        "promotion_proposal": _load_json_arg(getattr(args, "promotion_proposal", None)),
+        "capture_proposal": _load_json_arg(getattr(args, "capture_proposal", None)),
+    }
+    for key, value in optional_values.items():
+        if value is not None and value != "":
+            item[key] = value
     items.append(item)
     save_items(root, items)
     return item
@@ -1292,6 +1325,13 @@ def build_parser() -> argparse.ArgumentParser:
     create.add_argument("--depends-on", default="")
     create.add_argument("--on-complete", default="")
     create.add_argument("--workbench", default="")
+    create.add_argument("--client-scope", default="")
+    create.add_argument("--context-classification", choices=["knowledge_sensitive", "technical_only", "ambiguous"])
+    create.add_argument("--brain-context-status", choices=["used", "not_applicable", "degraded", "missing"])
+    create.add_argument("--brain-context-used", help="Structured JSON or @path for actual successful Brain reads")
+    create.add_argument("--degraded-context", help="Structured JSON or @path for an explicit safe degradation contract")
+    create.add_argument("--promotion-proposal", help="Structured review-tier proposal JSON or @path")
+    create.add_argument("--capture-proposal", help="Structured metadata-only capture proposal JSON or @path")
 
     list_parser = subparsers.add_parser("list", help="List local work items")
     list_parser.add_argument("--status")

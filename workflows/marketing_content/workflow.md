@@ -7,7 +7,7 @@ profile: aos-marketing
 trust: earned
 ---
 # workflow: marketing_content — produce one publish-ready content draft (draft-only, never publishes)
-> Revisit: when marketing_voice or positioning changes. · Last touched: 2026-07-07.
+> Revisit: when marketing_voice or positioning changes. · Last touched: 2026-07-15.
 
 Workflow name differs from skill (`content_draft`) — named for the lane's deliverable, per workflows/README.md; mapping is explicit here.
 
@@ -15,8 +15,8 @@ Workflow name differs from skill (`content_draft`) — named for the lane's deli
 Queue item with a content brief or topic (one piece per item), from Liam directly or the marketing lane's authority cadence.
 
 ## Completion contract (default)
-- **Done** = one draft artifact attached to the queue item: answer-first (AEO) opening, drafted in marketing_voice, voice-checked against memory/marketing_voice.md, offer/pricing facts only from memory/offers.md + sales context, stated target placement noted (not published); receipt with token block.
-- **Allowed unprompted** = reading memory/marketing_voice.md + memory/positioning.md (both, every time), memory/offers.md; drafting and voice-checking.
+- **Done** = one draft artifact attached to the queue item: answer-first (AEO) opening, drafted in marketing_voice, voice-checked against `business_brain:memory/marketing_voice.md`, offer/pricing facts only from `business_brain:memory/offers.md` + `business_brain:memory/sales_and_revenue.md`, stated target placement noted (not published); receipt with token block.
+- **Allowed unprompted** = reading `business_brain:memory/marketing_voice.md` + `business_brain:memory/positioning.md` (both, every time), `business_brain:memory/offers.md`; drafting and voice-checking.
 - **Stop conditions** = no brief/topic on the item; the piece would require a claim on the offers.md "do not claim" list; anything that publishes, schedules, or posts (never allowed regardless of flags in this workflow).
 
 ## Run

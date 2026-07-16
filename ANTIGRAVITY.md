@@ -1,5 +1,5 @@
 # ANTIGRAVITY.md — Antigravity workbench, TTROS Agentic OS (DORMANT)
-> Revisit: on Antigravity's first real task — this file activates then. · Last touched: 2026-07-07.
+> Revisit: on Antigravity's first real task — this file activates then. · Last touched: 2026-07-15.
 
 ## Status
 Dormant. Per Blueprint V2 §5.4, Antigravity gets a live identity only after it
@@ -9,8 +9,9 @@ tool arrives. Until activation: no agent routes work to Antigravity.
 ## Pattern on activation (same shape as CLAUDE.md / CODEX.md)
 - **Role:** define the specific division of labor that earned the activation —
   one sentence, then keep it to that lane. A workbench, not a department agent.
-- **Before working:** graph-imports/aos-repo/ for the repo map;
-  _substrate.wiki/schema.md before wiki queries; ROT.md before layer files.
+- **Before working:** `README.md` and `context/PATHS.md` for the repo map;
+  `business_brain:index/MEMORY_INDEX.md` before business-context reads;
+  ROT.md before layer files.
 - **Hard rules:** live workspace (AgenticOSClean) only; no protected paths,
   North Shore files, secrets, or credentials; no external writes or pushes
   without explicit instruction; existing tests stay green.

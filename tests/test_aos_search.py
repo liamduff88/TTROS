@@ -15,6 +15,7 @@ if str(TOOLS) not in sys.path:
     sys.path.insert(0, str(TOOLS))
 
 import aos_indexer
+from tests.business_brain_test_support import registry_data, write_registry
 
 
 def write(path: Path, text: str):
@@ -30,6 +31,7 @@ class AosSearchTest(unittest.TestCase):
             "DB_PATH": aos_indexer.DB_PATH,
             "INGEST_CONFIG_PATH": aos_indexer.INGEST_CONFIG_PATH,
             "INGEST_RECEIPT_PATH": aos_indexer.INGEST_RECEIPT_PATH,
+            "CLIENT_SCOPE_REGISTRY_PATH": aos_indexer.CLIENT_SCOPE_REGISTRY_PATH,
         }
 
     def tearDown(self):
@@ -46,11 +48,19 @@ class AosSearchTest(unittest.TestCase):
         aos_indexer.DB_PATH = live / "search" / "os_index.db"
         aos_indexer.INGEST_CONFIG_PATH = live / "queue" / "ingest_watch.json"
         aos_indexer.INGEST_RECEIPT_PATH = live / "queue" / "receipts" / "ingestion.jsonl"
+        data = registry_data()
+        extra = ["business_brain:client_offer.md", "business_brain:memory/canonical.md"]
+        data["scopes"]["global"]["brain_pointers"].extend(extra)
+        data["scopes"]["global"]["search_source_identities"][-1]["paths"].extend(extra)
+        data["scopes"]["global"]["graphify_targets"][0]["paths"].extend(extra)
+        aos_indexer.CLIENT_SCOPE_REGISTRY_PATH = live / "context/client_scope_registry.json"
+        write_registry(aos_indexer.CLIENT_SCOPE_REGISTRY_PATH, data)
         return live, brain
 
     def test_excludes_protected_paths_and_secret_names(self):
         self.assertTrue(aos_indexer.is_excluded(Path("workspaces/north_shore_sales_coach/client.md")))
         self.assertTrue(aos_indexer.is_excluded(Path("connectors/telegram_bridge/allowed_chats.json")))
+        self.assertTrue(aos_indexer.is_excluded(Path("queue/command_routes.json")))
         self.assertTrue(aos_indexer.is_excluded(Path("queue/model_routes.json")))
         self.assertTrue(aos_indexer.is_excluded(Path("queue/lane_profiles.json")))
         self.assertTrue(aos_indexer.is_excluded(Path("notes/.env.local")))
@@ -67,7 +77,7 @@ class AosSearchTest(unittest.TestCase):
 
             result = aos_indexer.scan()
             self.assertEqual(result["token_usage_text"], "Token usage: no agent invocation")
-            search = aos_indexer.search("carousel", limit=10)
+            search = aos_indexer.search("carousel", limit=10, client_scope="global")
             self.assertGreaterEqual(search["count"], 3)
             paths = json.dumps(search["groups"])
             self.assertIn("workflows/linkedin_carousel_from_md/workflow.md", paths)
@@ -86,7 +96,7 @@ class AosSearchTest(unittest.TestCase):
             receipt = json.loads(aos_indexer.INGEST_RECEIPT_PATH.read_text(encoding="utf-8").splitlines()[-1])
             self.assertEqual(receipt["status"], "success")
             self.assertEqual(receipt["token_usage_text"], "Token usage: no agent invocation")
-            indexed = aos_indexer.search("inbox carousel")
+            indexed = aos_indexer.search("inbox carousel", client_scope="global")
             self.assertGreaterEqual(indexed["count"], 1)
             self.assertIn("agentic_os_live:queue/inbox/drop.md", json.dumps(indexed["groups"]))
 
@@ -101,10 +111,21 @@ class AosSearchTest(unittest.TestCase):
             aos_indexer.scan()
             after = sorted(path.relative_to(brain).as_posix() for path in brain.rglob("*"))
             self.assertEqual(before, after)
-            self.assertEqual(aos_indexer.search("API_KEY")["count"], 0)
-            north = aos_indexer.search("north_shore")
+            self.assertEqual(aos_indexer.search("API_KEY", client_scope="global")["count"], 0)
+            north = aos_indexer.search("north_shore", client_scope="global")
             self.assertEqual(north["count"], 0)
-            self.assertGreater(aos_indexer.search("offer", source="business_brain")["count"], 0)
+            self.assertGreater(aos_indexer.search("offer", source="business_brain", client_scope="global")["count"], 0)
+
+    def test_business_brain_backups_are_excluded_from_disposable_scan(self):
+        with tempfile.TemporaryDirectory() as tmp_text:
+            _live, brain = self.configure_roots(Path(tmp_text))
+            write(brain / "memory" / "canonical.md", "# Canonical\nunique canonical phrase")
+            write(brain / "_backups" / "memory" / "backup.md", "# Backup\nbackup-only phrase")
+            aos_indexer.scan()
+            self.assertEqual(aos_indexer.search("backup-only", source="business_brain", client_scope="global")["count"], 0)
+            result = aos_indexer.search("canonical", source="business_brain", client_scope="global")
+            self.assertEqual(result["count"], 1)
+            self.assertIn("business_brain:memory/canonical.md", json.dumps(result["groups"]))
 
     def test_create_from_artifact_payload_does_not_auto_run_or_call_agents(self):
         payload = {
@@ -123,6 +144,7 @@ class AosSearchTest(unittest.TestCase):
     def test_backend_api_search_shape(self):
         if importlib.util.find_spec("fastapi") is None:
             fastapi = types.ModuleType("fastapi")
+            fastapi.__spec__ = importlib.util.spec_from_loader("fastapi", loader=None)
 
             class _FastAPI:
                 def __init__(self, *args, **kwargs):
@@ -148,6 +170,9 @@ class AosSearchTest(unittest.TestCase):
             middleware = types.ModuleType("fastapi.middleware")
             cors = types.ModuleType("fastapi.middleware.cors")
             responses = types.ModuleType("fastapi.responses")
+            middleware.__spec__ = importlib.util.spec_from_loader("fastapi.middleware", loader=None)
+            cors.__spec__ = importlib.util.spec_from_loader("fastapi.middleware.cors", loader=None)
+            responses.__spec__ = importlib.util.spec_from_loader("fastapi.responses", loader=None)
             cors.CORSMiddleware = object
             responses.JSONResponse = object
             sys.modules.update({
@@ -158,6 +183,7 @@ class AosSearchTest(unittest.TestCase):
             })
         if importlib.util.find_spec("pydantic") is None:
             pydantic = types.ModuleType("pydantic")
+            pydantic.__spec__ = importlib.util.spec_from_loader("pydantic", loader=None)
 
             class _BaseModel:
                 def __init__(self, **values):
@@ -172,8 +198,8 @@ class AosSearchTest(unittest.TestCase):
         spec.loader.exec_module(backend)
         fake = {"groups": {"files": []}, "latency_ms": 1.2, "token_usage_text": "Token usage: no agent invocation"}
         with patch.object(backend.aos_indexer, "search", return_value=fake) as search:
-            result = backend.api_search(q="carousel", type="workflow", tag="", source="", limit=5)
-        search.assert_called_once_with("carousel", kind="workflow", tag="", source="", limit=5)
+            result = backend.api_search(q="carousel", type="workflow", tag="", source="", limit=5, client_scope="global")
+        search.assert_called_once_with("carousel", kind="workflow", tag="", source="", limit=5, client_scope="global")
         self.assertEqual(result["latency_ms"], 1.2)
         self.assertEqual(result["token_usage_text"], "Token usage: no agent invocation")
 

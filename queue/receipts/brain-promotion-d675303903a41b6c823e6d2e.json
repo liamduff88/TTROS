@@ -1,0 +1,28 @@
+{
+  "approval_reference": null,
+  "change_class": "generated_marker_section",
+  "client_scope": "global",
+  "completed_at": "2026-07-15T18:44:48.940991Z",
+  "diff_reference": "queue/receipts/brain-promotion-d675303903a41b6c823e6d2e.patch",
+  "diff_sha256": "9eb4b6d816b7072ad912057bf47a68a44e4b98be5c8d79f9a1502baea2ede9b2",
+  "marker": "block-2-outcome-index",
+  "operation": "write",
+  "postimage_sha256": "afcd3d1644453f763158d2b0b59430299abfd560a71e452a4d27e693b36379b7",
+  "preimage_sha256": "a741c97bcac06b7dee5f9163bb5f8a80ab0e0aff064a19544e13d975bfae2669",
+  "provenance_refs": [
+    "proof:block-2:accepted-block-1",
+    "proof:block-2:deterministic-write"
+  ],
+  "refresh_completed_at": "2026-07-15T18:47:00.763857Z",
+  "refresh_state": {
+    "graphify": "current",
+    "graphify_reference": "/home/liam/graphify-brain/document_graphs/ttros-business-brain/receipts/20260715T184623465588Z-build-success.json",
+    "search": "current",
+    "search_reference": "proofs/brain-reconciliation/block-2/SEARCH_REINDEX_PRESERVATION_REPORT_2026-07-15.md"
+  },
+  "status": "success",
+  "target": "business_brain:index/MEMORY_INDEX.md",
+  "tier": "deterministic_automatic",
+  "token_usage_text": "Token usage: no agent invocation",
+  "write_id": "d675303903a41b6c823e6d2e"
+}

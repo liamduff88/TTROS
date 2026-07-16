@@ -1,0 +1,5 @@
+workspaces/north_shore_sales_coach\tdirectory\t777\tliam:liam\t4096\t1783269553
+connectors/telegram_bridge\tdirectory\t777\tliam:liam\t4096\t1782456619
+queue/command_routes.json\tregular file\t777\tliam:liam\t3870\t1783644895
+queue/model_routes.json\tregular file\t777\tliam:liam\t4293\t1783380729
+queue/lane_profiles.json\tregular file\t777\tliam:liam\t3065\t1783375415

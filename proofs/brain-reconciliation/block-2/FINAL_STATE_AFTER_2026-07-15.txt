@@ -1,0 +1,250 @@
+TTROS Business Brain reconciliation Block 2 final state
+2026-07-15T19:58:59+01:00
+
+HEAD/main/origin-main
+8b26010772196c448e01fae4dacfbe4ef9106c4b
+8b26010772196c448e01fae4dacfbe4ef9106c4b
+8b26010772196c448e01fae4dacfbe4ef9106c4b
+
+RUNTIME STATUS
+backend=stopped root=/home/liam/agentic-os-live
+frontend=stopped root=/home/liam/agentic-os-live
+runner=stopped root=/home/liam/agentic-os-live
+backend_ready=no
+frontend_ready=no
+
+LISTENERS 3010/8010
+State Recv-Q Send-Q Local Address:Port Peer Address:PortProcess
+
+CURRENT GIT STATUS
+ M ANTIGRAVITY.md
+ M CLAUDE.md
+ M CODEX.md
+ M ROT.md
+ M agents/aos-delivery.md
+ M agents/aos-marketing.md
+ M agents/aos-ops.md
+ M agents/aos-revenue.md
+ M context/MEMORY_PROMOTION_POLICY.md
+ M context/MEMORY_ROOT.md
+ M context/OPERATING_BASELINE.md
+ M context/PROTECTED_PATHS.md
+ M dashboard/backend/main.py
+ M dashboard/frontend/src/api.js
+ M dashboard/frontend/src/views/DashboardV1.jsx
+ M decisions/DECISIONS.md
+ M goals/business_brain_pointer_valid.goal.md
+ M goals/standing_goal_contracts.json
+ M loop/verify-goals.sh
+ M memory_index/INDEX.md
+ M memory_index/README.md
+ M memory_promotion/SKILL.md
+ M operating_context/old_vault_archive_plan.md
+ M queue/memory_promotion_prompt.md
+ M queue/run_ledger_schema.json
+ M queue/schemas/work_item.schema.json
+ M queue/templates/receipt.prompt.md
+ M queue/work_order_prompt.md
+ M rules/always.md
+ M rules/client_data_boundaries.md
+ M skills/content_draft/SKILL.md
+ M skills/fit_call_prep/SKILL.md
+ M skills/internal_outreach_daily/SKILL.md
+ M skills/linkedin_carousel_from_md/SKILL.md
+ M skills/linkedin_outreach_prep/SKILL.md
+ M skills/memory_promotion/SKILL.md
+ M skills/proposal_prep/SKILL.md
+ M skills/weekly_review/SKILL.md
+ M soul.md
+ M tests/test_aos_orchestration.py
+ M tests/test_aos_search.py
+ M tools/aos-linux-runtime.sh
+ M tools/aos-queue.py
+ M tools/aos_indexer.py
+ M workflows/fit_call_prep/workflow.md
+ M workflows/internal_outreach_daily/workflow.md
+ M workflows/linkedin_carousel_from_md/workflow.md
+ M workflows/marketing_content/workflow.md
+ M workflows/weekly_review/workflow.md
+?? context/client_scope_registry.json
+?? context/client_scope_registry.schema.json
+?? dashboard/backend/business_brain_graph.py
+?? operating_context/TTROS_BRAIN_RECONCILIATION_RUNBOOK_FINAL_ADOPTED_2026-07-15.md
+?? operating_context/TTROS_BRAIN_RECONCILIATION_RUNBOOK_FINAL_ADOPTED_2026-07-15.md:Zone.Identifier
+?? operating_context/TTROS_LOCKED_DESIGN_PACKAGING_AMENDMENT_ADOPTED_2026-07-15.md
+?? operating_context/TTROS_LOCKED_DESIGN_PACKAGING_AMENDMENT_ADOPTED_2026-07-15.md:Zone.Identifier
+?? proofs/brain-reconciliation/block-1/ACTIVE_CONSUMER_DISPOSITION_2026-07-15.md
+?? proofs/brain-reconciliation/block-1/BEFORE_MANIFEST_ARTIFACT_HASHES_2026-07-15.sha256
+?? proofs/brain-reconciliation/block-1/BLOCK_1_CLOSEOUT_2026-07-15.md
+?? proofs/brain-reconciliation/block-1/DASHBOARD_MEMORY_API_LIVE_2026-07-15.json
+?? proofs/brain-reconciliation/block-1/EXPECTED_REPO_CONTENT_AFTER_2026-07-15.sha256
+?? proofs/brain-reconciliation/block-1/EXPECTED_REPO_CONTENT_BEFORE_2026-07-15.sha256
+?? proofs/brain-reconciliation/block-1/EXPECTED_REPO_METADATA_AFTER_2026-07-15.tsv
+?? proofs/brain-reconciliation/block-1/EXPECTED_REPO_METADATA_BEFORE_2026-07-15.tsv
+?? proofs/brain-reconciliation/block-1/EXPECTED_REPO_PATHS_BEFORE_2026-07-15.txt
+?? proofs/brain-reconciliation/block-1/FILES_TOUCHED_2026-07-15.txt
+?? proofs/brain-reconciliation/block-1/FINAL_STATE_AFTER_2026-07-15.txt
+?? proofs/brain-reconciliation/block-1/GRAPHIFY_DOCUMENTS_CLI_CAPABILITY_2026-07-15.txt
+?? proofs/brain-reconciliation/block-1/GRAPHIFY_FIXTURE_BUILD_1_2026-07-15.json
+?? proofs/brain-reconciliation/block-1/GRAPHIFY_FIXTURE_BUILD_2_2026-07-15.json
+?? proofs/brain-reconciliation/block-1/GRAPHIFY_FIXTURE_QUERY_2026-07-15.json
+?? proofs/brain-reconciliation/block-1/GRAPHIFY_FIXTURE_SOURCE_AFTER_2026-07-15.sha256
+?? proofs/brain-reconciliation/block-1/GRAPHIFY_FIXTURE_SOURCE_BEFORE_2026-07-15.sha256
+?? proofs/brain-reconciliation/block-1/GRAPHIFY_FIXTURE_STABLE_ARTIFACT_HASHES_2026-07-15.sha256
+?? proofs/brain-reconciliation/block-1/GRAPHIFY_FULL_CONTENT_AFTER_2026-07-15.sha256
+?? proofs/brain-reconciliation/block-1/GRAPHIFY_FULL_CONTENT_BEFORE_2026-07-15.sha256
+?? proofs/brain-reconciliation/block-1/GRAPHIFY_FULL_METADATA_AFTER_2026-07-15.tsv
+?? proofs/brain-reconciliation/block-1/GRAPHIFY_FULL_METADATA_BEFORE_2026-07-15.tsv
+?? proofs/brain-reconciliation/block-1/GRAPHIFY_LIVE_BUILD_1_2026-07-15.json
+?? proofs/brain-reconciliation/block-1/GRAPHIFY_LIVE_BUILD_2_2026-07-15.json
+?? proofs/brain-reconciliation/block-1/GRAPHIFY_LIVE_FAILED_REBUILD_PRESERVATION_2026-07-15.json
+?? proofs/brain-reconciliation/block-1/GRAPHIFY_LIVE_QUERY_2026-07-15.json
+?? proofs/brain-reconciliation/block-1/GRAPHIFY_LIVE_STABLE_ARTIFACT_HASHES_2026-07-15.sha256
+?? proofs/brain-reconciliation/block-1/GRAPHIFY_LIVE_STATUS_AFTER_FAILED_REBUILD_2026-07-15.json
+?? proofs/brain-reconciliation/block-1/GRAPHIFY_PASS10_INTAKE_CONTENT_AFTER_2026-07-15.sha256
+?? proofs/brain-reconciliation/block-1/GRAPHIFY_PASS10_INTAKE_CONTENT_BEFORE_2026-07-15.sha256
+?? proofs/brain-reconciliation/block-1/GRAPHIFY_PASS10_RECEIPTS_CONTENT_AFTER_2026-07-15.sha256
+?? proofs/brain-reconciliation/block-1/GRAPHIFY_PASS10_RECEIPTS_CONTENT_BEFORE_2026-07-15.sha256
+?? proofs/brain-reconciliation/block-1/GRAPHIFY_PASS10_REPO_GRAPHS_CONTENT_AFTER_2026-07-15.sha256
+?? proofs/brain-reconciliation/block-1/GRAPHIFY_PASS10_REPO_GRAPHS_CONTENT_BEFORE_2026-07-15.sha256
+?? proofs/brain-reconciliation/block-1/GRAPHIFY_SIX_POINT_REPORT_2026-07-15.md
+?? proofs/brain-reconciliation/block-1/GRAPHIFY_STALE_FALLBACK_2026-07-15.json
+?? proofs/brain-reconciliation/block-1/GRAPHIFY_UNAVAILABLE_FALLBACK_2026-07-15.json
+?? proofs/brain-reconciliation/block-1/OBSIDIAN_USABILITY_REPORT_2026-07-15.md
+?? proofs/brain-reconciliation/block-1/PREEXISTING_WORKTREE_CONTENT_AFTER_2026-07-15.sha256
+?? proofs/brain-reconciliation/block-1/PREEXISTING_WORKTREE_CONTENT_BEFORE_2026-07-15.sha256
+?? proofs/brain-reconciliation/block-1/PREEXISTING_WORKTREE_PATHS_2026-07-15.txt
+?? proofs/brain-reconciliation/block-1/PREFLIGHT_STATE_BEFORE_2026-07-15.txt
+?? proofs/brain-reconciliation/block-1/PRESERVATION_AND_COLLISION_REPORT_2026-07-15.md
+?? proofs/brain-reconciliation/block-1/PROTECTED_PATH_METADATA_AFTER_2026-07-15.tsv
+?? proofs/brain-reconciliation/block-1/PROTECTED_PATH_METADATA_BEFORE_2026-07-15.tsv
+?? proofs/brain-reconciliation/block-1/QUEUE_LEDGER_SEARCH_CONTENT_AFTER_2026-07-15.sha256
+?? proofs/brain-reconciliation/block-1/QUEUE_LEDGER_SEARCH_CONTENT_BEFORE_2026-07-15.sha256
+?? proofs/brain-reconciliation/block-1/QUEUE_LEDGER_SEARCH_METADATA_AFTER_2026-07-15.tsv
+?? proofs/brain-reconciliation/block-1/QUEUE_LEDGER_SEARCH_METADATA_BEFORE_2026-07-15.tsv
+?? proofs/brain-reconciliation/block-1/SUPPLEMENTAL_CONSUMER_CONTENT_AFTER_2026-07-15.sha256
+?? proofs/brain-reconciliation/block-1/SUPPLEMENTAL_CONSUMER_CONTENT_BEFORE_FROM_RECORDED_HEAD_2026-07-15.sha256
+?? proofs/brain-reconciliation/block-1/SUPPLEMENTAL_CONSUMER_PATHS_2026-07-15.txt
+?? proofs/brain-reconciliation/block-1/TTROS_DASHBOARD_MEMORY_2026-07-15.png
+?? proofs/brain-reconciliation/block-1/TTROS_OBSIDIAN_GRAPH_2026-07-15.png
+?? proofs/brain-reconciliation/block-1/TTROS_OBSIDIAN_MEMORY_INDEX_2026-07-15.png
+?? proofs/brain-reconciliation/block-1/TTROS_OBSIDIAN_README_2026-07-15.png
+?? proofs/brain-reconciliation/block-1/VAULT_CONTENT_AFTER_2026-07-15.sha256
+?? proofs/brain-reconciliation/block-1/VAULT_CONTENT_BEFORE_2026-07-15.sha256
+?? proofs/brain-reconciliation/block-1/VAULT_METADATA_AFTER_2026-07-15.tsv
+?? proofs/brain-reconciliation/block-1/VAULT_METADATA_BEFORE_2026-07-15.tsv
+?? proofs/brain-reconciliation/block-1/VAULT_POST_GRAPHIFY_2026-07-15.sha256
+?? proofs/brain-reconciliation/block-1/VAULT_POST_STRUCTURE_PRE_GRAPHIFY_2026-07-15.sha256
+?? proofs/brain-reconciliation/block-1/VAULT_STRUCTURE_REPORT_2026-07-15.json
+?? proofs/brain-reconciliation/block-2/BLOCK_2_ATTRIBUTABLE_CONTENT_AFTER_2026-07-15.sha256
+?? proofs/brain-reconciliation/block-2/BLOCK_2_CLOSEOUT_2026-07-15.md
+?? proofs/brain-reconciliation/block-2/BRAIN_CONTEXT_USED_SAMPLE_2026-07-15.json
+?? proofs/brain-reconciliation/block-2/BUSINESS_BRAIN_GRAPHIFY_CONTENT_AFTER_2026-07-15.sha256
+?? proofs/brain-reconciliation/block-2/BUSINESS_BRAIN_GRAPHIFY_CONTENT_BEFORE_2026-07-15.sha256
+?? proofs/brain-reconciliation/block-2/BUSINESS_BRAIN_GRAPHIFY_METADATA_AFTER_2026-07-15.tsv
+?? proofs/brain-reconciliation/block-2/BUSINESS_BRAIN_GRAPHIFY_METADATA_BEFORE_2026-07-15.tsv
+?? proofs/brain-reconciliation/block-2/CLIENT_SCOPE_REGISTRY_REPORT_2026-07-15.md
+?? proofs/brain-reconciliation/block-2/DASHBOARD_MEMORY_API_LIVE_2026-07-15.json
+?? proofs/brain-reconciliation/block-2/DASHBOARD_SCOPED_SEARCH_API_LIVE_2026-07-15.json
+?? proofs/brain-reconciliation/block-2/DETERMINISTIC_WRITE_DIFF_2026-07-15.patch
+?? proofs/brain-reconciliation/block-2/DETERMINISTIC_WRITE_RECORD_2026-07-15.json
+?? proofs/brain-reconciliation/block-2/FILES_TOUCHED_2026-07-15.txt
+?? proofs/brain-reconciliation/block-2/FINAL_STATE_AFTER_2026-07-15.txt
+?? proofs/brain-reconciliation/block-2/GOAL_VERIFIER_CLASSIFICATION_2026-07-15.md
+?? proofs/brain-reconciliation/block-2/GOAL_VERIFIER_FINAL_2026-07-15.txt
+?? proofs/brain-reconciliation/block-2/GOAL_VERIFIER_FINAL_RAW_2026-07-15.txt
+?? proofs/brain-reconciliation/block-2/GOAL_VERIFIER_INITIAL_2026-07-15.txt
+?? proofs/brain-reconciliation/block-2/GRAPHIFY_ASSISTED_LOADER_RAW_2026-07-15.json
+?? proofs/brain-reconciliation/block-2/GRAPHIFY_PASS10_INTAKE_CONTENT_AFTER_2026-07-15.sha256
+?? proofs/brain-reconciliation/block-2/GRAPHIFY_PASS10_INTAKE_CONTENT_BEFORE_2026-07-15.sha256
+?? proofs/brain-reconciliation/block-2/GRAPHIFY_PASS10_RECEIPTS_CONTENT_AFTER_2026-07-15.sha256
+?? proofs/brain-reconciliation/block-2/GRAPHIFY_PASS10_RECEIPTS_CONTENT_BEFORE_2026-07-15.sha256
+?? proofs/brain-reconciliation/block-2/GRAPHIFY_PASS10_REPO_GRAPHS_CONTENT_AFTER_2026-07-15.sha256
+?? proofs/brain-reconciliation/block-2/GRAPHIFY_PASS10_REPO_GRAPHS_CONTENT_BEFORE_2026-07-15.sha256
+?? proofs/brain-reconciliation/block-2/GRAPHIFY_REFRESH_BUILD_2026-07-15.json
+?? proofs/brain-reconciliation/block-2/GRAPHIFY_REFRESH_UNCHANGED_2026-07-15.json
+?? proofs/brain-reconciliation/block-2/GRAPHIFY_SCOPED_QUERY_2026-07-15.json
+?? proofs/brain-reconciliation/block-2/GRAPHIFY_STATUS_CURRENT_2026-07-15.json
+?? proofs/brain-reconciliation/block-2/GRAPH_SELECTOR_REPORT_2026-07-15.md
+?? proofs/brain-reconciliation/block-2/IMMUTABLE_QUEUE_ITEMS_AFTER_2026-07-15.sha256
+?? proofs/brain-reconciliation/block-2/IMMUTABLE_QUEUE_ITEMS_BEFORE_2026-07-15.sha256
+?? proofs/brain-reconciliation/block-2/ISOLATION_TEST_REPORT_2026-07-15.md
+?? proofs/brain-reconciliation/block-2/LATER_RETRIEVAL_POINTER_RAW_2026-07-15.json
+?? proofs/brain-reconciliation/block-2/LATER_RETRIEVAL_RECEIPT_2026-07-15.md
+?? proofs/brain-reconciliation/block-2/LATER_RETRIEVAL_SEARCH_RAW_2026-07-15.json
+?? proofs/brain-reconciliation/block-2/NEVER_PROMOTE_PROOF_2026-07-15.md
+?? proofs/brain-reconciliation/block-2/NEVER_PROMOTE_RECORD_2026-07-15.json
+?? proofs/brain-reconciliation/block-2/PREFLIGHT_STATE_BEFORE_2026-07-15.txt
+?? proofs/brain-reconciliation/block-2/PRESERVATION_AND_COLLISION_REPORT_2026-07-15.md
+?? proofs/brain-reconciliation/block-2/PROMOTION_AUTHORITY_TIER_REPORT_2026-07-15.md
+?? proofs/brain-reconciliation/block-2/PROMOTION_ROLLBACK_REPORT_2026-07-15.md
+?? proofs/brain-reconciliation/block-2/PROTECTED_PATH_METADATA_AFTER_2026-07-15.tsv
+?? proofs/brain-reconciliation/block-2/PROTECTED_PATH_METADATA_BEFORE_2026-07-15.tsv
+?? proofs/brain-reconciliation/block-2/QUEUE_RECEIPTS_LEDGERS_SEARCH_CONTENT_AFTER_2026-07-15.sha256
+?? proofs/brain-reconciliation/block-2/QUEUE_RECEIPTS_LEDGERS_SEARCH_CONTENT_BEFORE_2026-07-15.sha256
+?? proofs/brain-reconciliation/block-2/QUEUE_RECEIPTS_LEDGERS_SEARCH_METADATA_AFTER_2026-07-15.tsv
+?? proofs/brain-reconciliation/block-2/QUEUE_RECEIPTS_LEDGERS_SEARCH_METADATA_BEFORE_2026-07-15.tsv
+?? proofs/brain-reconciliation/block-2/REVIEW_TIER_PROPOSAL_PROOF_2026-07-15.md
+?? proofs/brain-reconciliation/block-2/REVIEW_TIER_PROPOSAL_RECORD_2026-07-15.json
+?? proofs/brain-reconciliation/block-2/RUN_TOKEN_GOAL_LEDGERS_AFTER_2026-07-15.sha256
+?? proofs/brain-reconciliation/block-2/RUN_TOKEN_GOAL_LEDGERS_BEFORE_2026-07-15.sha256
+?? proofs/brain-reconciliation/block-2/SCOPED_RETRIEVAL_REPORT_2026-07-15.md
+?? proofs/brain-reconciliation/block-2/SEARCH_DB_PRE_REINDEX_AFTER_WRITE_2026-07-15.sha256
+?? proofs/brain-reconciliation/block-2/SEARCH_REINDEX_PRESERVATION_REPORT_2026-07-15.md
+?? proofs/brain-reconciliation/block-2/TTROS_BLOCK_2_MEMORY_BOARD_2026-07-15.png
+?? proofs/brain-reconciliation/block-2/UNRELATED_DIRTY_CONTENT_AFTER_2026-07-15.sha256
+?? proofs/brain-reconciliation/block-2/UNRELATED_DIRTY_CONTENT_BEFORE_2026-07-15.sha256
+?? proofs/brain-reconciliation/block-2/VAULT_BACKUPS_CONTENT_AFTER_2026-07-15.sha256
+?? proofs/brain-reconciliation/block-2/VAULT_BACKUPS_CONTENT_BEFORE_2026-07-15.sha256
+?? proofs/brain-reconciliation/block-2/VAULT_CONTENT_AFTER_2026-07-15.sha256
+?? proofs/brain-reconciliation/block-2/VAULT_CONTENT_BEFORE_2026-07-15.sha256
+?? proofs/brain-reconciliation/block-2/VAULT_METADATA_AFTER_2026-07-15.tsv
+?? proofs/brain-reconciliation/block-2/VAULT_METADATA_BEFORE_2026-07-15.tsv
+?? proofs/brain-reconciliation/block-2/VAULT_STRUCTURE_AFTER_2026-07-15.json
+?? proofs/brain-reconciliation/block-2/WORKTREE_CONTENT_AFTER_2026-07-15.sha256
+?? proofs/brain-reconciliation/block-2/WORKTREE_CONTENT_BEFORE_2026-07-15.sha256
+?? proofs/brain-reconciliation/block-2/WORKTREE_PATHS_AFTER_2026-07-15.txt
+?? proofs/brain-reconciliation/block-2/WORKTREE_PATHS_BEFORE_2026-07-15.txt
+?? queue/receipts/brain-promotion-d675303903a41b6c823e6d2e-failed-acda3f8425fe.json
+?? queue/receipts/brain-promotion-d675303903a41b6c823e6d2e.json
+?? queue/receipts/brain-promotion-d675303903a41b6c823e6d2e.patch
+?? tests/__init__.py
+?? tests/business_brain_test_support.py
+?? tests/test_aos_dashboard_cleanup.py
+?? tests/test_business_brain.py
+?? tests/test_business_brain_context.py
+?? tests/test_business_brain_full_loop.py
+?? tests/test_business_brain_graph.py
+?? tests/test_business_brain_promotion.py
+?? tests/test_business_brain_scope.py
+?? tests/test_business_brain_search_scope.py
+?? tests/test_business_brain_vault.py
+?? tests/test_dashboard_memory.py
+?? tools/aos_graphify_markdown_extract.py
+?? tools/business_brain.py
+?? tools/business_brain_context.py
+?? tools/business_brain_promotion.py
+?? tools/business_brain_scope.py
+?? tools/validate_business_brain.py
+
+PRESERVATION
+unrelated dirty files: IDENTICAL
+protected path metadata: IDENTICAL
+immutable queue items: IDENTICAL
+vault backups: IDENTICAL
+run/token/goal ledgers: IDENTICAL
+Pass 10 intake/repo_graphs/receipts: IDENTICAL
+
+LIVE PROOF
+vault_validation=PASS
+search_reindex=PASS
+fresh_pointer_retrieval=PASS PID=3732
+fresh_search_retrieval=PASS PID=3733
+graph_scoped_retrieval=PASS PID=3832
+dashboard_api_browser=PASS
+
+BLOCK 2 STATUS
+checkpoint=2
+block_3_started=no
+blockers=none
+token_usage=unavailable from current CLI output

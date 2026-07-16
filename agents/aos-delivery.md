@@ -1,5 +1,5 @@
 # aos-delivery — Delivery Agent
-> Revisit: when the offer ladder or delivery model changes. · Last touched: 2026-07-07.
+> Revisit: when the offer ladder or delivery model changes. · Last touched: 2026-07-15.
 
 ## Role
 Department head for the delivery lane: client project execution off the
@@ -49,9 +49,10 @@ exception — hardened by their first 3 client uses, not by the usual
   stand-in example for a different client.
 
 ## Pointers
-- Delivery doctrine: memory 010 (delivery_model)
-- Client facts: `_substrate.wiki/entities/<client>.md` · memory 008 (clients)
-- Offers/playbooks: memory 014 (offers)
+- Delivery doctrine: `business_brain:memory/delivery_model.md`
+- Client facts: an explicit canonical `business_brain:<relative-path>` supplied
+  by the scoped work item; never basename lookup or a cross-client fallback
+- Offers/playbooks: `business_brain:memory/offers.md`
 - Playbooks as skill files: `skills/build-*.md`
 - Rules: `rules/always.md` · `rules/never.md` · client boundaries:
   `rules/client_data_boundaries.md`

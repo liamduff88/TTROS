@@ -1,10 +1,9 @@
 # goals/business_brain_pointer_valid.goal.md
-> Revisit: on a Business Brain move or a failed daily check. · Last touched: 2026-07-07.
+> Revisit: on a Business Brain move or a failed daily check. · Last touched: 2026-07-15.
 
-predicate: the TTROS Business Brain path this OS points to
-  (`C:\Users\Admin\Documents\A-Time to revenue\TTROS Business Brain`,
-  `_substrate.wiki/schema.md` readable) exists and is readable — not moved,
-  not renamed, not silently pointing at an old vault
+predicate: `business_brain:README.md` and
+  `business_brain:index/MEMORY_INDEX.md` resolve through the shared runtime
+  resolver to readable canonical files — never a backup or fallback vault
 born: 2026-07-07
 source: Batch 1 root identity + operating_context/protected_paths.md
 status: satisfied
@@ -22,5 +21,5 @@ answer looks normal while being wrong. This is the single cheapest check
 that catches it early.
 
 ## Enforces
-`rules/always.md` (read schema before querying) · `PROTECTED_PATHS.md`
+`rules/always.md` (use canonical logical pointers) · `PROTECTED_PATHS.md`
 (old vaults are archive-only, never a live dependency).

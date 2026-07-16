@@ -1,5 +1,5 @@
 # ALWAYS
-> Revisit: monthly review pass. · Last touched: 2026-07-08.
+> Revisit: monthly review pass. · Last touched: 2026-07-15.
 
 Operator-approved rule set (pruned 2026-07-08). Absolutes an LLM invented and
 the operator never approved were removed; see rules/never.md for the hard
@@ -9,7 +9,9 @@ prohibitions.
    model confirmed, tokens (exact / ~estimate / "unavailable" — never invented),
    artifact paths.
 2. Every external-facing draft states its outreach basis (CASL block for leads).
-3. Every wiki ingest appends one line to _substrate.wiki/log.md.
+3. Every approved Business Brain ingest uses canonical
+   `business_brain:<relative-path>` references and keeps
+   `business_brain:index/MEMORY_INDEX.md` navigable.
 4. Every new file in the substrate carries a Revisit: or Expires: line.
 5. Deterministic script first; cheap model second; strong model only on the
    two escalation triggers (rules/escalation.md). Model spend happens on

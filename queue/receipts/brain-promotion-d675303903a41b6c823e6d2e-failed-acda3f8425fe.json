@@ -1,0 +1,12 @@
+{
+  "change_class": "generated_marker_section",
+  "client_scope": "global",
+  "completed_at": "2026-07-15T18:44:06.814868Z",
+  "error": "injected post-write validation failure",
+  "rolled_back_to_exact_preimage": true,
+  "status": "failed",
+  "target": "business_brain:index/MEMORY_INDEX.md",
+  "token_usage_text": "Token usage: no agent invocation",
+  "verified_target_sha256": "a741c97bcac06b7dee5f9163bb5f8a80ab0e0aff064a19544e13d975bfae2669",
+  "write_id": "d675303903a41b6c823e6d2e"
+}

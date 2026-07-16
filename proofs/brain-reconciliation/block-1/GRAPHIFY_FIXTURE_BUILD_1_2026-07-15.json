@@ -1,0 +1,34 @@
+{
+  "artifact_hashes": {
+    "graph.json": "5f3c736edbf5e63423463aef45518eaa0223fa97e71ad3c38a4385693a1fd9d1",
+    "projection_manifest.json": "d3d64879ff5275154fa82e5c221ccda8d4d40cc389fa99c66ff8bbe35db46c56",
+    "source_manifest.json": "b55720da4b35e2e1622c0658d0e4c27543bef5be26ed34209916eb28ee7556f7"
+  },
+  "namespace": "ttros-business-brain",
+  "operation": "build",
+  "projection": {
+    "bodies_in_projection": false,
+    "explicit_wiki_edge_count": 3,
+    "graphify_cli_documents_mode": "requires external LLM key in graphify 0.9.11; TTROS uses the installed local Markdown extractor API",
+    "graphify_mode": "installed_graphify_structural_markdown",
+    "heading_node_count": 3,
+    "input_tokens": 0,
+    "namespace": "ttros-business-brain",
+    "output_tokens": 0,
+    "package_confirmed_wiki_edge_count": 2,
+    "raw_graphify_edge_count": 6,
+    "raw_graphify_node_count": 6,
+    "raw_graphify_reference_count": 3,
+    "schema_version": 1,
+    "source_count": 3,
+    "stable_note_id_count": 3,
+    "token_usage_text": "Token usage: no agent invocation",
+    "ttros_repaired_wiki_edge_count": 1
+  },
+  "published": "/tmp/ttros-graphify-fixture-20260715/graphify-root/document_graphs/ttros-business-brain/published",
+  "receipt_path": "/tmp/ttros-graphify-fixture-20260715/graphify-root/document_graphs/ttros-business-brain/receipts/20260715T133651732435Z-build-success.json",
+  "source_manifest_sha256": "125daa6ba2092633d68c262ecf8f0ca2485f56f349d4f174fe5c7db213d27032",
+  "status": "success",
+  "timestamp": "2026-07-15T13:36:51.732422Z",
+  "token_usage_text": "Token usage: no agent invocation"
+}

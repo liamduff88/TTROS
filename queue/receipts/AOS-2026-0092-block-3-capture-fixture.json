@@ -1,0 +1,22 @@
+{
+  "brain_context_used": [
+    {
+      "client_scope": "client:block-3-fixture-a",
+      "content_sha256": "ae72f9c4f0e4c30aa94cd6e8b2f758c343302b9206c6454d6ac44cf71e2056e9",
+      "note_id": "block-3-fixture-client-a",
+      "path": "business_brain:memory/block-3-fixture-a.md",
+      "retrieval_route": "pointer"
+    }
+  ],
+  "client_scope": "client:block-3-fixture-a",
+  "evidence_references": [
+    "capture:client:block-3-fixture-a:cap-fd8b98359235516024eeffac"
+  ],
+  "external_action": "none",
+  "item_id": "AOS-2026-0092",
+  "proposal_key": "3d8a902f3873641db17eb2a7b73c4346c433f2334a22dd9d09230670aac08797",
+  "record_id": "cap-fd8b98359235516024eeffac",
+  "schema_version": 1,
+  "status": "human_review",
+  "token_usage_text": "Token usage: no agent invocation"
+}

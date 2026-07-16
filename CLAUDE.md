@@ -1,5 +1,5 @@
 # CLAUDE.md — Claude Code workbench, TTROS Agentic OS
-> Revisit: quarterly, or on major repo refactor or model-generation jump. · Last touched: 2026-07-07.
+> Revisit: quarterly, or on major repo refactor or model-generation jump. · Last touched: 2026-07-15.
 
 ## Role
 Precision implementation: scaffolds, refactors, code review, test coverage, and
@@ -7,14 +7,15 @@ identity/rules/skills layer-file authoring. I build; Operating Hermes coordinate
 I am a workbench (a subprocess tool agents use), not a department agent.
 
 ## Before writing code
-- Read the repo map first: TTROS Business Brain/graph-imports/aos-repo/
-- Business context lives in _substrate.wiki/ — read schema.md before querying.
+- Read the repo-native map first: `README.md` and `context/PATHS.md`.
+- Route business context through `business_brain:index/MEMORY_INDEX.md`, then
+  resolve only the specific logical pointers needed for the task.
 - Check ROT.md before touching any layer file; respect its Revisit conventions
   and stamp `Last touched` on anything I edit.
 
 ## Hard rules (full list: rules/never.md)
-- All work targets AgenticOSClean and the live workspace only
-  (C:\Users\Admin\Documents\A-Time to revenue\Agentic OS Live).
+- All work targets AgenticOSClean and the authoritative live workspace only
+  (`/home/liam/agentic-os-live`).
 - No second dashboard. No new dashboard pages this phase. Patch in place.
 - Never touch protected paths, North Shore files, secrets, .env, credentials.
 - No external writes, no GitHub push, without explicit instruction.

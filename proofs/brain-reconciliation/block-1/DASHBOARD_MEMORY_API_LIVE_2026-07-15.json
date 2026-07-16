@@ -1,0 +1,39 @@
+{
+  "brain": {
+    "available": true,
+    "root": "business_brain:README.md",
+    "index": "business_brain:index/MEMORY_INDEX.md",
+    "file_count": 19,
+    "blocked_path_count": 18
+  },
+  "sample": [
+    {
+      "id": "ttros-brain-positioning",
+      "path": "business_brain:memory/positioning.md",
+      "title": "Positioning"
+    },
+    {
+      "id": "ttros-brain-ideal-clients",
+      "path": "business_brain:memory/ideal_clients.md",
+      "title": "Ideal Clients"
+    },
+    {
+      "id": "ttros-brain-protected-paths",
+      "path": "business_brain:operating_context/protected_paths.md",
+      "title": "Protected Paths"
+    }
+  ],
+  "all_titles_are_headings": true,
+  "promotion_queue": [],
+  "promotion_state": {
+    "mode": "inactive_until_block_2",
+    "available": false,
+    "reference_count": 0,
+    "references": [],
+    "reason": "No promotion evaluator or writer is active in Block 1; queue titles and tags are not promotion state."
+  },
+  "proof": {
+    "method": "GET http://127.0.0.1:8010/api/dashboard/memory through the real local backend",
+    "title_regression": "Every returned title was checked to differ from the YAML delimiter."
+  }
+}

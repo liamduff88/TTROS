@@ -1,0 +1,10 @@
+{
+  "client_scope": "global",
+  "query": "Block 2 deterministic promotion transaction",
+  "business_brain_result_count": 4,
+  "promoted_target_present": true,
+  "promoted_target": "business_brain:index/MEMORY_INDEX.md",
+  "snippets_and_bodies_omitted_from_proof": true,
+  "http_status": 200,
+  "token_usage_text": "Token usage: no agent invocation"
+}

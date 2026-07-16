@@ -1,0 +1,24 @@
+2026-07-15T14:12:02+01:00
+/home/liam/agentic-os-live
+8b26010772196c448e01fae4dacfbe4ef9106c4b
+8b26010772196c448e01fae4dacfbe4ef9106c4b
+8b26010772196c448e01fae4dacfbe4ef9106c4b
+# branch.oid 8b26010772196c448e01fae4dacfbe4ef9106c4b
+# branch.head main
+# branch.upstream origin/main
+# branch.ab +0 -0
+1 .M N... 100644 100644 100644 61c27094cbcca63319f10860fab5f077e9f85378 61c27094cbcca63319f10860fab5f077e9f85378 decisions/DECISIONS.md
+1 .M N... 100644 100644 100644 d1e86885736f463105d3e34b053c95bdc2fa4220 d1e86885736f463105d3e34b053c95bdc2fa4220 tests/test_aos_orchestration.py
+1 .M N... 100644 100644 100644 4011051c3ab447107d883fcb9dcae0bae38516a1 4011051c3ab447107d883fcb9dcae0bae38516a1 tools/aos-linux-runtime.sh
+? operating_context/TTROS_BRAIN_RECONCILIATION_RUNBOOK_FINAL_ADOPTED_2026-07-15.md
+? operating_context/TTROS_BRAIN_RECONCILIATION_RUNBOOK_FINAL_ADOPTED_2026-07-15.md:Zone.Identifier
+? operating_context/TTROS_LOCKED_DESIGN_PACKAGING_AMENDMENT_ADOPTED_2026-07-15.md
+? operating_context/TTROS_LOCKED_DESIGN_PACKAGING_AMENDMENT_ADOPTED_2026-07-15.md:Zone.Identifier
+? proofs/brain-reconciliation/block-1/EXPECTED_REPO_PATHS_BEFORE_2026-07-15.txt
+? proofs/brain-reconciliation/block-1/PREFLIGHT_STATE_BEFORE_2026-07-15.txt
+? tests/test_aos_dashboard_cleanup.py
+backend=stopped root=/home/liam/agentic-os-live
+frontend=stopped root=/home/liam/agentic-os-live
+runner=stopped root=/home/liam/agentic-os-live
+backend_ready=no
+frontend_ready=no

@@ -1,0 +1,221 @@
+{
+  "by_budget_class": {
+    "light": {
+      "count": 18,
+      "est_cost_usd": 0.0,
+      "input": 0,
+      "output": 0
+    },
+    "standard": {
+      "count": 12,
+      "est_cost_usd": 0.0,
+      "input": 11938198,
+      "output": 46200
+    }
+  },
+  "by_lane": {
+    "codex": {
+      "count": 21,
+      "est_cost_usd": 0.0,
+      "input": 11938198,
+      "output": 46200
+    },
+    "delivery": {
+      "count": 1,
+      "est_cost_usd": 0.0,
+      "input": 0,
+      "output": 0
+    },
+    "hermes": {
+      "count": 3,
+      "est_cost_usd": 0.0,
+      "input": 0,
+      "output": 0
+    },
+    "operations": {
+      "count": 5,
+      "est_cost_usd": 0.0,
+      "input": 0,
+      "output": 0
+    }
+  },
+  "by_model": {
+    "unavailable": {
+      "count": 3,
+      "est_cost_usd": 0.0,
+      "input": 11938198,
+      "output": 46200
+    }
+  },
+  "by_profile": {
+    "aos-ops": {
+      "count": 3,
+      "est_cost_usd": 0.0,
+      "input": 0,
+      "output": 0
+    },
+    "default": {
+      "count": 27,
+      "est_cost_usd": 0.0,
+      "input": 11938198,
+      "output": 46200
+    }
+  },
+  "by_workbench": {
+    "codex": {
+      "count": 3,
+      "est_cost_usd": 0.0,
+      "input": 11938198,
+      "output": 46200
+    }
+  },
+  "capture": {
+    "ambiguous_classifier_calls": 0,
+    "contains_message_content": false,
+    "cursor_replays": 4,
+    "deterministic_triage": {
+      "discard": 3,
+      "unresolved_identity": 73
+    },
+    "false_negative_findings": 0,
+    "false_positive_findings": 0,
+    "history_entries_received": 102,
+    "human_review_proposals": 0,
+    "isolation_incidents": 0,
+    "kill_switch_events": 1,
+    "needs_input_proposals": 31,
+    "polls_attempted": 18,
+    "polls_completed": 12,
+    "processing_failures": 1,
+    "provider_action_counts": {
+      "GMAIL_FETCH_EMAILS": 4,
+      "GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID": 14,
+      "GMAIL_GET_PROFILE": 17,
+      "GMAIL_LIST_HISTORY": 11
+    },
+    "records_deduplicated": 44,
+    "stage2_exact_tokens": {
+      "input": 0,
+      "output": 0
+    },
+    "stage3_exact_tokens": {
+      "input": 0,
+      "output": 0
+    },
+    "whitelist_entries": 0
+  },
+  "escalation": {
+    "escalated_cost_usd": 0.0,
+    "escalated_share": 0.0,
+    "total_cost_usd": 0.0
+  },
+  "generated_from": "queue/token_ledger.jsonl",
+  "line_count": 30,
+  "model_prices": "scripts/model_prices.json (placeholder rates until filled)",
+  "top_items": [
+    {
+      "budget_class": "standard",
+      "escalated": false,
+      "est_cost_usd": 0.0,
+      "input": 10937078,
+      "item_id": "AOS-2026-0087",
+      "lane": "codex",
+      "output": 35326
+    },
+    {
+      "budget_class": "standard",
+      "escalated": false,
+      "est_cost_usd": 0.0,
+      "input": 973742,
+      "item_id": "AOS-2026-0089",
+      "lane": "codex",
+      "output": 10707
+    },
+    {
+      "budget_class": "standard",
+      "escalated": false,
+      "est_cost_usd": 0.0,
+      "input": 27378,
+      "item_id": "AOS-2026-0087",
+      "lane": "codex",
+      "output": 167
+    },
+    {
+      "budget_class": "standard",
+      "escalated": false,
+      "est_cost_usd": 0,
+      "input": 0,
+      "item_id": "AOS-2026-0078",
+      "lane": "codex",
+      "output": 0
+    },
+    {
+      "budget_class": "light",
+      "escalated": false,
+      "est_cost_usd": 0,
+      "input": 0,
+      "item_id": "AOS-2026-0079",
+      "lane": "codex",
+      "output": 0
+    },
+    {
+      "budget_class": "standard",
+      "escalated": false,
+      "est_cost_usd": 0,
+      "input": 0,
+      "item_id": "AOS-2026-0079",
+      "lane": "codex",
+      "output": 0
+    },
+    {
+      "budget_class": "light",
+      "escalated": false,
+      "est_cost_usd": 0,
+      "input": 0,
+      "item_id": "AOS-2026-0080",
+      "lane": "codex",
+      "output": 0
+    },
+    {
+      "budget_class": "light",
+      "escalated": false,
+      "est_cost_usd": 0,
+      "input": 0,
+      "item_id": "AOS-2026-0062",
+      "lane": "operations",
+      "output": 0
+    },
+    {
+      "budget_class": "light",
+      "escalated": false,
+      "est_cost_usd": 0,
+      "input": 0,
+      "item_id": "AOS-2026-0064",
+      "lane": "operations",
+      "output": 0
+    },
+    {
+      "budget_class": "light",
+      "escalated": false,
+      "est_cost_usd": 0,
+      "input": 0,
+      "item_id": "AOS-2026-0070",
+      "lane": "delivery",
+      "output": 0
+    }
+  ],
+  "totals": {
+    "est_cost_usd": 0.0,
+    "input": 11938198,
+    "output": 46200
+  },
+  "unavailable_components": {
+    "Codex model identity": 3,
+    "cost for unavailable Codex model": 3,
+    "no agent invocation": 15,
+    "orchestrator tokens": 9,
+    "subagent tokens": 9,
+    "workbench session totals": 9
+  },
+  "week": "2026-W29"
+}

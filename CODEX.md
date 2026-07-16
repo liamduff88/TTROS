@@ -1,5 +1,5 @@
 # CODEX.md — Codex workbench, TTROS Agentic OS
-> Revisit: quarterly, or on major repo refactor or model-generation jump. · Last touched: 2026-07-07.
+> Revisit: quarterly, or on major repo refactor or model-generation jump. · Last touched: 2026-07-15.
 
 ## Role
 Repo inspection, audits, validation runs, and adversarial checks. Codex is the
@@ -16,8 +16,9 @@ department agent.
   compared against os-blueprint.md before acceptance.
 
 ## Before working
-- Read the repo map: TTROS Business Brain/graph-imports/aos-repo/
-- Business context: _substrate.wiki/ — schema.md before querying.
+- Read the repo-native map: `README.md` and `context/PATHS.md`.
+- Route business context through `business_brain:index/MEMORY_INDEX.md`, then
+  resolve only the specific logical pointers needed for the task.
 - ROT.md before touching any layer file; stamp `Last touched` on edits.
 
 ## Hard rules (full list: rules/never.md)

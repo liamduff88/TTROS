@@ -1,0 +1,22 @@
+{
+  "fallback": null,
+  "graph_state": "fresh",
+  "query": "offers positioning revenue",
+  "targets": [
+    {
+      "path": "business_brain:memory/offers.md",
+      "score": 3.0
+    },
+    {
+      "path": "business_brain:memory/positioning.md",
+      "score": 3.0
+    },
+    {
+      "path": "business_brain:memory/sales_and_revenue.md",
+      "score": 3.0
+    }
+  ],
+  "token_usage_text": "Token usage: no agent invocation",
+  "trust_note": "Block 1 operator proof only; Block 2 client-scope enforcement is not active.",
+  "trusted_for_model": false
+}

@@ -18,6 +18,10 @@ BACKEND_URL="http://127.0.0.1:8010/api/health"
 FRONTEND_URL="http://127.0.0.1:3010/"
 RUNNER_INTERVAL="${AOS_RUNNER_INTERVAL_SECONDS:-5}"
 
+CAPTURE_SCRIPT="${ROOT}/tools/aos_capture_live.py"
+CAPTURE_PYTHON="${AOS_CAPTURE_PYTHON:-/usr/bin/python3}"
+CAPTURE_TIMEOUT_SECONDS=180
+
 export AOS_ROOT="$ROOT"
 export PYTHONDONTWRITEBYTECODE=1
 export AOS_DISABLE_TELEMETRY="${AOS_DISABLE_TELEMETRY:-1}"
@@ -148,7 +152,29 @@ status() {
   return "$result"
 }
 
+# Phase 6B production commands. The poller enforces activation, kill-switch,
+# metadata-only provider access, cursor durability, and its own non-overlap lock.
+# Revisit: after the observation window or a scheduler contract change. · Last touched: 2026-07-16.
+capture_poll() {
+  authority_check
+  exec "$CAPTURE_PYTHON" "$CAPTURE_SCRIPT" poll "$@"
+}
+
+capture_scheduled() {
+  authority_check
+  exec /usr/bin/timeout --signal=TERM "$CAPTURE_TIMEOUT_SECONDS" \
+    "$CAPTURE_PYTHON" "$CAPTURE_SCRIPT" poll --scheduled "$@"
+}
+
+capture_status() {
+  authority_check
+  exec "$CAPTURE_PYTHON" "$CAPTURE_SCRIPT" status
+}
+
 case "${1:-}" in
+  capture-poll) shift; capture_poll "$@" ;;
+  capture-scheduled) shift; capture_scheduled "$@" ;;
+  capture-status) capture_status ;;
   start) start ;;
   stop) stop ;;
   restart) stop || true; start ;;

@@ -1,0 +1,20 @@
+{
+  "brain_context_used": [
+    {
+      "client_scope": "global",
+      "content_sha256": "afcd3d1644453f763158d2b0b59430299abfd560a71e452a4d27e693b36379b7",
+      "note_id": "ttros-brain-memory-index",
+      "path": "business_brain:index/MEMORY_INDEX.md",
+      "retrieval_route": "graphify"
+    }
+  ],
+  "content_count": 1,
+  "fresh_process_pid": 3832,
+  "graph_state": {
+    "fallback": null,
+    "state": "fresh"
+  },
+  "query_present_in_opened_content": true,
+  "status": "success",
+  "token_usage_text": "Token usage: no agent invocation"
+}

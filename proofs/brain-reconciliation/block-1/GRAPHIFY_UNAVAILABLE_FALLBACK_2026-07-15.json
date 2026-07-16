@@ -1,0 +1,11 @@
+{
+  "fallback": {
+    "reason": "published graph is missing or invalid",
+    "route": "pointers_search"
+  },
+  "graph_state": "unavailable",
+  "query": "offers",
+  "targets": [],
+  "token_usage_text": "Token usage: no agent invocation",
+  "trusted_for_model": false
+}
