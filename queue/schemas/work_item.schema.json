@@ -203,6 +203,18 @@
         "null"
       ]
     },
+    "review": {
+      "type": "string",
+      "enum": ["none", "model"]
+    },
+    "run_prompt_path": {
+      "type": "string",
+      "pattern": "^queue/run_prompts/[A-Za-z0-9_.-]+\\.md$"
+    },
+    "needs_me": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
     "claim": {
       "type": "object",
       "required": [

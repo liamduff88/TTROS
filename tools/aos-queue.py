@@ -18,6 +18,7 @@ import shutil
 import subprocess
 import sys
 import uuid
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -30,6 +31,13 @@ if str(TOOLS_DIR) not in sys.path:
     sys.path.insert(0, str(TOOLS_DIR))
 
 from aos_paths import AuthorityError, aos_root, assert_authoritative_root
+from aos_codex_policy import (
+    CODEX_TARGET,
+    CodexPolicyError,
+    build_environment as build_codex_environment,
+    build_exec_command as build_codex_exec_command,
+    validate_runtime as validate_codex_runtime,
+)
 from aos_queue_storage import QueueStorageError, durable_replace_text, queue_write_lock
 from business_brain_context import BrainContextError, validate_completion_context
 
@@ -59,6 +67,18 @@ CODEX_TOKEN_SUMMARY_RE = re.compile(
     r"output=(?P<output>[\d,]+)"
     r"(?:\s+\(reasoning\s+(?P<reasoning>[\d,]+)\))?\s*$",
     re.MULTILINE,
+)
+UNAVAILABLE_CLI_VALUE = "unavailable from current CLI output"
+CODEX_COUNTER_FIELDS = (
+    "initial_prompt_bytes",
+    "model_turns",
+    "retained_context_bytes",
+    "compaction_count",
+    "fresh_input",
+    "cached_input",
+    "output",
+    "reasoning",
+    "largest_tool_result_bytes",
 )
 
 APPROVED_STATUSES = {
@@ -512,14 +532,25 @@ def _append_jsonl(root: Path, path: Path, line: dict, *, effect_id: str | None =
         return True
 
 
-def _write_receipt_token_usage(root: Path, item_id: str, receipt_path: str | None, block: dict, invocation: dict) -> str:
+def _write_receipt_token_usage(
+    root: Path,
+    item_id: str,
+    receipt_path: str | None,
+    block: dict,
+    invocation: dict,
+    counters: dict | None = None,
+) -> str:
     """Attach the token_usage block to the item's receipt.
 
     If a markdown receipt exists, append a fenced block (idempotent per id).
     Always also write a machine-readable sidecar so the receipt-completeness
     hook and the dashboard have a deterministic source.
     """
-    payload = {"token_usage": block, "profile_invocation": invocation}
+    payload = {
+        "token_usage": block,
+        "profile_invocation": invocation,
+        **(counters or _unavailable_codex_counters()),
+    }
     sidecar = root / RECEIPTS_DIR / f"{item_id}.token_usage.json"
     sidecar.parent.mkdir(parents=True, exist_ok=True)
     existing_payload = _read_json_or(None, sidecar) if sidecar.exists() else None
@@ -556,6 +587,54 @@ def _token_payload_is_exact(payload: object) -> bool:
     return not unavailable and all(_coerce_int(totals.get(key)) is not None for key in ("input", "output"))
 
 
+def _unavailable_codex_counters() -> dict:
+    return {key: UNAVAILABLE_CLI_VALUE for key in CODEX_COUNTER_FIELDS}
+
+
+def parse_codex_usage_counters(output: str) -> dict:
+    """Parse only counters explicitly emitted by Codex; never derive missing values."""
+    counters = _unavailable_codex_counters()
+    aliases = {
+        "input_tokens": "fresh_input",
+        "cached_input_tokens": "cached_input",
+        "output_tokens": "output",
+        "reasoning_output_tokens": "reasoning",
+    }
+    for raw in (output or "").splitlines():
+        try:
+            event = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(event, dict):
+            continue
+        containers = [event]
+        containers.extend(
+            event[key] for key in ("usage", "usage_counters", "metrics")
+            if isinstance(event.get(key), dict)
+        )
+        for container in containers:
+            for source, target in (*((key, key) for key in CODEX_COUNTER_FIELDS), *aliases.items()):
+                value = _coerce_int(container.get(source))
+                if value is None:
+                    continue
+                if value < 0:
+                    raise QueueError(f"Codex usage counter {source} must be a non-negative integer")
+                counters[target] = value
+    terminal_matches = list(CODEX_TOKEN_SUMMARY_RE.finditer(output or ""))
+    if terminal_matches:
+        terminal = terminal_matches[-1].groupdict()
+        for source, target in (
+            ("input", "fresh_input"),
+            ("cached", "cached_input"),
+            ("output", "output"),
+            ("reasoning", "reasoning"),
+        ):
+            value = terminal.get(source)
+            if value is not None:
+                counters[target] = int(value.replace(",", ""))
+    return counters
+
+
 def parse_codex_token_summary(output: str) -> dict:
     """Return the final exact Codex token summary from combined process output."""
     terminal_matches = list(CODEX_TOKEN_SUMMARY_RE.finditer(output or ""))
@@ -585,6 +664,7 @@ def parse_codex_token_summary(output: str) -> dict:
             "total": values["input"] + values["output"],
             "raw_summary": raw.strip(),
             "summary_format": "turn.completed JSONL",
+            "usage_counters": parse_codex_usage_counters(output),
         }
         _validate_codex_summary(parsed)
         if terminal_matches:
@@ -608,6 +688,7 @@ def parse_codex_token_summary(output: str) -> dict:
         }
         parsed["raw_summary"] = match.group(0).strip()
         parsed["summary_format"] = "text"
+        parsed["usage_counters"] = parse_codex_usage_counters(output)
         _validate_codex_summary(parsed)
         return parsed
     raise QueueError("Codex exited without a parseable final token summary")
@@ -673,15 +754,23 @@ def _codex_usage_block(summary: dict | None, session_id: str) -> dict:
     }
 
 
-def _codex_capture_evidence(summary: dict | None, cli_version: str, source: str) -> dict:
+def _codex_capture_evidence(
+    summary: dict | None,
+    cli_version: str,
+    source: str,
+    invocation: dict | None = None,
+) -> dict:
     if summary is None:
-        return {
+        evidence = {
             "source": source,
             "captured_after_process_exit": True,
             "summary_format": "unavailable",
             "cli_version": cli_version or "unavailable",
             "model_identity": "unavailable",
         }
+        if invocation:
+            evidence["invocation"] = invocation
+        return evidence
     evidence = {
         "source": source,
         "captured_after_process_exit": True,
@@ -704,7 +793,21 @@ def _codex_capture_evidence(summary: dict | None, cli_version: str, source: str)
         evidence["reasoning_output_tokens"] = summary["reasoning"]
     if summary.get("terminal_summary_cross_check"):
         evidence["terminal_summary_cross_check"] = summary["terminal_summary_cross_check"]
+    if invocation:
+        evidence["invocation"] = invocation
     return evidence
+
+
+def _codex_usage_counters(summary: dict | None) -> dict:
+    if not isinstance(summary, dict) or not isinstance(summary.get("usage_counters"), dict):
+        return _unavailable_codex_counters()
+    counters = summary["usage_counters"]
+    return {
+        key: counters.get(key)
+        if _coerce_int(counters.get(key)) is not None
+        else UNAVAILABLE_CLI_VALUE
+        for key in CODEX_COUNTER_FIELDS
+    }
 
 
 def _replace_receipt_token_usage(
@@ -755,6 +858,7 @@ def reconcile_codex_usage(
     session_id: str,
     *,
     source: str = "Codex supervisor final structured usage event",
+    invocation: dict | None = None,
 ) -> dict:
     """Reconcile one Codex invocation independently of the queue status lifecycle."""
     item = find_item(load_items(root), item_id)
@@ -785,7 +889,8 @@ def reconcile_codex_usage(
         raise QueueError(f"Duplicate token-ledger identity for {item_id} + {session_id}")
 
     block = _codex_usage_block(summary, session_id)
-    evidence = _codex_capture_evidence(summary, cli_version, source)
+    evidence = _codex_capture_evidence(summary, cli_version, source, invocation)
+    counters = _codex_usage_counters(summary)
     existing = rows[matches[0]] if matches else None
     if existing:
         existing_workbenches = (existing.get("token_usage") or {}).get("workbenches") or []
@@ -794,6 +899,7 @@ def reconcile_codex_usage(
             reconciled = existing
             block = existing["token_usage"]
             evidence = existing.get("capture_evidence") or evidence
+            counters = {key: existing.get(key, UNAVAILABLE_CLI_VALUE) for key in CODEX_COUNTER_FIELDS}
         elif existing_exact:
             old = existing.get("capture_evidence") or {}
             old_values = (
@@ -828,21 +934,26 @@ def reconcile_codex_usage(
             "capture_evidence": evidence,
             "effect_id": f"codex:{item_id}:{session_id}:tokens",
         }
+        if invocation:
+            reconciled["invocation"] = invocation
+    reconciled.update(counters)
     token_err = _validate_against_schema(reconciled, root / TOKEN_LEDGER_SCHEMA_PATH)
     if token_err:
         raise QueueError(f"reconciled token_ledger line failed schema: {token_err}")
 
-    invocation = {
+    profile_invocation = {
         "invoked": True,
         "tool": "codex",
         "session_id": session_id,
         "lifecycle": "process_exit",
         "queue_status_at_reconciliation": item.get("status"),
+        **({"runtime_policy": invocation} if invocation else {}),
     }
     payload = {
         "token_usage": block,
-        "profile_invocation": invocation,
+        "profile_invocation": profile_invocation,
         "capture_evidence": evidence,
+        **counters,
     }
     if matches:
         rows[matches[0]] = reconciled
@@ -869,36 +980,43 @@ def reconcile_codex_usage(
 
 
 def run_codex_work_item(root: Path, item_id: str, prompt: str, *, codex_bin: str | None = None) -> dict:
-    """Run Codex noninteractively, capture merged output, wait, and reconcile."""
+    """Run Codex noninteractively, capture both streams, wait, and reconcile."""
     find_item(load_items(root), item_id)  # explicit association must exist before launch
-    executable = codex_bin or shutil.which("codex")
-    if not executable:
-        raise QueueError("codex CLI not found on PATH")
+    try:
+        runtime_target = (
+            replace(CODEX_TARGET, root=root, executable=Path(codex_bin), codex_home=root / ".codex")
+            if codex_bin else CODEX_TARGET
+        )
+        invocation = validate_codex_runtime(root, runtime_target)
+        command = build_codex_exec_command(runtime_target)
+        environment = build_codex_environment(runtime_target)
+    except CodexPolicyError as exc:
+        raise QueueError(str(exc)) from exc
     version_proc = subprocess.run(
-        [executable, "--version"], capture_output=True, text=True, timeout=20, check=False,
+        [str(runtime_target.executable), "--version"], cwd=str(runtime_target.root),
+        env=environment, capture_output=True, text=True, timeout=20, check=False,
     )
     cli_version = ((version_proc.stdout or "") + (version_proc.stderr or "")).strip() or "unavailable"
-    command = [
-        executable,
-        "--sandbox", "workspace-write",
-        "--ask-for-approval", "never",
-        "-C", str(root),
-        "exec", "--skip-git-repo-check", "--json", "--color", "never", "-",
-    ]
     proc = subprocess.Popen(
         command,
-        cwd=root,
+        cwd=runtime_target.root,
+        env=environment,
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
+        stderr=subprocess.PIPE,
         text=True,
         encoding="utf-8",
         errors="replace",
+        start_new_session=True,
+        close_fds=True,
     )
     supervisor_invocation_id = f"supervisor-{uuid.uuid4()}"
-    combined, _ = proc.communicate(prompt)
-    sys.stdout.write(combined or "")
+    stdout, stderr = proc.communicate(prompt)
+    combined = "\n".join(part for part in (stdout, stderr) if part)
+    sys.stdout.write(stdout or "")
     sys.stdout.flush()
+    sys.stderr.write(stderr or "")
+    sys.stderr.flush()
     session_id = parse_codex_session_id(combined or "") or supervisor_invocation_id
     try:
         summary = parse_codex_token_summary(combined or "")
@@ -908,6 +1026,7 @@ def run_codex_work_item(root: Path, item_id: str, prompt: str, *, codex_bin: str
         result = reconcile_codex_usage(
             root, item_id, None, cli_version, session_id,
             source="Codex supervisor process exit; usage unavailable",
+            invocation=invocation,
         )
     else:
         source = (
@@ -915,10 +1034,19 @@ def run_codex_work_item(root: Path, item_id: str, prompt: str, *, codex_bin: str
             if summary.get("summary_format") == "turn.completed JSONL"
             else "Codex supervisor final terminal usage summary"
         )
-        result = reconcile_codex_usage(root, item_id, summary, cli_version, session_id, source=source)
+        result = reconcile_codex_usage(
+            root, item_id, summary, cli_version, session_id,
+            source=source, invocation=invocation,
+        )
     if proc.returncode != 0:
         raise QueueError(f"Codex exited with status {proc.returncode}; process-exit usage was reconciled")
-    return result
+    return {
+        **result,
+        "returncode": proc.returncode,
+        "stdout": stdout or "",
+        "stderr": stderr or "",
+        "invocation": invocation,
+    }
 
 
 def finalize_done(
@@ -1011,6 +1139,7 @@ def finalize_done(
         "model_confirmed": resolved_model_confirmed,
         "budget_class": resolved_budget,
         "token_usage": block,
+        **_unavailable_codex_counters(),
     }
 
     # Hard block: a line that fails schema validation must never be appended
@@ -1023,7 +1152,9 @@ def finalize_done(
     if token_err:
         raise QueueError(f"token_ledger line failed schema; refusing done-transition: {token_err}")
 
-    sidecar_path = _write_receipt_token_usage(root, item["id"], resolved_receipt, block, invocation)
+    sidecar_path = _write_receipt_token_usage(
+        root, item["id"], resolved_receipt, block, invocation, _unavailable_codex_counters()
+    )
     stable_effect = effect_id or f"done:{item['id']}:{timestamp}"
     _append_jsonl(root, root / RUN_LEDGER_PATH, run_line, effect_id=f"{stable_effect}:run")
     _append_jsonl(root, root / TOKEN_LEDGER_PATH, token_line, effect_id=f"{stable_effect}:tokens")
@@ -1093,6 +1224,13 @@ def create_item(root: Path, args: argparse.Namespace) -> dict:
     if args.owner and args.owner_type == "agent" and args.owner != "unassigned":
         validate_agent(root, args.owner)
     items = load_items(root)
+    idempotency_key = str(getattr(args, "idempotency_key", "") or "").strip()
+    if idempotency_key:
+        for existing in items:
+            dispatch = existing.get("dispatch")
+            if isinstance(dispatch, dict) and dispatch.get("idempotency_key") == idempotency_key:
+                setattr(args, "idempotency_duplicate", True)
+                return existing
     timestamp = now_iso()
     item = {
         "id": next_id(items, timestamp),
@@ -1114,11 +1252,21 @@ def create_item(root: Path, args: argparse.Namespace) -> dict:
         "depends_on": split_csv(getattr(args, "depends_on", "")),
         "on_complete": getattr(args, "on_complete", None) or None,
         "workbench": getattr(args, "workbench", None) or None,
+        "review": getattr(args, "review", None) or "none",
         "claim": {"claimed_by": None, "claimed_at": None},
         "receipts": [],
         "created_at": timestamp,
         "updated_at": timestamp,
     }
+    if idempotency_key:
+        item["dispatch"] = {
+            "idempotency_key": idempotency_key,
+            "inbound_route": str(getattr(args, "inbound_route", "") or ""),
+            "delivery_id": str(getattr(args, "delivery_id", "") or ""),
+            "reply_to": str(getattr(args, "reply_to", "") or ""),
+            "accepted_at": timestamp,
+        }
+        setattr(args, "idempotency_duplicate", False)
     optional_values = {
         "client_scope": getattr(args, "client_scope", None),
         "context_classification": getattr(args, "context_classification", None),
@@ -1127,6 +1275,8 @@ def create_item(root: Path, args: argparse.Namespace) -> dict:
         "degraded_context": _load_json_arg(getattr(args, "degraded_context", None)),
         "promotion_proposal": _load_json_arg(getattr(args, "promotion_proposal", None)),
         "capture_proposal": _load_json_arg(getattr(args, "capture_proposal", None)),
+        "run_prompt_path": getattr(args, "run_prompt_path", None),
+        "needs_me": getattr(args, "needs_me", None),
     }
     for key, value in optional_values.items():
         if value is not None and value != "":
@@ -1325,6 +1475,7 @@ def build_parser() -> argparse.ArgumentParser:
     create.add_argument("--depends-on", default="")
     create.add_argument("--on-complete", default="")
     create.add_argument("--workbench", default="")
+    create.add_argument("--review", choices=["none", "model"], default="none")
     create.add_argument("--client-scope", default="")
     create.add_argument("--context-classification", choices=["knowledge_sensitive", "technical_only", "ambiguous"])
     create.add_argument("--brain-context-status", choices=["used", "not_applicable", "degraded", "missing"])

@@ -17,6 +17,15 @@ test('Needs Me includes review, input, and blocked real-shaped items only', () =
   assert.equal(result.find(item => item.id === 'AOS-2026-0078').status, 'human_review')
 })
 
+test('Needs Me includes metadata alerts without changing the queue status', () => {
+  const result = humanNeededItems([
+    { id: 'A', status: 'done', needs_me: ['excessive model turns'] },
+    { id: 'B', status: 'agent_todo', needs_me: ['consider decomposing'] },
+    { id: 'C', status: 'done', needs_me: [] },
+  ])
+  assert.deepEqual(result.map(item => item.id), ['A', 'B'])
+})
+
 test('Needs Me count equals the full rendered qualifying item set', () => {
   const queue_items = Array.from({ length: 9 }, (_, index) => ({
     id: `AOS-2026-${70 + index}`,

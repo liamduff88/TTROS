@@ -116,6 +116,12 @@ class AosQueueTest(unittest.TestCase):
         self.assertEqual(38_245, parsed["output"])
         self.assertEqual(11_271_424, parsed["cached"])
         self.assertEqual(12_856, parsed["reasoning"])
+        self.assertEqual(407_724, parsed["usage_counters"]["fresh_input"])
+        self.assertEqual(11_271_424, parsed["usage_counters"]["cached_input"])
+        self.assertEqual(38_245, parsed["usage_counters"]["output"])
+        self.assertEqual(12_856, parsed["usage_counters"]["reasoning"])
+        for key in ("initial_prompt_bytes", "model_turns", "retained_context_bytes", "compaction_count", "largest_tool_result_bytes"):
+            self.assertEqual("unavailable from current CLI output", parsed["usage_counters"][key])
         with self.assertRaisesRegex(module.QueueError, "input \\+ output"):
             module.parse_codex_token_summary("Token usage: total=4 input=2 output=1")
 
@@ -234,8 +240,43 @@ class AosQueueTest(unittest.TestCase):
             with self.assertRaisesRegex(module.QueueError, "Conflicting exact"):
                 module.reconcile_codex_usage(root, "AOS-2026-0001", conflict, "codex-cli test", "session-implementation")
             receipt_text = (root / upgraded["receipt"]).read_text()
-            self.assertNotIn("unavailable from current CLI output", receipt_text)
+            self.assertNotIn("\nToken usage: unavailable from current CLI output", receipt_text)
             self.assertEqual(1, receipt_text.count("<!-- token_usage:AOS-2026-0001 -->"))
+
+    def test_codex_counter_parser_uses_only_explicit_cli_values(self):
+        module = load_tool_module()
+        output = json.dumps({
+            "type": "turn.completed",
+            "usage": {
+                "input_tokens": 101,
+                "cached_input_tokens": 80,
+                "output_tokens": 13,
+                "reasoning_output_tokens": 5,
+            },
+            "usage_counters": {
+                "initial_prompt_bytes": 4001,
+                "model_turns": 76,
+                "retained_context_bytes": 8192,
+                "compaction_count": 2,
+                "largest_tool_result_bytes": 2048,
+            },
+        })
+        counters = module.parse_codex_usage_counters(output)
+        self.assertEqual({
+            "initial_prompt_bytes": 4001,
+            "model_turns": 76,
+            "retained_context_bytes": 8192,
+            "compaction_count": 2,
+            "fresh_input": 101,
+            "cached_input": 80,
+            "output": 13,
+            "reasoning": 5,
+            "largest_tool_result_bytes": 2048,
+        }, counters)
+        missing = module.parse_codex_usage_counters('{"type":"turn.completed","usage":{"output_tokens":3}}')
+        self.assertEqual(3, missing["output"])
+        for key in set(module.CODEX_COUNTER_FIELDS) - {"output"}:
+            self.assertEqual("unavailable from current CLI output", missing[key])
 
     def test_codex_sessions_remain_separate_and_do_not_merge(self):
         module = load_tool_module()

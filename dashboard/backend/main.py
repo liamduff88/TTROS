@@ -1,3 +1,8 @@
+"""Agentic OS dashboard backend.
+
+Revisit: when operator routing, local-agent CLI contracts, or runtime health changes. · Last touched: 2026-07-18.
+"""
+
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 try:
@@ -38,6 +43,14 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from aos_paths import AuthorityError, AosPathError, aos_root, assert_authoritative_root, resolve_root_relative
+from aos_codex_policy import (
+    CODEX_TARGET,
+    CodexPolicyError,
+    build_environment as build_codex_environment,
+    build_exec_command as build_codex_exec_command,
+    invocation_metadata as codex_invocation_metadata,
+    validate_runtime as validate_codex_runtime,
+)
 import aos_orchestration
 from aos_queue_storage import durable_append_text, durable_replace_text, queue_write_lock
 import aos_indexer
@@ -514,6 +527,7 @@ class QueueItemCreate(BaseModel):
     depends_on: str = ""
     on_complete: str | None = None
     workbench: str | None = None
+    review: str = "none"
 
 
 class CockpitCommandCreate(BaseModel):
@@ -683,6 +697,122 @@ QUEUE_WORKER_TIMEOUT_SECONDS = _timeout_seconds_from_env(
 )
 QUEUE_HERMES_REVIEW_TIMEOUT_SECONDS = 120
 QUEUE_STUCK_TIMEOUT_SECONDS = QUEUE_WORKER_TIMEOUT_SECONDS + QUEUE_HERMES_REVIEW_TIMEOUT_SECONDS + 180
+MODEL_TURNS_THRESHOLD_DEFAULT = 75
+MODEL_TURNS_THRESHOLD = _timeout_seconds_from_env(
+    "AOS_MODEL_TURNS_THRESHOLD", default=MODEL_TURNS_THRESHOLD_DEFAULT, minimum=1,
+)
+UNAVAILABLE_CLI_VALUE = "unavailable from current CLI output"
+USAGE_COUNTER_FIELDS = (
+    "initial_prompt_bytes", "model_turns", "retained_context_bytes", "compaction_count",
+    "fresh_input", "cached_input", "output", "reasoning", "largest_tool_result_bytes",
+)
+
+
+def _codex_json_summary(stdout: str) -> tuple[str, dict, str]:
+    """Extract the final message and only exact counters explicitly emitted by Codex."""
+    final_message = ""
+    usage: dict[str, int] = {}
+    counters = {key: UNAVAILABLE_CLI_VALUE for key in USAGE_COUNTER_FIELDS}
+    aliases = {
+        "input_tokens": "fresh_input",
+        "cached_input_tokens": "cached_input",
+        "output_tokens": "output",
+        "reasoning_output_tokens": "reasoning",
+    }
+    for raw in str(stdout or "").splitlines():
+        try:
+            event = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(event, dict):
+            continue
+        if event.get("type") == "item.completed" and isinstance(event.get("item"), dict):
+            item = event["item"]
+            if item.get("type") == "agent_message" and isinstance(item.get("text"), str):
+                final_message = item["text"].strip()
+        containers = [event]
+        containers.extend(
+            event[key] for key in ("usage", "usage_counters", "metrics")
+            if isinstance(event.get(key), dict)
+        )
+        for container in containers:
+            for source, target in (*((key, key) for key in USAGE_COUNTER_FIELDS), *aliases.items()):
+                value = container.get(source)
+                if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+                    counters[target] = value
+            if event.get("type") == "turn.completed" and container is event.get("usage"):
+                for source, target in (
+                    ("input_tokens", "input_tokens"),
+                    ("output_tokens", "output_tokens"),
+                    ("cached_input_tokens", "cached_input_tokens"),
+                    ("reasoning_output_tokens", "reasoning_tokens"),
+                ):
+                    value = container.get(source)
+                    if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+                        usage[target] = value
+    if "input_tokens" in usage and "output_tokens" in usage:
+        usage["total_tokens"] = usage["input_tokens"] + usage["output_tokens"]
+        token_usage = {"available": True, **usage, **counters}
+        token_text = "Token usage: " + ", ".join(
+            f"{label} {usage[key]}" for key, label in (
+                ("input_tokens", "input"), ("output_tokens", "output"),
+                ("cached_input_tokens", "cached input"), ("reasoning_tokens", "reasoning"),
+                ("total_tokens", "total"),
+            ) if key in usage
+        )
+    else:
+        token_usage = {"available": False, **counters}
+        token_text = "Token usage: unavailable from current CLI output"
+    return final_message, token_usage, token_text
+
+
+def _run_codex_local(prompt: str, item: dict | None = None) -> dict:
+    """Run the shared supervised Codex command with bounded retained output."""
+    invocation = codex_invocation_metadata(CODEX_TARGET)
+    try:
+        validate_codex_runtime(BASE_DIR, CODEX_TARGET)
+        command = build_codex_exec_command(CODEX_TARGET)
+        environment = build_codex_environment(CODEX_TARGET)
+    except CodexPolicyError as exc:
+        return {
+            "success": False, "output": str(exc), "stdout": "", "stderr": str(exc),
+            "returncode": 78, "token_usage": {"available": False},
+            "token_usage_text": "Token usage: unavailable from current CLI output",
+            "invocation": invocation,
+        }
+    try:
+        process = subprocess.Popen(
+            command, cwd=invocation["cwd"], env=environment,
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, encoding="utf-8", errors="replace", start_new_session=True, close_fds=True,
+        )
+        stdout, stderr = process.communicate(prompt, timeout=QUEUE_WORKER_TIMEOUT_SECONDS)
+        timed_out = False
+    except subprocess.TimeoutExpired:
+        process.kill()
+        stdout, stderr = process.communicate()
+        timed_out = True
+    except OSError as exc:
+        return {
+            "success": False, "output": str(exc), "stdout": "", "stderr": str(exc),
+            "returncode": -1, "token_usage": {"available": False},
+            "token_usage_text": "Token usage: unavailable from current CLI output",
+            "invocation": invocation,
+        }
+    final_message, token_usage, token_usage_text = _codex_json_summary(stdout)
+    output = final_message or _bounded_hermes_answer(stdout or stderr or "(no output)", 4000)
+    return {
+        "success": process.returncode == 0 and not timed_out,
+        "output": output,
+        "stdout": stdout,
+        "stderr": stderr,
+        "returncode": process.returncode,
+        "timed_out": timed_out,
+        "timeout_seconds": QUEUE_WORKER_TIMEOUT_SECONDS if timed_out else None,
+        "token_usage": token_usage,
+        "token_usage_text": token_usage_text,
+        "invocation": invocation,
+    }
 
 
 def _path_for_wsl_command(path) -> str:
@@ -1968,7 +2098,11 @@ def _queue_invocation_attributions(records: list[dict] | None = None) -> dict[st
     for position, record in enumerate(source_records):
         item_id = _ledger_task_id(record)
         source, evidence = _token_invocation_source(record)
-        if not item_id or item_id == "unavailable" or source in {"Unattributed", "No agent invocation"}:
+        model_turns = record.get("model_turns")
+        observed_turns = model_turns if isinstance(model_turns, int) and not isinstance(model_turns, bool) and model_turns >= 0 else None
+        if not item_id or item_id == "unavailable":
+            continue
+        if source in {"Unattributed", "No agent invocation"} and observed_turns is None:
             continue
         timestamp = _parse_record_timestamp(_ledger_timestamp(record))
         rank = (
@@ -1977,12 +2111,13 @@ def _queue_invocation_attributions(records: list[dict] | None = None) -> dict[st
             position,
         )
         attribution = {
-            "invocation_source": source,
+            "invocation_source": None if source in {"Unattributed", "No agent invocation"} else source,
             "invocation_source_evidence": evidence,
             "invocation_source_timestamp": (
                 timestamp.astimezone(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
                 if timestamp else None
             ),
+            "model_turns": observed_turns,
         }
         prior = selected.get(item_id)
         if prior is None or rank > prior[0]:
@@ -2052,20 +2187,41 @@ def _token_source_summary(records: list[dict]) -> list[dict]:
     return [groups[name] for name in order if name in groups] + [groups[name] for name in sorted(set(groups) - set(order))]
 
 
-def _simple_token_line(task_id: str, component: str, tokens: int, basis: str) -> dict:
-    return {
+def _usage_counters_from_token_usage(token_usage: dict) -> dict:
+    aliases = {
+        "input_tokens": "fresh_input",
+        "cache_read_tokens": "cached_input",
+        "cached_input_tokens": "cached_input",
+        "output_tokens": "output",
+        "reasoning_tokens": "reasoning",
+    }
+    counters = {key: UNAVAILABLE_CLI_VALUE for key in USAGE_COUNTER_FIELDS}
+    for key in USAGE_COUNTER_FIELDS:
+        value = token_usage.get(key)
+        if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+            counters[key] = value
+    for source, target in aliases.items():
+        value = token_usage.get(source)
+        if counters[target] == UNAVAILABLE_CLI_VALUE and isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+            counters[target] = value
+    return counters
+
+
+def _simple_token_line(task_id: str, component: str, tokens: int | None, basis: str, token_usage: dict) -> dict:
+    line = {
         "ts": datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
         "task_id": task_id or "unattributed",
         "component": component or "unattributed",
-        "tokens": max(0, int(tokens)),
-        "basis": basis if basis in {"exact", "estimate"} else "exact",
+        "basis": basis if basis in {"exact", "unavailable"} else "unavailable",
+        **_usage_counters_from_token_usage(token_usage),
     }
+    if tokens is not None:
+        line["tokens"] = max(0, int(tokens))
+    return line
 
 
 def _append_simple_token_ledger(task_id: str, component: str, token_usage: dict) -> None:
     if token_usage.get("no_agent_invocation"):
-        return
-    if token_usage.get("available") is not True:
         return
     total = token_usage.get("total_tokens")
     try:
@@ -2078,10 +2234,13 @@ def _append_simple_token_ledger(task_id: str, component: str, token_usage: dict)
         try:
             tokens = int(str(input_tokens).replace(",", "")) + int(str(output_tokens).replace(",", ""))
         except (TypeError, ValueError):
-            return
+            tokens = None
     try:
         append_root, append_path = _authoritative_append_target(ROOT_TOKEN_LEDGER_FILE)
-        durable_append_text(append_root, append_path, json.dumps(_simple_token_line(task_id, component, tokens, "exact"), separators=(",", ":")) + "\n")
+        line = _simple_token_line(
+            task_id, component, tokens, "exact" if tokens is not None else "unavailable", token_usage
+        )
+        durable_append_text(append_root, append_path, json.dumps(line, separators=(",", ":")) + "\n")
     except OSError:
         return
 
@@ -2654,9 +2813,13 @@ def _compact_agent_closeout(
     passed = bool(result.get("success")) and not agent_reported_failure
     timed_out = bool(result.get("timed_out"))
     timeout_seconds = result.get("timeout_seconds")
-    token_usage, token_usage_text = _extract_token_usage(
-        raw, str(result.get("stdout") or ""), str(result.get("stderr") or "")
-    )
+    if isinstance(result.get("token_usage"), dict) and result.get("token_usage_text"):
+        token_usage = result["token_usage"]
+        token_usage_text = str(result["token_usage_text"])
+    else:
+        token_usage, token_usage_text = _extract_token_usage(
+            raw, str(result.get("stdout") or ""), str(result.get("stderr") or "")
+        )
     values = {
         "Files touched": _field_from_output(raw, "Files touched") or "None reported",
         "Validation": _field_from_output(raw, "Validation") or (
@@ -2685,6 +2848,8 @@ def _compact_agent_closeout(
         "token_usage_text": token_usage_text,
         "timed_out": timed_out,
         "timeout_seconds": timeout_seconds,
+        "review_output": _bounded_hermes_answer(raw, 4000),
+        "invocation": result.get("invocation") or {},
         **metadata,
     }
 
@@ -2804,6 +2969,9 @@ def hermes_ui_launch():
 
 class TaskRun(BaseModel):
     task: str
+    source: str = "telegram"
+    delivery_id: str = ""
+    reply_to: str = ""
 
 
 class HermesMessage(BaseModel):
@@ -3047,7 +3215,8 @@ def _append_hermes_decomposition_token_ledger(result: dict, item_id: str = "AOS-
             "est_cost_usd": 0.0,
             "unavailable": [] if available else ["Hermes decomposition usage unavailable"],
         },
-        "basis": "exact" if available else "estimate",
+        **_usage_counters_from_token_usage(usage if isinstance(usage, dict) else {}),
+        "basis": "exact" if available else "unavailable",
         "event": "hermes_decomposition",
     }
     append_root, append_path = _authoritative_append_target(TOKEN_LEDGER_FILE)
@@ -3494,6 +3663,9 @@ def _queue_create_dashboard_item(body: QueueItemCreate) -> dict:
     if owner not in {"unassigned", "hermes", "codex", "claude", "revenue", "marketing", "delivery", "operations"}:
         raise ValueError(f"Unknown owner: {owner}")
     queue_tool = _load_queue_tool()
+    review = str(body.review or "none").strip().lower()
+    if review not in {"none", "model"}:
+        raise ValueError("review must be none or model")
     source_refs = _queue_split_text(body.source_refs)
     args = argparse.Namespace(
         title=title,
@@ -3514,6 +3686,7 @@ def _queue_create_dashboard_item(body: QueueItemCreate) -> dict:
         depends_on=",".join(_queue_split_text(body.depends_on)),
         on_complete=(body.on_complete or "").strip() or None,
         workbench=(body.workbench or "").strip() or None,
+        review=review,
     )
     item = queue_tool.create_item(BASE_DIR, args)
     if source_refs:
@@ -4346,6 +4519,7 @@ def _queue_status_closeout() -> dict:
 def _queue_public_item(item: dict, invocation_attributions: dict[str, dict] | None = None) -> dict:
     attributions = _queue_invocation_attributions() if invocation_attributions is None else invocation_attributions
     attribution = attributions.get(str(item.get("id") or ""), {})
+    needs_me = _queue_needs_me_reasons(item, attribution)
     return {
         "id": item.get("id", ""),
         "title": item.get("title", ""),
@@ -4357,6 +4531,8 @@ def _queue_public_item(item: dict, invocation_attributions: dict[str, dict] | No
         "invocation_source": attribution.get("invocation_source"),
         "invocation_source_evidence": attribution.get("invocation_source_evidence", "no authoritative invocation source"),
         "invocation_source_timestamp": attribution.get("invocation_source_timestamp"),
+        "model_turns": attribution.get("model_turns"),
+        "needs_me": needs_me,
     }
 
 
@@ -4370,9 +4546,29 @@ def _queue_active_items(items: list[dict]) -> list[dict]:
 _HUMAN_NEEDED_STATUSES = {"needs_input", "human_review", "blocked"}
 
 
-def _queue_human_needed_items(items: list[dict]) -> list[dict]:
+def _queue_needs_me_reasons(item: dict, attribution: dict | None = None) -> list[str]:
+    reasons = []
+    for value in item.get("needs_me") or []:
+        reason = str(value).strip()
+        if reason and reason not in reasons:
+            reasons.append(reason)
+    turns = (attribution or {}).get("model_turns")
+    if isinstance(turns, int) and not isinstance(turns, bool) and turns > MODEL_TURNS_THRESHOLD:
+        if "excessive model turns" not in reasons:
+            reasons.append("excessive model turns")
+    return reasons
+
+
+def _queue_human_needed_items(
+    items: list[dict], invocation_attributions: dict[str, dict] | None = None
+) -> list[dict]:
+    attributions = _queue_invocation_attributions() if invocation_attributions is None else invocation_attributions
     return sorted(
-        [item for item in items if item.get("status") in _HUMAN_NEEDED_STATUSES],
+        [
+            item for item in items
+            if item.get("status") in _HUMAN_NEEDED_STATUSES
+            or _queue_needs_me_reasons(item, attributions.get(str(item.get("id") or "")))
+        ],
         key=_queue_item_sort_key,
     )
 
@@ -6100,6 +6296,11 @@ def _queue_actual_department_run_prompt(
         "",
         "Required artifact/receipt shape:",
         _queue_required_receipt_shape(),
+        "",
+        "Tool-output bounds:",
+        "- Read files by relevant line range whenever possible.",
+        "- For passing tests, retain only the tail summary; preserve detailed output only while investigating a failure.",
+        "- Never dump work_items.jsonl, ledgers, receipt directories, complete queue history, or similarly large runtime collections into the model session.",
     ]
     if revision_instructions:
         lines.extend((
@@ -6117,6 +6318,11 @@ def _queue_actual_run_prompt(
     revision_instructions: str | None = None,
     attempt: int = 1,
 ) -> str:
+    run_prompt_path = str(item.get("run_prompt_path") or "").strip()
+    if run_prompt_path:
+        if not re.fullmatch(r"queue/run_prompts/[A-Za-z0-9_.-]+\.md", run_prompt_path):
+            raise ValueError("invalid run_prompt_path")
+        item = {**item, "context": (BASE_DIR / run_prompt_path).read_text(encoding="utf-8")}
     if owner in DEPARTMENT_PROMPT_TARGETS:
         return _queue_actual_department_run_prompt(item, owner, attempt, revision_instructions)
     prompt = _queue_render_prompt(item, owner)
@@ -6130,6 +6336,7 @@ def _queue_actual_run_prompt(
         _queue_required_receipt_shape(),
         f"Required local artifact path: {_queue_default_artifact_path(item)}",
         "If this task produces business output, write the durable output to that path and list it under Artifacts.",
+        "Tool-output bounds:\n- Read files by relevant line range whenever possible.\n- For passing tests, retain only the tail summary; preserve detailed output only while investigating a failure.\n- Never dump work_items.jsonl, ledgers, receipt directories, complete queue history, or similarly large runtime collections into the model session.",
     ))
     if revision_instructions:
         prompt = "\n\n".join((
@@ -6174,7 +6381,7 @@ def _queue_run_worker(owner: str, prompt: str, item: dict) -> dict:
         **route_metadata,
     }
     if owner == "codex":
-        result = _run_wsl_prompt_command('aos-codex "$(<{prompt_file})"', prompt, QUEUE_WORKER_TIMEOUT_SECONDS)
+        result = _run_codex_local(prompt, item)
         return _compact_agent_closeout(result, "codex", "codex", _queue_token_task_label(item, owner), metadata)
     if owner == "claude":
         result = _run_wsl_prompt_command('aos-hermes claude "$(<{prompt_file})"', prompt, QUEUE_WORKER_TIMEOUT_SECONDS)
@@ -6187,6 +6394,7 @@ def _queue_run_worker(owner: str, prompt: str, item: dict) -> dict:
 
 def _queue_hermes_review_prompt(item: dict, owner: str, attempt: int, worker_result: dict) -> str:
     verified_artifacts = _queue_verified_artifacts_from_worker_result(item, worker_result)
+    review_input = _queue_final_review_input(item, worker_result, verified_artifacts)
     return "\n".join((
         "Review this Agentic OS queue worker result.",
         "",
@@ -6204,7 +6412,7 @@ def _queue_hermes_review_prompt(item: dict, owner: str, attempt: int, worker_res
         "Local artifact verification from repo root:",
         "- Treat AVAILABLE artifacts below as verified by the dashboard-safe workspace path reader.",
         "- Do not claim an artifact is missing when it is marked AVAILABLE here.",
-        _queue_render_verified_artifacts(verified_artifacts, include_excerpt=True),
+        _queue_render_verified_artifacts(verified_artifacts, include_excerpt=False),
         "",
         "Queue item:",
         f"- ID: {item.get('id', '')}",
@@ -6215,9 +6423,46 @@ def _queue_hermes_review_prompt(item: dict, owner: str, attempt: int, worker_res
         "Stop conditions:",
         _queue_render_list(item.get("stop_conditions") or []),
         "",
-        f"Worker attempt {attempt} result:",
-        _bounded_hermes_answer(str(worker_result.get("output") or worker_result.get("stdout") or ""), 2500),
+        f"Worker attempt {attempt} final review input only:",
+        review_input,
     ))
+
+
+def _queue_final_review_input(item: dict, worker_result: dict, verified_artifacts: list[dict] | None = None) -> str:
+    """Return only a final artifact, or a bounded final closeout when none exists."""
+    artifacts = verified_artifacts or _queue_verified_artifacts_from_worker_result(item, worker_result)
+    for artifact in artifacts:
+        if not artifact.get("available"):
+            continue
+        try:
+            content = _queue_read_artifact(str(artifact.get("path") or ""))["content"]
+        except (FileNotFoundError, ValueError, OSError):
+            continue
+        return "\n".join((
+            f"Final artifact: {artifact.get('path')}",
+            _bounded_hermes_answer(content, 12_000),
+        ))
+    closeout = str(worker_result.get("review_output") or worker_result.get("output") or "").strip()
+    return "\n".join(("Bounded final closeout:", _bounded_hermes_answer(closeout or "(no final closeout)", 4000)))
+
+
+def _queue_model_review_requested(item: dict) -> bool:
+    return str(item.get("review") or "none").strip().casefold() == "model"
+
+
+def _queue_deterministic_review_result() -> dict:
+    return {
+        "success": True,
+        "output": "PASS",
+        "stdout": "",
+        "stderr": "",
+        "returncode": 0,
+        "timed_out": False,
+        "timeout_seconds": None,
+        "token_usage": {"available": False, "no_agent_invocation": True},
+        "token_usage_text": "Token usage: no agent invocation",
+        "review_mode": "deterministic",
+    }
 
 
 def _queue_run_hermes_review(item: dict, owner: str, attempt: int, worker_result: dict) -> dict:
@@ -6363,11 +6608,16 @@ def _queue_run_receipt_text(
         else "not applied"
     )
     token_lines = []
+    review_label = "Hermes model review" if _queue_model_review_requested(item) else "deterministic review"
     for attempt in attempts:
         worker_token = attempt["worker_result"].get("token_usage_text") or "Token usage: unavailable from current CLI output"
         review_token = attempt["review_result"].get("token_usage_text") or "Token usage: unavailable from current CLI output"
         token_lines.append(f"- Attempt {attempt['attempt']} worker: {_token_usage_detail(worker_token)}")
-        token_lines.append(f"- Attempt {attempt['attempt']} Hermes review: {_token_usage_detail(review_token)}")
+        token_lines.append(
+            f"- Attempt {attempt['attempt']} worker counters: "
+            + json.dumps(_usage_counters_from_token_usage(attempt["worker_result"].get("token_usage") or {}), sort_keys=True)
+        )
+        token_lines.append(f"- Attempt {attempt['attempt']} {review_label}: {_token_usage_detail(review_token)}")
     if not token_lines:
         token_lines.append("- unavailable/no agent invocation")
     verified_artifacts = _queue_verified_artifacts_from_worker_result(item, last_worker)
@@ -6390,7 +6640,8 @@ def _queue_run_receipt_text(
         f"Escalation rule: {route_metadata['escalation_rule']}",
         f"Escalation policy applied: {escalation_policy_applied}",
         f"Attempts used: {len(attempts)}",
-        f"Hermes review result: {final_review.get('decision', 'REVISE')}",
+        f"Review mode: {'model' if _queue_model_review_requested(item) else 'none (deterministic proof)'}",
+        f"Review result: {final_review.get('decision', 'REVISE')}",
         "",
         "Worker result summary:",
         _queue_result_summary(last_worker),
@@ -6454,18 +6705,40 @@ def run_queue_item(item_id: str):
         revision_instructions = None
         final_review = {"decision": "REVISE", "instructions": "No review completed."}
         final_status = "needs_input"
-        reason = "Hermes did not pass the worker result."
+        reason = "The configured review gate did not pass the worker result."
 
         for attempt_number in (1, 2):
             run_item = _queue_find_item(item_id)
             prompt = _queue_actual_run_prompt(run_item, owner if owner != "unassigned" else "hermes", revision_instructions, attempt_number)
             worker_result = _queue_run_worker(owner, prompt, run_item)
-            review_result = _queue_run_hermes_review(run_item, owner, attempt_number, worker_result)
+            if worker_result.get("success"):
+                review_result = (
+                    _queue_run_hermes_review(run_item, owner, attempt_number, worker_result)
+                    if _queue_model_review_requested(run_item)
+                    else _queue_deterministic_review_result()
+                )
+            else:
+                review_result = {
+                    "success": False,
+                    "output": "REVISE: Worker route failed before review.",
+                    "stdout": "",
+                    "stderr": "",
+                    "returncode": -1,
+                    "timed_out": False,
+                    "timeout_seconds": None,
+                    "token_usage": {"available": False, "no_agent_invocation": True},
+                    "token_usage_text": "Token usage: no agent invocation",
+                }
             if worker_result.get("timed_out"):
                 final_status = "blocked"
                 decision = "REVISE"
                 review_text = f"Worker timed out after {worker_result.get('timeout_seconds')}s."
                 review_result["output"] = f"REVISE: {review_text}\n\nHermes review output:\n{review_result.get('output', '')}"
+            elif not worker_result.get("success"):
+                final_status = "blocked"
+                decision = "REVISE"
+                review_text = _queue_result_field(worker_result, "Blockers", "Worker route failed before review.")
+                review_result["output"] = f"REVISE: {review_text}"
             else:
                 decision, review_text = _queue_parse_review(review_result)
                 if review_result.get("timed_out"):
@@ -6496,7 +6769,7 @@ def run_queue_item(item_id: str):
             revision_instructions = review_text
 
         if final_status != "human_review":
-            reason = final_review.get("instructions") or "Hermes requested revision after 2 attempts."
+            reason = final_review.get("instructions") or "The configured review gate requested revision after 2 attempts."
 
         receipt_text = _queue_run_receipt_text(
             "PASS" if final_status == "human_review" else "NEEDS ATTENTION",
@@ -6659,28 +6932,122 @@ def _infer_queue_owner(text: str) -> str:
     return "unassigned"
 
 
-def _create_queue_item(text: str) -> dict:
+_LONG_WORK_BODY_CHARS = 4_000
+_WORK_CONTINUATION_RE = re.compile(
+    r"^\s*(?:[-*•]\s+|\d+[.)]\s+|#{1,6}\s+|(?:validation|close\s*out|preserve\s+architecture)\b)",
+    re.IGNORECASE,
+)
+
+
+def _oversized_work_prompt_path(key: str) -> str:
+    digest = hashlib.sha256(key.encode("utf-8")).hexdigest()[:24]
+    return f"queue/run_prompts/work_{digest}.md"
+
+
+def _merge_oversized_work_continuation(body: TaskRun) -> dict | None:
+    """Merge an apparent split continuation into one recent oversized /work intake."""
+    text = str(body.task or "").strip()
+    if not text or text.startswith("/") or not _WORK_CONTINUATION_RE.search(text):
+        return None
+    now = datetime.datetime.now(datetime.timezone.utc)
+    candidates = []
+    for item in _read_queue_items():
+        run_prompt_path = str(item.get("run_prompt_path") or "")
+        if not re.fullmatch(r"queue/run_prompts/[A-Za-z0-9_.-]+\.md", run_prompt_path):
+            continue
+        if str(item.get("source") or "").casefold() != str(body.source or "").casefold():
+            continue
+        dispatch = item.get("dispatch") if isinstance(item.get("dispatch"), dict) else {}
+        if str(body.reply_to or "") and str(dispatch.get("reply_to") or "") != str(body.reply_to):
+            continue
+        prompt_path = BASE_DIR / run_prompt_path
+        try:
+            stored = prompt_path.read_text(encoding="utf-8").strip()
+        except OSError:
+            continue
+        created = _parse_record_timestamp(item.get("created_at"))
+        if not created or len(stored) <= _LONG_WORK_BODY_CHARS or not stored.casefold().startswith("/work") or not stored.endswith(":"):
+            continue
+        age = (now - created.astimezone(datetime.timezone.utc)).total_seconds()
+        if 0 <= age <= 120:
+            candidates.append(item)
+    if not candidates:
+        return None
+    prior = sorted(candidates, key=lambda row: str(row.get("created_at") or ""), reverse=True)[0]
+    run_prompt_path = str(prior["run_prompt_path"])
+    with queue_write_lock(BASE_DIR):
+        queue_tool = _load_queue_tool()
+        items = queue_tool.load_items(BASE_DIR)
+        stored_item = next(row for row in items if row.get("id") == prior.get("id"))
+        prompt_path = BASE_DIR / run_prompt_path
+        current = prompt_path.read_text(encoding="utf-8").rstrip()
+        durable_replace_text(prompt_path, f"{current}\n{text.rstrip()}\n")
+        reasons = [str(value) for value in stored_item.get("needs_me") or []]
+        if "consider decomposing" not in reasons:
+            reasons.append("consider decomposing")
+        stored_item["needs_me"] = reasons
+        stored_item["updated_at"] = queue_tool.now_iso()
+        queue_tool.save_items(BASE_DIR, items)
+    return {
+        "success": True,
+        "accepted": True,
+        "created": False,
+        "duplicate": True,
+        "state": "split-work-request-merged",
+        "work_item_id": prior.get("id"),
+        "runner_accepted": False,
+        "output": "PASS\nMerged the continuation into the existing oversized /work item.\nNo second work item or run-prompt file was created.",
+        "returncode": 0,
+        "token_usage": {"available": False, "no_agent_invocation": True},
+        "token_usage_text": "Token usage: no agent invocation",
+    }
+
+
+def _create_queue_item(text: str, body: TaskRun | None = None) -> dict:
     queue_tool = _load_queue_tool()
-    owner = _infer_queue_owner(text)
+    full_text = str(body.task if body is not None else text).strip()
+    oversized_work = full_text.casefold().startswith("/work") and len(full_text) > _LONG_WORK_BODY_CHARS
+    owner = _infer_queue_owner(full_text)
+    source = str(body.source if body is not None else "dashboard/backend/hermes").strip() or "dashboard/backend/hermes"
+    delivery_id = str(body.delivery_id if body is not None else "").strip()
+    reply_to = str(body.reply_to if body is not None else "").strip()
+    identity = delivery_id or " ".join(full_text.split()).casefold()
+    idempotency_key = f"work-intake:{source.casefold()}:{hashlib.sha256(identity.encode('utf-8')).hexdigest()}"
+    run_prompt_path = _oversized_work_prompt_path(idempotency_key) if oversized_work else ""
+    if oversized_work:
+        target = BASE_DIR / run_prompt_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if not target.exists():
+            durable_replace_text(target, full_text.rstrip() + "\n")
     args = argparse.Namespace(
         title=text,
-        requested_by="hermes",
+        requested_by="Liam" if oversized_work else "hermes",
         owner_type="agent",
-        owner=owner,
-        status="inbox",
-        priority=0,
-        source="dashboard/backend/hermes",
-        tags="hermes,queue",
-        context="",
-        sources="",
-        allowed_actions="",
-        stop_conditions="",
-        definition_of_done="",
+        owner=owner if owner != "unassigned" else ("hermes" if oversized_work else owner),
+        status="agent_todo" if oversized_work else "inbox",
+        priority=5 if oversized_work else 0,
+        source=source,
+        tags="hermes,queue,oversized_intake" if oversized_work else "hermes,queue",
+        context=f"Run prompt file: {run_prompt_path}" if oversized_work else "",
+        sources=run_prompt_path,
+        allowed_actions="local_read,local_edit,local_test" if oversized_work else "",
+        stop_conditions="external_send,secrets_exposure,destructive_action_outside_scope" if oversized_work else "",
+        definition_of_done="Complete the operator instruction, run relevant validation, attach a durable receipt, and return truthful success or failure state." if oversized_work else "",
+        review="none",
+        run_prompt_path=run_prompt_path or None,
+        needs_me=["consider decomposing"] if oversized_work else None,
+        idempotency_key=idempotency_key if oversized_work else "",
+        inbound_route=f"{source}:/api/wsl/hermes" if oversized_work else "",
+        delivery_id=delivery_id,
+        reply_to=reply_to,
+        idempotency_duplicate=False,
     )
-    return queue_tool.create_item(BASE_DIR, args)
+    item = queue_tool.create_item(BASE_DIR, args)
+    return {**item, "_created": not bool(args.idempotency_duplicate)}
 
 
 def _queue_create_closeout(item: dict) -> dict:
+    created = bool(item.pop("_created", True))
     output = "\n".join((
         "PASS",
         f"Work item ID: {item['id']}",
@@ -6690,6 +7057,9 @@ def _queue_create_closeout(item: dict) -> dict:
     ))
     return {
         "success": True,
+        "accepted": True,
+        "created": created,
+        "duplicate": not created,
         "output": output,
         "returncode": 0,
         "work_item_id": item["id"],
@@ -6815,18 +7185,24 @@ def wsl_hermes(body: TaskRun):
     """Use Hermes by default; bypass it only for explicit agent requests."""
     if not body.task.strip():
         raise HTTPException(status_code=422, detail="task must not be empty")
+    continuation = _merge_oversized_work_continuation(body)
+    if continuation is not None:
+        return continuation
+    if body.task.lstrip().casefold().startswith("/work") and len(body.task.strip()) > _LONG_WORK_BODY_CHARS:
+        work_text = re.sub(r"^\s*/work\s+(?:(?:codex|claude|hermes)\s+)?", "", body.task, count=1, flags=re.IGNORECASE).strip()
+        return _queue_create_closeout(_create_queue_item(work_text, body))
     queue_text = _queue_create_text(body.task)
     if queue_text is not None:
         if not queue_text:
             raise HTTPException(status_code=422, detail="queue item text must not be empty")
-        return _queue_create_closeout(_create_queue_item(queue_text))
+        return _queue_create_closeout(_create_queue_item(queue_text, body))
     queue_read = _try_queue_read_task(body.task)
     if queue_read is not None:
         return queue_read
     metadata = _select_hermes_entry_route(body.task)
     selected_route = metadata["selected_route"]
     if selected_route == "direct_codex":
-        result = _run_wsl_prompt_command('aos-codex "$(<{prompt_file})"', body.task, 120)
+        result = _run_codex_local(body.task)
         route, agent = "codex", "codex"
     elif selected_route == "direct_claude":
         result = _run_wsl_prompt_command('aos-hermes claude "$(<{prompt_file})"', body.task, 120)

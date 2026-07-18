@@ -679,6 +679,15 @@ class CaptureLedgerWriter:
             "model_confirmed": "no-agent-invocation",
             "budget_class": "light",
             "token_usage": zero_token_usage(),
+            "initial_prompt_bytes": "unavailable from current CLI output",
+            "model_turns": "unavailable from current CLI output",
+            "retained_context_bytes": "unavailable from current CLI output",
+            "compaction_count": "unavailable from current CLI output",
+            "fresh_input": "unavailable from current CLI output",
+            "cached_input": "unavailable from current CLI output",
+            "output": "unavailable from current CLI output",
+            "reasoning": "unavailable from current CLI output",
+            "largest_tool_result_bytes": "unavailable from current CLI output",
         }
         return self._append_unique("queue/token_ledger.jsonl", "queue/token_ledger_schema.json", row, f"{event}:{invocation_id}")
 

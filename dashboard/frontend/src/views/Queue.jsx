@@ -88,7 +88,10 @@ const REVIEW_OR_COMPLETE_STATUSES = new Set(['human_review', 'done', 'blocked', 
 
 const itemLane = item => item?.lane || item?.owner || 'unassigned'
 
+const NEEDS_ME_STATUSES = new Set(['human_review', 'needs_input', 'blocked'])
+
 const matchesFilters = (item, filters) =>
+  (!filters.needsMe || NEEDS_ME_STATUSES.has(item.status) || (Array.isArray(item.needs_me) && item.needs_me.length > 0)) &&
   (!filters.status || item.status === filters.status) &&
   (!filters.workbench || item.owner === filters.workbench) &&
   (!filters.lane || itemLane(item) === filters.lane) &&
@@ -845,6 +848,7 @@ export default function Queue({ initialFilters = {}, onViewParamsChange }) {
                       <span className="rounded px-1.5 py-0.5 text-[10px] font-bold text-white" style={{ backgroundColor: laneColor(laneName(item)) }}>{laneName(item)}</span>
                       <span>{formatStatus(item.status)}</span>
                       {!listCollapsed && <><span>{item.owner || 'unassigned'}</span><span>Priority {item.priority ?? 0}</span>{item.source && <span>{item.source}</span>}</>}
+                      {!listCollapsed && Array.isArray(item.needs_me) && item.needs_me.map(reason => <span key={reason} className="rounded border border-champagne/50 bg-champagne/10 px-1.5 py-0.5 text-champagne">{reason}</span>)}
                     </div>
                   </button>
                 ))}

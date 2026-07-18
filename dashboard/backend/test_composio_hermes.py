@@ -480,8 +480,10 @@ class HermesComposioTests(unittest.TestCase):
             self.assertEqual(result["delegation_reason"], "Codex forbidden by operator")
 
     def test_explicit_codex_is_direct(self):
-        command, result = self.route("get Codex to inspect dashboard files")
-        self.assertTrue(command.startswith('aos-codex "$(<'))
+        with patch.object(backend, "_run_codex_local", return_value=self.RUN_RESULT) as run, \
+             patch.object(backend, "_log_token_usage"):
+            result = backend.wsl_hermes(backend.TaskRun(task="get Codex to inspect dashboard files"))
+        run.assert_called_once()
         self.assertEqual(result["selected_route"], "direct_codex")
 
     def test_explicit_claude_is_direct(self):
@@ -556,7 +558,7 @@ class HermesComposioTests(unittest.TestCase):
         self.assertEqual(result["token_usage"]["total_tokens"], 14)
         self.assertIn("total 14", result["token_usage_text"])
 
-    def test_simple_token_ledger_writes_only_exact_reported_usage(self):
+    def test_simple_token_ledger_writes_one_entry_per_run_with_exact_or_unavailable_usage(self):
         with tempfile.TemporaryDirectory() as tmp:
             ledger = Path(tmp) / "token_ledger.jsonl"
             with patch.object(backend, "ROOT_TOKEN_LEDGER_FILE", ledger):
@@ -577,9 +579,12 @@ class HermesComposioTests(unittest.TestCase):
                 )
 
             rows = [json.loads(line) for line in ledger.read_text(encoding="utf-8").splitlines()]
-            self.assertEqual([row["task_id"] for row in rows], ["AOS-2026-0102", "AOS-2026-0103"])
-            self.assertEqual([row["tokens"] for row in rows], [12, 1205])
-            self.assertEqual([row["basis"] for row in rows], ["exact", "exact"])
+            self.assertEqual([row["task_id"] for row in rows], ["AOS-2026-0101", "AOS-2026-0102", "AOS-2026-0103"])
+            self.assertNotIn("tokens", rows[0])
+            self.assertEqual([row.get("tokens") for row in rows], [None, 12, 1205])
+            self.assertEqual([row["basis"] for row in rows], ["unavailable", "exact", "exact"])
+            self.assertEqual(set(backend.USAGE_COUNTER_FIELDS), set(rows[0]).intersection(backend.USAGE_COUNTER_FIELDS))
+            self.assertTrue(all(rows[0][key] == "unavailable from current CLI output" for key in backend.USAGE_COUNTER_FIELDS))
 
     def test_simple_token_ledger_does_not_estimate_from_missing_usage(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -601,7 +606,9 @@ class HermesComposioTests(unittest.TestCase):
                     {"available": False, "no_agent_invocation": True},
                 )
 
-            self.assertFalse(ledger.exists())
+            rows = [json.loads(line) for line in ledger.read_text(encoding="utf-8").splitlines()]
+            self.assertEqual(["AOS-2026-0104", "AOS-2026-0105"], [row["task_id"] for row in rows])
+            self.assertTrue(all(row["basis"] == "unavailable" and "tokens" not in row for row in rows))
 
     def test_review_close_writes_receipt_and_resumes_linked_step_once(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -923,6 +930,19 @@ class HermesComposioTests(unittest.TestCase):
             prompts = []
             token_tasks = []
 
+            def codex_capture(prompt, item=None):
+                prompts.append(prompt)
+                return {
+                    "success": True,
+                    "output": "PASS\nFiles touched: workflows/queue_artifacts/AOS-2026-0099_output.md\nValidation: local check\nBlockers: None\nNext action: Liam review",
+                    "stdout": "",
+                    "stderr": "",
+                    "returncode": 0,
+                    "timeout_seconds": backend.QUEUE_WORKER_TIMEOUT_SECONDS,
+                    "token_usage_text": "Token usage: unavailable from current CLI output",
+                    "token_usage": {"available": False},
+                }
+
             def run_capture(command, timeout=60):
                 commands.append(command)
                 match = re.search(r"(?:--prompt-file\s+|<)(?P<quote>['\"]?)(?P<path>[^'\")]+)(?P=quote)", command)
@@ -943,18 +963,14 @@ class HermesComposioTests(unittest.TestCase):
                 return {}
 
             with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_run_codex_local", side_effect=codex_capture), \
                  patch.object(backend, "_run_wsl", side_effect=run_capture), \
                  patch.object(backend, "_log_token_usage", side_effect=log_capture):
                 result = backend.run_queue_item("AOS-2026-0099")
 
             self.assertTrue(result["success"])
             self.assertEqual(result["status"], "human_review")
-            prompt_commands = [command for command in commands if "--prompt-file" in command]
-            self.assertGreaterEqual(len(prompt_commands), 1)
-            for command in prompt_commands:
-                self.assertNotIn("$(bad)", command)
-                self.assertNotIn("$VARS", command)
-                self.assertNotIn("`ticks`", command)
+            self.assertEqual([], commands)
             self.assertIn(adversarial_title, prompts[0])
             self.assertIn("Required local artifact path:", prompts[0])
             self.assertEqual(token_tasks, [f"AOS-2026-0099 | codex | {adversarial_title[:160]}"])
@@ -2550,15 +2566,15 @@ class HermesComposioTests(unittest.TestCase):
                 "token_usage": {"available": False},
             }
             with patch.object(backend, "BASE_DIR", root), \
-                 patch.object(backend, "_run_wsl", return_value=worker_result) as run, \
+                 patch.object(backend, "_run_codex_local", return_value=worker_result) as run, \
                  patch.object(backend, "wsl_claude") as claude, \
                  patch.object(backend, "wsl_hermes") as hermes, \
                  patch.object(backend, "_queue_run_hermes_review", return_value=review_result):
                 result = backend.run_queue_item("AOS-2026-0002")
 
         run.assert_called_once()
-        self.assertIn("aos-codex", run.call_args.args[0])
-        self.assertEqual(run.call_args.kwargs["timeout"], backend.QUEUE_WORKER_TIMEOUT_SECONDS)
+        self.assertIn("Required local artifact path:", run.call_args.args[0])
+        self.assertEqual("AOS-2026-0002", run.call_args.args[1]["id"])
         claude.assert_not_called()
         hermes.assert_not_called()
         self.assertTrue(result["success"])
@@ -2587,7 +2603,7 @@ class HermesComposioTests(unittest.TestCase):
             }
             with patch.object(backend, "BASE_DIR", root), \
                  patch.object(backend, "_queue_run_worker", return_value=worker_result), \
-                 patch.object(backend, "_queue_run_hermes_review", return_value=review_result):
+                 patch.object(backend, "_queue_run_hermes_review", return_value=review_result) as review:
                 result = backend.run_queue_item("AOS-2026-0002")
 
             self.assertEqual(result["status"], "human_review")
@@ -2598,14 +2614,18 @@ class HermesComposioTests(unittest.TestCase):
             self.assertIn("PASS", receipt_text)
             self.assertIn("Work item ID: AOS-2026-0002", receipt_text)
             self.assertIn("Assigned worker: codex", receipt_text)
-            self.assertIn("Hermes review result: PASS", receipt_text)
+            self.assertIn("Review mode: none (deterministic proof)", receipt_text)
+            self.assertIn("Review result: PASS", receipt_text)
+            review.assert_not_called()
             self.assertEqual(result["item"]["receipts"][0]["path"], result["receipt_path"])
             self.assertEqual(result["item"]["receipts"][0]["status"], "human_review")
 
     def test_queue_item_run_revise_triggers_exactly_one_retry(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            self.write_queue_items(root, self.sample_queue_items())
+            items = self.sample_queue_items()
+            next(item for item in items if item["id"] == "AOS-2026-0002")["review"] = "model"
+            self.write_queue_items(root, items)
             self.write_queue_templates(root)
             worker_result = {
                 "success": True,
@@ -2646,7 +2666,9 @@ class HermesComposioTests(unittest.TestCase):
     def test_queue_item_run_repeated_revise_stops_after_two_attempts(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            self.write_queue_items(root, self.sample_queue_items())
+            items = self.sample_queue_items()
+            next(item for item in items if item["id"] == "AOS-2026-0002")["review"] = "model"
+            self.write_queue_items(root, items)
             self.write_queue_templates(root)
             worker_result = {
                 "success": True,
@@ -2698,12 +2720,12 @@ class HermesComposioTests(unittest.TestCase):
                 "token_usage": {"available": False},
             }
             with patch.object(backend, "BASE_DIR", root), \
-                 patch.object(backend, "_run_wsl", return_value=timeout_result) as run, \
+                 patch.object(backend, "_run_codex_local", return_value=timeout_result) as run, \
                  patch.object(backend, "_queue_run_hermes_review", return_value=review_result):
                 result = backend.run_queue_item("AOS-2026-0002")
 
             self.assertEqual(run.call_count, 1)
-            self.assertEqual(run.call_args_list[0].kwargs["timeout"], backend.QUEUE_WORKER_TIMEOUT_SECONDS)
+            self.assertEqual("AOS-2026-0002", run.call_args.args[1]["id"])
             self.assertEqual(result["status"], "blocked")
             self.assertEqual(result["attempts_used"], 1)
             self.assertTrue(result["worker_result"]["timed_out"])
@@ -3395,6 +3417,79 @@ class HermesComposioTests(unittest.TestCase):
             self.assertIn("contract_path", contract)
             self.assertIn("review_gate", contract)
             self.assertIn("artifact_expectations", contract)
+
+
+    def test_model_turn_threshold_adds_needs_me_only_above_default(self):
+        item = {"id": "AOS-2026-0200", "status": "done", "needs_me": []}
+        with patch.object(backend, "MODEL_TURNS_THRESHOLD", 75):
+            self.assertEqual([], backend._queue_needs_me_reasons(item, {"model_turns": 74}))
+            self.assertEqual([], backend._queue_needs_me_reasons(item, {"model_turns": 75}))
+            self.assertEqual(["excessive model turns"], backend._queue_needs_me_reasons(item, {"model_turns": 76}))
+
+    def test_reviewer_receives_final_artifact_instead_of_worker_transcript(self):
+        item = {"id": "AOS-2026-0201", "title": "Review bound", "context": "bounded", "stop_conditions": []}
+        worker = {
+            "output": "PASS\nArtifacts: workflows/queue_artifacts/final.md",
+            "stdout": "RAW TRANSCRIPT SENTINEL",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            artifact = root / "workflows/queue_artifacts/final.md"
+            artifact.parent.mkdir(parents=True)
+            artifact.write_text("FINAL ARTIFACT SENTINEL\n", encoding="utf-8")
+            with patch.object(backend, "BASE_DIR", root):
+                prompt = backend._queue_hermes_review_prompt(item, "codex", 1, worker)
+        self.assertIn("FINAL ARTIFACT SENTINEL", prompt)
+        self.assertNotIn("RAW TRANSCRIPT SENTINEL", prompt)
+
+    def test_default_queue_review_is_deterministic_and_skips_hermes(self):
+        route = {
+            "lane": "operations", "profile_requested": "default", "profile_used": "default",
+            "profile_fallback_reason": "None", "model_requested": "configured externally",
+            "model_used": "configured externally", "provider_requested": "configured externally",
+            "provider_used": "configured externally", "model_confirmed": "unavailable",
+            "provider_confirmed": "unavailable", "escalation_rule": "none",
+        }
+        worker = {
+            "success": True,
+            "output": "PASS\nFiles touched: None\nValidation: deterministic proof\nArtifacts: None\nBlockers: None\nNext action: Review",
+            "returncode": 0,
+            "token_usage": {"available": False},
+            "token_usage_text": "Token usage: unavailable from current CLI output",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_queue_templates(root)
+            with patch.object(backend, "BASE_DIR", root):
+                item = backend._queue_create_dashboard_item(backend.QueueItemCreate(
+                    title="Deterministic coding proof", owner="codex", definition_of_done="Proof passes."
+                ))
+                with patch.object(backend, "_queue_run_worker", return_value=worker), \
+                     patch.object(backend, "_queue_run_hermes_review") as model_review, \
+                     patch.object(backend, "_queue_resolve_route_metadata", return_value=route):
+                    result = backend.run_queue_item(item["id"])
+        self.assertEqual("human_review", result["status"])
+        self.assertEqual(1, result["attempts_used"])
+        model_review.assert_not_called()
+
+    def test_oversized_work_and_continuation_create_one_prompt_and_one_item(self):
+        first_part = "/work codex " + ("bounded repair details " * 200) + "\n\n4. Preserve architecture:"
+        second_part = "* Keep one queue item.\n* Run focused validation."
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch.object(backend, "BASE_DIR", root):
+                first = backend.wsl_hermes(backend.TaskRun(task=first_part, source="telegram"))
+                second = backend.wsl_hermes(backend.TaskRun(task=second_part, source="telegram"))
+                rows = backend._read_queue_items()
+                prompt_files = list((root / "queue/run_prompts").glob("*.md"))
+                prompt_text = prompt_files[0].read_text(encoding="utf-8")
+        self.assertTrue(first["created"])
+        self.assertEqual("split-work-request-merged", second["state"])
+        self.assertEqual(1, len(rows))
+        self.assertEqual(1, len(prompt_files))
+        self.assertIn(first_part, prompt_text)
+        self.assertIn(second_part, prompt_text)
+        self.assertEqual(["consider decomposing"], rows[0]["needs_me"])
 
 
 if __name__ == "__main__":

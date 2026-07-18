@@ -3,7 +3,7 @@ export const HUMAN_NEEDED_STATUSES = new Set(['human_review', 'needs_input', 'bl
 export const normalizedStatus = value => String(value || '').trim().toLowerCase()
 
 export const humanNeededItems = items => (Array.isArray(items) ? items : [])
-  .filter(item => HUMAN_NEEDED_STATUSES.has(normalizedStatus(item?.status)))
+  .filter(item => HUMAN_NEEDED_STATUSES.has(normalizedStatus(item?.status)) || (Array.isArray(item?.needs_me) && item.needs_me.length > 0))
 
 export function normalizeCockpitQueue(cockpit) {
   if (!cockpit || cockpit.error) return cockpit

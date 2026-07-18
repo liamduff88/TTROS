@@ -1,6 +1,10 @@
 # DECISIONS.md — log of decisions that change system behavior
 > One entry per behavior-affecting change. Newest first.
 
+## 2026-07-18 — Bounded Codex context and opt-in model review
+
+Codex launches now auto-compact at 75,000 tokens and receive standing tool-output bounds. Queue runs use deterministic proof by default; the existing Hermes reviewer runs only for `review: model` and sees only the final artifact or bounded closeout. Oversized Telegram `/work` intake persists one prompt file, merges its continuation into the same item, and adds `consider decomposing` to Needs Me metadata. Exact-or-unavailable usage counters and a configurable 75-turn Needs Me alert are additive to existing ledgers and receipts.
+
 ## 2026-07-13 — Graphify previews expose local graph interaction
 
 The self-contained Graphify graph preview now supports node click and keyboard

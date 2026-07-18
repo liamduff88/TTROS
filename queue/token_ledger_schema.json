@@ -18,6 +18,15 @@
     "model_requested": {"type": "string"},
     "model_confirmed": {"type": "string"},
     "budget_class": {"type": "string", "enum": ["light", "standard", "heavy"]},
+    "initial_prompt_bytes": {"$ref": "#/definitions/observedCounter"},
+    "model_turns": {"$ref": "#/definitions/observedCounter"},
+    "retained_context_bytes": {"$ref": "#/definitions/observedCounter"},
+    "compaction_count": {"$ref": "#/definitions/observedCounter"},
+    "fresh_input": {"$ref": "#/definitions/observedCounter"},
+    "cached_input": {"$ref": "#/definitions/observedCounter"},
+    "output": {"$ref": "#/definitions/observedCounter"},
+    "reasoning": {"$ref": "#/definitions/observedCounter"},
+    "largest_tool_result_bytes": {"$ref": "#/definitions/observedCounter"},
     "token_usage": {
       "type": "object",
       "required": ["orchestrator", "subagents", "workbenches", "totals", "est_cost_usd", "unavailable"],
@@ -62,6 +71,14 @@
         "est_cost_usd": {"type": "number", "minimum": 0},
         "unavailable": {"type": "array", "items": {"type": "string"}}
       }
+    }
+  },
+  "definitions": {
+    "observedCounter": {
+      "oneOf": [
+        {"type": "integer", "minimum": 0},
+        {"const": "unavailable from current CLI output"}
+      ]
     }
   }
 }

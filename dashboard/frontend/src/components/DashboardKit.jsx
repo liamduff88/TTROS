@@ -208,6 +208,11 @@ export function NeedsMeRail({ cockpit, onNavigate, collapseKey = null }) {
               <span>{item.id}</span>
               <StatusChip status={item.honest_status || item.status}>{item.stalled_minutes ? 'stalled' : item.status}</StatusChip>
             </div>
+            {Array.isArray(item.needs_me) && item.needs_me.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-1">
+                {item.needs_me.map(reason => <span key={reason} className="rounded border border-champagne/50 bg-champagne/10 px-1.5 py-0.5 text-[9px] font-semibold text-champagne">{reason}</span>)}
+              </div>
+            )}
           </button>
         ))}
         {!items.length && <div className="rounded border border-softgraph bg-ink p-3 text-xs text-taupe">No stalled, blocked, review, or input items.</div>}
