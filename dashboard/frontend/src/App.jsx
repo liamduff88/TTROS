@@ -144,7 +144,7 @@ export default function App() {
           <main className="flex-1 overflow-y-auto p-6">
             <ViewComponent overview={overview} cockpit={cockpit} initialFilters={viewParams} onViewParamsChange={updateActiveViewParams} onNavigate={navigate} refresh={refreshCockpit} onRefresh={() => getOverview().then(setOverview).catch(() => setOverview({ error: true }))} />
           </main>
-          <NeedsMeRail cockpit={cockpit} onNavigate={navigate} collapseKey={needsMeCollapseKey(view, viewParams)} />
+          <NeedsMeRail cockpit={cockpit} onNavigate={navigate} onRefresh={refreshCockpit} collapseKey={needsMeCollapseKey(view, viewParams)} />
         </div>
       </div>
     </div>

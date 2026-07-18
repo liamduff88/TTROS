@@ -900,7 +900,6 @@ class HermesComposioTests(unittest.TestCase):
             "Open Final Receipt",
             "Open Output Folder",
             "View Final Step",
-            "Final packaging running...",
             "openQueueArtifactFolder",
         ):
             self.assertIn(text, source)
@@ -1982,10 +1981,12 @@ class HermesComposioTests(unittest.TestCase):
     def test_frontend_labels_workflow_correction_as_needs_changes(self):
         root = Path(__file__).resolve().parents[2]
         queue_view = (root / "dashboard/frontend/src/views/Queue.jsx").read_text(encoding="utf-8")
+        review_card = (root / "dashboard/frontend/src/components/HumanReviewCard.jsx").read_text(encoding="utf-8")
         dashboard_view = (root / "dashboard/frontend/src/views/DashboardV1.jsx").read_text(encoding="utf-8")
-        self.assertIn("Needs changes", queue_view)
+        self.assertIn("HumanReviewCard", queue_view)
+        self.assertIn("Needs changes", review_card)
+        self.assertIn("needs_input", review_card)
         self.assertIn("Needs changes", dashboard_view)
-        self.assertIn("single bounded Codex correction child", queue_view)
 
     def test_dashboard_queue_review_close_rejects_non_review_items(self):
         with tempfile.TemporaryDirectory() as tmp:

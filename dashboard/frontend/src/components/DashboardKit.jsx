@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { X, Zap, LockKeyhole, ChevronLeft, ChevronRight } from 'lucide-react'
 import { workbenchColor } from '../shellState'
+import { isReviewCardItem } from '../reviewCardState'
+import { HumanReviewCard } from './HumanReviewCard'
 
 export const STATUS_LABELS = {
   inbox: 'Ready',
@@ -173,7 +175,7 @@ export function TokenRail({ tokens, onNavigate }) {
   )
 }
 
-export function NeedsMeRail({ cockpit, onNavigate, collapseKey = null }) {
+export function NeedsMeRail({ cockpit, onNavigate, onRefresh, collapseKey = null }) {
   const [collapsed, setCollapsed] = useState(false)
   const items = cockpit?.needs_me || []
   const itemCount = items.length
@@ -201,7 +203,9 @@ export function NeedsMeRail({ cockpit, onNavigate, collapseKey = null }) {
         <button onClick={() => setCollapsed(true)} className="rounded p-1.5 text-taupe hover:bg-well hover:text-stone" aria-label="Collapse Needs Me"><ChevronRight size={14} /></button>
       </div>
       <div className="mt-4 space-y-2">
-        {items.map(item => (
+        {items.map(item => isReviewCardItem(item) ? (
+          <HumanReviewCard key={item.id} item={item} onSaved={onRefresh} />
+        ) : (
           <button key={item.id} onClick={() => onNavigate('work-queue', { q: item.id, selectedId: item.id })} className="w-full rounded border bg-ink p-2 text-left" style={{ borderColor: workbenchColor(item.invocation_source, item.status) }} data-needs-me-id={item.id} data-invocation-source={item.invocation_source || 'unattributed'}>
             <div className="truncate text-xs font-semibold text-stone">{item.title}</div>
             <div className="mt-1 flex items-center justify-between gap-2 text-[10px] text-taupe">

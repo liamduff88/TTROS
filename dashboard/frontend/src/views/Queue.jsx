@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AlertCircle, CheckCircle2, Clipboard, FileText, Focus, FolderOpen, ListChecks, Plus, RefreshCw } from 'lucide-react'
-import { closeQueueItemReview, createQueueItem, externalActionDryRun, getQueueArtifact, getQueueItems, getQueueNext, getQueuePrompt, getQueueReceipt, getQueueStatus, openQueueArtifactFolder } from '../api'
+import { createQueueItem, externalActionDryRun, getQueueArtifact, getQueueItems, getQueueNext, getQueuePrompt, getQueueReceipt, getQueueStatus, openQueueArtifactFolder } from '../api'
 import { laneColor, laneName, workbenchColor } from '../shellState'
 import { resolveQueueSelection } from '../queueState'
+import { isReviewCardItem } from '../reviewCardState'
+import { HumanReviewCard } from '../components/HumanReviewCard'
 
 const QUEUE_STATUSES = ['inbox', 'agent_todo', 'agent_working', 'needs_input', 'human_review', 'done', 'blocked', 'cancelled']
 const QUEUE_OWNERS = ['unassigned', 'hermes', 'codex', 'claude', 'revenue', 'marketing', 'delivery', 'operations']
@@ -123,7 +125,6 @@ const emptyCreateForm = {
   workbench: '',
 }
 
-const emptyReviewState = { submitting: null, note: '', message: '', error: null }
 const emptyDryRunForm = { recipient: '', action: '', payload: '', confirmation: '' }
 const emptyDryRunState = { submitting: false, message: '', error: null, receiptPath: '' }
 
@@ -215,7 +216,7 @@ const FieldLabel = ({ label, children }) => (
   </label>
 )
 
-export default function Queue({ initialFilters = {}, onViewParamsChange }) {
+export default function Queue({ initialFilters = {}, onViewParamsChange, refresh }) {
   const initialSelectedId = selectedIdFromParams(initialFilters)
   const [status, setStatus] = useState(null)
   const [items, setItems] = useState([])
@@ -226,7 +227,6 @@ export default function Queue({ initialFilters = {}, onViewParamsChange }) {
   const [createState, setCreateState] = useState({ submitting: false, message: '', error: null })
   const [promptCopy, setPromptCopy] = useState({ target: null, message: '', error: null })
   const [runState, setRunState] = useState({ running: false, result: null, error: null })
-  const [reviewState, setReviewState] = useState(emptyReviewState)
   const [dryRunForm, setDryRunForm] = useState(emptyDryRunForm)
   const [dryRunState, setDryRunState] = useState(emptyDryRunState)
   const [finalStepSelection, setFinalStepSelection] = useState({ targetId: '', message: '' })
@@ -335,7 +335,6 @@ export default function Queue({ initialFilters = {}, onViewParamsChange }) {
   useEffect(() => {
     setFilePreview({ path: '', category: '', extension: '', loading: false, content: '', error: null })
     setRunState({ running: false, result: null, error: null })
-    setReviewState(emptyReviewState)
     setDryRunForm(emptyDryRunForm)
     setDryRunState(emptyDryRunState)
   }, [selectedId])
@@ -509,33 +508,6 @@ export default function Queue({ initialFilters = {}, onViewParamsChange }) {
         result: null,
         error: error?.message || 'Queue item run failed',
       })
-    }
-  }
-
-  const updateReviewNote = value => {
-    setReviewState(current => ({ ...current, note: value, message: '', error: null }))
-  }
-
-  const markReviewStatus = async status => {
-    if (!selected?.id || selected.status !== 'human_review' || reviewState.submitting) return
-    setReviewState(current => ({ ...current, submitting: status, message: '', error: null }))
-    try {
-      const response = await closeQueueItemReview(selected.id, {
-        status,
-        review_note: reviewState.note,
-      })
-      if (response?.success === false || response?.ok === false) {
-        throw new Error(response?.reason || response?.message || 'Review update failed')
-      }
-      await refreshQueue(selected.id)
-      setReviewState({ submitting: null, note: '', message: `Marked ${formatStatus(status)}.`, error: null })
-    } catch (error) {
-      setReviewState(current => ({
-        ...current,
-        submitting: null,
-        message: '',
-        error: error?.response?.data?.detail || error?.message || 'Review update failed',
-      }))
     }
   }
 
@@ -867,6 +839,16 @@ export default function Queue({ initialFilters = {}, onViewParamsChange }) {
           </div>
         </div>
 
+        {selected && isReviewCardItem(selected) ? (
+          <HumanReviewCard
+            item={selected}
+            className="self-start"
+            onSaved={async () => {
+              await refreshQueue(selected.id)
+              await refresh?.()
+            }}
+          />
+        ) : (
         <div id="queue-selected-detail" ref={selectedDetailRef} className="rounded-lg border bg-graphite p-5" style={{ borderColor: selected ? workbenchColor(selected.invocation_source, selected.status) : 'var(--hairline)' }} data-testid="queue-selected-detail" data-selected-item-id={selected?.id || ''} data-invocation-source={selected?.invocation_source || 'unattributed'}>
           <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
@@ -988,12 +970,6 @@ export default function Queue({ initialFilters = {}, onViewParamsChange }) {
                 )}
               </div>
 
-              {reviewState.submitting === 'done' && (
-                <div className="rounded border border-champagne/30 bg-champagne/10 px-3 py-2 text-xs font-mono text-champagne">
-                  Final packaging running...
-                </div>
-              )}
-
               {pipeline?.nodes?.length > 0 && (
                 <div className="rounded border border-softgraph bg-ink" data-testid="pipeline-visualization">
                   <div className="border-b border-softgraph px-3 py-2">
@@ -1102,57 +1078,6 @@ export default function Queue({ initialFilters = {}, onViewParamsChange }) {
                 <DetailRow label="Allowed actions" value={renderList(selected.allowed_actions)} />
                 <DetailRow label="Stop conditions" value={renderList(selected.stop_conditions)} />
               </div>
-
-              {selected.status === 'human_review' && (
-                <div className="rounded border border-softgraph bg-ink">
-                  <div className="border-b border-softgraph px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-taupe">Human review controls</div>
-                  <div className="space-y-3 px-3 py-3">
-                    <div className="rounded border border-champagne/40 bg-graphite p-3" data-testid="approval-card">
-                      <div className="text-xs font-semibold uppercase tracking-wider text-champagne">Approval package</div>
-                      <div className="mt-2 text-xs text-taupe">Approving: <span className="text-stone">{selected.id} · {selected.title}</span></div>
-                      <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap rounded border border-softgraph bg-ink p-2 text-xs text-stone">{selected.context || latestReceipt?.content || 'Exact payload preview unavailable; inspect linked evidence before approval.'}</pre>
-                      <div className="mt-2 break-all text-xs text-taupe">Source artifacts: {selected.integrated_review_artifact?.path || renderList(selected.source_refs) || 'unavailable'}</div>
-                      {selected.integrated_review_artifact?.available && <button type="button" onClick={() => viewArtifact({ ...selected.integrated_review_artifact, category: 'Final integrated review' })} className="mt-2 rounded border border-softgraph bg-ink px-2 py-1 text-xs text-stone">Open final integrated review</button>}
-                      <div className="mt-1 break-all text-xs text-taupe">Receipt: {latestReceiptPath || 'unavailable'}</div>
-                      <div className="mt-2 text-xs text-stone">Approve writes one idempotent local review receipt and runs the deterministic dependency-resume tick. Needs changes requires one operator note and uses the existing bounded correction path.</div>
-                    </div>
-                    <FieldLabel label={selected.owner_type === 'workflow' ? 'Consolidated correction note (required for Needs changes)' : 'Review note optional'}>
-                      <textarea
-                        className={`${fieldBase} min-h-[4rem] resize-y`}
-                        maxLength={500}
-                        value={reviewState.note}
-                        onChange={event => updateReviewNote(event.target.value)}
-                        placeholder="Short local note to attach to the review receipt"
-                      />
-                    </FieldLabel>
-                    <div className="flex flex-wrap gap-2">
-                      {['done', 'needs_input', 'blocked'].map(reviewStatus => (
-                        <button
-                          key={reviewStatus}
-                          type="button"
-                          onClick={() => markReviewStatus(reviewStatus)}
-                          disabled={Boolean(reviewState.submitting)}
-                          className={`inline-flex items-center gap-2 rounded px-3 py-2 text-xs font-mono font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
-                            reviewStatus === 'done' ? 'bg-champagne text-ivory hover:bg-well' : 'border border-softgraph bg-graphite text-stone hover:border-champagne'
-                          }`}
-                        >
-                          {reviewState.submitting === reviewStatus
-                            ? `Marking ${selected.owner_type === 'workflow' && reviewStatus === 'needs_input' ? 'Needs changes' : formatStatus(reviewStatus)}...`
-                            : selected.owner_type === 'workflow' && reviewStatus === 'needs_input'
-                              ? 'Needs changes'
-                              : `Mark ${formatStatus(reviewStatus)}`}
-                        </button>
-                      ))}
-                    </div>
-                    {(reviewState.message || reviewState.error) && (
-                      <div className={`rounded border px-3 py-2 text-xs font-mono ${reviewState.error ? 'border-clay/40 bg-clay/10 text-clay' : 'border-champagne/30 bg-champagne/10 text-champagne'}`}>
-                        {reviewState.error || reviewState.message}
-                      </div>
-                    )}
-                    <div className="text-xs font-mono text-taupe">Mark done attaches a local review receipt and runs the deterministic local orchestration tick. For workflow parents, Needs changes creates the single bounded Codex correction child and requires the consolidated note. It does not launch agents.</div>
-                  </div>
-                </div>
-              )}
 
               <form onSubmit={submitDryRun} className="rounded border border-champagne/30 bg-ink" data-testid="manual-handoff">
                 <div className="border-b border-softgraph px-3 py-2">
@@ -1420,6 +1345,7 @@ export default function Queue({ initialFilters = {}, onViewParamsChange }) {
             </div>
           )}
         </div>
+        )}
       </section>
     </div>
   )
