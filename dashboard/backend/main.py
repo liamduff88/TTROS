@@ -3298,6 +3298,8 @@ _QUEUE_STATUSES = (
     "cancelled",
 )
 _ACTIVE_QUEUE_STATUSES = tuple(status for status in _QUEUE_STATUSES if status not in {"done", "cancelled"})
+_HISTORY_QUEUE_STATUSES = ("done", "cancelled")
+_QUEUE_ITEM_SCOPES = {"active", "history", "all"}
 _QUEUE_OWNER_RE = {
     owner: re.compile(rf"\b{re.escape(owner)}\b", re.IGNORECASE)
     for owner in ("codex", "claude", "revenue", "marketing", "delivery", "operations")
@@ -3596,20 +3598,33 @@ def _queue_resolve_route_metadata(owner: object) -> dict:
     return metadata
 
 
-def _read_queue_items() -> list[dict]:
+def _read_queue_items_with_diagnostics() -> tuple[list[dict], dict[str, int]]:
     path = _queue_items_path()
     if not path.exists():
-        return []
+        return [], {"invalidRecordCount": 0}
     items = []
-    for line_number, line in enumerate(path.read_text(encoding="utf-8", errors="replace").splitlines(), start=1):
-        if not line.strip():
-            continue
-        try:
-            item = json.loads(line)
-        except json.JSONDecodeError as exc:
-            raise ValueError(f"Invalid queue JSONL at line {line_number}: {exc.msg}") from exc
-        if isinstance(item, dict):
-            items.append(item)
+    invalid_record_count = 0
+    try:
+        with path.open("r", encoding="utf-8", errors="replace") as handle:
+            for line in handle:
+                if not line.strip():
+                    continue
+                try:
+                    item = json.loads(line)
+                except json.JSONDecodeError:
+                    invalid_record_count += 1
+                    continue
+                if isinstance(item, dict):
+                    items.append(item)
+                else:
+                    invalid_record_count += 1
+    except OSError as exc:
+        raise ValueError("Queue file could not be read") from exc
+    return items, {"invalidRecordCount": invalid_record_count}
+
+
+def _read_queue_items() -> list[dict]:
+    items, _diagnostics = _read_queue_items_with_diagnostics()
     return items
 
 
@@ -4675,7 +4690,7 @@ def _dashboard_lane_activity(items: list[dict]) -> list[dict]:
 def queue_summary():
     """Read local queue state for the dashboard without mutating the queue."""
     try:
-        items = _read_queue_items()
+        items, diagnostics = _read_queue_items_with_diagnostics()
     except ValueError as exc:
         return {
             "success": False,
@@ -4695,6 +4710,8 @@ def queue_summary():
     return {
         "success": True,
         "counts": counts,
+        "totalCount": len(items),
+        "diagnostics": diagnostics,
         "needsLiam": needs_liam,
         "needsMeCount": needs_liam,
         "humanNeededCount": needs_liam,
@@ -4713,14 +4730,31 @@ def queue_status():
 
 
 @app.get("/api/queue/items")
-def queue_items():
+def queue_items(scope: str | None = None):
     """List local queue items without mutating or launching anything."""
+    normalized_scope = str(scope or "all").strip().lower()
+    if normalized_scope not in _QUEUE_ITEM_SCOPES:
+        raise HTTPException(status_code=400, detail="scope must be active, history, or all")
     try:
-        items = sorted(_read_queue_items(), key=_queue_item_sort_key)
+        all_items, diagnostics = _read_queue_items_with_diagnostics()
     except ValueError as exc:
         return {"success": False, "message": "Queue unavailable", "reason": str(exc), "items": []}
+    if normalized_scope == "active":
+        items = [item for item in all_items if item.get("status") in _ACTIVE_QUEUE_STATUSES]
+    elif normalized_scope == "history":
+        items = [item for item in all_items if item.get("status") in _HISTORY_QUEUE_STATUSES]
+    else:
+        items = all_items
+    items = sorted(items, key=_queue_item_sort_key)
     invocation_attributions = _queue_invocation_attributions()
-    return {"success": True, "items": [_queue_detail_item(item, invocation_attributions) for item in items]}
+    return {
+        "success": True,
+        "scope": normalized_scope,
+        "itemCount": len(items),
+        "totalCount": len(all_items),
+        "diagnostics": diagnostics,
+        "items": [_queue_detail_item(item, invocation_attributions) for item in items],
+    }
 
 
 @app.get("/api/queue/items/{item_id}")

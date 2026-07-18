@@ -1446,9 +1446,54 @@ class HermesComposioTests(unittest.TestCase):
         self.assertEqual(result["needsMeCount"], result["needsLiam"])
         self.assertEqual([item["id"] for item in result["needsMeItems"]], ["AOS-2026-0003"])
         self.assertEqual(result["activeCount"], 3)
+        self.assertEqual(result["totalCount"], 4)
         self.assertEqual([item["id"] for item in result["activeItems"]], ["AOS-2026-0002", "AOS-2026-0003", "AOS-2026-0001"])
         self.assertEqual(result["nextItem"]["id"], "AOS-2026-0002")
         self.assertNotIn("Finished old task", json.dumps(result))
+
+    def test_queue_items_supports_active_history_all_and_legacy_all_default(self):
+        items = self.sample_queue_items() + [{
+            "id": "AOS-2026-0005",
+            "title": "Cancelled old task",
+            "status": "cancelled",
+            "owner": "unassigned",
+            "priority": 2,
+            "created_at": "2026-07-05T10:04:00Z",
+        }]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_queue_items(root, items)
+            with patch.object(backend, "BASE_DIR", root):
+                active = backend.queue_items("active")
+                history = backend.queue_items("history")
+                all_items = backend.queue_items("all")
+                legacy = backend.queue_items()
+
+        self.assertEqual({row["status"] for row in active["items"]}, {"inbox", "agent_todo", "blocked"})
+        self.assertEqual({row["status"] for row in history["items"]}, {"done", "cancelled"})
+        self.assertEqual(len(all_items["items"]), len(items))
+        self.assertEqual(legacy["items"], all_items["items"])
+        self.assertLess(active["itemCount"], all_items["itemCount"])
+        self.assertEqual(all_items["totalCount"], len(items))
+
+    def test_queue_read_skips_one_malformed_record_and_keeps_valid_records(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            queue = root / "queue"
+            queue.mkdir(parents=True)
+            queue_path = queue / "work_items.jsonl"
+            original = '{"id":"AOS-2026-9012","status":"inbox"}\n{broken\n{"id":"AOS-2026-9013","status":"done"}\n'
+            queue_path.write_text(original, encoding="utf-8")
+            with patch.object(backend, "BASE_DIR", root):
+                result = backend.queue_items("all")
+                summary = backend.queue_summary()
+            preserved = queue_path.read_text(encoding="utf-8")
+        self.assertTrue(result["success"])
+        self.assertEqual(["AOS-2026-9012", "AOS-2026-9013"], [row["id"] for row in result["items"]])
+        self.assertEqual({"invalidRecordCount": 1}, result["diagnostics"])
+        self.assertEqual({"invalidRecordCount": 1}, summary["diagnostics"])
+        self.assertNotIn("broken", json.dumps(result))
+        self.assertEqual(original, preserved)
 
     def test_dashboard_cockpit_uses_queue_summary_needs_me_source(self):
         with tempfile.TemporaryDirectory() as tmp:

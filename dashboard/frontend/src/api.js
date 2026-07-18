@@ -17,6 +17,7 @@ export const getComposioConnections = () => api.get('/composio/connections').the
 export const getQueueSummary = () => api.get('/queue/summary').then(r => r.data)
 export const getQueueStatus = () => api.get('/queue/status').then(r => r.data)
 export const getQueueItems = () => api.get('/queue/items').then(r => r.data)
+export const getQueueItemsForScope = scope => api.get('/queue/items', { params: { scope } }).then(r => r.data)
 export const getQueueItem = (id) => api.get(`/queue/items/${id}`).then(r => r.data)
 export const getQueueNext = () => api.get('/queue/next').then(r => r.data)
 export const getQueueReceipt = (path) => api.get('/queue/receipt', { params: { path } }).then(r => r.data)

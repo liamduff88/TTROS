@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AlertCircle, CheckCircle2, Clipboard, FileText, Focus, FolderOpen, ListChecks, Plus, RefreshCw } from 'lucide-react'
-import { createQueueItem, externalActionDryRun, getQueueArtifact, getQueueItems, getQueueNext, getQueuePrompt, getQueueReceipt, getQueueStatus, openQueueArtifactFolder } from '../api'
+import { createQueueItem, externalActionDryRun, getQueueArtifact, getQueueItemsForScope, getQueuePrompt, getQueueReceipt, getQueueStatus, openQueueArtifactFolder } from '../api'
 import { laneColor, laneName, workbenchColor } from '../shellState'
-import { resolveQueueSelection } from '../queueState'
+import { loadQueueScope, persistQueueScope, QUEUE_SCOPES, resolveQueueSelection } from '../queueState'
 import { isReviewCardItem } from '../reviewCardState'
 import { HumanReviewCard } from '../components/HumanReviewCard'
 
 const QUEUE_STATUSES = ['inbox', 'agent_todo', 'agent_working', 'needs_input', 'human_review', 'done', 'blocked', 'cancelled']
 const QUEUE_OWNERS = ['unassigned', 'hermes', 'codex', 'claude', 'revenue', 'marketing', 'delivery', 'operations']
 const QUEUE_PRIORITIES = ['low', 'normal', 'high', 'urgent']
+const QUEUE_SCOPE_LABELS = { active: 'Active', history: 'History', all: 'All' }
 
 const formatStatus = value => String(value || '').replace(/_/g, ' ')
 
@@ -220,6 +221,7 @@ export default function Queue({ initialFilters = {}, onViewParamsChange, refresh
   const initialSelectedId = selectedIdFromParams(initialFilters)
   const [status, setStatus] = useState(null)
   const [items, setItems] = useState([])
+  const [scope, setScope] = useState(() => loadQueueScope())
   const [nextItem, setNextItem] = useState(null)
   const [selectedId, setSelectedId] = useState(initialSelectedId)
   const [filters, setFilters] = useState(filtersFromParams(initialFilters))
@@ -284,13 +286,13 @@ export default function Queue({ initialFilters = {}, onViewParamsChange, refresh
     const selectionRevision = selectionRevisionRef.current
     setState({ loading: true, error: null })
     try {
-      const [statusData, itemsData, nextData] = await Promise.all([getQueueStatus(), getQueueItems(), getQueueNext()])
-      if (statusData?.success === false || itemsData?.success === false || nextData?.success === false) {
-        throw new Error(statusData?.reason || itemsData?.reason || nextData?.reason || 'Queue unavailable')
+      const [statusData, itemsData] = await Promise.all([getQueueStatus(), getQueueItemsForScope(scope)])
+      if (statusData?.success === false || itemsData?.success === false) {
+        throw new Error(statusData?.reason || itemsData?.reason || 'Queue unavailable')
       }
 
       const list = sortQueueItemsNewestFirst(itemsData?.items || [])
-      const next = nextData?.item || null
+      const next = statusData?.nextItem || null
       if (requestId !== refreshRequestRef.current) return
       const resolvedId = resolveQueueSelection({
         items: list,
@@ -313,8 +315,9 @@ export default function Queue({ initialFilters = {}, onViewParamsChange, refresh
   }
 
   useEffect(() => {
+    persistQueueScope(scope)
     refreshQueue()
-  }, [])
+  }, [scope])
 
   useEffect(() => {
     if (selectedId) setListCollapsed(true)
@@ -541,6 +544,7 @@ export default function Queue({ initialFilters = {}, onViewParamsChange, refresh
   const reason = state.error?.response?.data?.detail || state.error?.message
   const counts = status?.counts || {}
   const activeCount = status?.activeCount ?? items.filter(item => !['done', 'cancelled'].includes(item.status)).length
+  const totalCount = status?.totalCount ?? Object.values(counts).reduce((total, value) => total + (Number(value) || 0), 0)
   const needsLiam = status?.needsLiam ?? ((counts.needs_input || 0) + (counts.human_review || 0) + (counts.blocked || 0))
   const latestReceiptPath = receiptLabel(latestReceipt)
   const primaryOutputPath = runArtifacts.find(artifact => artifact.available && artifact.path !== latestReceiptPath)?.path || ''
@@ -587,6 +591,20 @@ export default function Queue({ initialFilters = {}, onViewParamsChange, refresh
           <button type="button" onClick={() => refreshQueue()} disabled={state.loading} className="inline-flex items-center gap-2 rounded bg-softgraph px-3 py-2 text-xs font-mono text-taupe transition-colors hover:text-stone disabled:cursor-not-allowed disabled:opacity-60"><RefreshCw size={13} className={state.loading ? 'animate-spin' : ''} />Refresh</button>
         </div>
       </div>
+      <div className="inline-flex w-fit rounded border border-softgraph bg-graphite p-1" role="group" aria-label="Queue scope" data-testid="queue-scope-control">
+        {QUEUE_SCOPES.map(value => (
+          <button
+            type="button"
+            key={value}
+            aria-pressed={scope === value}
+            onClick={() => setScope(value)}
+            className={`rounded px-4 py-2 text-xs font-mono transition-colors ${scope === value ? 'bg-champagne text-ivory' : 'text-taupe hover:bg-ink hover:text-stone'}`}
+          >
+            {QUEUE_SCOPE_LABELS[value]}
+          </button>
+        ))}
+      </div>
+
 
       {state.error && (
         <div className="rounded-lg border border-clay/40 bg-clay/10 p-4">
@@ -603,7 +621,7 @@ export default function Queue({ initialFilters = {}, onViewParamsChange, refresh
           <div>
             <h2 className="text-xs font-semibold uppercase tracking-wider text-taupe">Status counts</h2>
             <div className="mt-1 font-mono text-xs text-taupe">
-              Active {activeCount} / Needs Liam {needsLiam} / Total {items.length}
+              Active {activeCount} / Needs Me {needsLiam} / Total {totalCount}
             </div>
           </div>
           {status?.nextAction && <div className="max-w-xl text-sm text-stone">{status.nextAction}</div>}
@@ -786,7 +804,7 @@ export default function Queue({ initialFilters = {}, onViewParamsChange, refresh
             <div className="mb-4 flex items-center justify-between gap-3">
               <div className="flex items-center gap-2">
                 <ListChecks size={14} className="text-taupe" />
-                <h2 className="text-xs font-semibold uppercase tracking-wider text-taupe">{listCollapsed ? 'Queue' : 'Work items'}</h2>
+                <h2 className="text-xs font-semibold uppercase tracking-wider text-taupe">{listCollapsed ? QUEUE_SCOPE_LABELS[scope] : `${QUEUE_SCOPE_LABELS[scope]} work items`}</h2>
               </div>
               <div className={`items-center gap-2 ${listCollapsed ? 'hidden' : 'flex'}`}>
                 <QueueFilterChip filters={filters} onClear={() => setFilters({})} />
@@ -832,8 +850,7 @@ export default function Queue({ initialFilters = {}, onViewParamsChange, refresh
               </div>
             ) : (
               <div className="rounded border border-softgraph bg-ink px-4 py-10 text-center">
-                <div className="text-sm font-semibold text-stone">No local queue items found.</div>
-                <div className="mt-2 text-xs font-mono text-taupe">Expected path: queue/work_items.jsonl</div>
+                <div className="text-sm font-semibold text-stone">No {QUEUE_SCOPE_LABELS[scope].toLowerCase()} queue items found.</div>
               </div>
             )}
           </div>

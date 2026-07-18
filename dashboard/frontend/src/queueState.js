@@ -1,4 +1,29 @@
 export const HUMAN_NEEDED_STATUSES = new Set(['human_review', 'needs_input', 'blocked'])
+export const QUEUE_SCOPES = ['active', 'history', 'all']
+
+const QUEUE_SCOPE_SESSION_KEY = 'aos.dashboard.queue-scope.v1'
+
+export const normalizedQueueScope = value => QUEUE_SCOPES.includes(String(value || '').toLowerCase())
+  ? String(value).toLowerCase()
+  : 'active'
+
+export function loadQueueScope(storage = globalThis.sessionStorage) {
+  try {
+    return normalizedQueueScope(storage?.getItem(QUEUE_SCOPE_SESSION_KEY))
+  } catch {
+    return 'active'
+  }
+}
+
+export function persistQueueScope(scope, storage = globalThis.sessionStorage) {
+  const normalized = normalizedQueueScope(scope)
+  try {
+    storage?.setItem(QUEUE_SCOPE_SESSION_KEY, normalized)
+  } catch {
+    // Session persistence is best-effort; the in-memory scope remains authoritative.
+  }
+  return normalized
+}
 
 export const normalizedStatus = value => String(value || '').trim().toLowerCase()
 
