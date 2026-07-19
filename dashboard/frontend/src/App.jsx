@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import Sidebar from './components/Sidebar'
 import TopBar from './components/TopBar'
+import CaptureBox from './components/CaptureBox'
 import Overview from './views/Overview'
 import AgentWorkbench from './views/AgentWorkbench'
 import PacketCreator from './views/PacketCreator'
@@ -161,6 +162,7 @@ export default function App() {
       <Sidebar activeView={view} onNavigate={navigate} counts={cockpit?.counts || {}} />
       <div className="flex flex-col flex-1 overflow-hidden">
         <TopBar backendOk={backendOk} overview={overview} cockpit={cockpit} onNavigate={navigate} onRefresh={() => { getOverview().then(setOverview).catch(() => setOverview({ error: true })); refreshCockpit() }} />
+        <CaptureBox />
         <div className="flex h-10 shrink-0 items-end gap-0 overflow-x-auto border-b border-softgraph bg-graphite px-2" role="tablist" aria-label="Session tabs" data-testid="session-tabs">
           {sessionTabs.map(tab => (
             <div

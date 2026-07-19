@@ -1,7 +1,12 @@
+import hashlib
 import json
 import mimetypes
 import os
 import re
+import shlex
+import subprocess
+import sys
+import tempfile
 import time
 import urllib.error
 import urllib.parse
@@ -16,6 +21,12 @@ ALLOWED_FILE = BRIDGE_DIR / "allowed_chats.json"
 LOG_DIR = WORKSPACE / "logs"
 PILOT_ID = "northshore_honda_sales_demo"
 BACKEND = "http://127.0.0.1:8010"
+TOOLS_DIR = WORKSPACE / "tools"
+if str(TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(TOOLS_DIR))
+
+import business_brain
+import business_brain_inbox
 
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -90,6 +101,12 @@ _ALLOWED_DOC_PREFIXES = ("queue/receipts/", "workflows/queue_artifacts/", "resul
 _MAX_DOCUMENT_BYTES = 10 * 1024 * 1024
 SUBMISSION_ACK_TIMEOUT_SECONDS = 20
 AGENT_RESPONSE_TIMEOUT_SECONDS = 180
+_CAPTURE_COMMAND_RE = re.compile(r"^/(?:inbox|capture)(?:@[A-Za-z0-9_]+)?(?:\s+([\s\S]*))?$", re.IGNORECASE)
+_SUPPORTED_DOCUMENT_EXTENSIONS = {".txt", ".md", ".markdown", ".pdf", ".docx", ".rtf", ".csv", ".json", ".yaml", ".yml"}
+_SUPPORTED_DOCUMENT_MIME_TYPES = {
+    "text/plain", "text/markdown", "text/csv", "application/json", "application/pdf",
+    "application/rtf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+}
 _DIRECT_ASYNC_WORK_RE = re.compile(r"^\s*/work\s+(?:codex|claude)\b", re.IGNORECASE)
 _HERMES_COORDINATION_RE = re.compile(
     r"\b(?:coordinate|coordinator|oversee|orchestrate)\b"
@@ -432,6 +449,156 @@ def get_backend_status(timeout=5):
     return payload
 
 
+def _capture_requested(message, text):
+    return bool(_CAPTURE_COMMAND_RE.match(text or "") or _is_forwarded(message))
+
+
+def _is_forwarded(message):
+    return any(key in message for key in ("forward_origin", "forward_date", "forward_from", "forward_sender_name", "forward_from_chat"))
+
+
+def _capture_text_payload(text):
+    match = _CAPTURE_COMMAND_RE.match(text or "")
+    return (match.group(1) or "") if match else str(text or "")
+
+
+def _telegram_capture_id(message, kind):
+    identity = f"{message.get('chat', {}).get('id', '')}:{message.get('message_id', '')}:{kind}"
+    return f"telegram-{hashlib.sha256(identity.encode('utf-8')).hexdigest()}"
+
+
+def _message_timestamp(message):
+    try:
+        return datetime.fromtimestamp(int(message.get("date")), tz=timezone.utc)
+    except (TypeError, ValueError, OSError):
+        return datetime.now(timezone.utc)
+
+
+def _download_telegram_file(file_id, *, max_bytes=business_brain_inbox.MAX_ATTACHMENT_BYTES):
+    """Download one Telegram-owned file without logging its protected URL."""
+    try:
+        result = api("getFile", {"file_id": str(file_id)}, timeout=20).get("result") or {}
+        file_path = str(result.get("file_path") or "")
+        if not file_path or ".." in Path(file_path).parts or not re.fullmatch(r"[A-Za-z0-9_./-]+", file_path):
+            raise ValueError
+        request = urllib.request.Request(f"https://api.telegram.org/file/bot{TOKEN}/{file_path}")
+        with urllib.request.urlopen(request, timeout=60) as response:
+            data = response.read(max_bytes + 1)
+    except Exception as exc:
+        raise business_brain_inbox.InboxCaptureError("Telegram attachment download failed") from exc
+    if len(data) > max_bytes:
+        raise business_brain_inbox.InboxCaptureError("Telegram attachment exceeds the inbox size limit")
+    return data
+
+
+def _document_supported(document):
+    name = business_brain_inbox.sanitize_filename(document.get("file_name") or "attachment.bin")
+    mime = str(document.get("mime_type") or "").lower()
+    return Path(name).suffix.lower() in _SUPPORTED_DOCUMENT_EXTENSIONS and (
+        not mime or mime == "application/octet-stream" or mime in _SUPPORTED_DOCUMENT_MIME_TYPES
+    )
+
+
+def _declared_file_size(value):
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError):
+        raise business_brain_inbox.InboxCaptureError("Telegram attachment size is invalid")
+
+
+def _transcribe_voice_local(audio_path):
+    """Run only an explicitly configured local argv adapter; never use cloud STT."""
+    configured = os.environ.get("AOS_VOICE_TRANSCRIBE_COMMAND", "").strip()
+    if not configured:
+        return None, "unavailable: configure a local Whisper-compatible AOS_VOICE_TRANSCRIBE_COMMAND containing {audio}"
+    try:
+        argv = shlex.split(configured)
+    except ValueError as exc:
+        raise business_brain_inbox.InboxCaptureError("local voice transcription command is invalid") from exc
+    if not argv or not any("{audio}" in value for value in argv):
+        raise business_brain_inbox.InboxCaptureError("local voice transcription command must contain {audio}")
+    argv = [value.replace("{audio}", str(audio_path)) for value in argv]
+    try:
+        result = subprocess.run(argv, shell=False, capture_output=True, text=True, timeout=300, check=False)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise business_brain_inbox.InboxCaptureError("local voice transcription failed") from exc
+    transcript = str(result.stdout or "").strip()
+    if result.returncode or not transcript:
+        raise business_brain_inbox.InboxCaptureError("local voice transcription failed")
+    return transcript[:business_brain_inbox.MAX_TEXT_CHARS], "complete"
+
+
+def capture_operator_message(message):
+    """Capture one explicit or forwarded operator message without queue routing."""
+    text = str(message.get("text") or message.get("caption") or "")
+    payload = _capture_text_payload(text)
+    forwarded = _is_forwarded(message)
+    stamp = _message_timestamp(message)
+    root = business_brain.BUSINESS_BRAIN_ROOT
+    base_metadata = {"telegram_forwarded": forwarded}
+    document = message.get("document") if isinstance(message.get("document"), dict) else None
+    voice = message.get("voice") if isinstance(message.get("voice"), dict) else None
+
+    if document:
+        if not _document_supported(document):
+            raise business_brain_inbox.InboxCaptureError("unsupported Telegram document type")
+        if _declared_file_size(document.get("file_size")) > business_brain_inbox.MAX_ATTACHMENT_BYTES:
+            raise business_brain_inbox.InboxCaptureError("Telegram attachment exceeds the inbox size limit")
+        capture_id = _telegram_capture_id(message, "file")
+        data = _download_telegram_file(document.get("file_id"))
+        return business_brain_inbox.capture_attachment(
+            data,
+            original_filename=document.get("file_name") or "attachment.bin",
+            mime_type=document.get("mime_type") or "application/octet-stream",
+            capture_id=capture_id,
+            captured_at=stamp,
+            body=payload or "Attachment captured without transformation.",
+            metadata={**base_metadata, "telegram_message_type": "file"},
+            root=root,
+        )
+
+    if voice:
+        if _declared_file_size(voice.get("file_size")) > business_brain_inbox.MAX_ATTACHMENT_BYTES:
+            raise business_brain_inbox.InboxCaptureError("Telegram attachment exceeds the inbox size limit")
+        capture_id = _telegram_capture_id(message, "voice")
+        data = _download_telegram_file(voice.get("file_id"))
+        with tempfile.NamedTemporaryFile(prefix="aos-voice-", suffix=".ogg") as temporary:
+            temporary.write(data)
+            temporary.flush()
+            try:
+                transcript, transcription_status = _transcribe_voice_local(Path(temporary.name))
+            except business_brain_inbox.InboxCaptureError as exc:
+                transcript, transcription_status = None, f"failed: {exc}"
+        body = transcript or (payload if payload else "Voice note captured; transcription is unavailable on this host.")
+        return business_brain_inbox.capture_attachment(
+            data,
+            original_filename="voice-note.ogg",
+            mime_type=voice.get("mime_type") or "audio/ogg",
+            capture_id=capture_id,
+            captured_at=stamp,
+            body=body,
+            content_type="voice",
+            metadata={
+                **base_metadata,
+                "telegram_message_type": "voice",
+                "transcription_status": transcription_status,
+            },
+            root=root,
+        )
+
+    if not payload.strip():
+        raise business_brain_inbox.InboxCaptureError("use /inbox <text>, attach a supported file, or forward content")
+    return business_brain_inbox.capture_text(
+        payload,
+        source="telegram_bot",
+        capture_id=_telegram_capture_id(message, "text"),
+        captured_at=stamp,
+        content_type="forwarded_text" if forwarded else "text",
+        metadata={**base_metadata, "telegram_message_type": "text"},
+        root=root,
+    )
+
+
 def format_operator_status(payload, mode="unregistered"):
     """Render only bounded operational fields from the backend status contract."""
     data = payload if isinstance(payload, dict) else {}
@@ -537,7 +704,7 @@ def handle_operator(chat_id, text, source="telegram"):
         return
 
     if text.startswith("/"):
-        send(chat_id, "Commands: /status, /work codex|claude|hermes <task>, /pilot_add <chat_id> <pilot_id>")
+        send(chat_id, "Commands: /status, /inbox <text>, /work codex|claude|hermes <task>, /pilot_add <chat_id> <pilot_id>")
         return
 
     try:
@@ -556,9 +723,7 @@ def handle_operator(chat_id, text, source="telegram"):
 def handle_message(msg, source="telegram"):
     chat = msg.get("chat") or {}
     chat_id = int(chat.get("id"))
-    text = (msg.get("text") or "").strip()
-    if not text:
-        return
+    text = (msg.get("text") or msg.get("caption") or "").strip()
 
     allowed = load_allowed()
     is_operator = chat_id in set(allowed.get("operator_chat_ids", []))
@@ -575,6 +740,18 @@ def handle_message(msg, source="telegram"):
 
     if text.startswith("/whoami"):
         send(chat_id, f"chat_id={chat_id}")
+        return
+
+    if is_operator and _capture_requested(msg, text):
+        try:
+            capture = capture_operator_message(msg)
+            acknowledgement = "Already captured ✓" if capture.duplicate else "Captured ✓"
+        except business_brain_inbox.InboxCaptureError as exc:
+            acknowledgement = f"Capture failed: {exc}"
+        send(chat_id, acknowledgement, preserve_format=True)
+        return
+
+    if not text:
         return
 
     if is_operator:

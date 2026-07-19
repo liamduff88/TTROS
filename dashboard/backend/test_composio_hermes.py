@@ -83,6 +83,24 @@ SPEC.loader.exec_module(backend)
 
 
 class HermesComposioTests(unittest.TestCase):
+    def test_dashboard_inbox_capture_writes_brain_note_without_queue_work(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = Path(tmp)
+            (vault / "inbox/source_notes").mkdir(parents=True)
+            (vault / "inbox/README.md").write_text(
+                "---\nid: ttros-brain-inbox\ntype: intake\n---\n# Inbox\n",
+                encoding="utf-8",
+            )
+            with patch.object(backend.business_brain, "BUSINESS_BRAIN_ROOT", vault), \
+                 patch.object(backend, "_queue_create_dashboard_item") as create_queue:
+                result = backend.dashboard_capture(backend.CockpitCaptureCreate(text="Dashboard note", capture_id="ui-1"))
+
+            create_queue.assert_not_called()
+            self.assertTrue(result["success"])
+            self.assertFalse(result["queue_item_created"])
+            self.assertFalse(result["promoted"])
+            self.assertTrue(result["pointer"].startswith("business_brain:inbox/source_notes/capture_"))
+
     def test_claude_timeout_contract_is_exact_and_independent(self):
         self.assertEqual(backend.INLINE_COMMAND_TIMEOUT_SECONDS, 120)
         self.assertEqual(backend.AGENT_STARTUP_TIMEOUT_SECONDS, 60)

@@ -2,6 +2,7 @@ import importlib.util
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -22,6 +23,15 @@ def load_bridge():
 
 
 class TelegramBridgeFormattingTests(unittest.TestCase):
+    @staticmethod
+    def make_vault(root):
+        (root / "inbox/source_notes").mkdir(parents=True)
+        (root / "inbox/README.md").write_text(
+            "---\nid: ttros-brain-inbox\ntype: intake\n---\n# Inbox\n",
+            encoding="utf-8",
+        )
+        return root
+
     def test_submission_ack_timeout_is_short_and_independent_of_claude_execution(self):
         bridge = load_bridge()
         self.assertEqual(bridge.SUBMISSION_ACK_TIMEOUT_SECONDS, 20)
@@ -111,6 +121,84 @@ class TelegramBridgeFormattingTests(unittest.TestCase):
             "/work codex create the local proof",
             source="route_repair_fixture",
         )
+
+    def test_operator_inbox_text_and_forward_capture_without_queue_or_external_send(self):
+        bridge = load_bridge()
+        with tempfile.TemporaryDirectory() as temp:
+            vault = self.make_vault(Path(temp))
+            messages = (
+                {"message_id": 7, "date": 1784491200, "chat": {"id": 123}, "text": "/inbox Héllo\nworld"},
+                {"message_id": 8, "date": 1784491201, "chat": {"id": 123}, "text": "Forwarded content", "forward_origin": {"type": "hidden_user"}},
+            )
+            with patch.object(bridge.business_brain, "BUSINESS_BRAIN_ROOT", vault), \
+                 patch.object(bridge, "load_allowed", return_value={"operator_chat_ids": [123], "pilots": {}}), \
+                 patch.object(bridge, "post_agent") as post_agent, \
+                 patch.object(bridge, "api") as api, \
+                 patch.object(bridge, "send") as send:
+                for message in messages:
+                    bridge.handle_message(message)
+                    bridge.handle_message(message)
+
+            post_agent.assert_not_called()
+            api.assert_not_called()
+            self.assertEqual(send.call_count, 4)
+            self.assertEqual(send.call_args_list[0].args[1], "Captured ✓")
+            self.assertEqual(send.call_args_list[1].args[1], "Already captured ✓")
+            notes = sorted((vault / "inbox/source_notes").glob("tg_*.md"))
+            self.assertEqual(len(notes), 2)
+            bodies = "\n".join(path.read_text(encoding="utf-8") for path in notes)
+            self.assertIn("Héllo\nworld", bodies)
+            self.assertIn("Forwarded content", bodies)
+            self.assertNotIn("chat_id", bodies)
+            self.assertNotIn("123", bodies)
+            self.assertNotIn("fake-token", bodies)
+
+    def test_operator_document_capture_reuses_attachment_download_and_never_queues(self):
+        bridge = load_bridge()
+        with tempfile.TemporaryDirectory() as temp:
+            vault = self.make_vault(Path(temp))
+            message = {
+                "message_id": 9,
+                "date": 1784491202,
+                "chat": {"id": 123},
+                "caption": "/capture supporting file",
+                "document": {"file_id": "safe-file", "file_name": "../../brief?.txt", "mime_type": "text/plain"},
+            }
+            with patch.object(bridge.business_brain, "BUSINESS_BRAIN_ROOT", vault), \
+                 patch.object(bridge, "_download_telegram_file", return_value=b"attachment body") as download, \
+                 patch.object(bridge, "post_agent") as post_agent:
+                result = bridge.capture_operator_message(message)
+
+            download.assert_called_once_with("safe-file")
+            post_agent.assert_not_called()
+            self.assertEqual(result.attachment_path.read_bytes(), b"attachment body")
+            self.assertTrue(result.attachment_path.resolve().is_relative_to((vault / "inbox/source_notes").resolve()))
+            self.assertIn("supporting file", result.path.read_text(encoding="utf-8"))
+
+    def test_voice_audio_is_retained_with_honest_local_transcription_fallback(self):
+        bridge = load_bridge()
+        with tempfile.TemporaryDirectory() as temp:
+            vault = self.make_vault(Path(temp))
+            message = {
+                "message_id": 10,
+                "date": int(datetime(2026, 7, 19, tzinfo=timezone.utc).timestamp()),
+                "chat": {"id": 123},
+                "caption": "/inbox",
+                "voice": {"file_id": "voice-file", "mime_type": "audio/ogg"},
+            }
+            with patch.object(bridge.business_brain, "BUSINESS_BRAIN_ROOT", vault), \
+                 patch.object(bridge, "_download_telegram_file", return_value=b"OggSfixture"), \
+                 patch.dict(bridge.os.environ, {}, clear=True), \
+                 patch.object(bridge, "post_agent") as post_agent:
+                result = bridge.capture_operator_message(message)
+
+            post_agent.assert_not_called()
+            self.assertEqual(result.attachment_path.read_bytes(), b"OggSfixture")
+            note = result.path.read_text(encoding="utf-8")
+            self.assertIn("content_type: voice", note)
+            self.assertIn("transcription_status:", note)
+            self.assertIn("unavailable", note)
+            self.assertIn("transcription is unavailable", note)
 
     def test_queue_create_backend_output_is_preserved(self):
         bridge = load_bridge()

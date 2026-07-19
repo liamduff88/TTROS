@@ -56,6 +56,7 @@ PROTECTED_PATH_PARTS = (
     "queue/lane_profiles.json",
     "capture/runtime",
     "queue/draft_runtime",
+    "inbox/source_notes",
 )
 LEGACY_RE = re.compile(r"(old[_\s-]*(ubuntu|hermes|vault|runtime)|legacy|legacy_harvest|old[_\s-]*zpc|\bzpc\b)", re.I)
 SECRET_PATH_RE = re.compile(r"(^|[/.])(\.env($|\.)|.*secret.*|.*token.*|.*credential.*|.*password.*)", re.I)

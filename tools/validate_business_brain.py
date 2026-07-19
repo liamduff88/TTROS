@@ -22,13 +22,16 @@ FRONTMATTER_RE = re.compile(r"\A---\r?\n(.*?)\r?\n---\r?\n", re.S)
 WIKI_LINK_RE = re.compile(r"(?<!!)\[\[([^\]]+)\]\]")
 ROOTS = ("README.md", "index/MEMORY_INDEX.md")
 OBSIDIAN_JSON = ("app.json", "appearance.json", "core-plugins.json", "graph.json", "workspace.json")
+INTAKE_PREFIXES = ("inbox/source_notes/", "inbox/distilled_packets/")
 
 
 def canonical_markdown(vault: Path) -> list[Path]:
     return sorted(
         path
         for path in vault.rglob("*.md")
-        if path.is_file() and "_backups" not in {part.lower() for part in path.relative_to(vault).parts}
+        if path.is_file()
+        and "_backups" not in {part.lower() for part in path.relative_to(vault).parts}
+        and not path.relative_to(vault).as_posix().startswith(INTAKE_PREFIXES)
     )
 
 
@@ -90,6 +93,12 @@ def _strip_block1_structures(relative: str, raw: bytes) -> bytes:
 def analyze_vault(vault: Path, *, before_manifest: Path | None = None) -> dict:
     vault = vault.resolve()
     notes = canonical_markdown(vault)
+    intake_paths = sorted(
+        path.relative_to(vault).as_posix()
+        for prefix in INTAKE_PREFIXES
+        for path in (vault / prefix.rstrip("/")).rglob("*")
+        if path.is_file() and path.name != ".gitkeep"
+    )
     relative_paths = [path.relative_to(vault).as_posix() for path in notes]
     path_set = set(relative_paths)
     ids: dict[str, str] = {}
@@ -175,6 +184,8 @@ def analyze_vault(vault: Path, *, before_manifest: Path | None = None) -> dict:
         "vault": str(vault),
         "checks": checks,
         "canonical_paths": relative_paths,
+        "intake_capture_count": len(intake_paths),
+        "intake_capture_paths": intake_paths,
         "ids": dict(sorted(ids.items())),
         "frontmatter_fields": fields_by_path,
         "links": links,

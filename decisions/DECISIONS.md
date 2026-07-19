@@ -1,6 +1,19 @@
 # DECISIONS.md — log of decisions that change system behavior
 > One entry per behavior-affecting change. Newest first.
 
+## 2026-07-19 — Dashboard and Olmec share one raw Business Brain inbox
+
+The persistent dashboard capture box and the existing Telegram bridge now use
+one append-only writer rooted at `business_brain:inbox/source_notes/`.
+Dashboard capture is separate from Cockpit command routing; Telegram capture is
+explicit via `/inbox` or `/capture`, with forwarded content treated as an
+unambiguous capture signal. Stable hashed replay identities prevent duplicates
+without a new state store, raw captures remain outside queue, search, Graphify,
+and promotion, and no capture automatically creates work. Telegram attachments
+receive companion intake notes. Voice audio is retained; transcription remains
+honestly unavailable unless a local Whisper-compatible argv adapter is
+configured.
+
 ## 2026-07-19 — Codex work is fresh-session, artifact-backed, and cache-normalized
 
 Every guarded Codex constructor now uses ephemeral `exec`, injects the scoped

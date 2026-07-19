@@ -66,6 +66,7 @@ from aos_queue_storage import durable_append_text, durable_replace_text, queue_w
 import aos_indexer
 import business_brain
 import business_brain_context
+import business_brain_inbox
 import business_brain_scope
 import latitude_telemetry
 from graphify_service import GRAPH_CSP, GraphifyError, GraphifyService, RepoIdentity, validate_github_url
@@ -541,6 +542,11 @@ class QueueItemCreate(BaseModel):
 
 class CockpitCommandCreate(BaseModel):
     command: str
+
+
+class CockpitCaptureCreate(BaseModel):
+    text: str
+    capture_id: str | None = None
 
 
 class QueueReceiptAttach(BaseModel):
@@ -6460,6 +6466,29 @@ def dashboard_cockpit_command(body: CockpitCommandCreate):
         "item": _queue_detail_item(item),
         "route": route,
         "local_only": True,
+        "token_usage_text": "Token usage: no agent invocation",
+    }
+
+
+@app.post("/api/dashboard/capture")
+def dashboard_capture(body: CockpitCaptureCreate):
+    """Append one raw note to the canonical Brain inbox; never create queue work."""
+    try:
+        capture = business_brain_inbox.capture_text(
+            body.text,
+            source="cockpit_capture",
+            capture_id=body.capture_id,
+            root=business_brain.BUSINESS_BRAIN_ROOT,
+        )
+    except business_brain_inbox.InboxCaptureError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {
+        "success": True,
+        "capture_id": capture.capture_id,
+        "pointer": capture.pointer,
+        "duplicate": capture.duplicate,
+        "queue_item_created": False,
+        "promoted": False,
         "token_usage_text": "Token usage: no agent invocation",
     }
 

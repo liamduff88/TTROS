@@ -50,6 +50,7 @@ export const telegramStatus = () => api.get('/connectors/telegram/status').then(
 export const getBackupsStatus = () => api.get('/backups/status').then(r => r.data)
 export const getDashboardCockpit = () => api.get('/dashboard/cockpit').then(r => r.data)
 export const createCockpitCommand = (command) => api.post('/dashboard/cockpit/command', { command }).then(r => r.data)
+export const createInboxCapture = (text, capture_id) => api.post('/dashboard/capture', { text, capture_id }).then(r => r.data)
 export const getDashboardTokens = () => api.get('/dashboard/tokens').then(r => r.data)
 export const getDashboardResults = () => api.get('/dashboard/results', { timeout: 20000 }).then(r => r.data)
 export const getDashboardAgents = () => api.get('/dashboard/agents').then(r => r.data)
