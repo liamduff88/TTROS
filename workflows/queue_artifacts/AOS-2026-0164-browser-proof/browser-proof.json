@@ -1,0 +1,44 @@
+{
+  "frontend": "http://127.0.0.1:3010/",
+  "backend": "http://127.0.0.1:8011",
+  "checks": {
+    "initial_load": {
+      "http_status": 200,
+      "cards": 164,
+      "aos_0160_visible": true,
+      "aos_0160_text": "AOS-2026-0160 \u2014 CANONICAL CLAUDE AND TELEGRAM ATTACHMENT PROOF\noperations\n1h ago\ndone"
+    },
+    "needs_me_shortcut": {
+      "cards": 58,
+      "opened": true
+    },
+    "inline_artifact": {
+      "collapsed_chars": 1036,
+      "expanded_chars": 1323,
+      "expanded_in_place": true,
+      "internal_handoff_hidden": true
+    },
+    "navigation_reload": {
+      "cards": 164
+    },
+    "failed_refresh_preserves_counts": {
+      "preserved": true,
+      "before": "STATUS COUNTS\nActive 93 / Needs Liam 74 / Total 164\nReview needs_input, human_review, or blocked items first.",
+      "after": "STATUS COUNTS\nActive 93 / Needs Liam 74 / Total 164\nReview needs_input, human_review, or blocked items first."
+    },
+    "automatic_mutation_refresh": {
+      "before": "HUMAN REVIEW\n17",
+      "after": "HUMAN REVIEW\n16",
+      "changed": true
+    }
+  },
+  "console_errors": [
+    "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+  ],
+  "expected_console_errors": [
+    "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+  ],
+  "page_errors": [],
+  "screenshot": "workflows/queue_artifacts/AOS-2026-0164-browser-proof/dashboard-1440x1000.png",
+  "pass": true
+}

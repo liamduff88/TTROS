@@ -4,12 +4,13 @@ import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { createServer } from 'vite'
 import {
+  applyReviewDecision,
   hasReviewDraft,
   isReviewCardItem,
   loadReviewDraft,
   persistReviewDraft,
   reviewDraftKey,
-  saveReviewDraft,
+  saveReviewNoteDraft,
 } from '../src/reviewCardState.js'
 
 const memoryStorage = () => {
@@ -23,91 +24,80 @@ const memoryStorage = () => {
 
 const count = (text, pattern) => (text.match(pattern) || []).length
 
-test('one human-review item renders one minimal accessible card', async t => {
+test('human-review card renders actual receipt, artifact, review facts, note save, and only explicit state actions', async t => {
   const vite = await createServer({ appType: 'custom', logLevel: 'silent', server: { middlewareMode: true } })
   t.after(() => vite.close())
   const { HumanReviewCard } = await vite.ssrLoadModule('/src/components/HumanReviewCard.jsx')
-  const item = { id: 'ITEM-1', title: 'Readable review title', status: 'human_review' }
+  const item = {
+    id: 'ITEM-1', title: 'Readable review title', status: 'human_review', owner: 'codex',
+    summary_for_operator: 'Substantive result ready.',
+    latest_receipt: { path: 'queue/receipts/ITEM-1.md', content: 'PASS\nACTUAL RECEIPT BODY' },
+    primary_artifact: { path: 'workflows/queue_artifacts/ITEM-1.md', content: 'CONSOLIDATED ARTIFACT BODY' },
+    review_details: {
+      summary: 'Substantive result ready.', worker: 'codex', attempts: 2,
+      validation: 'Focused tests passed.', failure_explanation: '',
+      token_usage_lines: ['Total input: 100', 'Cached input: 80', 'Non-cached input: 20', 'Output: 10'],
+      receipt_content: 'PASS\nACTUAL RECEIPT BODY',
+    },
+  }
   const markup = renderToStaticMarkup(React.createElement(HumanReviewCard, { item }))
 
   assert.equal(count(markup, /data-review-card-id=/g), 1)
-  assert.match(markup, /ITEM-1<\/span> — Readable review title/)
-  assert.equal(count(markup, /<textarea/g), 1)
-  assert.equal(count(markup, /<select/g), 1)
-  assert.equal(count(markup, /<button/g), 1)
-  assert.match(markup, /Receipt for ITEM-1/)
-  assert.match(markup, /Review-close status for ITEM-1/)
-  assert.deepEqual([...markup.matchAll(/<option value="([^"]+)"/g)].map(match => match[1]), ['done', 'needs_input', 'blocked'])
-  assert.match(markup, />Save\/Attach<\/button>/)
-
-  for (const excluded of ['summary_for_operator', 'prompt', 'context', 'Artifacts', 'receipt path', 'transcript', 'test output', 'owner', 'lane', 'priority', 'tags', 'tokens', 'dependencies', '<details', 'SourceChip', 'StatusChip']) {
-    assert.equal(markup.toLowerCase().includes(excluded.toLowerCase()), false, excluded)
-  }
+  assert.match(markup, /ACTUAL RECEIPT BODY/)
+  assert.match(markup, /CONSOLIDATED ARTIFACT BODY/)
+  assert.match(markup, /Substantive result ready/)
+  assert.match(markup, /Focused tests passed/)
+  assert.match(markup, /Total input: 100/)
+  assert.match(markup, /Review note for ITEM-1/)
+  assert.match(markup, />Save review note<\/button>/)
+  assert.match(markup, />Approve<\/button>/)
+  assert.match(markup, />Needs changes<\/button>/)
+  assert.match(markup, />Block<\/button>/)
+  assert.equal(markup.includes('Save/Attach'), false)
+  assert.equal(markup.includes('Review-close status'), false)
+  assert.equal(count(markup, /<select/g), 0)
 })
 
-test('two review items render as two independent cards', async t => {
-  const vite = await createServer({ appType: 'custom', logLevel: 'silent', server: { middlewareMode: true } })
-  t.after(() => vite.close())
-  const { HumanReviewCard } = await vite.ssrLoadModule('/src/components/HumanReviewCard.jsx')
-  const items = [
-    { id: 'ITEM-1', title: 'First title', status: 'human_review' },
-    { id: 'ITEM-2', title: 'Second title', status: 'human_review' },
-  ]
-  const markup = renderToStaticMarkup(React.createElement('div', null, items.map(item => React.createElement(HumanReviewCard, { item, key: item.id }))))
-
-  assert.equal(count(markup, /data-review-card-id=/g), items.length)
-  assert.equal(count(markup, /<textarea/g), items.length)
-  assert.equal(count(markup, /<select/g), items.length)
-  assert.equal(count(markup, /<button/g), items.length)
-})
-
-test('save calls the existing close action once and keeps rail state across refresh', async () => {
+test('saving a review note uses note endpoint semantics and preserves human_review', async () => {
   const storage = memoryStorage()
   const calls = []
-  const draft = { receipt: 'Keep this exact receipt', status: 'needs_input' }
-  const closeReview = async (...args) => {
-    calls.push(args)
-    return { success: true, ok: true, status: 'needs_input' }
-  }
-
-  await saveReviewDraft({ itemId: 'ITEM-1', draft, closeReview, storage })
-
-  assert.equal(calls.length, 1)
-  assert.deepEqual(calls[0], ['ITEM-1', { status: 'needs_input', review_note: 'Keep this exact receipt' }])
-  assert.deepEqual(loadReviewDraft('ITEM-1', storage), draft)
-  assert.equal(isReviewCardItem({ id: 'ITEM-1', status: 'needs_input' }, storage), true)
-})
-
-test('done removes its card draft without affecting another review item', async () => {
-  const storage = memoryStorage()
-  persistReviewDraft('ITEM-1', { receipt: 'Close me', status: 'done' }, storage)
-  persistReviewDraft('ITEM-2', { receipt: 'Leave me alone', status: 'blocked' }, storage)
-
-  await saveReviewDraft({
-    itemId: 'ITEM-1',
-    draft: loadReviewDraft('ITEM-1', storage),
-    closeReview: async () => ({ success: true, ok: true, status: 'done' }),
-    storage,
+  const draft = { note: 'Keep this exact review note' }
+  const response = await saveReviewNoteDraft({
+    itemId: 'ITEM-1', draft, storage,
+    saveNote: async (...args) => {
+      calls.push(args)
+      return { success: true, ok: true, status: 'human_review', state_changed: false }
+    },
   })
-
+  assert.equal(response.status, 'human_review')
+  assert.deepEqual(calls, [['ITEM-1', { review_note: draft.note }]])
   assert.equal(hasReviewDraft('ITEM-1', storage), false)
-  assert.deepEqual(loadReviewDraft('ITEM-2', storage), { receipt: 'Leave me alone', status: 'blocked' })
 })
 
-test('failed save preserves typed receipt and selected status', async () => {
+test('only approve requests done; changes and block use explicit existing paths', async () => {
+  const calls = []
+  const closeReview = async (...args) => { calls.push(args); return { success: true, ok: true } }
+  await applyReviewDecision({ itemId: 'ITEM-1', decision: 'approve', note: '', closeReview })
+  await applyReviewDecision({ itemId: 'ITEM-2', decision: 'needs_changes', note: 'Correct tests', closeReview })
+  await applyReviewDecision({ itemId: 'ITEM-3', decision: 'block', note: 'Cannot accept', closeReview })
+  assert.deepEqual(calls, [
+    ['ITEM-1', { status: 'done', review_note: '', action: 'approve' }],
+    ['ITEM-2', { status: 'needs_input', review_note: 'Correct tests', action: 'needs_changes' }],
+    ['ITEM-3', { status: 'blocked', review_note: 'Cannot accept', action: 'block' }],
+  ])
+})
+
+test('failed note save preserves the typed note and cards exist only for human_review', async () => {
   const storage = memoryStorage()
-  const draft = { receipt: 'Do not lose this failure note', status: 'blocked' }
-
-  await assert.rejects(
-    saveReviewDraft({
-      itemId: 'ITEM-1',
-      draft,
-      closeReview: async () => { throw new Error('simulated close failure') },
-      storage,
-    }),
-    /simulated close failure/,
-  )
-
-  assert.equal(storage.getItem(reviewDraftKey('ITEM-1')) !== null, true)
+  const draft = { note: 'Do not lose this note' }
+  await assert.rejects(saveReviewNoteDraft({
+    itemId: 'ITEM-1', draft, storage,
+    saveNote: async () => { throw new Error('simulated note failure') },
+  }), /simulated note failure/)
   assert.deepEqual(loadReviewDraft('ITEM-1', storage), draft)
+  assert.equal(storage.getItem(reviewDraftKey('ITEM-1')) !== null, true)
+  assert.equal(isReviewCardItem({ id: 'ITEM-1', status: 'human_review' }, storage), true)
+  assert.equal(isReviewCardItem({ id: 'ITEM-1', status: 'needs_input' }, storage), false)
+  persistReviewDraft('ITEM-2', { note: 'separate' }, storage)
+  assert.deepEqual(loadReviewDraft('ITEM-2', storage), { note: 'separate' })
 })

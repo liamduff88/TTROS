@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AlertCircle, CheckCircle2, Clipboard, FileText, Focus, FolderOpen, ListChecks, Plus, RefreshCw } from 'lucide-react'
-import { createQueueItem, externalActionDryRun, getQueueArtifact, getQueueItemsForScope, getQueuePrompt, getQueueReceipt, getQueueStatus, openQueueArtifactFolder } from '../api'
+import { attachQueueReceipt, createQueueItem, externalActionDryRun, getQueueArtifact, getQueueItem, getQueueItemsForScope, getQueuePrompt, getQueueReceipt, getQueueStatus, openQueueArtifactFolder } from '../api'
 import { laneColor, laneName, workbenchColor } from '../shellState'
 import { loadQueueScope, persistQueueScope, QUEUE_SCOPES, resolveQueueSelection } from '../queueState'
 import { isReviewCardItem } from '../reviewCardState'
@@ -100,6 +100,17 @@ const matchesFilters = (item, filters) =>
   (!filters.lane || itemLane(item) === filters.lane) &&
   (!filters.source || String(item.source || '').toLowerCase() === String(filters.source).toLowerCase())
 
+const relativeAge = value => {
+  const time = Date.parse(value || '')
+  if (Number.isNaN(time)) return 'unknown age'
+  const minutes = Math.max(0, Math.round((Date.now() - time) / 60000))
+  if (minutes < 1) return 'just now'
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.round(minutes / 60)
+  if (hours < 24) return `${hours}h ago`
+  return `${Math.round(hours / 24)}d ago`
+}
+
 const selectedIdFromParams = params => params?.selectedId || params?.itemId || null
 
 const filtersFromParams = params => {
@@ -126,6 +137,7 @@ const emptyCreateForm = {
   workbench: '',
 }
 
+const emptyAnswerState = { submitting: false, answer: '', message: '', error: null }
 const emptyDryRunForm = { recipient: '', action: '', payload: '', confirmation: '' }
 const emptyDryRunState = { submitting: false, message: '', error: null, receiptPath: '' }
 
@@ -229,6 +241,9 @@ export default function Queue({ initialFilters = {}, onViewParamsChange, refresh
   const [createState, setCreateState] = useState({ submitting: false, message: '', error: null })
   const [promptCopy, setPromptCopy] = useState({ target: null, message: '', error: null })
   const [runState, setRunState] = useState({ running: false, result: null, error: null })
+  const [answerState, setAnswerState] = useState(emptyAnswerState)
+  const [receiptPreviewExpanded, setReceiptPreviewExpanded] = useState(false)
+  const [primaryArtifactExpanded, setPrimaryArtifactExpanded] = useState(false)
   const [dryRunForm, setDryRunForm] = useState(emptyDryRunForm)
   const [dryRunState, setDryRunState] = useState(emptyDryRunState)
   const [finalStepSelection, setFinalStepSelection] = useState({ targetId: '', message: '' })
@@ -238,6 +253,7 @@ export default function Queue({ initialFilters = {}, onViewParamsChange, refresh
   const selectedIdRef = useRef(initialSelectedId)
   const selectionRevisionRef = useRef(0)
   const refreshRequestRef = useRef(0)
+  const detailRequestRef = useRef(0)
   const [filePreview, setFilePreview] = useState({
     path: '',
     category: '',
@@ -324,6 +340,20 @@ export default function Queue({ initialFilters = {}, onViewParamsChange, refresh
   }, [selectedId])
 
   useEffect(() => {
+    const item = items.find(row => row.id === selectedId)
+    if (!selectedId || !item || item.detail_loaded) return
+    const requestId = ++detailRequestRef.current
+    getQueueItem(selectedId)
+      .then(data => {
+        if (requestId !== detailRequestRef.current || data?.success === false || !data?.item) return
+        setItems(current => current.map(row => row.id === selectedId ? { ...row, ...data.item } : row))
+      })
+      .catch(error => {
+        if (requestId === detailRequestRef.current) setState(current => ({ ...current, error }))
+      })
+  }, [selectedId, items])
+
+  useEffect(() => {
     const explicitSelectedId = selectedIdFromParams(initialFilters)
     setFilters(filtersFromParams(initialFilters))
     if (explicitSelectedId && explicitSelectedId !== selectedIdRef.current) selectQueueItem(explicitSelectedId, false)
@@ -338,6 +368,9 @@ export default function Queue({ initialFilters = {}, onViewParamsChange, refresh
   useEffect(() => {
     setFilePreview({ path: '', category: '', extension: '', loading: false, content: '', error: null })
     setRunState({ running: false, result: null, error: null })
+    setAnswerState(emptyAnswerState)
+    setReceiptPreviewExpanded(false)
+    setPrimaryArtifactExpanded(false)
     setDryRunForm(emptyDryRunForm)
     setDryRunState(emptyDryRunState)
   }, [selectedId])
@@ -505,12 +538,46 @@ export default function Queue({ initialFilters = {}, onViewParamsChange, refresh
       }
       setRunState({ running: false, result: data, error: null })
       await refreshQueue(selected.id)
+      refresh?.()
     } catch (error) {
       setRunState({
         running: false,
         result: null,
         error: error?.message || 'Queue item run failed',
       })
+    }
+  }
+
+  const updateAnswerText = value => {
+    setAnswerState(current => ({ ...current, answer: value, message: '', error: null }))
+  }
+
+  const submitNeedsInputAnswer = async () => {
+    if (!selected?.id || selected.status !== 'needs_input' || answerState.submitting) return
+    const answer = answerState.answer.trim()
+    if (!answer) {
+      setAnswerState(current => ({ ...current, message: '', error: 'An answer is required to resume this item.' }))
+      return
+    }
+    setAnswerState(current => ({ ...current, submitting: true, message: '', error: null }))
+    try {
+      const response = await attachQueueReceipt(selected.id, {
+        receipt_text: `Operator answer:\n${answer}`,
+        status: 'agent_todo',
+      })
+      if (response?.success === false || response?.ok === false) {
+        throw new Error(response?.reason || response?.message || 'Answer failed to save')
+      }
+      await refreshQueue(selected.id)
+      refresh?.()
+      setAnswerState({ submitting: false, answer: '', message: 'Answer saved; item resumed to agent_todo.', error: null })
+    } catch (error) {
+      setAnswerState(current => ({
+        ...current,
+        submitting: false,
+        message: '',
+        error: error?.response?.data?.detail || error?.message || 'Answer failed to save',
+      }))
     }
   }
 
@@ -535,6 +602,7 @@ export default function Queue({ initialFilters = {}, onViewParamsChange, refresh
         throw new Error(response?.reason || response?.message || 'Dry-run receipt failed')
       }
       await refreshQueue(selected.id)
+      refresh?.()
       setDryRunState({ submitting: false, message: 'Dry-run receipt written. No external transmission occurred.', error: null, receiptPath: response.receipt_path || '' })
     } catch (error) {
       setDryRunState({ submitting: false, message: '', error: error?.response?.data?.detail || error?.message || 'Dry-run confirmation failed', receiptPath: '' })
@@ -548,6 +616,7 @@ export default function Queue({ initialFilters = {}, onViewParamsChange, refresh
   const needsLiam = status?.needsLiam ?? ((counts.needs_input || 0) + (counts.human_review || 0) + (counts.blocked || 0))
   const latestReceiptPath = receiptLabel(latestReceipt)
   const primaryOutputPath = runArtifacts.find(artifact => artifact.available && artifact.path !== latestReceiptPath)?.path || ''
+  const primaryArtifact = selected?.primary_artifact || null
   const finalArtifact = finalResult?.final_artifacts?.find(artifact => artifact.available) || (finalResult?.final_artifact_paths?.[0] ? { path: finalResult.final_artifact_paths[0], available: true, category: 'Final review package', extension: '.md' } : null)
   const finalReceipt = finalResult?.final_receipts?.find(receipt => receipt.available) || (finalResult?.final_receipt_paths?.[0] ? { path: finalResult.final_receipt_paths[0], available: true, category: 'Final receipt', extension: '.md' } : null)
   const finalArtifactName = finalArtifact?.name || finalArtifact?.path?.split('/').pop() || '03_final_review_package.md'
@@ -591,6 +660,7 @@ export default function Queue({ initialFilters = {}, onViewParamsChange, refresh
           <button type="button" onClick={() => refreshQueue()} disabled={state.loading} className="inline-flex items-center gap-2 rounded bg-softgraph px-3 py-2 text-xs font-mono text-taupe transition-colors hover:text-stone disabled:cursor-not-allowed disabled:opacity-60"><RefreshCw size={13} className={state.loading ? 'animate-spin' : ''} />Refresh</button>
         </div>
       </div>
+
       <div className="inline-flex w-fit rounded border border-softgraph bg-graphite p-1" role="group" aria-label="Queue scope" data-testid="queue-scope-control">
         {QUEUE_SCOPES.map(value => (
           <button
@@ -605,7 +675,6 @@ export default function Queue({ initialFilters = {}, onViewParamsChange, refresh
         ))}
       </div>
 
-
       {state.error && (
         <div className="rounded-lg border border-clay/40 bg-clay/10 p-4">
           <div className="flex items-center gap-2 text-sm font-semibold text-stone">
@@ -616,7 +685,7 @@ export default function Queue({ initialFilters = {}, onViewParamsChange, refresh
         </div>
       )}
 
-      <section className="rounded-lg border border-softgraph bg-graphite p-5">
+      {status ? <section className="rounded-lg border border-softgraph bg-graphite p-5">
         <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
             <h2 className="text-xs font-semibold uppercase tracking-wider text-taupe">Status counts</h2>
@@ -637,7 +706,9 @@ export default function Queue({ initialFilters = {}, onViewParamsChange, refresh
             />
           ))}
         </div>
-      </section>
+      </section> : state.loading ? (
+        <div className="rounded-lg border border-softgraph bg-graphite p-5 text-xs font-mono text-taupe">Loading real queue counts…</div>
+      ) : null}
 
       {focusMode && (
         <div className="flex gap-1 overflow-x-auto rounded border border-softgraph bg-graphite p-2" data-testid="focus-mini-rail">
@@ -800,19 +871,23 @@ export default function Queue({ initialFilters = {}, onViewParamsChange, refresh
           </form>
           </details>
 
-          <div className={`rounded-lg border border-softgraph bg-graphite ${listCollapsed ? 'p-2' : 'p-5'}`}>
+          <div className={`rounded-lg border ${filters.needsMe ? 'border-champagne/40' : 'border-softgraph'} bg-graphite ${listCollapsed ? 'p-2' : 'p-5'}`} data-testid="queue-list-panel">
             <div className="mb-4 flex items-center justify-between gap-3">
               <div className="flex items-center gap-2">
-                <ListChecks size={14} className="text-taupe" />
-                <h2 className="text-xs font-semibold uppercase tracking-wider text-taupe">{listCollapsed ? QUEUE_SCOPE_LABELS[scope] : `${QUEUE_SCOPE_LABELS[scope]} work items`}</h2>
+                <ListChecks size={14} className={filters.needsMe ? 'text-champagne' : 'text-taupe'} />
+                <h2 className="text-xs font-semibold uppercase tracking-wider text-taupe">
+                  {listCollapsed ? QUEUE_SCOPE_LABELS[scope] : filters.needsMe ? 'Needs Me — human review & needs input, newest first' : `${QUEUE_SCOPE_LABELS[scope]} work items`}
+                </h2>
               </div>
               <div className={`items-center gap-2 ${listCollapsed ? 'hidden' : 'flex'}`}>
-                <QueueFilterChip filters={filters} onClear={() => setFilters({})} />
+                {filters.needsMe
+                  ? <button type="button" onClick={() => setFilters({})} className="inline-flex items-center gap-1.5 rounded border border-champagne/40 bg-champagne/10 px-2 py-1 text-[11px] font-mono text-champagne transition-colors hover:bg-champagne/20">Needs Me (press /) ×</button>
+                  : <QueueFilterChip filters={filters} onClear={() => setFilters({})} />}
                 <div className="font-mono text-xs text-taupe">{filteredItems.length} of {items.length}</div>
               </div>
             </div>
 
-            {state.loading ? (
+            {state.loading && !items.length ? (
               <div className="rounded border border-softgraph bg-ink px-4 py-8 text-center text-xs font-mono text-taupe">Loading queue.</div>
             ) : filteredItems.length > 0 ? (
               <div className="max-h-[42rem] space-y-2 overflow-y-auto pr-1">
@@ -829,17 +904,22 @@ export default function Queue({ initialFilters = {}, onViewParamsChange, refresh
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <div className="font-mono text-[11px] text-champagne">{item.id || 'No ID'}</div>
-                        {!listCollapsed && <div className="mt-1 truncate text-sm font-semibold text-ivory">{item.title || 'Untitled queue item'}</div>}
+                        {listCollapsed
+                          ? <div className="truncate text-[11px] text-stone"><span className="font-mono text-champagne">{item.id || 'No ID'}</span> — {item.title || 'Untitled queue item'}</div>
+                          : <div className="truncate text-sm font-semibold text-ivory"><span className="font-mono text-[11px] text-champagne">{item.id || 'No ID'}</span> — {item.title || 'Untitled queue item'}</div>}
                       </div>
                       {nextItem?.id === item.id && <CheckCircle2 size={14} className="mt-1 flex-shrink-0 text-champagne" />}
                     </div>
                     <div className={`${listCollapsed ? 'mt-1' : 'mt-2'} flex flex-wrap items-center gap-2 font-mono text-[11px] text-taupe`}>
                       <span className="rounded px-1.5 py-0.5 text-[10px] font-bold text-white" style={{ backgroundColor: laneColor(laneName(item)) }}>{laneName(item)}</span>
+                      <span>{relativeAge(item.updated_at || item.created_at)}</span>
                       <span>{formatStatus(item.status)}</span>
                       {!listCollapsed && <><span>{item.owner || 'unassigned'}</span><span>Priority {item.priority ?? 0}</span>{item.source && <span>{item.source}</span>}</>}
                       {!listCollapsed && Array.isArray(item.needs_me) && item.needs_me.map(reason => <span key={reason} className="rounded border border-champagne/50 bg-champagne/10 px-1.5 py-0.5 text-champagne">{reason}</span>)}
                     </div>
+                    {!listCollapsed && filters.needsMe && item.summary_for_operator && (
+                      <div className="mt-2 line-clamp-3 text-xs leading-5 text-stone">{item.summary_for_operator}</div>
+                    )}
                   </button>
                 ))}
               </div>
@@ -870,8 +950,8 @@ export default function Queue({ initialFilters = {}, onViewParamsChange, refresh
           <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <h2 className="text-xs font-semibold uppercase tracking-wider text-taupe">Selected item</h2>
-              <div className="mt-2 flex items-center gap-2 font-mono text-xs text-champagne">
-                {selected?.id || 'No item selected'}
+              <div className="mt-2 flex items-center gap-2 text-xs text-champagne">
+                <span>{selected ? `${selected.id} — ${selected.title || 'Untitled queue item'}` : 'No item selected'}</span>
                 {selected && <span className="rounded px-1.5 py-0.5 text-[10px] font-bold text-white" style={{ backgroundColor: laneColor(laneName(selected)) }}>{laneName(selected)}</span>}
               </div>
             </div>
@@ -1077,28 +1157,73 @@ export default function Queue({ initialFilters = {}, onViewParamsChange, refresh
                 <DetailRow label="Running status" value={formatStatus(selected.honest_status)} />
                 <DetailRow label="Step progress" value={selected.step_progress?.label || (selected.workflow_steps?.length ? `0 of ${selected.workflow_steps.length}` : '')} />
                 <DetailRow label="Owner" value={selected.owner || 'unassigned'} />
-                <DetailRow label="Workbench" value={selected.workbench} />
                 <DetailRow label="Priority" value={String(selected.priority ?? 0)} />
-                <DetailRow label="Source" value={selected.source} />
                 <DetailRow label="Updated at" value={selected.updated_at} />
-                <DetailRow label="Created at" value={selected.created_at} />
-                <DetailRow label="Requested by" value={selected.requested_by} />
                 <DetailRow label="Next action" value={selected.next_action} />
-                <DetailRow label="Parent ID" value={selected.parent_id} />
-                <DetailRow label="Depends on" value={renderList(selected.depends_on)} />
-                <DetailRow label="On complete" value={selected.on_complete} />
-                <DetailRow label="Tags" value={renderList(selected.tags)} />
-                <DetailRow label="Sources" value={renderList(selected.sources)} />
-                <DetailRow label="Source refs" value={renderList(selected.source_refs)} />
-                <DetailRow label="Context" value={selected.context} />
-                <DetailRow label="Definition of done" value={selected.definition_of_done} />
-                <DetailRow label="Allowed actions" value={renderList(selected.allowed_actions)} />
-                <DetailRow label="Stop conditions" value={renderList(selected.stop_conditions)} />
+                <DetailRow label="Summary for operator" value={selected.summary_for_operator} />
               </div>
 
-              <form onSubmit={submitDryRun} className="rounded border border-champagne/30 bg-ink" data-testid="manual-handoff">
+              <details className="rounded border border-softgraph bg-ink" data-testid="queue-detail-metadata">
+                <summary className="cursor-pointer select-none px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-taupe">Details (tags, parents, sources, system metadata)</summary>
+                <div className="grid gap-4 border-t border-softgraph p-3 md:grid-cols-2">
+                  <DetailRow label="Workbench" value={selected.workbench} />
+                  <DetailRow label="Source" value={selected.source} />
+                  <DetailRow label="Created at" value={selected.created_at} />
+                  <DetailRow label="Requested by" value={selected.requested_by} />
+                  <DetailRow label="Parent ID" value={selected.parent_id} />
+                  <DetailRow label="Depends on" value={renderList(selected.depends_on)} />
+                  <DetailRow label="On complete" value={selected.on_complete} />
+                  <DetailRow label="Tags" value={renderList(selected.tags)} />
+                  <DetailRow label="Sources" value={renderList(selected.sources)} />
+                  <DetailRow label="Source refs" value={renderList(selected.source_refs)} />
+                  <DetailRow label="Context" value={selected.context} />
+                  <DetailRow label="Definition of done" value={selected.definition_of_done} />
+                  <DetailRow label="Allowed actions" value={renderList(selected.allowed_actions)} />
+                  <DetailRow label="Stop conditions" value={renderList(selected.stop_conditions)} />
+                </div>
+              </details>
+
+
+              {selected.status === 'needs_input' && (
+                <div className="rounded border border-softgraph bg-ink" data-testid="needs-input-controls">
+                  <div className="border-b border-softgraph px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-taupe">Needs input</div>
+                  <div className="space-y-3 px-3 py-3">
+                    <div className="rounded border border-champagne/40 bg-graphite p-3">
+                      <div className="text-xs font-semibold uppercase tracking-wider text-champagne">What is missing</div>
+                      <div className="mt-2 text-xs leading-5 text-stone">{selected.next_action || selected.summary_for_operator || 'No specific question was recorded; inspect the context and latest receipt below.'}</div>
+                      {selected.context && <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap rounded border border-softgraph bg-ink p-2 text-xs text-stone">{selected.context}</pre>}
+                    </div>
+                    <FieldLabel label="Your answer">
+                      <textarea
+                        className={`${fieldBase} min-h-[4rem] resize-y`}
+                        maxLength={2000}
+                        value={answerState.answer}
+                        onChange={event => updateAnswerText(event.target.value)}
+                        placeholder="Answer the missing question; this is saved as a receipt and resumes the item to agent_todo"
+                      />
+                    </FieldLabel>
+                    <button
+                      type="button"
+                      onClick={submitNeedsInputAnswer}
+                      disabled={answerState.submitting}
+                      className="inline-flex items-center gap-2 rounded bg-champagne px-3 py-2 text-xs font-mono font-semibold text-ivory transition-colors hover:bg-well disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {answerState.submitting ? 'Saving answer...' : 'Answer & resume'}
+                    </button>
+                    {(answerState.message || answerState.error) && (
+                      <div className={`rounded border px-3 py-2 text-xs font-mono ${answerState.error ? 'border-clay/40 bg-clay/10 text-clay' : 'border-champagne/30 bg-champagne/10 text-champagne'}`}>
+                        {answerState.error || answerState.message}
+                      </div>
+                    )}
+                    <div className="text-xs font-mono text-taupe">Answer & resume attaches your answer as a local receipt and moves the item back to agent_todo through the existing status path. It does not send anything externally.</div>
+                  </div>
+                </div>
+              )}
+
+              {selected.external_handoff_relevant && <details className="rounded border border-champagne/30 bg-ink" data-testid="manual-handoff-details">
+                <summary className="cursor-pointer select-none px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-champagne">Manual third-party handoff / dry-run only (never sent)</summary>
+                <form onSubmit={submitDryRun} className="border-t border-softgraph" data-testid="manual-handoff">
                 <div className="border-b border-softgraph px-3 py-2">
-                  <div className="text-[11px] font-semibold uppercase tracking-wider text-champagne">Manual third-party handoff / dry-run only</div>
                   <div className="mt-1 text-xs font-mono text-taupe">internal-live ≠ third-party-live · status: not sent / handed off manually</div>
                   <div className="mt-1 text-xs font-mono text-taupe">Typed confirmation records what would be handed off. This surface never transmits externally.</div>
                 </div>
@@ -1135,7 +1260,8 @@ export default function Queue({ initialFilters = {}, onViewParamsChange, refresh
                     </div>
                   )}
                 </div>
-              </form>
+                </form>
+              </details>}
 
               <div id="queue-file-preview" className="rounded border border-softgraph bg-ink">
                 <div className="flex flex-col gap-2 border-b border-softgraph px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
@@ -1147,11 +1273,27 @@ export default function Queue({ initialFilters = {}, onViewParamsChange, refresh
                 <div className="space-y-3 px-3 py-3">
                   <div>
                     <div className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-taupe">Latest receipt content</div>
-                    {hasReceipt ? (
-                      <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded border border-softgraph bg-graphite px-3 py-3 text-xs leading-5 text-stone">
-                        {latestReceipt?.content || latestReceipt?.summary || 'Receipt content unavailable.'}
-                      </pre>
-                    ) : (
+                    {hasReceipt ? (() => {
+                      const fullText = latestReceipt?.content || latestReceipt?.summary || 'Receipt content unavailable.'
+                      const isTruncated = fullText.length > 1000
+                      const shownText = receiptPreviewExpanded || !isTruncated ? fullText : `${fullText.slice(0, 1000)}...`
+                      return (
+                        <>
+                          <pre className={`${receiptPreviewExpanded ? 'max-h-[36rem]' : 'max-h-72'} overflow-auto whitespace-pre-wrap break-words rounded border border-softgraph bg-graphite px-3 py-3 text-xs leading-5 text-stone`}>
+                            {shownText}
+                          </pre>
+                          {isTruncated && (
+                            <button
+                              type="button"
+                              onClick={() => setReceiptPreviewExpanded(value => !value)}
+                              className="mt-1 text-xs font-mono text-champagne hover:text-stone"
+                            >
+                              {receiptPreviewExpanded ? 'Show less' : `Show full receipt (${fullText.length.toLocaleString()} chars)`}
+                            </button>
+                          )}
+                        </>
+                      )
+                    })() : (
                       <div className="text-sm text-stone">No receipt is attached yet.</div>
                     )}
                   </div>
@@ -1285,8 +1427,8 @@ export default function Queue({ initialFilters = {}, onViewParamsChange, refresh
                 )}
               </div>
 
-              <div>
-                <div className="text-[11px] font-semibold uppercase tracking-wider text-taupe">Receipt history</div>
+              <details data-testid="receipt-history-details">
+                <summary className="cursor-pointer select-none text-[11px] font-semibold uppercase tracking-wider text-taupe">Receipt history ({selected.receipts?.length || 0})</summary>
                 {selected.receipts?.length ? (
                   <div className="mt-2 space-y-2">
                     {selected.receipts.map((receipt, index) => {
@@ -1354,7 +1496,7 @@ export default function Queue({ initialFilters = {}, onViewParamsChange, refresh
                 ) : (
                   <div className="mt-1 text-sm text-stone">None</div>
                 )}
-              </div>
+              </details>
             </div>
           ) : (
             <div className="rounded border border-softgraph bg-ink px-4 py-10 text-center text-xs font-mono text-taupe">

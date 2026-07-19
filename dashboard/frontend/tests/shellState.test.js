@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { MAX_SESSION_TABS, closeSessionTab, initialSessionTabs, laneName, needsMeCollapseKey, openSessionTab, pinSessionTab, restoreShellSession, shellSessionSnapshot, workbenchColor } from '../src/shellState.js'
+import { MAX_SESSION_TABS, closeSessionTab, initialSessionTabs, laneName, laneRoutePath, needsMeCollapseKey, openSessionTab, pinSessionTab, restoreShellSession, shellPathForView, shellRouteFromPath, shellSessionSnapshot, shellViewForNavigation, workbenchColor } from '../src/shellState.js'
 
 test('Cockpit stays pinned first and cannot close', () => {
   const tabs = initialSessionTabs()
@@ -44,6 +44,20 @@ test('session restoration preserves a routed Work Queue selection across refresh
   assert.equal(restored.view, 'work-queue')
   assert.equal(restored.viewParams.selectedId, 'AOS-2026-0078')
   assert.equal(restored.sessionTabs.find(tab => tab.id === 'work-queue').params.selectedId, 'AOS-2026-0078')
+})
+
+test('lane paths route into the dedicated lane workspace and override stored view state', () => {
+  assert.equal(laneRoutePath('Revenue'), '/lane/revenue')
+  assert.equal(shellPathForView('lane-workspace', { lane: 'delivery' }), '/lane/delivery')
+  assert.equal(shellViewForNavigation('work-queue', { lane: 'delivery' }), 'lane-workspace')
+  assert.equal(shellViewForNavigation('work-queue', { needsMe: true }), 'work-queue')
+  assert.deepEqual(shellRouteFromPath('/lane/operations/'), { view: 'lane-workspace', viewParams: { lane: 'operations' } })
+  assert.equal(shellRouteFromPath('/lane/not-a-lane'), null)
+
+  const restored = restoreShellSession(shellSessionSnapshot('cockpit', {}, initialSessionTabs()), '/lane/marketing')
+  assert.equal(restored.view, 'lane-workspace')
+  assert.deepEqual(restored.viewParams, { lane: 'marketing' })
+  assert.deepEqual(restored.sessionTabs.find(tab => tab.id === 'lane-workspace').params, { lane: 'marketing' })
 })
 
 test('Needs Me auto-collapse is keyed only to a selected Work Queue item', () => {

@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { humanNeededItems, mergeQueueSummary, normalizeCockpitQueue, resolveQueueSelection } from '../src/queueState.js'
+import { humanNeededItems, mergeQueueSummary, normalizeCockpitQueue, preserveQueueDataOnRefreshFailure, resolveQueueSelection } from '../src/queueState.js'
 
 const fixture = [
   { id: 'AOS-2026-0078', status: 'human_review', owner: 'codex', workbench: 'codex' },
@@ -51,6 +51,23 @@ test('lightweight queue summary repairs an unavailable Cockpit rail', () => {
   assert.equal(result.queueSummaryLoaded, true)
   assert.equal(result.needs_me_count, 3)
   assert.deepEqual(result.needs_me.map(item => item.id), ['AOS-2026-0078', 'AOS-2026-0063', 'AOS-2026-0020'])
+})
+
+test('failed or timed-out refresh preserves prior queue data and counts', () => {
+  const prior = {
+    counts: { human_review: 2, needs_input: 1, blocked: 1, done: 7 },
+    needs_me: fixture.slice(0, 3),
+    needs_me_count: 3,
+    queue_items: fixture,
+  }
+  const failedSummary = mergeQueueSummary(prior, { success: false, counts: { human_review: 0 }, needsMeItems: [] })
+  assert.equal(failedSummary.refreshError, true)
+  assert.deepEqual(failedSummary.counts, prior.counts)
+  assert.equal(failedSummary.needs_me_count, 3)
+
+  const timedOut = preserveQueueDataOnRefreshFailure(prior)
+  assert.equal(timedOut.refreshError, true)
+  assert.deepEqual(timedOut.queue_items, fixture)
 })
 
 test('a late refresh for item A cannot overwrite a newer item B selection', () => {

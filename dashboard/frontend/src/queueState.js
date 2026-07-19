@@ -43,7 +43,7 @@ export function normalizeCockpitQueue(cockpit) {
 }
 
 export function mergeQueueSummary(cockpit, summary) {
-  if (!summary || summary.success === false) return cockpit
+  if (!summary || summary.success === false) return preserveQueueDataOnRefreshFailure(cockpit)
   const needsMe = humanNeededItems(summary.needsMeItems)
   return {
     ...(cockpit && !cockpit.error ? cockpit : {}),
@@ -52,7 +52,13 @@ export function mergeQueueSummary(cockpit, summary) {
     needs_me_count: needsMe.length,
     human_needed_count: needsMe.length,
     queueSummaryLoaded: true,
+    refreshError: false,
   }
+}
+
+export function preserveQueueDataOnRefreshFailure(current) {
+  if (!current) return { error: true, refreshError: true }
+  return { ...current, refreshError: true }
 }
 
 export function resolveQueueSelection({ items, currentId, preferredId, nextId, selectionChanged = false }) {

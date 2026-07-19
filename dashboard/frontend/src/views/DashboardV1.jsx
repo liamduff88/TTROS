@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from 'react'
 import { CheckCircle2, Columns3, Copy, Database, Edit3, ExternalLink, FolderOpen, GitBranch, Layers, Play, Plus, RefreshCw, Save, Search, Settings, Shield, Workflow, X } from 'lucide-react'
 import {
   attachQueueReceipt,
-  closeQueueItemReview,
   createCockpitCommand,
   createDashboardTask,
   createQueueItem,
@@ -30,8 +29,10 @@ import {
   saveDashboardSkill,
   saveDashboardWorkflow,
 } from '../api'
+import { HumanReviewCard } from '../components/HumanReviewCard'
 import { validateGitHubRepositoryUrl } from '../graphifyState'
 import { launcherPrompt } from '../launcherPrompts'
+import { laneRoutePath } from '../shellState'
 import { ActionButton, DetailPanel, EmptyState, FilterBar, PageHeader, RowButton, SourceChip, StatTile, StatusChip, statusLabel } from '../components/DashboardKit'
 
 const age = value => {
@@ -55,8 +56,16 @@ function LaneActivityCard({ lane, onNavigate }) {
   const active = lane.current_assigned_work || []
   const review = Number(lane.counts?.human_review || 0)
   const border = review ? 'var(--needs-review)' : `var(--wb-${lane.shortcut?.workbench || 'hermes'}-queued)`
+  const href = laneRoutePath(lane.lane) || '/'
   return (
-    <article className="min-w-0 rounded border bg-graphite/70 p-3" style={{ borderColor: border }} data-lane-card={lane.lane}>
+    <a
+      href={href}
+      onClick={event => { event.preventDefault(); onNavigate('work-queue', { lane: lane.lane }) }}
+      className="block min-w-0 rounded border bg-graphite/70 p-3 text-left hover:border-champagne/40 focus:outline-none focus:ring-2 focus:ring-champagne/50"
+      style={{ borderColor: border }}
+      data-lane-card={lane.lane}
+      aria-label={`Open ${laneTitle(lane.lane)} lane`}
+    >
       <div className="flex items-start justify-between gap-2">
         <div>
           <span className="rounded px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-ivory" style={{ backgroundColor: laneColor(lane.lane) }}>{laneTitle(lane.lane)}</span>
@@ -76,10 +85,9 @@ function LaneActivityCard({ lane, onNavigate }) {
         <div><span className="text-taupe">Last run:</span> <span className="text-stone">{lane.last_successful_run ? (lane.last_successful_run.timestamp || lane.last_successful_run.completed_at || lane.last_successful_run.created_at || 'recorded') : 'unavailable'}</span></div>
       </div>
       <div className="mt-3 flex flex-wrap gap-1">
-        {items.slice(0, 8).map(item => <button key={item.id} onClick={() => onNavigate('work-queue', { q: item.id, selectedId: item.id })} className="rounded border border-softgraph bg-ink px-1.5 py-1 text-[10px] text-taupe hover:text-stone" data-lane-item={item.id}>{item.id} · {item.owner || 'unassigned'} / {item.workbench || 'no workbench'}</button>)}
+        {items.slice(0, 8).map(item => <span key={item.id} className="rounded border border-softgraph bg-ink px-1.5 py-1 text-[10px] text-taupe" data-lane-item={item.id}>{item.id} · {item.owner || 'unassigned'} / {item.workbench || 'no workbench'}</span>)}
       </div>
-      <button onClick={() => onNavigate('work-queue', { lane: lane.lane, workbench: lane.shortcut?.workbench || '' })} className="mt-3 w-full rounded border border-softgraph bg-ink px-2 py-1.5 text-xs font-semibold text-stone hover:border-champagne/40">Open filtered queue</button>
-    </article>
+    </a>
   )
 }
 const textMatch = (item, q) => !q || JSON.stringify(item).toLowerCase().includes(q.toLowerCase())
@@ -256,7 +264,6 @@ export function WorkQueueV1({ initialFilters = {} }) {
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(true)
   const [form, setForm] = useState({ title: '', owner: 'hermes', priority: 'normal', source: 'dashboard', tags: '', context: '', definition_of_done: '' })
-  const [note, setNote] = useState('')
   const [message, setMessage] = useState('')
   const load = () => { setLoading(true); getQueueItems().then(data => setItems(data.items || [])).finally(() => setLoading(false)) }
   useEffect(load, [])
@@ -268,12 +275,6 @@ export function WorkQueueV1({ initialFilters = {} }) {
     const result = await createQueueItem(form)
     setMessage(`Created ${result.item?.id || 'queue item'}`)
     setForm({ ...form, title: '', context: '' })
-    load()
-  }
-  const close = async status => {
-    const result = await closeQueueItemReview(selected.id, { status, review_note: note })
-    setMessage(result.telegram_reply ? `Closed ${selected.id}; Telegram reply mock logged` : `Closed ${selected.id}`)
-    setSelected(result.item)
     load()
   }
   return (
@@ -308,10 +309,7 @@ export function WorkQueueV1({ initialFilters = {} }) {
       <DetailPanel item={selected} title={selected?.title} subtitle={selected?.id} onClose={() => setSelected(null)}>
         <div className="mb-3 flex flex-wrap gap-2"><StatusChip status={selected?.status} /><SourceChip source={selected?.source} /><span className="text-xs text-taupe">{itemLane(selected)}</span></div>
         <MarkdownPreview content={JSON.stringify(selected, null, 2)} />
-        {selected?.status === 'human_review' && <div className="mt-4 rounded border border-softgraph bg-ink p-3">
-          <textarea value={note} onChange={e => setNote(e.target.value)} placeholder="Close note" className="min-h-20 w-full rounded border border-softgraph bg-graphite px-3 py-2 text-sm text-stone" />
-          <div className="mt-3 flex flex-wrap gap-2"><ActionButton onClick={() => close('done')}>Close Done</ActionButton><ActionButton onClick={() => close('needs_input')}>{selected?.owner_type === 'workflow' ? 'Needs changes' : 'Needs Input'}</ActionButton><ActionButton onClick={() => close('blocked')}>Blocked</ActionButton></div>
-        </div>}
+        {selected?.status === 'human_review' && <HumanReviewCard item={selected} className="mt-4" onSaved={async result => { setSelected(result.item); load() }} />}
       </DetailPanel>
     </>
   )

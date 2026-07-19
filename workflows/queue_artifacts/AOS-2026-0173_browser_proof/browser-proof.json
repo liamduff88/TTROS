@@ -1,0 +1,96 @@
+{
+  "frontend": "http://127.0.0.1:3010",
+  "fixture": "local Playwright API interception only",
+  "checks": {
+    "cockpit_lane_navigation": {
+      "lane_cards": 5,
+      "operations_card_tag": "A",
+      "operations_card_href": "/lane/operations",
+      "nested_buttons": 0,
+      "separate_queue_cta": 0
+    },
+    "lane_filters_and_default": {
+      "url": "http://127.0.0.1:3010/lane/operations",
+      "filter_ids": [
+        "needs_me",
+        "to_run",
+        "blocked",
+        "all_active",
+        "done",
+        "cancelled"
+      ],
+      "counts": {
+        "needs_me": "2",
+        "to_run": "2",
+        "blocked": "1",
+        "all_active": "5",
+        "done": "1",
+        "cancelled": "1"
+      },
+      "default_filter": "needs_me",
+      "visible_item_ids": [
+        "OPS-REVIEW",
+        "OPS-INPUT"
+      ],
+      "outside_lane_visible": 0
+    },
+    "human_review_card": {
+      "card_visible": true,
+      "body_visible": true,
+      "receipt_field": 1,
+      "status_select": 1,
+      "save_attach": 1,
+      "required_lane_actions": {
+        "Approve": 1,
+        "Needs changes": 1,
+        "Reject": 1
+      },
+      "card_contains_approve": false,
+      "wrapper_contains_both": true
+    },
+    "ready_selection": {
+      "visible_item_ids": [
+        "OPS-READY-1",
+        "OPS-READY-2"
+      ],
+      "item_checkboxes": 2,
+      "select_all": 1,
+      "selected_text": "1 selected in current filter\nRun selected\nCancel selected",
+      "run_selected_enabled": true,
+      "cancel_selected_enabled": true,
+      "per_item_run": 2,
+      "per_item_cancel": 2
+    },
+    "blocked_item": {
+      "reason": "Waiting for the local fixture prerequisite.",
+      "unblock_button": 1,
+      "unblock_enabled": true
+    },
+    "narrow_layout": {
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "sidebar_collapsed": "true",
+      "needs_me_collapsed": "true",
+      "document_client_width": 390,
+      "document_scroll_width": 390,
+      "main_client_width": 290,
+      "main_scroll_width": 290,
+      "workspace_left": 80,
+      "workspace_right": 322,
+      "main_left": 56,
+      "main_right": 346
+    }
+  },
+  "screenshots": [
+    "workflows/queue_artifacts/AOS-2026-0173_browser_proof/desktop-cockpit-1440x1000.png",
+    "workflows/queue_artifacts/AOS-2026-0173_browser_proof/desktop-lane-needs-me-1440x1000.png",
+    "workflows/queue_artifacts/AOS-2026-0173_browser_proof/desktop-lane-ready-1440x1000.png",
+    "workflows/queue_artifacts/AOS-2026-0173_browser_proof/desktop-lane-blocked-1440x1000.png",
+    "workflows/queue_artifacts/AOS-2026-0173_browser_proof/narrow-lane-needs-me-390x844.png"
+  ],
+  "console_errors": [],
+  "page_errors": [],
+  "pass": true
+}

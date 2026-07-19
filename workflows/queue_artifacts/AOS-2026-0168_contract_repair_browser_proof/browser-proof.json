@@ -1,0 +1,51 @@
+{
+  "frontend": "http://127.0.0.1:3011",
+  "fixture": "disposable local Playwright API interception; no historical queue mutation",
+  "checks": {
+    "actual_content": {
+      "detail_gets": 2,
+      "receipt_visible": true,
+      "artifact_visible": true,
+      "summary_visible": true,
+      "worker_visible": true,
+      "attempts_visible": true,
+      "validation_visible": true,
+      "token_usage_visible": true,
+      "full_receipt_link": 1,
+      "full_artifact_link": 1,
+      "generic_save_attach": 0,
+      "status_selects": 0
+    },
+    "note_save": {
+      "request": [
+        {
+          "review_note": "Browser note"
+        }
+      ],
+      "status_after_save": "human_review",
+      "card_still_visible": true,
+      "close_request_count": 0
+    },
+    "explicit_approve": {
+      "confirmation_messages": [
+        "Approve AOS-FIXTURE-REVIEW? This will move this item from human review to done."
+      ],
+      "request": [
+        {
+          "status": "done",
+          "review_note": "Browser approval note",
+          "action": "approve"
+        }
+      ],
+      "status_after_approve": "done",
+      "review_card_remaining": 0
+    }
+  },
+  "screenshots": [
+    "workflows/queue_artifacts/AOS-2026-0168_contract_repair_browser_proof/review-card-actual-receipt.png",
+    "workflows/queue_artifacts/AOS-2026-0168_contract_repair_browser_proof/review-card-after-explicit-approve.png"
+  ],
+  "console_errors": [],
+  "page_errors": [],
+  "result": "PASS"
+}

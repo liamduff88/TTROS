@@ -8,17 +8,19 @@ import Tracker from './views/Tracker'
 import LogsResults from './views/LogsResults'
 import Connectors from './views/Connectors'
 import Queue from './views/Queue'
+import LaneWorkspace from './views/LaneWorkspace'
 import { getDashboardCockpit, getHealth, getOverview, getQueueSummary } from './api'
 import { Cockpit, ConnectionsSpine, GraphifyPage, MemoryBoard, PromptLibrary, RepoIngest, ResultsReceipts, SettingsLaunchers, SkillsBoard, TokensROI, WorkflowBench } from './views/DashboardV1'
 import { ArtifactsPage, AgentsPage, MessageBoard, MissionControl, SearchPage } from './views/WorkbenchV3'
 import { NeedsMeRail } from './components/DashboardKit'
-import { closeSessionTab, needsMeCollapseKey, openSessionTab, pinSessionTab, restoreShellSession, shellSessionSnapshot } from './shellState'
-import { mergeQueueSummary, normalizeCockpitQueue } from './queueState'
+import { closeSessionTab, needsMeCollapseKey, openSessionTab, pinSessionTab, restoreShellSession, shellPathForView, shellRouteFromPath, shellSessionSnapshot, shellViewForNavigation } from './shellState'
+import { mergeQueueSummary, normalizeCockpitQueue, preserveQueueDataOnRefreshFailure } from './queueState'
 
 const VIEWS = {
   'message-board': MessageBoard,
   cockpit: Cockpit,
   'work-queue': Queue,
+  'lane-workspace': LaneWorkspace,
   artifacts: ArtifactsPage,
   search: SearchPage,
   'mission-control': MissionControl,
@@ -43,7 +45,7 @@ const VIEWS = {
 }
 
 export default function App() {
-  const [restoredShell] = useState(() => restoreShellSession(window.sessionStorage?.getItem('aos.dashboard.shell.v1')))
+  const [restoredShell] = useState(() => restoreShellSession(window.sessionStorage?.getItem('aos.dashboard.shell.v1'), window.location.pathname))
   const [view, setView] = useState(restoredShell.view)
   const [viewParams, setViewParams] = useState(restoredShell.viewParams)
   const [sessionTabs, setSessionTabs] = useState(restoredShell.sessionTabs)
@@ -51,10 +53,23 @@ export default function App() {
   const [overview, setOverview] = useState(null)
   const [cockpit, setCockpit] = useState(null)
 
-  const navigate = (nextView, params = {}) => {
+  const applyShellView = (nextView, params = {}) => {
     setSessionTabs(current => openSessionTab(current, nextView, params))
     setView(nextView)
     setViewParams(params)
+  }
+
+  const syncShellRoute = (nextView, params = {}, replace = false) => {
+    const path = shellPathForView(nextView, params)
+    const state = { ...(window.history.state || {}), aosShell: { view: nextView, viewParams: params } }
+    if (replace || window.location.pathname === path) window.history.replaceState(state, '', path)
+    else window.history.pushState(state, '', path)
+  }
+
+  const navigate = (nextView, params = {}) => {
+    const routedView = shellViewForNavigation(nextView, params)
+    applyShellView(routedView, params)
+    syncShellRoute(routedView, params)
   }
 
   const closeTab = id => {
@@ -63,8 +78,7 @@ export default function App() {
     setSessionTabs(nextTabs)
     if (id === view) {
       const fallback = nextTabs[Math.min(Math.max(index - 1, 0), nextTabs.length - 1)] || nextTabs[0]
-      setView(fallback.id)
-      setViewParams(fallback.params || {})
+      navigate(fallback.id, fallback.params || {})
     }
   }
 
@@ -72,11 +86,12 @@ export default function App() {
     const next = params || {}
     setViewParams(next)
     setSessionTabs(current => current.map(tab => tab.id === view ? { ...tab, params: next } : tab))
+    syncShellRoute(view, next, true)
   }
 
   const refreshNeedsMe = () => getQueueSummary()
     .then(data => setCockpit(current => mergeQueueSummary(current, data)))
-    .catch(() => setCockpit(current => current ? { ...current, refreshError: true } : { error: true }))
+    .catch(() => setCockpit(current => preserveQueueDataOnRefreshFailure(current)))
 
   const refreshCockpit = () => {
     refreshNeedsMe()
@@ -93,7 +108,7 @@ export default function App() {
           queueSummaryLoaded: true,
         }
       }))
-      .catch(() => setCockpit(current => current ? { ...current, refreshError: true } : { error: true }))
+      .catch(() => setCockpit(current => preserveQueueDataOnRefreshFailure(current)))
   }
 
   useEffect(() => {
@@ -111,6 +126,33 @@ export default function App() {
   useEffect(() => {
     window.sessionStorage?.setItem('aos.dashboard.shell.v1', shellSessionSnapshot(view, viewParams, sessionTabs))
   }, [view, viewParams, sessionTabs])
+
+  useEffect(() => {
+    const path = shellPathForView(restoredShell.view, restoredShell.viewParams)
+    window.history.replaceState({ ...(window.history.state || {}), aosShell: { view: restoredShell.view, viewParams: restoredShell.viewParams } }, '', path)
+    const onPopState = event => {
+      const route = shellRouteFromPath(window.location.pathname)
+      const saved = event.state?.aosShell
+      if (route) applyShellView(route.view, route.viewParams)
+      else if (saved && VIEWS[saved.view]) applyShellView(saved.view, saved.viewParams || {})
+    }
+    window.addEventListener('popstate', onPopState)
+    return () => window.removeEventListener('popstate', onPopState)
+  }, [])
+
+  useEffect(() => {
+    const isTypingTarget = target => {
+      const tag = target?.tagName
+      return target?.isContentEditable || tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT'
+    }
+    const onKeyDown = event => {
+      if (event.key !== '/' || event.ctrlKey || event.metaKey || event.altKey || isTypingTarget(event.target)) return
+      event.preventDefault()
+      navigate('work-queue', { needsMe: true })
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [])
 
   const ViewComponent = VIEWS[view] || Overview
 

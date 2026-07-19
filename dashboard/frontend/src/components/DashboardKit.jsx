@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { X, Zap, LockKeyhole, ChevronLeft, ChevronRight } from 'lucide-react'
-import { workbenchColor } from '../shellState'
+import { laneColor, laneName, workbenchColor } from '../shellState'
 import { isReviewCardItem } from '../reviewCardState'
 import { HumanReviewCard } from './HumanReviewCard'
 
@@ -124,6 +124,43 @@ export function StatTile({ label, value, sub, onClick }) {
       <div className="mt-2 text-3xl font-semibold text-ivory">{value}</div>
       {sub && <div className="mt-1 text-xs text-taupe">{sub}</div>}
     </button>
+  )
+}
+
+const compactStatus = value => String(value || 'unknown').replace(/_/g, ' ')
+
+const compactAge = value => {
+  const time = Date.parse(value || '')
+  if (Number.isNaN(time)) return 'unknown age'
+  const minutes = Math.max(0, Math.round((Date.now() - time) / 60000))
+  if (minutes < 1) return 'just now'
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.round(minutes / 60)
+  return hours < 24 ? `${hours}h ago` : `${Math.round(hours / 24)}d ago`
+}
+
+export function QueueWorkItemCard({ item, lane: laneOverride }) {
+  const lane = laneOverride || laneName(item)
+  return (
+    <article
+      className="w-full rounded border bg-ink px-3 py-3 text-left"
+      style={{ borderColor: workbenchColor(item.invocation_source, item.status) }}
+      data-queue-card-id={item.id}
+      data-invocation-source={item.invocation_source || 'unattributed'}
+    >
+      <div className="truncate text-sm font-semibold text-ivory">
+        <span className="font-mono text-[11px] text-champagne">{item.id || 'No ID'}</span> — {item.title || 'Untitled queue item'}
+      </div>
+      <div className="mt-2 flex flex-wrap items-center gap-2 font-mono text-[11px] text-taupe">
+        <span className="rounded px-1.5 py-0.5 text-[10px] font-bold text-white" style={{ backgroundColor: laneColor(lane) }}>{lane}</span>
+        <span>{compactAge(item.updated_at || item.created_at)}</span>
+        <StatusChip status={item.status}>{compactStatus(item.status)}</StatusChip>
+        <span>{item.owner || 'unassigned'}</span>
+        {item.priority != null && <span>Priority {item.priority}</span>}
+      </div>
+      {item.summary_for_operator && <p className="mt-2 line-clamp-3 text-xs leading-5 text-stone">{item.summary_for_operator}</p>}
+      {item.status === 'blocked' && (item.blocked_reason || item.reason) && <p className="mt-2 text-xs text-clay">{item.blocked_reason || item.reason}</p>}
+    </article>
   )
 }
 
