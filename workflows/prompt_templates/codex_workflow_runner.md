@@ -1,5 +1,5 @@
 # Codex Workflow Runner Prompt Template
-> Revisit: when the Agentic OS Codex invocation contract changes. · Last touched: 2026-07-18.
+> Revisit: when the Agentic OS Codex invocation contract changes. · Last touched: 2026-07-19.
 
 Use this template after a prepared local run folder has been created with:
 
@@ -7,10 +7,13 @@ Use this template after a prepared local run folder has been created with:
 python3 tools/aos-workflow.py prepare <workflow_id>
 ```
 
-Canonical Codex launch command:
+Canonical supervised Codex launch command (pass the bounded prompt below on
+standard input):
 
 ```bash
-cd "/mnt/c/Users/Admin/Documents/A-Time to revenue/Agentic OS Live" && codex
+cd "/home/liam/agentic-os-live" && /home/liam/.local/bin/aos-codex <<'AOS_CODEX_TASK'
+<PASTE THE BOUNDED PROMPT BELOW>
+AOS_CODEX_TASK
 ```
 
 ## Prompt
@@ -46,6 +49,8 @@ Required local files:
 Rules:
 
 - Local-only file work.
+- This is a fresh ephemeral session. Never use `resume`, `--last`, or a prior transcript.
+- Before 50% context, write a compact receipt/handoff and end; any continuation starts fresh from that artifact.
 - Read files by relevant line range whenever possible.
 - For passing tests, retain only the tail summary; preserve detailed output only while investigating a failure.
 - Never dump `work_items.jsonl`, ledgers, receipt directories, complete queue history, or similarly large runtime collections into the model session.

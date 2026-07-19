@@ -22,11 +22,20 @@
     "model_turns": {"$ref": "#/definitions/observedCounter"},
     "retained_context_bytes": {"$ref": "#/definitions/observedCounter"},
     "compaction_count": {"$ref": "#/definitions/observedCounter"},
+    "total_input": {"$ref": "#/definitions/observedCounter", "description": "Total input reported by the invocation; never labelled fresh input."},
     "fresh_input": {"$ref": "#/definitions/observedCounter"},
     "cached_input": {"$ref": "#/definitions/observedCounter"},
+    "non_cached_input": {"$ref": "#/definitions/observedCounter", "description": "Calculated total_input minus cached_input when both are reported."},
     "output": {"$ref": "#/definitions/observedCounter"},
     "reasoning": {"$ref": "#/definitions/observedCounter"},
+    "input_plus_output": {"$ref": "#/definitions/observedCounter"},
     "largest_tool_result_bytes": {"$ref": "#/definitions/observedCounter"},
+    "context_pct_at_close": {
+      "oneOf": [
+        {"type": "number", "minimum": 0},
+        {"const": "unavailable from current CLI output"}
+      ]
+    },
     "token_usage": {
       "type": "object",
       "required": ["orchestrator", "subagents", "workbenches", "totals", "est_cost_usd", "unavailable"],
@@ -57,8 +66,23 @@
             "properties": {
               "tool": {"type": "string", "enum": ["claude-code", "codex", "antigravity"]},
               "session_id": {"type": "string"},
-              "input": {"type": "integer", "minimum": 0},
+              "input": {"type": "integer", "minimum": 0, "description": "Provider-total input; cached input is already included."},
+              "fresh_input": {"$ref": "#/definitions/observedCounter"},
+              "cached_input": {"$ref": "#/definitions/observedCounter"},
               "output": {"type": "integer", "minimum": 0},
+              "reasoning": {"$ref": "#/definitions/observedCounter"},
+              "cache_ratio": {
+                "oneOf": [
+                  {"type": "number", "minimum": 0},
+                  {"const": "unavailable from current CLI output"}
+                ]
+              },
+              "context_pct_at_close": {
+                "oneOf": [
+                  {"type": "number", "minimum": 0},
+                  {"const": "unavailable from current CLI output"}
+                ]
+              },
               "source": {"type": "string", "enum": ["reported", "unavailable"]}
             }
           }

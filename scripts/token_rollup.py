@@ -98,12 +98,29 @@ def effective_ledger_lines(lines: list[dict]) -> list[dict]:
     return [line for _, line in sorted(combined, key=lambda value: value[0])]
 
 
-def cost_for(model: str | None, inp: int, outp: int, prices: dict) -> float:
+def cost_for(
+    model: str | None,
+    inp: int,
+    outp: int,
+    prices: dict,
+    *,
+    fresh_input: int | None = None,
+    cached_input: int | None = None,
+) -> float:
+    """Charge provider-total input once; use cache-read price for its cached part."""
     rate = prices.get(model) if model else None
     if not isinstance(rate, dict):
         return 0.0
-    return round(inp / 1_000_000 * rate.get("input_per_mtok", 0.0)
-                 + outp / 1_000_000 * rate.get("output_per_mtok", 0.0), 6)
+    if fresh_input is not None and cached_input is not None:
+        if fresh_input + cached_input != inp or "cache_read_per_mtok" not in rate:
+            return 0.0
+        input_cost = (
+            fresh_input / 1_000_000 * rate.get("input_per_mtok", 0.0)
+            + cached_input / 1_000_000 * rate["cache_read_per_mtok"]
+        )
+    else:
+        input_cost = inp / 1_000_000 * rate.get("input_per_mtok", 0.0)
+    return round(input_cost + outp / 1_000_000 * rate.get("output_per_mtok", 0.0), 6)
 
 
 def iso_week_key(timestamp: str) -> str:
@@ -117,7 +134,14 @@ def iso_week_key(timestamp: str) -> str:
 
 
 def _bucket(store: dict, key: str) -> dict:
-    return store.setdefault(key, {"input": 0, "output": 0, "est_cost_usd": 0.0, "count": 0})
+    return store.setdefault(key, {
+        "input": 0, "fresh_input": 0, "cached_input": 0,
+        "output": 0, "est_cost_usd": 0.0, "count": 0,
+    })
+
+
+def _observed_int(value: object) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else None
 
 
 def rollup_week(week: str, lines: list[dict], prices: dict) -> dict:
@@ -130,6 +154,9 @@ def rollup_week(week: str, lines: list[dict], prices: dict) -> dict:
     by_budget: dict[str, dict] = {}
     escalated_cost = 0.0
     items: list[dict] = []
+    cache_sessions: list[dict] = []
+    context_ceiling_breaches: list[dict] = []
+    warnings: list[str] = []
     unavailable: dict[str, int] = {}
 
     for line in lines:
@@ -145,14 +172,53 @@ def rollup_week(week: str, lines: list[dict], prices: dict) -> dict:
         orch = usage.get("orchestrator", {})
         if orch.get("input") or orch.get("output"):
             components.append({"model": line.get("model_confirmed", "unavailable"),
-                               "input": int(orch.get("input", 0)), "output": int(orch.get("output", 0))})
+                               "input": int(orch.get("input", 0)), "output": int(orch.get("output", 0)),
+                               "fresh_input": None, "cached_input": None})
         for sub in usage.get("subagents", []):
             components.append({"model": sub.get("model", "unavailable"),
-                               "input": int(sub.get("input", 0)), "output": int(sub.get("output", 0))})
+                               "input": int(sub.get("input", 0)), "output": int(sub.get("output", 0)),
+                               "fresh_input": None, "cached_input": None})
         for work in usage.get("workbenches", []):
+            reported = work.get("source") == "reported"
+            fresh_input = _observed_int(work.get("fresh_input")) if reported else None
+            cached_input = _observed_int(work.get("cached_input")) if reported else None
             components.append({"model": work.get("model", "unavailable"),
-                               "input": int(work.get("input", 0)), "output": int(work.get("output", 0))})
-        line_cost = round(sum(cost_for(c["model"], c["input"], c["output"], prices) for c in components), 6)
+                               "input": int(work.get("input", 0)), "output": int(work.get("output", 0)),
+                               "fresh_input": fresh_input, "cached_input": cached_input})
+            if fresh_input is not None and cached_input is not None:
+                ratio = round(cached_input / max(fresh_input, 1), 6)
+                cache_sessions.append({
+                    "item_id": line.get("item_id"),
+                    "session_id": work.get("session_id") or line.get("session_id") or "unavailable",
+                    "tool": work.get("tool", "unknown"),
+                    "fresh_input": fresh_input,
+                    "cached_input": cached_input,
+                    "cache_ratio": ratio,
+                })
+                if ratio > 20:
+                    warnings.append(
+                        f"cache_ratio > 20: {work.get('tool', 'unknown')} session "
+                        f"{work.get('session_id') or line.get('session_id') or 'unavailable'} ratio={ratio}"
+                    )
+            context_pct = work.get("context_pct_at_close")
+            if isinstance(context_pct, (int, float)) and not isinstance(context_pct, bool) and context_pct > 50:
+                context_ceiling_breaches.append({
+                    "item_id": line.get("item_id"),
+                    "session_id": work.get("session_id") or line.get("session_id") or "unavailable",
+                    "tool": work.get("tool", "unknown"),
+                    "context_pct_at_close": context_pct,
+                })
+                warnings.append(
+                    f"context_pct_at_close > 50: {work.get('tool', 'unknown')} session "
+                    f"{work.get('session_id') or line.get('session_id') or 'unavailable'} "
+                    f"context_pct_at_close={context_pct}"
+                )
+        line_cost = round(sum(cost_for(
+            c["model"], c["input"], c["output"], prices,
+            fresh_input=c["fresh_input"], cached_input=c["cached_input"],
+        ) for c in components), 6)
+        line_fresh = sum(c["fresh_input"] or 0 for c in components)
+        line_cached = sum(c["cached_input"] or 0 for c in components)
 
         totals["input"] += line_in
         totals["output"] += line_out
@@ -162,18 +228,24 @@ def rollup_week(week: str, lines: list[dict], prices: dict) -> dict:
 
         lane_b = _bucket(by_lane, line.get("lane", "unknown"))
         lane_b["input"] += line_in
+        lane_b["fresh_input"] += line_fresh
+        lane_b["cached_input"] += line_cached
         lane_b["output"] += line_out
         lane_b["est_cost_usd"] = round(lane_b["est_cost_usd"] + line_cost, 6)
         lane_b["count"] += 1
 
         profile_b = _bucket(by_profile, line.get("profile", "unknown"))
         profile_b["input"] += line_in
+        profile_b["fresh_input"] += line_fresh
+        profile_b["cached_input"] += line_cached
         profile_b["output"] += line_out
         profile_b["est_cost_usd"] = round(profile_b["est_cost_usd"] + line_cost, 6)
         profile_b["count"] += 1
 
         budget_b = _bucket(by_budget, line.get("budget_class", "unknown"))
         budget_b["input"] += line_in
+        budget_b["fresh_input"] += line_fresh
+        budget_b["cached_input"] += line_cached
         budget_b["output"] += line_out
         budget_b["est_cost_usd"] = round(budget_b["est_cost_usd"] + line_cost, 6)
         budget_b["count"] += 1
@@ -183,8 +255,13 @@ def rollup_week(week: str, lines: list[dict], prices: dict) -> dict:
         for comp in components:
             mb = _bucket(by_model, comp["model"])
             mb["input"] += comp["input"]
+            mb["fresh_input"] += comp["fresh_input"] or 0
+            mb["cached_input"] += comp["cached_input"] or 0
             mb["output"] += comp["output"]
-            mb["est_cost_usd"] = round(mb["est_cost_usd"] + cost_for(comp["model"], comp["input"], comp["output"], prices), 6)
+            mb["est_cost_usd"] = round(mb["est_cost_usd"] + cost_for(
+                comp["model"], comp["input"], comp["output"], prices,
+                fresh_input=comp["fresh_input"], cached_input=comp["cached_input"],
+            ), 6)
             mb["count"] += 1
 
         # by_workbench: one bucket per tool, across every workbench entry on
@@ -192,9 +269,15 @@ def rollup_week(week: str, lines: list[dict], prices: dict) -> dict:
         for work in usage.get("workbenches", []):
             wb = _bucket(by_workbench, work.get("tool", "unknown"))
             wb["input"] += int(work.get("input", 0))
+            wb["fresh_input"] += _observed_int(work.get("fresh_input")) or 0
+            wb["cached_input"] += _observed_int(work.get("cached_input")) or 0
             wb["output"] += int(work.get("output", 0))
             wb["est_cost_usd"] = round(
-                wb["est_cost_usd"] + cost_for(work.get("model", "unavailable"), int(work.get("input", 0)), int(work.get("output", 0)), prices), 6
+                wb["est_cost_usd"] + cost_for(
+                    work.get("model", "unavailable"), int(work.get("input", 0)), int(work.get("output", 0)), prices,
+                    fresh_input=_observed_int(work.get("fresh_input")),
+                    cached_input=_observed_int(work.get("cached_input")),
+                ), 6
             )
             wb["count"] += 1
 
@@ -230,6 +313,17 @@ def rollup_week(week: str, lines: list[dict], prices: dict) -> dict:
             "escalated_share": round(escalated_cost / total_cost, 4) if total_cost else 0.0,
         },
         "top_items": top_items,
+        "top_cache_ratio_sessions": sorted(
+            cache_sessions,
+            key=lambda row: (row["cache_ratio"], row["cached_input"], str(row["session_id"])),
+            reverse=True,
+        )[:5],
+        "context_ceiling_breaches": sorted(
+            context_ceiling_breaches,
+            key=lambda row: (row["context_pct_at_close"], str(row["session_id"])),
+            reverse=True,
+        ),
+        "warnings": sorted(set(warnings)),
         "unavailable_components": unavailable,
     }
 

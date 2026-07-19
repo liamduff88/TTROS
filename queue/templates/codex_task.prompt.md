@@ -8,6 +8,12 @@ Do not ask before editing files inside the stated folder. Make the changes, vali
 
 Stop only for real external/destructive actions.
 
+This task starts in a fresh ephemeral Codex session. Never use `resume`,
+`--last`, or a prior transcript. Before 50% context, write a compact
+artifact-backed receipt/handoff and end; any continuation starts fresh from
+that artifact. Store large logs, screenshots, browser evidence, and verbose
+test output as artifacts and retain only summaries plus paths.
+
 Use `context/ACCESS_MODEL.md` as the access model. Use targeted reads/searches. Broad read/search access is allowed when relevant under `context/ACCESS_MODEL.md`. Do not paste or expose secrets.
 
 Codex is for code edits, file-heavy implementation, repo inspection, tests, backend/dashboard patches, connector adapters, and local validation.

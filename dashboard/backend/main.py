@@ -1,6 +1,6 @@
 """Agentic OS dashboard backend.
 
-Revisit: when operator routing, local-agent CLI contracts, or runtime health changes. · Last touched: 2026-07-18.
+Revisit: when operator routing, local-agent CLI contracts, or runtime health changes. · Last touched: 2026-07-19.
 """
 
 from fastapi import FastAPI, HTTPException, Request
@@ -25,6 +25,8 @@ import datetime
 import webbrowser
 import os
 import re
+import selectors
+import signal
 import shlex
 import shutil
 import subprocess
@@ -34,6 +36,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+import uuid
 
 TOOLS_DIR = Path(__file__).resolve().parents[2] / "tools"
 if str(TOOLS_DIR) not in sys.path:
@@ -45,10 +48,17 @@ if str(BACKEND_DIR) not in sys.path:
 from aos_paths import AuthorityError, AosPathError, aos_root, assert_authoritative_root, resolve_root_relative
 from aos_codex_policy import (
     CODEX_TARGET,
+    CONTEXT_HANDOFF_THRESHOLD_TOKENS,
+    MAX_CONTEXT_HANDOFFS,
     CodexPolicyError,
+    PERMISSION_HEADER,
     build_environment as build_codex_environment,
     build_exec_command as build_codex_exec_command,
+    cumulative_usage_snapshot,
     invocation_metadata as codex_invocation_metadata,
+    prepare_fresh_prompt as prepare_codex_fresh_prompt,
+    readiness as codex_policy_readiness,
+    require_clean_session_id,
     validate_runtime as validate_codex_runtime,
 )
 import aos_orchestration
@@ -150,12 +160,12 @@ ENTITIES = [
         "role": "AI Coding Assistant (OpenAI)",
         "status": "live_wsl",
         "statusLabel": "Live via AgenticOSClean",
-        "command": "aos-codex",
-        "commandHint": "Runs headlessly through AgenticOSClean via Hermes Run Panel or Direct Codex",
+        "command": "codex",
+        "commandHint": "Runs through the supervised authoritative-root Codex route; readiness is reported by operator status",
         "commandType": "wsl",
         "capabilities": ["Code completion", "Function synthesis", "Test generation", "Documentation"],
         "launchable": False,
-        "description": "Codex is installed in AgenticOSClean and is launched headlessly through Hermes → Codex or Direct Codex.",
+        "description": "Codex is installed in AgenticOSClean and launched through the supervised local route.",
     },
     {
         "id": "antigravity",
@@ -690,10 +700,20 @@ def _timeout_seconds_from_env(name: str, default: int, minimum: int) -> int:
     return max(configured or default, minimum)
 
 
+INLINE_COMMAND_TIMEOUT_SECONDS = _timeout_seconds_from_env(
+    "AOS_INLINE_COMMAND_TIMEOUT_SECONDS", default=120, minimum=1,
+)
+_LEGACY_AGENT_TIMEOUT_SECONDS = _timeout_seconds_from_env(
+    "AOS_QUEUE_WORKER_TIMEOUT_SECONDS", default=7800, minimum=1,
+)
+AGENT_TIMEOUT_SECONDS = _timeout_seconds_from_env(
+    "AOS_AGENT_TIMEOUT_SECONDS", default=_LEGACY_AGENT_TIMEOUT_SECONDS, minimum=1,
+)
+AGENT_STARTUP_TIMEOUT_SECONDS = _timeout_seconds_from_env(
+    "AOS_AGENT_STARTUP_TIMEOUT_SECONDS", default=60, minimum=1,
+)
 QUEUE_WORKER_TIMEOUT_SECONDS = _timeout_seconds_from_env(
-    "AOS_QUEUE_WORKER_TIMEOUT_SECONDS",
-    default=1200,
-    minimum=900,
+    "AOS_QUEUE_WORKER_TIMEOUT_SECONDS", default=1200, minimum=900,
 )
 QUEUE_HERMES_REVIEW_TIMEOUT_SECONDS = 120
 QUEUE_STUCK_TIMEOUT_SECONDS = QUEUE_WORKER_TIMEOUT_SECONDS + QUEUE_HERMES_REVIEW_TIMEOUT_SECONDS + 180
@@ -704,113 +724,460 @@ MODEL_TURNS_THRESHOLD = _timeout_seconds_from_env(
 UNAVAILABLE_CLI_VALUE = "unavailable from current CLI output"
 USAGE_COUNTER_FIELDS = (
     "initial_prompt_bytes", "model_turns", "retained_context_bytes", "compaction_count",
-    "fresh_input", "cached_input", "output", "reasoning", "largest_tool_result_bytes",
+    "total_input", "cached_input", "non_cached_input", "output", "reasoning",
+    "input_plus_output", "fresh_input", "largest_tool_result_bytes",
+    "context_pct_at_close",
 )
+AGENT_GRACEFUL_TERMINATION_SECONDS = _timeout_seconds_from_env(
+    "AOS_AGENT_GRACEFUL_TERMINATION_SECONDS", default=10, minimum=1,
+)
+LOCAL_AGENT_ROUTE_LOG = LOGS_DIR / "local_agent_route.jsonl"
 
 
-def _codex_json_summary(stdout: str) -> tuple[str, dict, str]:
-    """Extract the final message and only exact counters explicitly emitted by Codex."""
+def _bounded_stream_tail(value: object, limit: int = 1200) -> str:
+    text = _ANSI_ESCAPE_RE.sub("", str(value or "")).strip() if "_ANSI_ESCAPE_RE" in globals() else str(value or "").strip()
+    return text if len(text) <= limit else text[-limit:]
+
+
+def _classify_local_agent_failure(stderr: str, stdout: str, returncode: int | None) -> str:
+    evidence = f"{stderr}\n{stdout}".lower()
+    if any(marker in evidence for marker in ("not logged in", "authentication", "unauthorized", "login required", "401")):
+        return "authentication_failure"
+    if any(marker in evidence for marker in ("no such file or directory", "not found", "cannot execute")):
+        return "binary_or_path_failure"
+    if any(marker in evidence for marker in ("permission denied", "operation not permitted", "read-only file system")):
+        return "permission_failure"
+    if returncode not in (None, 0):
+        return "agent_process_failure"
+    return "agent_output_failure"
+
+
+def _terminate_process_group(process: subprocess.Popen) -> None:
+    if process.poll() is not None:
+        return
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except (ProcessLookupError, PermissionError):
+        process.terminate()
+    try:
+        process.wait(timeout=AGENT_GRACEFUL_TERMINATION_SECONDS)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            process.kill()
+        process.wait(timeout=5)
+
+
+def _codex_json_summary(stdout: str) -> tuple[str, dict, str, bool]:
     final_message = ""
     usage: dict[str, int] = {}
+    session_id = ""
+    startup_confirmed = False
     counters = {key: UNAVAILABLE_CLI_VALUE for key in USAGE_COUNTER_FIELDS}
-    aliases = {
-        "input_tokens": "fresh_input",
-        "cached_input_tokens": "cached_input",
-        "output_tokens": "output",
-        "reasoning_output_tokens": "reasoning",
-    }
     for raw in str(stdout or "").splitlines():
         try:
             event = json.loads(raw)
         except json.JSONDecodeError:
             continue
-        if not isinstance(event, dict):
-            continue
-        if event.get("type") == "item.completed" and isinstance(event.get("item"), dict):
+        event_type = str(event.get("type") or "")
+        if event_type == "thread.started":
+            startup_confirmed = True
+            session_id = str(event.get("thread_id") or event.get("session_id") or event.get("id") or "")
+        if event_type == "item.completed" and isinstance(event.get("item"), dict):
             item = event["item"]
             if item.get("type") == "agent_message" and isinstance(item.get("text"), str):
                 final_message = item["text"].strip()
+        if event_type == "turn.completed" and isinstance(event.get("usage"), dict):
+            for source, target in (
+                ("input_tokens", "input_tokens"),
+                ("output_tokens", "output_tokens"),
+                ("cached_input_tokens", "cached_input_tokens"),
+                ("reasoning_output_tokens", "reasoning_tokens"),
+            ):
+                value = event["usage"].get(source)
+                if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+                    usage[target] = value
+            if "input_tokens" in usage and "output_tokens" in usage:
+                usage["total_tokens"] = usage["input_tokens"] + usage["output_tokens"]
         containers = [event]
-        containers.extend(
-            event[key] for key in ("usage", "usage_counters", "metrics")
-            if isinstance(event.get(key), dict)
-        )
+        containers.extend(event[key] for key in ("usage", "usage_counters", "metrics") if isinstance(event.get(key), dict))
         for container in containers:
-            for source, target in (*((key, key) for key in USAGE_COUNTER_FIELDS), *aliases.items()):
+            for source, target in (
+                *((key, key) for key in USAGE_COUNTER_FIELDS),
+                ("input_tokens", "total_input"),
+                ("cached_input_tokens", "cached_input"),
+                ("output_tokens", "output"),
+                ("reasoning_output_tokens", "reasoning"),
+            ):
                 value = container.get(source)
                 if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
                     counters[target] = value
-            if event.get("type") == "turn.completed" and container is event.get("usage"):
-                for source, target in (
-                    ("input_tokens", "input_tokens"),
-                    ("output_tokens", "output_tokens"),
-                    ("cached_input_tokens", "cached_input_tokens"),
-                    ("reasoning_output_tokens", "reasoning_tokens"),
-                ):
-                    value = container.get(source)
-                    if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
-                        usage[target] = value
-    if "input_tokens" in usage and "output_tokens" in usage:
-        usage["total_tokens"] = usage["input_tokens"] + usage["output_tokens"]
-        token_usage = {"available": True, **usage, **counters}
-        token_text = "Token usage: " + ", ".join(
-            f"{label} {usage[key]}" for key, label in (
-                ("input_tokens", "input"), ("output_tokens", "output"),
-                ("cached_input_tokens", "cached input"), ("reasoning_tokens", "reasoning"),
-                ("total_tokens", "total"),
-            ) if key in usage
+    # turn.completed counters are cumulative. The final event replaces every
+    # preceding event; never sum snapshots or retain fields omitted by a
+    # malformed terminal event.
+    snapshot = cumulative_usage_snapshot(stdout)
+    for key in ("total_input", "cached_input", "non_cached_input", "fresh_input", "output", "reasoning", "input_plus_output"):
+        counters[key] = UNAVAILABLE_CLI_VALUE
+    usage = {}
+    if snapshot.get("available"):
+        usage = {
+            "input_tokens": snapshot["input_tokens"],
+            "output_tokens": snapshot["output_tokens"],
+            "total_tokens": snapshot["cumulative_tokens"],
+        }
+        counters["total_input"] = snapshot["input_tokens"]
+        counters["output"] = snapshot["output_tokens"]
+        if snapshot.get("cached_input_tokens") is not None:
+            usage["cached_input_tokens"] = snapshot["cached_input_tokens"]
+            counters["cached_input"] = snapshot["cached_input_tokens"]
+        if snapshot.get("reasoning_output_tokens") is not None:
+            usage["reasoning_tokens"] = snapshot["reasoning_output_tokens"]
+            counters["reasoning"] = snapshot["reasoning_output_tokens"]
+    elif any(marker in str(snapshot.get("reason") or "") for marker in ("exceeds provider", "exceeds provider output")):
+        usage["normalization_error"] = str(snapshot["reason"])
+
+    total_input = counters.get("total_input")
+    cached_input = counters.get("cached_input")
+    output = counters.get("output")
+    if isinstance(total_input, int) and isinstance(cached_input, int) and cached_input <= total_input:
+        counters["non_cached_input"] = total_input - cached_input
+        counters["fresh_input"] = total_input - cached_input
+        usage["fresh_input_tokens"] = total_input - cached_input
+        usage["cache_ratio"] = round(cached_input / max(total_input - cached_input, 1), 6)
+    elif isinstance(total_input, int) and isinstance(cached_input, int):
+        usage["normalization_error"] = "cached_input_tokens exceeds provider-total input_tokens"
+    if isinstance(total_input, int) and isinstance(output, int):
+        counters["input_plus_output"] = total_input + output
+    if usage:
+        labels = (
+            ("input_tokens", "input"),
+            ("output_tokens", "output"),
+            ("cached_input_tokens", "cached input"),
+            ("reasoning_tokens", "reasoning"),
+            ("total_tokens", "total"),
         )
+        token_text = "Token usage: " + ", ".join(f"{label} {usage[key]}" for key, label in labels if key in usage)
+        token_usage = {"available": True, **usage, **counters}
+        if session_id:
+            token_usage["session_id"] = session_id
     else:
-        token_usage = {"available": False, **counters}
         token_text = "Token usage: unavailable from current CLI output"
-    return final_message, token_usage, token_text
+        token_usage = {"available": False, **counters}
+    return final_message, token_usage, token_text, startup_confirmed or bool(session_id)
 
 
-def _run_codex_local(prompt: str, item: dict | None = None) -> dict:
-    """Run the shared supervised Codex command with bounded retained output."""
-    invocation = codex_invocation_metadata(CODEX_TARGET)
+def _write_codex_stream_artifacts(invocation_id: str, stdout: str, stderr: str) -> list[str]:
+    """Persist raw Codex streams; callers retain only bounded summaries."""
+    artifact_dir = BASE_DIR / "logs" / "codex_sessions"
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    paths: list[str] = []
+    for suffix, content in (("stdout.jsonl", stdout), ("stderr.txt", stderr)):
+        if not content:
+            continue
+        target = artifact_dir / f"{invocation_id}.{suffix}"
+        durable_replace_text(target, content if content.endswith("\n") else content + "\n")
+        paths.append(target.relative_to(BASE_DIR).as_posix())
+    return paths
+
+
+def _write_codex_context_handoff(
+    invocation_id: str,
+    session_id: str,
+    prompt: str,
+    usage: dict,
+    stream_artifacts: list[str],
+    final_message: str,
+    item: dict | None,
+) -> str:
+    """Write a compact continuation receipt; raw evidence remains path-only."""
+    directory = BASE_DIR / "logs" / "codex_handoffs"
+    directory.mkdir(parents=True, exist_ok=True)
+    target = directory / f"{invocation_id}.md"
+    task_summary = re.sub(r"\s+", " ", str(prompt or "")).strip()[:2_000]
+    compact_result = re.sub(r"\s+", " ", str(final_message or "")).strip()[:600] or "No final agent message before supervised handoff."
+    lines = [
+        "# Codex context handoff receipt",
+        "> Revisit: when the linked task continuation is complete. · Last touched: 2026-07-19.",
+        "",
+        "- Session mode: fresh ephemeral; transcript resume forbidden",
+        f"- Completed session ID: `{session_id}`",
+        f"- Work item ID: `{str((item or {}).get('id') or 'direct')}`",
+        f"- Configured handoff boundary: 50% / {CONTEXT_HANDOFF_THRESHOLD_TOKENS} cumulative tokens",
+        f"- Observed cumulative usage: `{json.dumps(usage, sort_keys=True)}`",
+        f"- Original task summary: {task_summary}",
+        f"- Compact result at boundary: {compact_result}",
+        "- Raw evidence artifacts (inspect selectively; never paste wholesale):",
+        *(f"  - `{path}`" for path in stream_artifacts),
+        "",
+        "Continue from repository state plus this receipt. Do not replay or recover the prior transcript.",
+    ]
+    durable_replace_text(target, "\n".join(lines).rstrip() + "\n")
+    return target.relative_to(BASE_DIR).as_posix()
+
+
+def _local_agent_route_log(payload: dict) -> str:
+    path = LOCAL_AGENT_ROUTE_LOG if BASE_DIR == _IMPORTED_BASE_DIR else BASE_DIR / "logs" / "local_agent_route.jsonl"
+    safe = {
+        "timestamp": datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+        **payload,
+    }
+    append_root, append_path = _authoritative_append_target(path)
+    durable_append_text(append_root, append_path, json.dumps(safe, ensure_ascii=False, sort_keys=True) + "\n")
+    return _safe_relative(path) if BASE_DIR == _IMPORTED_BASE_DIR else "logs/local_agent_route.jsonl"
+
+
+def _run_codex_local(prompt: str, item: dict | None = None, *, _handoff_depth: int = 0) -> dict:
+    """Run the real Codex CLI under the authoritative Linux user/root with split timeouts."""
+    started_at = time.monotonic()
+    item_id = str((item or {}).get("id") or "")
+    invocation = {**codex_invocation_metadata(CODEX_TARGET), "invocation_id": f"codex-{uuid.uuid4().hex}"}
     try:
         validate_codex_runtime(BASE_DIR, CODEX_TARGET)
         command = build_codex_exec_command(CODEX_TARGET)
-        environment = build_codex_environment(CODEX_TARGET)
+        env = build_codex_environment(CODEX_TARGET)
+        prepared_prompt = prepare_codex_fresh_prompt(prompt)
+        invocation["initial_prompt_bytes"] = len(prepared_prompt.encode("utf-8"))
     except CodexPolicyError as exc:
+        detail = str(exc)
+        log_path = _local_agent_route_log({
+            "route": "codex", "item_id": item_id, "success": False,
+            "failure_class": "configuration_defect", "stage": "policy_preflight",
+            "elapsed_seconds": 0.0, "stderr_tail": detail, "stdout_tail": "",
+            **invocation,
+        })
         return {
-            "success": False, "output": str(exc), "stdout": "", "stderr": str(exc),
-            "returncode": 78, "token_usage": {"available": False},
+            "success": False, "output": detail, "stdout": "", "stderr": detail,
+            "returncode": 78, "failure_class": "configuration_defect", "command_stage": "policy_preflight",
+            "log_path": log_path, "token_usage": {"available": False},
             "token_usage_text": "Token usage: unavailable from current CLI output",
             "invocation": invocation,
         }
+
     try:
         process = subprocess.Popen(
-            command, cwd=invocation["cwd"], env=environment,
-            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            text=True, encoding="utf-8", errors="replace", start_new_session=True, close_fds=True,
+            command,
+            cwd=invocation["cwd"],
+            env=env,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=False,
+            start_new_session=True,
+            close_fds=True,
         )
-        stdout, stderr = process.communicate(prompt, timeout=QUEUE_WORKER_TIMEOUT_SECONDS)
-        timed_out = False
-    except subprocess.TimeoutExpired:
-        process.kill()
-        stdout, stderr = process.communicate()
-        timed_out = True
     except OSError as exc:
+        elapsed = round(time.monotonic() - started_at, 3)
+        failure_class = _classify_local_agent_failure(str(exc), "", None)
+        log_path = _local_agent_route_log({
+            "route": "codex", "item_id": item_id, "success": False, "failure_class": failure_class,
+            "stage": "process_start", "elapsed_seconds": elapsed, "stderr_tail": _bounded_stream_tail(exc), "stdout_tail": "",
+            **invocation,
+        })
         return {
-            "success": False, "output": str(exc), "stdout": "", "stderr": str(exc),
-            "returncode": -1, "token_usage": {"available": False},
+            "success": False, "output": str(exc), "stdout": "", "stderr": str(exc), "returncode": -1,
+            "failure_class": failure_class, "command_stage": "process_start", "elapsed_seconds": elapsed,
+            "log_path": log_path, "token_usage": {"available": False},
             "token_usage_text": "Token usage: unavailable from current CLI output",
             "invocation": invocation,
         }
-    final_message, token_usage, token_usage_text = _codex_json_summary(stdout)
-    output = final_message or _bounded_hermes_answer(stdout or stderr or "(no output)", 4000)
+
+    stdout_chunks: list[bytes] = []
+    stderr_chunks: list[bytes] = []
+    startup_confirmed = False
+    timed_out = False
+    handoff_triggered = False
+    handoff_usage: dict = {}
+    command_stage = "startup"
+    startup_deadline = time.monotonic() + AGENT_STARTUP_TIMEOUT_SECONDS
+    execution_deadline: float | None = None
+    selector = selectors.DefaultSelector()
+    assert process.stdout is not None and process.stderr is not None and process.stdin is not None
+    selector.register(process.stdout, selectors.EVENT_READ, stdout_chunks)
+    selector.register(process.stderr, selectors.EVENT_READ, stderr_chunks)
+    try:
+        try:
+            process.stdin.write(prepared_prompt.encode("utf-8"))
+            process.stdin.close()
+        except BrokenPipeError:
+            pass
+        while selector.get_map():
+            now = time.monotonic()
+            deadline = execution_deadline if startup_confirmed else startup_deadline
+            if now >= deadline:
+                timed_out = True
+                command_stage = "execution" if startup_confirmed else "startup"
+                _terminate_process_group(process)
+                break
+            events = selector.select(timeout=min(0.25, max(0.01, deadline - now)))
+            for key, _ in events:
+                try:
+                    chunk = os.read(key.fileobj.fileno(), 65536)
+                except OSError:
+                    chunk = b""
+                if not chunk:
+                    selector.unregister(key.fileobj)
+                    continue
+                key.data.append(chunk)
+                if key.fileobj is process.stdout and not startup_confirmed:
+                    partial = b"".join(stdout_chunks).decode("utf-8", errors="replace")
+                    _, _, _, startup_confirmed = _codex_json_summary(partial)
+                    if startup_confirmed:
+                        command_stage = "execution"
+                        execution_deadline = time.monotonic() + AGENT_TIMEOUT_SECONDS
+                if key.fileobj is process.stdout and startup_confirmed:
+                    partial = b"".join(stdout_chunks).decode("utf-8", errors="replace")
+                    snapshot = cumulative_usage_snapshot(partial)
+                    if (
+                        snapshot.get("available")
+                        and int(snapshot["cumulative_tokens"]) >= CONTEXT_HANDOFF_THRESHOLD_TOKENS
+                        and process.poll() is None
+                    ):
+                        handoff_triggered = True
+                        handoff_usage = snapshot
+                        command_stage = "context_handoff"
+                        _terminate_process_group(process)
+                        break
+            if handoff_triggered:
+                break
+            if process.poll() is not None and not events:
+                for key in list(selector.get_map().values()):
+                    try:
+                        chunk = os.read(key.fileobj.fileno(), 65536)
+                    except OSError:
+                        chunk = b""
+                    if chunk:
+                        key.data.append(chunk)
+                    else:
+                        selector.unregister(key.fileobj)
+        if process.poll() is None:
+            process.wait(timeout=5)
+    finally:
+        selector.close()
+        process.stdout.close()
+        process.stderr.close()
+
+    stdout = b"".join(stdout_chunks).decode("utf-8", errors="replace")
+    stderr = b"".join(stderr_chunks).decode("utf-8", errors="replace")
+    final_message, token_usage, token_usage_text, parsed_startup = _codex_json_summary(stdout)
+    stream_artifacts = _write_codex_stream_artifacts(invocation["invocation_id"], stdout, stderr)
+    try:
+        clean_session_id = require_clean_session_id(stdout)
+    except CodexPolicyError as exc:
+        clean_session_id = ""
+        clean_session_error = str(exc)
+    else:
+        clean_session_error = ""
+        token_usage["session_id"] = clean_session_id
+    token_usage.setdefault("invocation_id", invocation["invocation_id"])
+    startup_confirmed = startup_confirmed or parsed_startup
+    elapsed = round(time.monotonic() - started_at, 3)
+    if handoff_triggered and not clean_session_error and _handoff_depth < MAX_CONTEXT_HANDOFFS:
+        handoff_artifact = _write_codex_context_handoff(
+            invocation["invocation_id"], clean_session_id, prompt, handoff_usage,
+            stream_artifacts, final_message, item,
+        )
+        handoff_log_path = _local_agent_route_log({
+            "route": "codex", "item_id": item_id, "success": True,
+            "failure_class": None, "stage": "context_handoff",
+            "elapsed_seconds": round(time.monotonic() - started_at, 3),
+            "returncode": process.returncode,
+            "startup_timeout_seconds": AGENT_STARTUP_TIMEOUT_SECONDS,
+            "execution_timeout_seconds": AGENT_TIMEOUT_SECONDS,
+            **invocation,
+            "stdout_tail": _bounded_stream_tail(stdout),
+            "stderr_tail": _bounded_stream_tail(stderr),
+            "token_usage_text": token_usage_text,
+            "session_id": clean_session_id,
+            "stream_artifacts": stream_artifacts,
+            "handoff_artifact": handoff_artifact,
+        })
+        continuation_prompt = "\n".join((
+            "Continue the same bounded task in a new fresh ephemeral session.",
+            f"Read the compact handoff receipt at `{handoff_artifact}` and inspect only its named repository/artifact paths as needed.",
+            "Do not resume, recover, or replay the prior transcript. Do not paste raw logs, test output, diffs, screenshots, or browser evidence into this prompt or your closeout.",
+            "Complete the remaining task, validate it, and return the required compact receipt.",
+        ))
+        continued = _run_codex_local(continuation_prompt, item, _handoff_depth=_handoff_depth + 1)
+        prior_session = {
+            "session_id": clean_session_id,
+            "invocation": invocation,
+            "token_usage": token_usage,
+            "token_usage_text": token_usage_text,
+            "handoff_artifact": handoff_artifact,
+            "log_path": handoff_log_path,
+            "stream_artifacts": stream_artifacts,
+            "threshold_usage": handoff_usage,
+        }
+        return {
+            **continued,
+            "handoff_sessions": [prior_session, *list(continued.get("handoff_sessions") or [])],
+            "handoff_artifacts": [handoff_artifact, *list(continued.get("handoff_artifacts") or [])],
+            "stream_artifacts": [*stream_artifacts, handoff_artifact, *list(continued.get("stream_artifacts") or [])],
+            "retained_output_truncated": bool(continued.get("retained_output_truncated")) or len(stdout) > 16_000 or len(stderr) > 16_000,
+        }
+    if handoff_triggered and not clean_session_error:
+        failure_class = "context_handoff_limit"
+        command_stage = "context_handoff"
+        output = f"Codex reached the context handoff boundary after {MAX_CONTEXT_HANDOFFS} fresh continuations"
+        returncode = 78
+        success = False
+    elif timed_out:
+        failure_class = f"{command_stage}_timeout"
+        boundary = AGENT_STARTUP_TIMEOUT_SECONDS if command_stage == "startup" else AGENT_TIMEOUT_SECONDS
+        output = f"Codex {command_stage} timed out after {boundary}s"
+        returncode = process.returncode if process.returncode is not None else -1
+        success = False
+    elif token_usage.get("normalization_error"):
+        failure_class = "usage_semantics_failure"
+        command_stage = "usage_normalization"
+        output = f"Codex usage semantics invalid: {token_usage['normalization_error']}"
+        returncode = process.returncode if process.returncode is not None else 78
+        success = False
+    elif clean_session_error:
+        failure_class = "clean_session_creation_failure"
+        command_stage = "clean_session_creation"
+        output = clean_session_error
+        returncode = process.returncode if process.returncode is not None else 78
+        success = False
+    else:
+        returncode = int(process.returncode or 0)
+        success = returncode == 0 and startup_confirmed
+        failure_class = "" if success else _classify_local_agent_failure(stderr, stdout, returncode)
+        output = final_message or _bounded_stream_tail(stdout or stderr, 4000) or "(no output)"
+        if success:
+            command_stage = "completion"
+    log_path = _local_agent_route_log({
+        "route": "codex", "item_id": item_id, "success": success,
+        "failure_class": failure_class or None, "stage": command_stage,
+        "elapsed_seconds": elapsed, "returncode": returncode,
+        "startup_timeout_seconds": AGENT_STARTUP_TIMEOUT_SECONDS,
+        "execution_timeout_seconds": AGENT_TIMEOUT_SECONDS,
+        **invocation,
+        "stdout_tail": _bounded_stream_tail(stdout), "stderr_tail": _bounded_stream_tail(stderr),
+        "token_usage_text": token_usage_text,
+        "session_id": clean_session_id or None,
+        "stream_artifacts": stream_artifacts,
+    })
     return {
-        "success": process.returncode == 0 and not timed_out,
+        "success": success,
         "output": output,
-        "stdout": stdout,
-        "stderr": stderr,
-        "returncode": process.returncode,
+        "stdout": stdout if len(stdout) <= 16_000 else _bounded_stream_tail(stdout, 4000),
+        "stderr": stderr if len(stderr) <= 16_000 else _bounded_stream_tail(stderr, 4000),
+        "stream_artifacts": stream_artifacts,
+        "retained_output_truncated": len(stdout) > 16_000 or len(stderr) > 16_000,
+        "returncode": returncode,
         "timed_out": timed_out,
-        "timeout_seconds": QUEUE_WORKER_TIMEOUT_SECONDS if timed_out else None,
+        "timeout_seconds": AGENT_STARTUP_TIMEOUT_SECONDS if command_stage == "startup" else AGENT_TIMEOUT_SECONDS,
+        "startup_timeout_seconds": AGENT_STARTUP_TIMEOUT_SECONDS,
+        "execution_timeout_seconds": AGENT_TIMEOUT_SECONDS,
+        "elapsed_seconds": elapsed,
+        "failure_class": failure_class or None,
+        "command_stage": command_stage,
+        "log_path": log_path,
         "token_usage": token_usage,
         "token_usage_text": token_usage_text,
+        "session_id": clean_session_id or None,
         "invocation": invocation,
     }
 
@@ -2133,6 +2500,13 @@ def _token_record_view(record: dict) -> dict:
     usage = record.get("token_usage") if isinstance(record.get("token_usage"), dict) else {}
     totals = usage.get("totals") if isinstance(usage.get("totals"), dict) else {}
     evidence = record.get("capture_evidence") if isinstance(record.get("capture_evidence"), dict) else {}
+    reported_workbench = next(
+        (
+            work for work in usage.get("workbenches") or []
+            if isinstance(work, dict) and work.get("source") == "reported"
+        ),
+        {},
+    )
     no_agent = _ledger_no_agent_invocation(record)
     availability = "no_agent_invocation" if no_agent else basis if tokens is not None else "unavailable"
     row.update({
@@ -2146,8 +2520,8 @@ def _token_record_view(record: dict) -> dict:
         "input_tokens": int(totals["input"]) if str(totals.get("input", "")).lstrip("-").isdigit() else None,
         "output_tokens": int(totals["output"]) if str(totals.get("output", "")).lstrip("-").isdigit() else None,
         "total_tokens": tokens,
-        "cached_input_tokens": evidence.get("cached_input_tokens"),
-        "reasoning_output_tokens": evidence.get("reasoning_output_tokens"),
+        "cached_input_tokens": evidence.get("cached_input_tokens", reported_workbench.get("cached_input")),
+        "reasoning_output_tokens": evidence.get("reasoning_output_tokens", reported_workbench.get("reasoning")),
         "model_identity": evidence.get("model_identity") or record.get("model_confirmed") or "unavailable",
     })
     return row
@@ -2189,7 +2563,7 @@ def _token_source_summary(records: list[dict]) -> list[dict]:
 
 def _usage_counters_from_token_usage(token_usage: dict) -> dict:
     aliases = {
-        "input_tokens": "fresh_input",
+        "input_tokens": "total_input",
         "cache_read_tokens": "cached_input",
         "cached_input_tokens": "cached_input",
         "output_tokens": "output",
@@ -2204,23 +2578,105 @@ def _usage_counters_from_token_usage(token_usage: dict) -> dict:
         value = token_usage.get(source)
         if counters[target] == UNAVAILABLE_CLI_VALUE and isinstance(value, int) and not isinstance(value, bool) and value >= 0:
             counters[target] = value
+    total_input = counters.get("total_input")
+    cached_input = counters.get("cached_input")
+    output = counters.get("output")
+    if isinstance(total_input, int) and isinstance(cached_input, int) and cached_input <= total_input:
+        counters["non_cached_input"] = total_input - cached_input
+        counters["fresh_input"] = total_input - cached_input
+    if isinstance(total_input, int) and isinstance(output, int):
+        counters["input_plus_output"] = total_input + output
     return counters
 
 
-def _simple_token_line(task_id: str, component: str, tokens: int | None, basis: str, token_usage: dict) -> dict:
+def _simple_token_line(
+    task_id: str,
+    component: str,
+    tokens: int | None,
+    basis: str,
+    token_usage: dict,
+    metadata: dict | None = None,
+) -> dict:
+    metadata = metadata or {}
     line = {
         "ts": datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
         "task_id": task_id or "unattributed",
         "component": component or "unattributed",
         "basis": basis if basis in {"exact", "unavailable"} else "unavailable",
+        "role": str(metadata.get("role") or component or "unattributed"),
+        "attempt": metadata.get("attempt"),
         **_usage_counters_from_token_usage(token_usage),
     }
+    session_id = str(token_usage.get("session_id") or metadata.get("session_id") or "").strip()
+    invocation_id = str(token_usage.get("invocation_id") or metadata.get("invocation_id") or "").strip()
+    if session_id:
+        line["session_id"] = session_id
+    if invocation_id:
+        line["invocation_id"] = invocation_id
     if tokens is not None:
         line["tokens"] = max(0, int(tokens))
+    if str(component).strip().lower() == "codex":
+        provider_input = line.get("total_input")
+        output_tokens = line.get("output")
+        if isinstance(provider_input, int) and isinstance(output_tokens, int):
+            fresh = line.get("fresh_input")
+            cached = line.get("cached_input")
+            reasoning = line.get("reasoning")
+            context_pct = line.get("context_pct_at_close")
+            model = str(token_usage.get("model") or "unavailable")
+            workbench = {
+                "tool": "codex",
+                "session_id": session_id or invocation_id or "unavailable",
+                "model": model,
+                "input": provider_input,
+                "fresh_input": fresh,
+                "cached_input": cached,
+                "output": output_tokens,
+                "reasoning": reasoning,
+                "context_pct_at_close": context_pct,
+                "source": "reported",
+            }
+            warnings = []
+            if isinstance(fresh, int) and isinstance(cached, int):
+                ratio = round(cached / max(fresh, 1), 6)
+                workbench["cache_ratio"] = ratio
+                if ratio > 20:
+                    warnings.append(
+                        f"cache_ratio > 20: codex session {workbench['session_id']} ratio={ratio}"
+                    )
+            if isinstance(context_pct, (int, float)) and not isinstance(context_pct, bool) and context_pct > 50:
+                warnings.append(
+                    f"context_pct_at_close > 50: codex session {workbench['session_id']} context_pct_at_close={context_pct}"
+                )
+            unavailable = []
+            for key in ("fresh_input", "cached_input", "reasoning", "context_pct_at_close"):
+                if not isinstance(workbench.get(key), (int, float)) or isinstance(workbench.get(key), bool):
+                    unavailable.append(f"codex.{key}")
+            if model == "unavailable":
+                unavailable.extend(["Codex model identity", "cost for unavailable Codex model"])
+            line.update({
+                "item_id": task_id or "unattributed",
+                "lane": "codex",
+                "profile": "default",
+                "timestamp": line["ts"],
+                "escalated": False,
+                "model_requested": "Codex workbench session",
+                "model_confirmed": model,
+                "budget_class": "standard",
+                "token_usage": {
+                    "orchestrator": {"input": 0, "output": 0},
+                    "subagents": [],
+                    "workbenches": [workbench],
+                    "totals": {"input": provider_input, "output": output_tokens},
+                    "est_cost_usd": 0.0,
+                    "unavailable": unavailable,
+                },
+                "warnings": warnings,
+            })
     return line
 
 
-def _append_simple_token_ledger(task_id: str, component: str, token_usage: dict) -> None:
+def _append_simple_token_ledger(task_id: str, component: str, token_usage: dict, metadata: dict | None = None) -> None:
     if token_usage.get("no_agent_invocation"):
         return
     total = token_usage.get("total_tokens")
@@ -2238,7 +2694,7 @@ def _append_simple_token_ledger(task_id: str, component: str, token_usage: dict)
     try:
         append_root, append_path = _authoritative_append_target(ROOT_TOKEN_LEDGER_FILE)
         line = _simple_token_line(
-            task_id, component, tokens, "exact" if tokens is not None else "unavailable", token_usage
+            task_id, component, tokens, "exact" if tokens is not None else "unavailable", token_usage, metadata
         )
         durable_append_text(append_root, append_path, json.dumps(line, separators=(",", ":")) + "\n")
     except OSError:
@@ -2796,6 +3252,7 @@ def _log_token_usage(
         str((route_metadata or {}).get("item_id") or task[:80] or route),
         agent or route,
         token_usage,
+        route_metadata,
     )
     return record
 
@@ -2820,15 +3277,22 @@ def _compact_agent_closeout(
         token_usage, token_usage_text = _extract_token_usage(
             raw, str(result.get("stdout") or ""), str(result.get("stderr") or "")
         )
+    command_stage = str(result.get("command_stage") or ("execution" if timed_out else "completion"))
+    failure_class = str(result.get("failure_class") or ("agent_reported_task_failure" if agent_reported_failure else ""))
+    log_path = str(result.get("log_path") or "logs/dashboard_backend.log")
+    elapsed_seconds = result.get("elapsed_seconds")
+    failure_detail = _field_from_output(raw, "Blockers") or _bounded_stream_tail(result.get("stderr") or raw, 500)
     values = {
         "Files touched": _field_from_output(raw, "Files touched") or "None reported",
         "Validation": _field_from_output(raw, "Validation") or (
-            f"Agent command timed out after {timeout_seconds}s" if timed_out else ("Agent command completed" if passed else "Agent command failed")
+            f"{route} route {command_stage} timed out after {timeout_seconds}s"
+            if timed_out else ("Agent command completed" if passed else f"Agent command failed ({failure_class or 'unclassified_failure'})")
         ),
         "Connector access": _field_from_output(raw, "Connector access") or "No connector action reported",
         "Token usage": _token_usage_detail(token_usage_text),
         "Blockers": _field_from_output(raw, "Blockers") or (
-            f"Timeout after {timeout_seconds}s during local agent run" if timed_out else ("None" if passed else "See local agent logs")
+            f"{failure_class} at {command_stage} after {elapsed_seconds}s; diagnostics: {log_path}"
+            if not passed else "None"
         ),
         "Next action": _field_from_output(raw, "Next action") or ("None" if passed else "Review the local agent failure"),
     }
@@ -2839,7 +3303,28 @@ def _compact_agent_closeout(
         "delegation_reason": "direct API route",
         "codex_forbidden": "no",
     }
-    _log_token_usage(route, agent, task, token_usage, token_usage_text, metadata)
+    if result.get("invocation"):
+        metadata = {**metadata, "invocation": result["invocation"]}
+    if not result.get("token_usage_logged"):
+        for index, handoff in enumerate(result.get("handoff_sessions") or [], start=1):
+            prior_usage = handoff.get("token_usage") if isinstance(handoff, dict) else None
+            if not isinstance(prior_usage, dict):
+                continue
+            _log_token_usage(
+                route,
+                agent,
+                task,
+                prior_usage,
+                str(handoff.get("token_usage_text") or "Token usage: unavailable from current CLI output"),
+                {
+                    **metadata,
+                    "role": "context_handoff",
+                    "handoff_index": index,
+                    "session_id": handoff.get("session_id"),
+                    "handoff_artifact": handoff.get("handoff_artifact"),
+                },
+            )
+        _log_token_usage(route, agent, task, token_usage, token_usage_text, metadata)
     return {
         "success": passed,
         "output": output,
@@ -2848,7 +3333,23 @@ def _compact_agent_closeout(
         "token_usage_text": token_usage_text,
         "timed_out": timed_out,
         "timeout_seconds": timeout_seconds,
+        "startup_timeout_seconds": result.get("startup_timeout_seconds"),
+        "execution_timeout_seconds": result.get("execution_timeout_seconds"),
+        "parent_timeout_seconds": result.get("parent_timeout_seconds"),
+        "graceful_termination_seconds": result.get("graceful_termination_seconds"),
+        "elapsed_seconds": elapsed_seconds,
+        "failure_class": failure_class or None,
+        "command_stage": command_stage,
+        "diagnostic_log": log_path,
+        "captured_stdout_tail": _bounded_stream_tail(result.get("stdout"), 700),
+        "captured_stderr_tail": _bounded_stream_tail(result.get("stderr"), 700),
+        "stream_artifacts": list(result.get("stream_artifacts") or []),
+        "handoff_sessions": list(result.get("handoff_sessions") or []),
+        "handoff_artifacts": list(result.get("handoff_artifacts") or []),
+        "retained_output_truncated": bool(result.get("retained_output_truncated")),
+        "session_id": token_usage.get("session_id"),
         "review_output": _bounded_hermes_answer(raw, 4000),
+        "failure_detail": failure_detail,
         "invocation": result.get("invocation") or {},
         **metadata,
     }
@@ -6261,6 +6762,9 @@ def _queue_required_receipt_shape() -> str:
         "Work item:",
         "- <AOS-ID>",
         "",
+        "Summary for operator:",
+        "- 1–2 sentences covering what changed, what approval does, and whether anything is sent externally",
+        "",
         "Files touched:",
         "- ...",
         "",
@@ -6351,7 +6855,13 @@ def _queue_actual_run_prompt(
     owner: str,
     revision_instructions: str | None = None,
     attempt: int = 1,
+    max_attempts: int = 2,
+    prior_worker_result: dict | None = None,
 ) -> str:
+    if revision_instructions and owner == "codex":
+        return _queue_codex_correction_prompt(
+            item, revision_instructions, attempt, max_attempts, prior_worker_result or {},
+        )
     run_prompt_path = str(item.get("run_prompt_path") or "").strip()
     if run_prompt_path:
         if not re.fullmatch(r"queue/run_prompts/[A-Za-z0-9_.-]+\.md", run_prompt_path):
@@ -6365,7 +6875,7 @@ def _queue_actual_run_prompt(
             prompt = prompt.split(marker, 1)[0].rstrip()
     prompt = "\n\n".join((
         prompt.rstrip(),
-        f"Current attempt: {attempt}/2",
+        f"Current attempt: {attempt}/{max_attempts}",
         "Required artifact/receipt shape:",
         _queue_required_receipt_shape(),
         f"Required local artifact path: {_queue_default_artifact_path(item)}",
@@ -6380,6 +6890,62 @@ def _queue_actual_run_prompt(
             "Revise only what is needed to satisfy the queue item, stop conditions, and definition of done.",
         ))
     return prompt.rstrip() + "\n"
+
+
+def _queue_codex_correction_prompt(
+    item: dict,
+    hermes_feedback: str,
+    attempt: int,
+    max_attempts: int,
+    prior_worker_result: dict,
+) -> str:
+    """Build a fresh compact correction work order without orchestration replay."""
+    context = str(item.get("context") or "No additional context provided.").strip()
+    run_prompt_path = str(item.get("run_prompt_path") or "").strip()
+    if run_prompt_path:
+        context = f"Original bounded task is stored at `{run_prompt_path}`; inspect only relevant sections."
+    elif len(context) > 8_000:
+        context = context[:8_000].rstrip() + "\n[original context bounded at 8,000 characters]"
+    verified = _queue_verified_artifacts_from_worker_result(item, prior_worker_result)
+    paths = [str(row.get("path") or "") for row in verified if row.get("available")]
+    paths.extend(str(path) for path in prior_worker_result.get("stream_artifacts") or [])
+    diagnostic = str(prior_worker_result.get("diagnostic_log") or "").strip()
+    if diagnostic:
+        paths.append(diagnostic)
+    artifact_paths = _queue_unique_artifact_paths(paths)
+    prior_summary = _queue_result_summary(prior_worker_result, 1_600)
+    repository_refs: list[str] = []
+    for field in (item.get("sources"), item.get("source_refs")):
+        repository_refs.extend(str(value) for value in (field if isinstance(field, list) else _queue_split_text(field)))
+    return "\n".join((
+        PERMISSION_HEADER,
+        "",
+        "## Fresh compact correction work order",
+        "",
+        "Start a new independently scoped Codex session. Do not resume or inherit the prior transcript, and do not replay orchestration history.",
+        "",
+        "Original bounded task:",
+        f"- ID: {item.get('id', '')}",
+        f"- Title: {item.get('title', '')}",
+        f"- Attempt: {attempt}/{max_attempts}",
+        f"- Context: {context}",
+        "",
+        "Essential repository context:",
+        _queue_render_list(repository_refs),
+        "",
+        "Prior-result compact summary:",
+        prior_summary,
+        "",
+        "Prior artifacts and raw evidence (inspect by path; do not paste whole files):",
+        _queue_render_list(artifact_paths),
+        "",
+        "## Hermes Revision Instructions",
+        _bounded_hermes_answer(hermes_feedback.strip(), 2_000),
+        "",
+        "Acceptance criteria:",
+        str(item.get("definition_of_done") or "Complete the scoped correction and return the required closeout.").strip(),
+        "Respect the original allowed actions and stop conditions. Revise only what is needed, store verbose output as artifacts, and return a compact receipt with artifact paths.",
+    )).rstrip() + "\n"
 
 
 def _queue_worker_owner(item: dict) -> str:
@@ -7134,6 +7700,47 @@ def _select_hermes_entry_route(task: str) -> dict:
     }
 
 
+def _artifact_back_large_child_context(context: str) -> str:
+    """Keep large Hermes-planned evidence out of a child prompt."""
+    value = str(context or "").strip()
+    if len(value.encode("utf-8")) <= 4_000:
+        return value
+    digest = hashlib.sha256(value.encode("utf-8")).hexdigest()
+    directory = BASE_DIR / "logs" / "codex_prompt_evidence"
+    directory.mkdir(parents=True, exist_ok=True)
+    target = directory / f"hermes-child-{digest[:20]}.txt"
+    durable_replace_text(target, value if value.endswith("\n") else value + "\n")
+    relative = target.relative_to(BASE_DIR).as_posix()
+    return (
+        f"Large child context is artifact-backed at `{relative}` "
+        f"(sha256={digest}, bytes={len(value.encode('utf-8'))}). "
+        "Inspect only relevant ranges; do not paste the artifact into the prompt or closeout."
+    )
+
+
+def _normalize_hermes_orchestration_plan(reply: str, task: str) -> dict | None:
+    for candidate in _extract_json_objects(str(reply or "")):
+        raw_tasks = candidate.get("tasks") or candidate.get("children") or candidate.get("steps")
+        if not isinstance(raw_tasks, list) or not raw_tasks:
+            continue
+        children = []
+        for index, raw in enumerate(raw_tasks[:6], start=1):
+            if not isinstance(raw, dict):
+                continue
+            title = re.sub(r"\s+", " ", str(raw.get("title") or f"Codex child {index}")).strip()[:180]
+            context = _artifact_back_large_child_context(str(raw.get("context") or task).strip())
+            done = str(raw.get("definition_of_done") or raw.get("dod") or "").strip()[:2_000]
+            if not done:
+                done = "Implement the bounded child task, run relevant local validation, and leave a durable receipt."
+            children.append({"title": title, "context": context, "definition_of_done": done})
+        if children:
+            return {
+                "title": re.sub(r"\s+", " ", str(candidate.get("title") or "Hermes coordinated Codex workflow")).strip()[:180],
+                "children": children,
+            }
+    return None
+
+
 def _run_composio_adapter(mode: str, subject: str | None = None, json_args: dict | None = None) -> dict:
     """Call the one shared Composio adapter; never create per-connector paths."""
     workspace = str(BASE_DIR)
@@ -7290,11 +7897,11 @@ def wsl_claude(body: TaskRun):
 
 @app.post("/api/wsl/codex")
 def wsl_codex(body: TaskRun):
-    """Call aos-codex directly inside AgenticOSClean."""
+    """Call the real Codex CLI directly in the authoritative Linux workspace."""
     if not body.task.strip():
         raise HTTPException(status_code=422, detail="task must not be empty")
     return _compact_agent_closeout(
-        _run_wsl_prompt_command('aos-codex "$(<{prompt_file})"', body.task, 120),
+        _run_codex_local(body.task),
         "codex", "codex", body.task,
         {
             "requested_target": "codex",

@@ -1,80 +1,97 @@
-# TOKEN_POLICY.md — visible spend on every unit of work
-> Revisit: on a Hermes release (usage-metadata fields can reshape) or monthly pricing check. · Last touched: 2026-07-08 (done-transition hardened: all three paths hard-refuse, schema validation enforced, est_cost_usd override removed).
+# TOKEN_POLICY.md — visible spend and bounded workbench context
+> Revisit: on a Hermes/Codex release (usage metadata can reshape) or monthly pricing check. · Last touched: 2026-07-19.
 
 ## Purpose
-Clear token usage on every task, subagent, the orchestrator, and every
-workbench (Claude Code, Codex, Antigravity). Visibility and drift detection —
-not throttling judgment, and not a dashboard build this phase (back end only).
+Make token use and retained-context drift visible on every unit of work while
+preventing unrelated tasks from inheriting workbench transcripts. This is
+metering and session hygiene, not a hard spend throttle.
 
-## The rule that overrides everything else here
-Numbers come from the harness/API usage fields only. A component that can't
-report goes into `unavailable` by name. **"Unavailable" is recorded, never
-estimated, never invented** — never.md #7. This holds even under pressure to
-give a complete-looking number.
+## Source-of-truth rule
+Numbers come from harness/API usage fields only. A field the harness does not
+report is named under `unavailable`; it is never estimated or inferred from
+prompt size. Provider-total input must not be labelled fresh input.
 
-## Receipt schema (extended)
-Every queue-item receipt carries a `token_usage` block:
-```json
-{
-  "orchestrator": {"input": 0, "output": 0},
-  "subagents": [{"role": "...", "model": "...", "input": 0, "output": 0}],
-  "workbenches": [{"tool": "...", "input": 0, "output": 0, "source": "reported|unavailable"}],
-  "totals": {"input": 0, "output": 0},
-  "est_cost_usd": 0.00,
-  "unavailable": []
-}
+For Codex JSONL where cached input is included in provider input:
+
+```text
+provider_total_input = input_tokens
+cached_input = cached_input_tokens
+fresh_input = input_tokens - cached_input_tokens
+output = output_tokens
+reasoning = reasoning_output_tokens
+cache_ratio = cached_input / max(fresh_input, 1)
 ```
-The receipt-completeness hook refuses the done-transition without this block —
-on every path that can reach `done` (`status`, `receipt --status done`, and the
-explicit `done` command alike), the block is built and both ledger lines are
-schema-validated *before* the item's status is persisted, so a refusal leaves
-the item's prior status untouched rather than landing a "done" item with a
-missing or invalid ledger entry.
 
-## Budget classes
-`light` (briefs, drafts, reviews) · `standard` (most work) · `heavy` (lead-gen
-runs, client builds, anything escalated). Labels for reporting and a soft
-threshold warning in the receipt — never a hard stop mid-task. Assigned by
-`/queue-item` at creation.
+Legacy `input` remains provider-total input. Cached input is not added to it
+again. New workbench entries carry `input`, `fresh_input`, `cached_input`,
+`output`, and `reasoning`; older entries without the additive fields remain
+valid. Missing fields use the explicit unavailable marker, not zero.
 
-## The ledger
-`queue/token_ledger.jsonl` — append-only, one line per completed receipt's
-token_usage block plus item id, lane, profile, timestamp, escalation flag.
-Written at done-transition. Single source the future dashboard reads; nothing
-else aggregates spend state. Git-versioned with the nightly backup.
+An incomplete or malformed final `turn.completed` usage object never falls
+back to an older complete cumulative snapshot. Queue reconciliation records
+usage as unavailable when no exact terminal summary exists; semantic
+contradictions such as cached input exceeding provider input fail explicitly.
 
-## Workbench reporting
-Claude Code / Codex / Antigravity report input/output totals at session end
-if the harness exposes them; the launching agent appends the entry. Where a
-harness writes usage to local logs, a deterministic parser script is
-preferred over self-report. Where nothing is exposed: `"source": "unavailable"`.
+## Fresh-session contract
+
+1. Every unrelated direct Codex task starts a separate fresh ephemeral
+   session. `resume`, `--last`, implicit inheritance, and fallback to an old or
+   synthetic session ID are prohibited.
+2. A real `thread.started` ID is required. Failure to create exactly one clean
+   session fails clearly before the result is accepted or reconciled.
+3. Hermes-created Codex children each use their own fresh session.
+4. A correction uses a fresh compact work order containing only the original
+   bounded task, essential repository context, a compact prior-result summary
+   and artifact paths, Hermes feedback, and acceptance criteria. It never
+   replays orchestration history or the prior transcript.
+5. The supervisors treat 75,000 cumulative JSONL tokens as the configured 50%
+   handoff boundary. The final cumulative snapshot replaces earlier snapshots;
+   events are never summed. At the boundary the current process ends, a compact
+   receipt/handoff is written under `logs/codex_handoffs/`, and continuation
+   starts through a new `exec --ephemeral` process from that artifact path.
+   Same-session auto-compaction and transcript resume are not used. At most four
+   successive handoffs are allowed before an explicit failure.
+6. Large logs, screenshots, browser evidence, and verbose test output are
+   stored as artifacts. Later prompts carry compact summaries and paths.
+
+All Codex workbench prompts retain the scoped-local permission header and are
+bounded to 64 KiB. Oversized context must be artifact-backed.
+
+## Receipt and ledger
+Every completed item carries `orchestrator`, `subagents`, `workbenches`,
+provider-total `totals`, deterministic `est_cost_usd`, and an explicit
+`unavailable` list. The existing done-transition contract remains wired on
+all three paths and schema-validates before persisting `done`.
+
+Per reported workbench session, deterministic soft warnings are recorded for:
+
+```text
+cache_ratio > 20
+context_pct_at_close > 50
+```
+
+Warnings do not interrupt a running task. Missing closing-context metadata is
+recorded as unavailable; it is never reconstructed.
 
 ## Cost
-`est_cost_usd` is always computed deterministically from
-`scripts/model_prices.json` — a rotting file with its own Revisit line,
-checked monthly for provider pricing changes. Rates there are placeholders
-until Liam fills real provider pricing. No caller-supplied cost is ever
-accepted as an override, on any path; the orchestrator component (which
-carries no per-component model of its own) is priced at the run's confirmed
-model, the same attribution `scripts/token_rollup.py` uses for its by-model
-breakdown, so the ledger's stored cost and the rollup's recomputed cost always
-agree.
+`scripts/model_prices.json` is the deterministic source. Fresh input is charged
+at `input_per_mtok`, cached input at `cache_read_per_mtok`, and output at
+`output_per_mtok`. When a reported fresh/cache split exists it must sum to the
+provider-total `input`; pricing never adds cached input to provider input.
+Legacy input without a cache split is charged once at the normal input rate.
 
 ## Rollups
-`scripts/token_rollup.py` (no model calls): daily/weekly totals by lane,
-profile, workbench, budget class; top-10 most expensive items; escalation
-cost share. `/weekly-review` embeds the weekly rollup. Every cost figure is
-recomputed from each line's own components on every run — never read from a
-line's stored `est_cost_usd` — so totals always reconcile with the by-model
-breakdown, including against older ledger data.
+`scripts/token_rollup.py` makes no model calls and recomputes cost from ledger
+components. Weekly output includes lane/profile/workbench/model/budget views,
+top expensive items, top five sessions by cache ratio, context-ceiling
+breaches, and deterministic soft-warning text. Stored cost is never trusted as
+an aggregate source.
 
 ## Enforcement
-Hooks: token_budget_check.md, receipt-completeness-check. Mirrored in
-rules/always.md #1, rules/token_budget.md, rules/never.md #7.
+`tools/aos_codex_policy.py`, both guarded Codex constructors, executable
+handoff writers/continuations, correction prompt builder, `tools/aos-queue.py`, `scripts/token_rollup.py`,
+`hooks/token_budget_check.md`, and the three workbench identity files.
 
-## Known gaps
-- Done-transition writes the token_usage block and the ledger append as
-  two separate steps, not one atomic operation (accepted tradeoff,
-  audit #2 finding #3, 2026-07-05). A crash between the two could leave
-  a receipt without a matching ledger line. Not fixed this phase —
-  revisit if ledger/receipt drift is ever observed in practice.
+## Known gap
+Receipt and ledger writes remain separate durable operations. A crash between
+them can still create drift; this pre-existing tradeoff is unchanged.

@@ -17,8 +17,6 @@ import re
 import shutil
 import subprocess
 import sys
-import uuid
-from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -33,9 +31,14 @@ if str(TOOLS_DIR) not in sys.path:
 from aos_paths import AuthorityError, aos_root, assert_authoritative_root
 from aos_codex_policy import (
     CODEX_TARGET,
+    CONTEXT_HANDOFF_THRESHOLD_TOKENS,
+    MAX_CONTEXT_HANDOFFS,
     CodexPolicyError,
     build_environment as build_codex_environment,
     build_exec_command as build_codex_exec_command,
+    cumulative_usage_snapshot,
+    prepare_fresh_prompt as prepare_codex_fresh_prompt,
+    require_clean_session_id,
     validate_runtime as validate_codex_runtime,
 )
 from aos_queue_storage import QueueStorageError, durable_replace_text, queue_write_lock
@@ -74,11 +77,15 @@ CODEX_COUNTER_FIELDS = (
     "model_turns",
     "retained_context_bytes",
     "compaction_count",
-    "fresh_input",
+    "total_input",
     "cached_input",
+    "non_cached_input",
     "output",
     "reasoning",
+    "input_plus_output",
+    "fresh_input",
     "largest_tool_result_bytes",
+    "context_pct_at_close",
 )
 
 APPROVED_STATUSES = {
@@ -364,13 +371,54 @@ def _coerce_int(value: Any) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) else None
 
 
-def cost_for(model: str | None, inp: int, outp: int, prices: dict) -> float | None:
-    """Deterministic USD cost for a component, or None when the model has no rate."""
+def cost_for(
+    model: str | None,
+    inp: int,
+    outp: int,
+    prices: dict,
+    *,
+    fresh_input: int | None = None,
+    cached_input: int | None = None,
+) -> float | None:
+    """Price provider-total input once, using cache-read pricing when split."""
     rate = prices.get(model) if model else None
     if not isinstance(rate, dict):
         return None
-    return round(inp / 1_000_000 * rate.get("input_per_mtok", 0.0)
-                 + outp / 1_000_000 * rate.get("output_per_mtok", 0.0), 6)
+    if fresh_input is not None and cached_input is not None:
+        if fresh_input + cached_input != inp or "cache_read_per_mtok" not in rate:
+            return None
+        input_cost = (
+            fresh_input / 1_000_000 * rate.get("input_per_mtok", 0.0)
+            + cached_input / 1_000_000 * rate["cache_read_per_mtok"]
+        )
+    else:
+        # Legacy ``input`` is provider-total input. With no reported cache
+        # split it is charged once at the normal input rate.
+        input_cost = inp / 1_000_000 * rate.get("input_per_mtok", 0.0)
+    return round(input_cost + outp / 1_000_000 * rate.get("output_per_mtok", 0.0), 6)
+
+
+def token_usage_warnings(block: dict) -> list[str]:
+    """Return deterministic soft warnings for reported workbench drift."""
+    warnings: list[str] = []
+    for work in block.get("workbenches") or []:
+        if not isinstance(work, dict) or work.get("source") != "reported":
+            continue
+        tool = str(work.get("tool") or "workbench")
+        session = str(work.get("session_id") or "unavailable")
+        fresh = _coerce_int(work.get("fresh_input"))
+        cached = _coerce_int(work.get("cached_input"))
+        if fresh is not None and cached is not None:
+            ratio = round(cached / max(fresh, 1), 6)
+            work["cache_ratio"] = ratio
+            if ratio > 20:
+                warnings.append(f"cache_ratio > 20: {tool} session {session} ratio={ratio}")
+        context_pct = work.get("context_pct_at_close")
+        if isinstance(context_pct, (int, float)) and not isinstance(context_pct, bool) and context_pct > 50:
+            warnings.append(
+                f"context_pct_at_close > 50: {tool} session {session} context_pct_at_close={context_pct}"
+            )
+    return warnings
 
 
 def _empty_token_usage(unavailable: list[str]) -> dict:
@@ -411,9 +459,18 @@ def _recompute_totals_and_cost(block: dict, prices: dict, model_confirmed: str) 
             cost += c
     for w in works:
         if w.get("source") == "reported":
-            c = cost_for(w.get("model"), int(w.get("input", 0)), int(w.get("output", 0)), prices)
+            fresh = _coerce_int(w.get("fresh_input"))
+            cached = _coerce_int(w.get("cached_input"))
+            c = cost_for(
+                w.get("model"), int(w.get("input", 0)), int(w.get("output", 0)), prices,
+                fresh_input=fresh, cached_input=cached,
+            )
             if c is not None:
                 cost += c
+            elif fresh is not None and cached is not None:
+                message = f"cost/cache-read rate for workbench model {w.get('model') or 'unavailable'}"
+                if message not in block.setdefault("unavailable", []):
+                    block["unavailable"].append(message)
     block["est_cost_usd"] = round(cost, 6)
     return block
 
@@ -549,6 +606,7 @@ def _write_receipt_token_usage(
     payload = {
         "token_usage": block,
         "profile_invocation": invocation,
+        "warnings": token_usage_warnings(block),
         **(counters or _unavailable_codex_counters()),
     }
     sidecar = root / RECEIPTS_DIR / f"{item_id}.token_usage.json"
@@ -591,11 +649,43 @@ def _unavailable_codex_counters() -> dict:
     return {key: UNAVAILABLE_CLI_VALUE for key in CODEX_COUNTER_FIELDS}
 
 
+def normalize_codex_usage(
+    provider_total_input: int,
+    cached_input: int | None,
+    output: int,
+    reasoning: int | None,
+) -> dict:
+    """Normalize Codex JSONL without double-counting provider-total input."""
+    values = (provider_total_input, output)
+    if any(_coerce_int(value) is None or value < 0 for value in values):
+        raise QueueError("Codex provider input/output must be non-negative integers")
+    if cached_input is not None:
+        if _coerce_int(cached_input) is None or cached_input < 0:
+            raise QueueError("Codex cached input must be a non-negative integer")
+        if cached_input > provider_total_input:
+            raise QueueError("Codex cached input cannot exceed provider-total input")
+        fresh_input: int | str = provider_total_input - cached_input
+        cache_ratio: float | str = round(cached_input / max(fresh_input, 1), 6)
+    else:
+        fresh_input = UNAVAILABLE_CLI_VALUE
+        cache_ratio = UNAVAILABLE_CLI_VALUE
+    if reasoning is not None and (_coerce_int(reasoning) is None or reasoning < 0 or reasoning > output):
+        raise QueueError("Codex reasoning output must be a non-negative subset of output")
+    return {
+        "input": provider_total_input,
+        "fresh_input": fresh_input,
+        "cached_input": cached_input if cached_input is not None else UNAVAILABLE_CLI_VALUE,
+        "output": output,
+        "reasoning": reasoning if reasoning is not None else UNAVAILABLE_CLI_VALUE,
+        "cache_ratio": cache_ratio,
+    }
+
+
 def parse_codex_usage_counters(output: str) -> dict:
     """Parse only counters explicitly emitted by Codex; never derive missing values."""
     counters = _unavailable_codex_counters()
     aliases = {
-        "input_tokens": "fresh_input",
+        "input_tokens": "total_input",
         "cached_input_tokens": "cached_input",
         "output_tokens": "output",
         "reasoning_output_tokens": "reasoning",
@@ -608,30 +698,43 @@ def parse_codex_usage_counters(output: str) -> dict:
         if not isinstance(event, dict):
             continue
         containers = [event]
-        containers.extend(
-            event[key] for key in ("usage", "usage_counters", "metrics")
-            if isinstance(event.get(key), dict)
-        )
+        for key in ("usage", "usage_counters", "metrics"):
+            if isinstance(event.get(key), dict):
+                containers.append(event[key])
         for container in containers:
             for source, target in (*((key, key) for key in CODEX_COUNTER_FIELDS), *aliases.items()):
                 value = _coerce_int(container.get(source))
-                if value is None:
-                    continue
-                if value < 0:
-                    raise QueueError(f"Codex usage counter {source} must be a non-negative integer")
-                counters[target] = value
+                if value is not None:
+                    if value < 0:
+                        raise QueueError(f"Codex usage counter {source} must be a non-negative integer")
+                    counters[target] = value
+
     terminal_matches = list(CODEX_TOKEN_SUMMARY_RE.finditer(output or ""))
     if terminal_matches:
         terminal = terminal_matches[-1].groupdict()
-        for source, target in (
-            ("input", "fresh_input"),
-            ("cached", "cached_input"),
-            ("output", "output"),
-            ("reasoning", "reasoning"),
-        ):
+        for source, target in (("input", "total_input"), ("cached", "cached_input"), ("output", "output"), ("reasoning", "reasoning")):
             value = terminal.get(source)
             if value is not None:
                 counters[target] = int(value.replace(",", ""))
+    snapshot = cumulative_usage_snapshot(output)
+    if snapshot.get("event_count"):
+        for key in ("total_input", "cached_input", "non_cached_input", "fresh_input", "output", "reasoning", "input_plus_output"):
+            counters[key] = UNAVAILABLE_CLI_VALUE
+        if snapshot.get("available"):
+            counters["total_input"] = snapshot["input_tokens"]
+            counters["output"] = snapshot["output_tokens"]
+            if snapshot.get("cached_input_tokens") is not None:
+                counters["cached_input"] = snapshot["cached_input_tokens"]
+            if snapshot.get("reasoning_output_tokens") is not None:
+                counters["reasoning"] = snapshot["reasoning_output_tokens"]
+    total_input = counters.get("total_input")
+    cached_input = counters.get("cached_input")
+    output = counters.get("output")
+    if isinstance(total_input, int) and isinstance(cached_input, int) and cached_input <= total_input:
+        counters["non_cached_input"] = total_input - cached_input
+        counters["fresh_input"] = total_input - cached_input
+    if isinstance(total_input, int) and isinstance(output, int):
+        counters["input_plus_output"] = total_input + output
     return counters
 
 
@@ -641,14 +744,18 @@ def parse_codex_token_summary(output: str) -> dict:
     # ``codex exec --json`` is the supported machine-readable exiting mode in
     # codex-cli 0.144.1. Its terminal turn.completed event carries the exact
     # breakdown. Structured evidence has precedence over a terminal cross-check.
-    for raw in reversed((output or "").splitlines()):
+    turn_events: list[dict] = []
+    for raw in (output or "").splitlines():
         try:
             event = json.loads(raw)
         except json.JSONDecodeError:
             continue
-        usage = event.get("usage") if event.get("type") == "turn.completed" else None
+        if isinstance(event, dict) and event.get("type") == "turn.completed":
+            turn_events.append(event)
+    if turn_events:
+        usage = turn_events[-1].get("usage")
         if not isinstance(usage, dict):
-            continue
+            raise QueueError("Codex terminal turn.completed usage is malformed")
         values = {
             "input": _coerce_int(usage.get("input_tokens")),
             "output": _coerce_int(usage.get("output_tokens")),
@@ -656,7 +763,7 @@ def parse_codex_token_summary(output: str) -> dict:
             "reasoning": _coerce_int(usage.get("reasoning_output_tokens")),
         }
         if values["input"] is None or values["output"] is None:
-            continue
+            raise QueueError("Codex terminal turn.completed usage lacks input/output")
         if any(value is not None and value < 0 for value in values.values()):
             raise QueueError("Codex JSON token summary contains a negative value")
         parsed = {
@@ -666,6 +773,9 @@ def parse_codex_token_summary(output: str) -> dict:
             "summary_format": "turn.completed JSONL",
             "usage_counters": parse_codex_usage_counters(output),
         }
+        parsed["normalized_usage"] = normalize_codex_usage(
+            values["input"], values["cached"], values["output"], values["reasoning"]
+        )
         _validate_codex_summary(parsed)
         if terminal_matches:
             terminal = {
@@ -689,6 +799,9 @@ def parse_codex_token_summary(output: str) -> dict:
         parsed["raw_summary"] = match.group(0).strip()
         parsed["summary_format"] = "text"
         parsed["usage_counters"] = parse_codex_usage_counters(output)
+        parsed["normalized_usage"] = normalize_codex_usage(
+            parsed["input"], parsed.get("cached"), parsed["output"], parsed.get("reasoning")
+        )
         _validate_codex_summary(parsed)
         return parsed
     raise QueueError("Codex exited without a parseable final token summary")
@@ -704,6 +817,8 @@ def _validate_codex_summary(summary: dict) -> None:
         value = summary.get(key)
         if value is not None and (_coerce_int(value) is None or value < 0):
             raise QueueError(f"Codex token summary {key} must be a non-negative integer")
+    if summary.get("cached") is not None and summary["cached"] > summary["input"]:
+        raise QueueError("Codex cached input cannot exceed provider-total input")
     if summary.get("reasoning") is not None and summary["reasoning"] > summary["output"]:
         raise QueueError("Codex reasoning output must be a subset of output")
 
@@ -724,6 +839,51 @@ def parse_codex_session_id(output: str) -> str | None:
     return None
 
 
+def _write_codex_stream_artifacts(root: Path, identity: str, stdout: str, stderr: str) -> list[str]:
+    directory = root / "logs" / "codex_sessions"
+    directory.mkdir(parents=True, exist_ok=True)
+    safe_identity = re.sub(r"[^A-Za-z0-9_.-]+", "_", identity)[:120] or "clean-session-failed"
+    paths: list[str] = []
+    for suffix, content in (("stdout.jsonl", stdout), ("stderr.txt", stderr)):
+        if not content:
+            continue
+        target = directory / f"{safe_identity}.{suffix}"
+        durable_replace_text(target, content if content.endswith("\n") else content + "\n")
+        paths.append(target.relative_to(root).as_posix())
+    return paths
+
+
+def _write_codex_context_handoff(
+    root: Path,
+    session_id: str,
+    item_id: str,
+    prompt: str,
+    usage: dict,
+    stream_artifacts: list[str],
+) -> str:
+    directory = root / "logs" / "codex_handoffs"
+    directory.mkdir(parents=True, exist_ok=True)
+    target = directory / f"{re.sub(r'[^A-Za-z0-9_.-]+', '_', session_id)[:120]}.md"
+    task_summary = re.sub(r"\s+", " ", str(prompt or "")).strip()[:2_000]
+    lines = [
+        "# Codex context handoff receipt",
+        "> Revisit: when the linked task continuation is complete. · Last touched: 2026-07-19.",
+        "",
+        "- Session mode: fresh ephemeral; transcript resume forbidden",
+        f"- Completed session ID: `{session_id}`",
+        f"- Work item ID: `{item_id}`",
+        f"- Configured handoff boundary: 50% / {CONTEXT_HANDOFF_THRESHOLD_TOKENS} cumulative tokens",
+        f"- Observed cumulative usage: `{json.dumps(usage, sort_keys=True)}`",
+        f"- Original task summary: {task_summary}",
+        "- Raw evidence artifacts (inspect selectively; never paste wholesale):",
+        *(f"  - `{path}`" for path in stream_artifacts),
+        "",
+        "Continue from repository state plus this receipt. Do not replay or recover the prior transcript.",
+    ]
+    durable_replace_text(target, "\n".join(lines).rstrip() + "\n")
+    return target.relative_to(root).as_posix()
+
+
 def _codex_usage_block(summary: dict | None, session_id: str) -> dict:
     if summary is None:
         return {
@@ -731,21 +891,31 @@ def _codex_usage_block(summary: dict | None, session_id: str) -> dict:
             "subagents": [],
             "workbenches": [{
                 "tool": "codex", "session_id": session_id,
-                "input": 0, "output": 0, "source": "unavailable",
+                "input": 0, "fresh_input": 0, "cached_input": 0,
+                "output": 0, "reasoning": 0,
+                "context_pct_at_close": UNAVAILABLE_CLI_VALUE,
+                "source": "unavailable",
             }],
             "totals": {"input": 0, "output": 0},
             "est_cost_usd": 0.0,
-            "unavailable": ["Codex token usage", "Codex model identity"],
+            "unavailable": ["Codex token usage", "Codex model identity", "codex.context_pct_at_close"],
         }
-    unavailable = ["Codex model identity", "cost for unavailable Codex model"]
+    normalized = normalize_codex_usage(
+        summary["input"], summary.get("cached"), summary["output"], summary.get("reasoning")
+    )
+    unavailable = ["Codex model identity", "cost for unavailable Codex model", "codex.context_pct_at_close"]
+    if summary.get("cached") is None:
+        unavailable.extend(["codex.cached_input", "codex.fresh_input", "codex.cache_ratio"])
+    if summary.get("reasoning") is None:
+        unavailable.append("codex.reasoning")
     return {
         "orchestrator": {"input": 0, "output": 0},
         "subagents": [],
         "workbenches": [{
             "tool": "codex",
             "session_id": session_id,
-            "input": summary["input"],
-            "output": summary["output"],
+            **normalized,
+            "context_pct_at_close": UNAVAILABLE_CLI_VALUE,
             "source": "reported",
         }],
         "totals": {"input": summary["input"], "output": summary["output"]},
@@ -777,6 +947,7 @@ def _codex_capture_evidence(
         "raw_summary": summary["raw_summary"],
         "summary_format": summary.get("summary_format", "unavailable"),
         "input_tokens": summary["input"],
+        "provider_total_input_tokens": summary["input"],
         "output_tokens": summary["output"],
         "total_tokens": summary["total"],
         "cli_version": cli_version or "unavailable",
@@ -789,6 +960,10 @@ def _codex_capture_evidence(
     }
     if summary.get("cached") is not None:
         evidence["cached_input_tokens"] = summary["cached"]
+        evidence["fresh_input_tokens"] = summary["input"] - summary["cached"]
+        evidence["cache_ratio"] = round(
+            summary["cached"] / max(summary["input"] - summary["cached"], 1), 6
+        )
     if summary.get("reasoning") is not None:
         evidence["reasoning_output_tokens"] = summary["reasoning"]
     if summary.get("terminal_summary_cross_check"):
@@ -799,9 +974,11 @@ def _codex_capture_evidence(
 
 
 def _codex_usage_counters(summary: dict | None) -> dict:
-    if not isinstance(summary, dict) or not isinstance(summary.get("usage_counters"), dict):
+    if not isinstance(summary, dict):
         return _unavailable_codex_counters()
-    counters = summary["usage_counters"]
+    counters = summary.get("usage_counters")
+    if not isinstance(counters, dict):
+        return _unavailable_codex_counters()
     return {
         key: counters.get(key)
         if _coerce_int(counters.get(key)) is not None
@@ -861,6 +1038,7 @@ def reconcile_codex_usage(
     invocation: dict | None = None,
 ) -> dict:
     """Reconcile one Codex invocation independently of the queue status lifecycle."""
+    runtime_invocation = invocation
     item = find_item(load_items(root), item_id)
     if not session_id.strip():
         raise QueueError("Codex reconciliation requires an explicit session ID")
@@ -889,7 +1067,7 @@ def reconcile_codex_usage(
         raise QueueError(f"Duplicate token-ledger identity for {item_id} + {session_id}")
 
     block = _codex_usage_block(summary, session_id)
-    evidence = _codex_capture_evidence(summary, cli_version, source, invocation)
+    evidence = _codex_capture_evidence(summary, cli_version, source, runtime_invocation)
     counters = _codex_usage_counters(summary)
     existing = rows[matches[0]] if matches else None
     if existing:
@@ -934,9 +1112,10 @@ def reconcile_codex_usage(
             "capture_evidence": evidence,
             "effect_id": f"codex:{item_id}:{session_id}:tokens",
         }
-        if invocation:
-            reconciled["invocation"] = invocation
+        if runtime_invocation:
+            reconciled["invocation"] = runtime_invocation
     reconciled.update(counters)
+    reconciled["warnings"] = token_usage_warnings(block)
     token_err = _validate_against_schema(reconciled, root / TOKEN_LEDGER_SCHEMA_PATH)
     if token_err:
         raise QueueError(f"reconciled token_ledger line failed schema: {token_err}")
@@ -947,12 +1126,13 @@ def reconcile_codex_usage(
         "session_id": session_id,
         "lifecycle": "process_exit",
         "queue_status_at_reconciliation": item.get("status"),
-        **({"runtime_policy": invocation} if invocation else {}),
+        **({"runtime_policy": runtime_invocation} if runtime_invocation else {}),
     }
     payload = {
         "token_usage": block,
         "profile_invocation": profile_invocation,
         "capture_evidence": evidence,
+        "warnings": token_usage_warnings(block),
         **counters,
     }
     if matches:
@@ -979,28 +1159,26 @@ def reconcile_codex_usage(
     }
 
 
-def run_codex_work_item(root: Path, item_id: str, prompt: str, *, codex_bin: str | None = None) -> dict:
+def run_codex_work_item(root: Path, item_id: str, prompt: str, *, _handoff_depth: int = 0) -> dict:
     """Run Codex noninteractively, capture both streams, wait, and reconcile."""
     find_item(load_items(root), item_id)  # explicit association must exist before launch
     try:
-        runtime_target = (
-            replace(CODEX_TARGET, root=root, executable=Path(codex_bin), codex_home=root / ".codex")
-            if codex_bin else CODEX_TARGET
-        )
-        invocation = validate_codex_runtime(root, runtime_target)
-        command = build_codex_exec_command(runtime_target)
-        environment = build_codex_environment(runtime_target)
+        invocation = validate_codex_runtime(root, CODEX_TARGET)
+        command = build_codex_exec_command(CODEX_TARGET)
+        env = build_codex_environment(CODEX_TARGET)
+        prepared_prompt = prepare_codex_fresh_prompt(prompt)
     except CodexPolicyError as exc:
         raise QueueError(str(exc)) from exc
     version_proc = subprocess.run(
-        [str(runtime_target.executable), "--version"], cwd=str(runtime_target.root),
-        env=environment, capture_output=True, text=True, timeout=20, check=False,
+        [str(CODEX_TARGET.executable), "--version"],
+        cwd=str(CODEX_TARGET.root), env=env,
+        capture_output=True, text=True, timeout=20, check=False,
     )
     cli_version = ((version_proc.stdout or "") + (version_proc.stderr or "")).strip() or "unavailable"
     proc = subprocess.Popen(
         command,
-        cwd=runtime_target.root,
-        env=environment,
+        cwd=CODEX_TARGET.root,
+        env=env,
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -1010,14 +1188,14 @@ def run_codex_work_item(root: Path, item_id: str, prompt: str, *, codex_bin: str
         start_new_session=True,
         close_fds=True,
     )
-    supervisor_invocation_id = f"supervisor-{uuid.uuid4()}"
-    stdout, stderr = proc.communicate(prompt)
+    stdout, stderr = proc.communicate(prepared_prompt)
     combined = "\n".join(part for part in (stdout, stderr) if part)
-    sys.stdout.write(stdout or "")
-    sys.stdout.flush()
-    sys.stderr.write(stderr or "")
-    sys.stderr.flush()
-    session_id = parse_codex_session_id(combined or "") or supervisor_invocation_id
+    try:
+        session_id = require_clean_session_id(combined or "")
+    except CodexPolicyError as exc:
+        _write_codex_stream_artifacts(root, f"clean-session-failed-{proc.pid}", stdout or "", stderr or "")
+        raise QueueError(str(exc)) from exc
+    stream_artifacts = _write_codex_stream_artifacts(root, session_id, stdout or "", stderr or "")
     try:
         summary = parse_codex_token_summary(combined or "")
     except QueueError as exc:
@@ -1040,11 +1218,45 @@ def run_codex_work_item(root: Path, item_id: str, prompt: str, *, codex_bin: str
         )
     if proc.returncode != 0:
         raise QueueError(f"Codex exited with status {proc.returncode}; process-exit usage was reconciled")
+    snapshot = cumulative_usage_snapshot(combined or "")
+    if snapshot.get("available") and int(snapshot["cumulative_tokens"]) >= CONTEXT_HANDOFF_THRESHOLD_TOKENS:
+        handoff_artifact = _write_codex_context_handoff(
+            root, session_id, item_id, prompt, snapshot, stream_artifacts,
+        )
+        if _handoff_depth >= MAX_CONTEXT_HANDOFFS:
+            raise QueueError(
+                f"Codex reached the context handoff boundary after {MAX_CONTEXT_HANDOFFS} fresh continuations; "
+                f"latest handoff: {handoff_artifact}"
+            )
+        continuation_prompt = "\n".join((
+            "Continue the same bounded queue task in a new fresh ephemeral session.",
+            f"Read the compact handoff receipt at `{handoff_artifact}` and inspect only its named repository/artifact paths as needed.",
+            "Do not resume, recover, or replay the prior transcript. Do not paste raw logs, test output, diffs, screenshots, or browser evidence into this prompt or your closeout.",
+            "Complete the remaining task, validate it, and return the required compact receipt.",
+        ))
+        continued = run_codex_work_item(
+            root, item_id, continuation_prompt, _handoff_depth=_handoff_depth + 1,
+        )
+        return {
+            **continued,
+            "handoff_sessions": [{
+                "session_id": session_id,
+                "token_usage": result["token_usage"],
+                "handoff_artifact": handoff_artifact,
+                "stream_artifacts": stream_artifacts,
+                "threshold_usage": snapshot,
+            }, *list(continued.get("handoff_sessions") or [])],
+            "handoff_artifacts": [handoff_artifact, *list(continued.get("handoff_artifacts") or [])],
+            "stream_artifacts": [*stream_artifacts, handoff_artifact, *list(continued.get("stream_artifacts") or [])],
+            "retained_output_truncated": bool(continued.get("retained_output_truncated")) or len(stdout or "") > 16_000 or len(stderr or "") > 16_000,
+        }
     return {
         **result,
         "returncode": proc.returncode,
-        "stdout": stdout or "",
-        "stderr": stderr or "",
+        "stdout": (stdout or "") if len(stdout or "") <= 16_000 else (stdout or "")[-4_000:],
+        "stderr": (stderr or "") if len(stderr or "") <= 16_000 else (stderr or "")[-4_000:],
+        "stream_artifacts": stream_artifacts,
+        "retained_output_truncated": len(stdout or "") > 16_000 or len(stderr or "") > 16_000,
         "invocation": invocation,
     }
 

@@ -2757,6 +2757,12 @@ class HermesComposioTests(unittest.TestCase):
                 "returncode": -1,
                 "timed_out": True,
                 "timeout_seconds": backend.QUEUE_WORKER_TIMEOUT_SECONDS,
+                "startup_timeout_seconds": 60,
+                "execution_timeout_seconds": backend.QUEUE_WORKER_TIMEOUT_SECONDS,
+                "elapsed_seconds": backend.QUEUE_WORKER_TIMEOUT_SECONDS,
+                "failure_class": "execution_timeout",
+                "command_stage": "execution",
+                "log_path": "logs/local_agent_route.jsonl",
             }
             review_result = {
                 "success": True,
@@ -2767,17 +2773,17 @@ class HermesComposioTests(unittest.TestCase):
             }
             with patch.object(backend, "BASE_DIR", root), \
                  patch.object(backend, "_run_codex_local", return_value=timeout_result) as run, \
-                 patch.object(backend, "_queue_run_hermes_review", return_value=review_result):
+                 patch.object(backend, "_queue_run_hermes_review", return_value=review_result) as review:
                 result = backend.run_queue_item("AOS-2026-0002")
 
             self.assertEqual(run.call_count, 1)
-            self.assertEqual("AOS-2026-0002", run.call_args.args[1]["id"])
+            review.assert_not_called()
             self.assertEqual(result["status"], "blocked")
             self.assertEqual(result["attempts_used"], 1)
             self.assertTrue(result["worker_result"]["timed_out"])
             receipt_text = (root / result["receipt_path"]).read_text(encoding="utf-8")
-            self.assertIn(f"Agent command timed out after {backend.QUEUE_WORKER_TIMEOUT_SECONDS}s", receipt_text)
-            self.assertIn(f"Worker timed out after {backend.QUEUE_WORKER_TIMEOUT_SECONDS}s", receipt_text)
+            self.assertIn("execution_timeout at execution", receipt_text)
+            self.assertIn("logs/local_agent_route.jsonl", receipt_text)
 
     def test_department_queue_runtime_prompt_is_compact(self):
         item = {
@@ -2928,18 +2934,43 @@ class HermesComposioTests(unittest.TestCase):
         self.assertEqual(result["tool_slug"], "GMAIL_FETCH_EMAILS")
 
     def test_direct_api_routes_are_preserved(self):
-        with patch.object(backend, "_run_wsl", return_value=self.RUN_RESULT) as run, \
+        with patch.object(backend, "_run_codex_local", return_value=self.RUN_RESULT) as codex_run, \
+             patch.object(backend, "_run_wsl", return_value=self.RUN_RESULT) as run, \
              patch.object(backend, "_log_token_usage"):
             codex = backend.wsl_codex(backend.TaskRun(task="inspect files"))
-            codex_command = run.call_args.args[0]
             claude = backend.wsl_claude(backend.TaskRun(task="polish UI"))
             claude_command = run.call_args.args[0]
-        self.assertTrue(codex_command.startswith('aos-codex "$(<'))
+        codex_run.assert_called_once_with("inspect files")
         self.assertTrue(claude_command.startswith('aos-hermes claude "$(<'))
-        self.assertNotIn("inspect files", codex_command)
         self.assertNotIn("polish UI", claude_command)
         self.assertEqual(codex["selected_route"], "direct_codex")
         self.assertEqual(claude["selected_route"], "direct_claude")
+
+    def test_direct_codex_request_permission_fields_cannot_downgrade_policy(self):
+        run_result = {
+            **self.RUN_RESULT,
+            "invocation": {
+                "executable": "/home/liam/.local/npm/bin/codex",
+                "linux_user": "liam",
+                "effective_uid": 1002,
+                "cwd": "/home/liam/agentic-os-live",
+                "sandbox": "danger-full-access",
+                "sandbox_mode": "danger-full-access",
+                "approval_policy": "never",
+                "ask_for_approval": "never",
+            },
+        }
+        body = backend.TaskRun(
+            task="inspect files",
+            sandbox_mode="workspace-write",
+            approval_policy="on-request",
+        )
+        with patch.object(backend, "_run_codex_local", return_value=run_result) as run, \
+             patch.object(backend, "_log_token_usage"):
+            result = backend.wsl_codex(body)
+        run.assert_called_once_with("inspect files")
+        self.assertEqual("danger-full-access", result["invocation"]["sandbox"])
+        self.assertEqual("never", result["invocation"]["approval_policy"])
 
     def test_token_rollup_exposes_per_route_last_known_usage(self):
         records = [

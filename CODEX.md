@@ -1,5 +1,5 @@
 # CODEX.md — Codex workbench, TTROS Agentic OS
-> Revisit: quarterly, or on major repo refactor or model-generation jump. · Last touched: 2026-07-15.
+> Revisit: quarterly, or on major repo refactor, Codex CLI change, or model-generation jump. · Last touched: 2026-07-19.
 
 ## Role
 Repo inspection, audits, validation runs, and adversarial checks. Codex is the
@@ -35,6 +35,13 @@ department agent.
 - Small diffs when editing. Behavior-affecting changes get a decisions-log line.
 
 ## Token reporting
-At session end, report input/output token totals if the harness exposes them;
-the launching agent appends them to queue/token_ledger.jsonl.
+Every unrelated task starts a separate fresh ephemeral session. Resume is never
+implicit. At 50% context, stop task work, write a compact receipt/handoff with
+artifact paths, report usage, and end; continuation starts fresh from that
+handoff, never from the transcript. Large logs, screenshots, browser evidence,
+and test output stay in artifacts, not prompts.
+
+At session end, report provider-total input, fresh input, cached input, output,
+reasoning, and closing context percentage when the harness exposes them; the
+launching agent appends them to queue/token_ledger.jsonl.
 If unavailable, state "unavailable" — never estimate.

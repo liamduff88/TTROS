@@ -3,11 +3,8 @@ Do not ask for permission during this scoped local task. Assume approval for loc
 Do not ask before editing files inside the stated folder. Make the changes, validate, and return the compact closeout.
 Stop only for real external/destructive actions.`
 
-export const CODEX_LINUX_LAUNCH = `cd "${'${AOS_ROOT:-/home/liam/agentic-os-live}'}"
-export PATH="$HOME/.local/bin:$HOME/.local/npm/bin:$HOME/.composio:$PATH"
-command -v codex
-codex --version
-codex --sandbox workspace-write --ask-for-approval never`
+export const CODEX_LINUX_LAUNCH = `cd "/home/liam/agentic-os-live"
+/home/liam/.local/bin/aos-codex '<TASK>'`
 
 export const CLAUDE_LINUX_LAUNCH = `cd "${'${AOS_ROOT:-/home/liam/agentic-os-live}'}"
 export PATH="$HOME/.local/bin:$HOME/.local/npm/bin:$HOME/.composio:$PATH"

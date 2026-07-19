@@ -1,5 +1,5 @@
 # ANTIGRAVITY.md — Antigravity workbench, TTROS Agentic OS (DORMANT)
-> Revisit: on Antigravity's first real task — this file activates then. · Last touched: 2026-07-15.
+> Revisit: on Antigravity's first real task — this file activates then. · Last touched: 2026-07-19.
 
 ## Status
 Dormant. Per Blueprint V2 §5.4, Antigravity gets a live identity only after it
@@ -15,9 +15,11 @@ tool arrives. Until activation: no agent routes work to Antigravity.
 - **Hard rules:** live workspace (AgenticOSClean) only; no protected paths,
   North Shore files, secrets, or credentials; no external writes or pushes
   without explicit instruction; existing tests stay green.
-- **Token reporting:** at session end, report input/output totals if the
-  harness exposes them; launching agent appends to queue/token_ledger.jsonl.
-  If unavailable, state "unavailable" — never estimate.
+- **Session/token policy:** unrelated tasks use fresh sessions. At 50% context,
+  write a compact artifact-backed handoff and end; never continue by transcript
+  resume. Report provider-total input, fresh input, cached input, output,
+  reasoning, and closing context percentage where exposed; otherwise record
+  the named field as unavailable, never estimate it.
 
 ## Activation checklist
 1. First real task completed with a full receipt.

@@ -1,5 +1,5 @@
 # CLAUDE.md — Claude Code workbench, TTROS Agentic OS
-> Revisit: quarterly, or on major repo refactor or model-generation jump. · Last touched: 2026-07-15.
+> Revisit: quarterly, or on major repo refactor, harness change, or model-generation jump. · Last touched: 2026-07-19.
 
 ## Role
 Precision implementation: scaffolds, refactors, code review, test coverage, and
@@ -28,6 +28,12 @@ I am a workbench (a subprocess tool agents use), not a department agent.
 - Do not invent skills or agents not in os-blueprint.md; propose instead.
 
 ## Token reporting
-At session end, report input/output token totals for the session if the harness
-exposes them; the launching agent appends them to queue/token_ledger.jsonl.
+Unrelated tasks use separate fresh sessions. At 50% context, stop task work,
+write a compact receipt/handoff with artifact paths, report usage, and end;
+continuation starts fresh from the handoff, never by transcript resume. Large
+logs, screenshots, browser evidence, and test output stay in artifacts.
+
+At session end, report provider-total input, fresh input, cached input, output,
+reasoning, and closing context percentage when the harness exposes them; the
+launching agent appends them to queue/token_ledger.jsonl.
 If unavailable, state "unavailable" — never estimate.

@@ -15,7 +15,7 @@ REQUIRED_TEMPLATE_FILES = [
 ]
 
 MANDATORY_PERMISSION_HEADER = "PERMISSION MODE — SCOPED LOCAL TASK APPROVED"
-CANONICAL_CODEX_LAUNCH_COMMAND = 'cd "/mnt/c/Users/Admin/Documents/A-Time to revenue/Agentic OS Live" && codex'
+CANONICAL_CODEX_LAUNCH_COMMAND = 'cd "/home/liam/agentic-os-live" && /home/liam/.local/bin/aos-codex'
 
 
 class WorkflowPromptTemplatesTest(unittest.TestCase):
@@ -36,6 +36,9 @@ class WorkflowPromptTemplatesTest(unittest.TestCase):
         text = self.read_template("codex_workflow_runner.md")
         self.assertIn(MANDATORY_PERMISSION_HEADER, text)
         self.assertIn(CANONICAL_CODEX_LAUNCH_COMMAND, text)
+        self.assertNotIn("/home/liam/.local/npm/bin/codex", text)
+        self.assertNotIn("workspace-write", text)
+        self.assertNotIn("/mnt/c", text)
 
     def test_claude_template_contains_required_header(self):
         text = self.read_template("claude_workflow_refiner.md")

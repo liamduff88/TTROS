@@ -2,6 +2,7 @@ import builtins
 import concurrent.futures
 import importlib.util
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -9,6 +10,7 @@ import tempfile
 import threading
 import time
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
@@ -109,17 +111,19 @@ class AosQueueTest(unittest.TestCase):
 
     def test_codex_summary_parser_uses_final_exact_summary_and_checks_total(self):
         module = load_tool_module()
-        output = "Token usage: total=3 input=2 output=1\nnoise\nToken usage: total=445,969 input=407,724 (+ 11,271,424 cached) output=38,245 (reasoning 12,856)\n"
+        output = "Token usage: total=3 input=2 output=1\nnoise\nToken usage: total=130 input=120 (+ 100 cached) output=10 (reasoning 4)\n"
         parsed = module.parse_codex_token_summary(output)
-        self.assertEqual(445_969, parsed["total"])
-        self.assertEqual(407_724, parsed["input"])
-        self.assertEqual(38_245, parsed["output"])
-        self.assertEqual(11_271_424, parsed["cached"])
-        self.assertEqual(12_856, parsed["reasoning"])
-        self.assertEqual(407_724, parsed["usage_counters"]["fresh_input"])
-        self.assertEqual(11_271_424, parsed["usage_counters"]["cached_input"])
-        self.assertEqual(38_245, parsed["usage_counters"]["output"])
-        self.assertEqual(12_856, parsed["usage_counters"]["reasoning"])
+        self.assertEqual(130, parsed["total"])
+        self.assertEqual(120, parsed["input"])
+        self.assertEqual(10, parsed["output"])
+        self.assertEqual(100, parsed["cached"])
+        self.assertEqual(4, parsed["reasoning"])
+        self.assertEqual(120, parsed["usage_counters"]["total_input"])
+        self.assertEqual(20, parsed["usage_counters"]["non_cached_input"])
+        self.assertEqual(20, parsed["usage_counters"]["fresh_input"])
+        self.assertEqual(100, parsed["usage_counters"]["cached_input"])
+        self.assertEqual(10, parsed["usage_counters"]["output"])
+        self.assertEqual(4, parsed["usage_counters"]["reasoning"])
         for key in ("initial_prompt_bytes", "model_turns", "retained_context_bytes", "compaction_count", "largest_tool_result_bytes"):
             self.assertEqual("unavailable from current CLI output", parsed["usage_counters"][key])
         with self.assertRaisesRegex(module.QueueError, "input \\+ output"):
@@ -154,7 +158,7 @@ class AosQueueTest(unittest.TestCase):
             root = Path(tmp)
             receipt = self._write_codex_reconcile_fixture(root)
             summary = module.parse_codex_token_summary(
-                "Token usage: total=445,969 input=407,724 (+ 11,271,424 cached) output=38,245 (reasoning 12,856)"
+                "Token usage: total=130 input=120 (+ 100 cached) output=10 (reasoning 4)"
             )
             first = module.reconcile_codex_usage(
                 root, "AOS-2026-0001", summary, "codex-cli 0.144.1", "session-implementation"
@@ -168,14 +172,22 @@ class AosQueueTest(unittest.TestCase):
 
             self.assertEqual(first, second)
             self.assertEqual(1, len(rows))
-            self.assertEqual({"input": 407_724, "output": 38_245}, rows[0]["token_usage"]["totals"])
+            self.assertEqual({"input": 120, "output": 10}, rows[0]["token_usage"]["totals"])
             self.assertEqual(rows[0]["token_usage"], sidecar["token_usage"])
-            self.assertEqual(11_271_424, sidecar["capture_evidence"]["cached_input_tokens"])
-            self.assertEqual(445_969, sidecar["capture_evidence"]["total_tokens"])
-            self.assertEqual(12_856, rows[0]["capture_evidence"]["reasoning_output_tokens"])
+            self.assertEqual(100, sidecar["capture_evidence"]["cached_input_tokens"])
+            self.assertEqual(130, sidecar["capture_evidence"]["total_tokens"])
+            self.assertEqual(4, rows[0]["capture_evidence"]["reasoning_output_tokens"])
             self.assertEqual("unavailable", rows[0]["model_confirmed"])
             self.assertEqual(1, receipt_text.count("<!-- token_usage:AOS-2026-0001 -->"))
             self.assertEqual(1, receipt_text.count("## token_usage"))
+            self.assertEqual(
+                {
+                    "initial_prompt_bytes", "model_turns", "retained_context_bytes", "compaction_count",
+                    "total_input", "cached_input", "non_cached_input", "fresh_input", "output", "reasoning",
+                    "input_plus_output", "largest_tool_result_bytes", "context_pct_at_close",
+                },
+                set(rows[0]).intersection(module.CODEX_COUNTER_FIELDS),
+            )
             self.assertEqual(1, receipt_text.count("## token_usage"))
 
     def test_codex_reconciliation_is_status_independent_and_preserves_status(self):
@@ -226,7 +238,7 @@ class AosQueueTest(unittest.TestCase):
     def test_codex_unavailable_exact_and_conflict_reconciliation_rules(self):
         module = load_tool_module()
         exact = module.parse_codex_token_summary(
-            "Token usage: total=30 input=20 (+ 100 cached) output=10 (reasoning 4)"
+            "Token usage: total=130 input=120 (+ 100 cached) output=10 (reasoning 4)"
         )
         conflict = module.parse_codex_token_summary("Token usage: total=31 input=20 output=11")
         with tempfile.TemporaryDirectory() as tmp:
@@ -235,7 +247,7 @@ class AosQueueTest(unittest.TestCase):
             module.reconcile_codex_usage(root, "AOS-2026-0001", None, "codex-cli test", "session-implementation")
             upgraded = module.reconcile_codex_usage(root, "AOS-2026-0001", exact, "codex-cli test", "session-implementation")
             retained = module.reconcile_codex_usage(root, "AOS-2026-0001", None, "codex-cli test", "session-implementation")
-            self.assertEqual({"input": 20, "output": 10}, upgraded["token_usage"]["totals"])
+            self.assertEqual({"input": 120, "output": 10}, upgraded["token_usage"]["totals"])
             self.assertEqual(upgraded["token_usage"], retained["token_usage"])
             with self.assertRaisesRegex(module.QueueError, "Conflicting exact"):
                 module.reconcile_codex_usage(root, "AOS-2026-0001", conflict, "codex-cli test", "session-implementation")
@@ -267,15 +279,18 @@ class AosQueueTest(unittest.TestCase):
             "model_turns": 76,
             "retained_context_bytes": 8192,
             "compaction_count": 2,
-            "fresh_input": 101,
+            "total_input": 101,
             "cached_input": 80,
+            "non_cached_input": 21,
+            "fresh_input": 21,
             "output": 13,
             "reasoning": 5,
+            "input_plus_output": 114,
             "largest_tool_result_bytes": 2048,
+            "context_pct_at_close": "unavailable from current CLI output",
         }, counters)
         missing = module.parse_codex_usage_counters('{"type":"turn.completed","usage":{"output_tokens":3}}')
-        self.assertEqual(3, missing["output"])
-        for key in set(module.CODEX_COUNTER_FIELDS) - {"output"}:
+        for key in module.CODEX_COUNTER_FIELDS:
             self.assertEqual("unavailable from current CLI output", missing[key])
 
     def test_codex_sessions_remain_separate_and_do_not_merge(self):
@@ -308,17 +323,21 @@ class AosQueueTest(unittest.TestCase):
                 "    print('codex-cli 0.144.1')\n"
                 "else:\n"
                 "    sys.stdin.read()\n"
+                "    print('{\"type\":\"thread.started\",\"thread_id\":\"session-clean-fixture\"}')\n"
                 "    print('worker closeout')\n"
-                "    print('Token usage: total=30 input=20 (+ 100 cached) output=10 (reasoning 4)')\n",
+                "    print('Token usage: total=130 input=120 (+ 100 cached) output=10 (reasoning 4)')\n",
                 encoding="utf-8",
             )
             fake.chmod(0o755)
-            result = module.run_codex_work_item(
-                root, "AOS-2026-0001", "bounded fixture prompt", codex_bin=str(fake)
-            )
-            self.assertEqual({"input": 20, "output": 10}, result["token_usage"]["totals"])
+            target = replace(module.CODEX_TARGET, root=root, executable=fake, codex_home=root / ".codex")
+            with patch.object(module, "CODEX_TARGET", target):
+                result = module.run_codex_work_item(root, "AOS-2026-0001", "bounded fixture prompt")
+            self.assertEqual({"input": 120, "output": 10}, result["token_usage"]["totals"])
             self.assertTrue(result["capture_evidence"]["captured_after_process_exit"])
             self.assertEqual("codex-cli 0.144.1", result["capture_evidence"]["cli_version"])
+            self.assertEqual("danger-full-access", result["invocation"]["sandbox"])
+            self.assertEqual("never", result["invocation"]["approval_policy"])
+            self.assertEqual(str(root), result["invocation"]["cwd"])
 
     def test_codex_runner_reconciles_process_exit_usage_before_nonzero_failure(self):
         module = load_tool_module()
@@ -339,11 +358,38 @@ class AosQueueTest(unittest.TestCase):
                 encoding="utf-8",
             )
             fake.chmod(0o755)
-            with self.assertRaisesRegex(module.QueueError, "usage was reconciled"):
-                module.run_codex_work_item(root, "AOS-2026-0001", "bounded fixture prompt", codex_bin=str(fake))
+            target = replace(module.CODEX_TARGET, root=root, executable=fake, codex_home=root / ".codex")
+            with patch.object(module, "CODEX_TARGET", target), \
+                 self.assertRaisesRegex(module.QueueError, "usage was reconciled"):
+                module.run_codex_work_item(root, "AOS-2026-0001", "bounded fixture prompt")
             rows = [json.loads(line) for line in (root / "queue/token_ledger.jsonl").read_text().splitlines()]
             failed = next(row for row in rows if row.get("session_id") == "session-failed")
             self.assertEqual({"input": 9, "output": 2}, failed["token_usage"]["totals"])
+
+    def test_codex_runner_missing_clean_session_fails_without_reconciliation_fallback(self):
+        module = load_tool_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._write_codex_reconcile_fixture(root)
+            before = (root / "queue/token_ledger.jsonl").read_text(encoding="utf-8")
+            fake = root / "fake-codex"
+            fake.write_text(
+                "#!/usr/bin/env python3\n"
+                "import sys\n"
+                "if '--version' in sys.argv:\n"
+                "    print('codex-cli test')\n"
+                "else:\n"
+                "    sys.stdin.read()\n"
+                "    print('{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":9,\"output_tokens\":2}}')\n",
+                encoding="utf-8",
+            )
+            fake.chmod(0o755)
+            target = replace(module.CODEX_TARGET, root=root, executable=fake, codex_home=root / ".codex")
+            with patch.object(module, "CODEX_TARGET", target), self.assertRaisesRegex(
+                module.QueueError, "clean-session creation failed"
+            ):
+                module.run_codex_work_item(root, "AOS-2026-0001", "bounded fixture prompt")
+            self.assertEqual(before, (root / "queue/token_ledger.jsonl").read_text(encoding="utf-8"))
 
     def test_queue_release_requires_exact_complete_acquired_owner(self):
         changes = {
