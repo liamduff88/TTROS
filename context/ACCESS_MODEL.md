@@ -1,4 +1,5 @@
 # Agentic OS Access Model
+> Revisit: when connector authority changes. · Last touched: 2026-07-17.
 
 This model keeps Agentic OS native, useful, and efficient without turning access into bureaucracy.
 
@@ -22,6 +23,8 @@ When relevant to a scoped task, Agentic OS may:
 - Read/search queue, packets, results, logs, context, and memory_index.
 - Read/search/get/list/fetch/status through the connector spine for Gmail, Calendar, Drive, Docs, Sheets, GitHub, LinkedIn, and other connected tools.
 - Draft/prepare/summarize/recommend locally.
+- Create Gmail drafts only through the exact idempotent draft adapter; no
+  Gmail send, reply, forward, schedule-send, draft mutation, or label mutation.
 - Create/update local work items, receipts, packets, results, and local scoped files.
 - Validate changed local files.
 - Inspect metadata/status without exposing secrets.
@@ -34,7 +37,8 @@ Stop for human review or explicit instruction before:
 - Publish actions.
 - GitHub push.
 - CRM/GHL mutation.
-- Gmail/Calendar/Drive writes beyond explicit draft/status tasks.
+- Calendar/Drive writes beyond explicit status tasks. Gmail permits only exact
+  draft creation; every transmission and other mutation is forbidden.
 - Calendar booking.
 - Deleting/archiving/moving broad data.
 - Spending money.

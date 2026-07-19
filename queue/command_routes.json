@@ -1,11 +1,18 @@
 {
-  "$comment": "TTROS deterministic command routes. First match wins. Match = confirmation card, never auto-run. Unmatched -> Ask Hermes. Additive edits only. Last touched: 2026-07-08.",
+  "$comment": "TTROS deterministic command routes. First match wins. Explicit workbench delegation and structured OS reads are handled before workflow matching; unmatched judgment goes automatically to native Hermes. Additive edits only. Last touched: 2026-07-19.",
   "version": 1,
   "match": "case_insensitive_substring_any",
   "on_no_match": {
-    "route": "ask_hermes",
+    "route": "hermes_coordinator",
     "card": "unmatched",
-    "note": "Hermes triage on explicit operator click only"
+    "note": "Invoke native Hermes automatically when deterministic routing or structured state cannot confidently answer."
+  },
+  "intent_routes": {
+    "explicit_codex": {"route": "direct_codex", "invokes_hermes": false},
+    "explicit_claude": {"route": "direct_claude", "invokes_hermes": false},
+    "structured_os_read": {"route": "local_state_read", "invokes_agent": false},
+    "codex_with_coordination_review": {"route": "hermes_orchestration", "profile": "aos-orchestrator", "implementer": "codex", "max_attempts": 3},
+    "fallback": {"route": "hermes_coordinator", "profile": "aos-orchestrator"}
   },
   "routes": [
     {

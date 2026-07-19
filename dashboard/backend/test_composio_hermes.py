@@ -5,10 +5,13 @@ import json
 import re
 import sys
 import tempfile
+import threading
+import time
 import types
 import unittest
+from dataclasses import replace
 from pathlib import Path, PureWindowsPath
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 
 # The Linux static-validation shell does not carry the Windows backend venv.
@@ -80,15 +83,633 @@ SPEC.loader.exec_module(backend)
 
 
 class HermesComposioTests(unittest.TestCase):
-    def test_queue_worker_timeout_config_has_new_default_floor_and_override(self):
+    def test_claude_timeout_contract_is_exact_and_independent(self):
+        self.assertEqual(backend.INLINE_COMMAND_TIMEOUT_SECONDS, 120)
+        self.assertEqual(backend.AGENT_STARTUP_TIMEOUT_SECONDS, 60)
+        self.assertEqual(backend.AGENT_TIMEOUT_SECONDS, 7800)
+        self.assertEqual(backend.QUEUE_WORKER_TIMEOUT_SECONDS, 7800)
+        self.assertEqual(backend.AGENT_GRACEFUL_TERMINATION_SECONDS, 10)
+        self.assertEqual(backend.AGENT_PARENT_TIMEOUT_SECONDS, 7870)
+        self.assertEqual(backend.QUEUE_HERMES_REVIEW_TIMEOUT_SECONDS, 120)
+        self.assertEqual(backend.QUEUE_FINALIZATION_TIMEOUT_SECONDS, 120)
+        self.assertNotEqual(backend.AGENT_STARTUP_TIMEOUT_SECONDS, backend.AGENT_TIMEOUT_SECONDS)
+
+    def test_claude_worker_passes_separate_startup_and_execution_timeouts(self):
+        item = {"id": "AOS-2026-0200", "title": "Claude timeout proof", "owner": "claude"}
+        completed = {
+            "success": True, "output": "PASS\nFiles touched: None\nValidation: fixture\nBlockers: None",
+            "stdout": "PASS", "stderr": "", "returncode": 0,
+        }
+        with patch.object(backend, "_queue_resolve_route_metadata", return_value=self.route_metadata_fixture("claude")), \
+             patch.object(backend, "_run_wsl_prompt_command", return_value=completed) as run, \
+             patch.object(backend, "_local_agent_route_log", return_value="logs/local_agent_route.jsonl"), \
+             patch.object(backend, "_log_token_usage"):
+            result = backend._queue_run_worker("claude", "fixture prompt", item)
+        self.assertTrue(result["success"])
+        self.assertEqual(run.call_args.args[2], 7800)
+        self.assertEqual(run.call_args.kwargs["startup_timeout"], 60)
+        self.assertTrue(callable(run.call_args.kwargs["on_process_start"]))
+
+    def test_supervised_claude_parent_preserves_partial_stdout_and_stderr_on_timeout(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            command = (
+                "python3 -c \"import sys,time; "
+                "print('claude stdout', flush=True); "
+                "print('claude stderr', file=sys.stderr, flush=True); time.sleep(5)\""
+            )
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "AGENT_GRACEFUL_TERMINATION_SECONDS", 1):
+                result = backend._run_wsl_supervised(command, timeout=0.1)
+        self.assertTrue(result["timed_out"])
+        self.assertIn("claude stdout", result["stdout"])
+        self.assertIn("claude stderr", result["stderr"])
+        self.assertEqual(result["graceful_termination_seconds"], 1)
+
+    def test_installed_claude_wrapper_is_linux_root_bound(self):
+        wrapper = Path("/home/liam/.local/bin/aos-claude").read_text(encoding="utf-8")
+        self.assertIn('CANONICAL_AOS_ROOT="/home/liam/agentic-os-live"', wrapper)
+        self.assertIn("/home/liam/.local/npm/bin/claude", wrapper)
+        self.assertNotIn("/mnt/c/", wrapper)
+
+    def test_installed_hermes_claude_router_is_linux_root_bound(self):
+        router = Path("/home/liam/agentic-os/hermes/hermes.py").read_text(encoding="utf-8")
+        self.assertIn('CANONICAL_LIVE = pathlib.Path("/home/liam/agentic-os-live")', router)
+        self.assertIn('os.environ.get("AOS_ROOT"', router)
+        self.assertNotIn("/mnt/c/", router)
+
+    def test_hermes_coordinator_wrapper_pins_profile_per_invocation_without_sticky_mutation(self):
+        wrapper = (MAIN.parents[2] / "tools" / "aos-hermes-coordinator.sh").read_text(encoding="utf-8")
+        self.assertIn('profile="aos-orchestrator"', wrapper)
+        self.assertIn('hermes -p "$profile"', wrapper)
+        self.assertNotIn("hermes profile use", wrapper)
+        self.assertIn("exit 78", wrapper)
+
+    def test_inline_and_agent_timeout_configs_have_independent_defaults_and_overrides(self):
         with patch.dict(backend.os.environ, {}, clear=True):
-            self.assertEqual(backend._timeout_seconds_from_env("AOS_QUEUE_WORKER_TIMEOUT_SECONDS", 1200, 900), 1200)
-        with patch.dict(backend.os.environ, {"AOS_QUEUE_WORKER_TIMEOUT_SECONDS": "1800"}, clear=True):
-            self.assertEqual(backend._timeout_seconds_from_env("AOS_QUEUE_WORKER_TIMEOUT_SECONDS", 1200, 900), 1800)
-        with patch.dict(backend.os.environ, {"AOS_QUEUE_WORKER_TIMEOUT_SECONDS": "60"}, clear=True):
-            self.assertEqual(backend._timeout_seconds_from_env("AOS_QUEUE_WORKER_TIMEOUT_SECONDS", 1200, 900), 900)
-        with patch.dict(backend.os.environ, {"AOS_QUEUE_WORKER_TIMEOUT_SECONDS": "invalid"}, clear=True):
-            self.assertEqual(backend._timeout_seconds_from_env("AOS_QUEUE_WORKER_TIMEOUT_SECONDS", 1200, 900), 1200)
+            self.assertEqual(backend._timeout_seconds_from_env("AOS_INLINE_COMMAND_TIMEOUT_SECONDS", 120, 1), 120)
+            self.assertEqual(backend._timeout_seconds_from_env("AOS_AGENT_TIMEOUT_SECONDS", 1800, 1), 1800)
+        with patch.dict(backend.os.environ, {
+            "AOS_INLINE_COMMAND_TIMEOUT_SECONDS": "45",
+            "AOS_AGENT_TIMEOUT_SECONDS": "2400",
+        }, clear=True):
+            self.assertEqual(backend._timeout_seconds_from_env("AOS_INLINE_COMMAND_TIMEOUT_SECONDS", 120, 1), 45)
+            self.assertEqual(backend._timeout_seconds_from_env("AOS_AGENT_TIMEOUT_SECONDS", 1800, 1), 2400)
+        with patch.dict(backend.os.environ, {"AOS_AGENT_TIMEOUT_SECONDS": "invalid"}, clear=True):
+            self.assertEqual(backend._timeout_seconds_from_env("AOS_AGENT_TIMEOUT_SECONDS", 1800, 1), 1800)
+
+    def test_codex_supervisor_real_subprocess_captures_prompt_streams_completion_and_exact_tokens(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            executable = root / "codex-fixture"
+            executable.write_text(
+                "#!/usr/bin/env python3\n"
+                "import json, pathlib, sys\n"
+                "prompt = sys.stdin.read()\n"
+                "root = pathlib.Path(sys.argv[sys.argv.index('-C') + 1])\n"
+                "if 'FULL_PROMPT_SENTINEL' not in prompt:\n"
+                "    print('prompt missing', file=sys.stderr)\n"
+                "    raise SystemExit(9)\n"
+                "(root / 'codex_fixture.txt').write_text('LOCAL_CODEX_ROUTE_OK\\n', encoding='utf-8')\n"
+                "print(json.dumps({'type':'thread.started','thread_id':'fixture-thread'}), flush=True)\n"
+                "print('fixture stderr capture', file=sys.stderr, flush=True)\n"
+                "print(json.dumps({'type':'item.completed','item':{'type':'agent_message','text':'PASS\\nFiles touched: codex_fixture.txt\\nValidation: deterministic subprocess\\nBlockers: None'}}), flush=True)\n"
+                "print(json.dumps({'type':'turn.completed','usage':{'input_tokens':21,'cached_input_tokens':5,'output_tokens':7}}), flush=True)\n",
+                encoding="utf-8",
+            )
+            executable.chmod(0o755)
+            target = replace(backend.CODEX_TARGET, root=root, executable=executable, codex_home=root / ".codex")
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "CODEX_TARGET", target), \
+                 patch.object(backend, "AGENT_STARTUP_TIMEOUT_SECONDS", 5), \
+                 patch.object(backend, "AGENT_TIMEOUT_SECONDS", 5):
+                result = backend._run_codex_local("full task FULL_PROMPT_SENTINEL")
+
+            route_rows = [
+                json.loads(line)
+                for line in (root / "logs" / "local_agent_route.jsonl").read_text(encoding="utf-8").splitlines()
+            ]
+            artifact_text = (root / "codex_fixture.txt").read_text(encoding="utf-8")
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["command_stage"], "completion")
+        self.assertIn("PASS", result["output"])
+        self.assertIn("fixture stderr capture", result["stderr"])
+        self.assertEqual(result["token_usage"]["total_tokens"], 28)
+        self.assertEqual(result["token_usage"]["input_tokens"], 21)
+        self.assertEqual(result["token_usage"]["cached_input_tokens"], 5)
+        self.assertEqual(result["token_usage"]["output_tokens"], 7)
+        self.assertEqual(result["token_usage_text"], "Token usage: input 21, output 7, cached input 5, total 28")
+        self.assertEqual(artifact_text, "LOCAL_CODEX_ROUTE_OK\n")
+        self.assertEqual(route_rows[-1]["success"], True)
+        self.assertEqual(route_rows[-1]["stage"], "completion")
+
+    def test_codex_supervisor_separates_startup_and_execution_timeouts_with_partial_streams(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            executable = root / "codex-timeout-fixture"
+
+            def run_fixture(source: str):
+                executable.write_text("#!/usr/bin/env python3\n" + source, encoding="utf-8")
+                executable.chmod(0o755)
+                target = replace(backend.CODEX_TARGET, root=root, executable=executable, codex_home=root / ".codex")
+                with patch.object(backend, "BASE_DIR", root), \
+                     patch.object(backend, "CODEX_TARGET", target), \
+                     patch.object(backend, "AGENT_STARTUP_TIMEOUT_SECONDS", 0.15), \
+                     patch.object(backend, "AGENT_TIMEOUT_SECONDS", 0.15):
+                    return backend._run_codex_local("timeout fixture prompt")
+
+            startup = run_fixture(
+                "import sys, time\n"
+                "print('still booting', file=sys.stderr, flush=True)\n"
+                "time.sleep(5)\n"
+            )
+            execution = run_fixture(
+                "import json, sys, time\n"
+                "print(json.dumps({'type':'thread.started','thread_id':'timeout-thread'}), flush=True)\n"
+                "print('working before timeout', file=sys.stderr, flush=True)\n"
+                "time.sleep(5)\n"
+            )
+
+        self.assertTrue(startup["timed_out"])
+        self.assertEqual(startup["failure_class"], "startup_timeout")
+        self.assertEqual(startup["command_stage"], "startup")
+        self.assertIn("still booting", startup["stderr"])
+        self.assertTrue(execution["timed_out"])
+        self.assertEqual(execution["failure_class"], "execution_timeout")
+        self.assertEqual(execution["command_stage"], "execution")
+        self.assertIn("thread.started", execution["stdout"])
+        self.assertIn("working before timeout", execution["stderr"])
+
+    def test_file_assessment_is_queued_immediately_with_real_id_and_duplicate_reused(self):
+        task = r"Give this task to Codex: assess the files at C:\Users\Liam\Downloads\candidate-workflow and incorporate them if useful, then run tests."
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            runner = {"available": True, "state": "running", "pid": 123}
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_queue_runner_status", return_value=runner), \
+                 patch.object(backend, "_run_wsl") as run, \
+                 patch.object(backend, "run_queue_item") as worker:
+                started = time.monotonic()
+                first = backend.wsl_hermes(backend.TaskRun(task=task, delivery_id="telegram-update-44"))
+                elapsed = time.monotonic() - started
+                second = backend.wsl_hermes(backend.TaskRun(task=task, delivery_id="telegram-update-44"))
+                rows = backend._read_queue_items()
+
+        run.assert_not_called()
+        worker.assert_not_called()
+        self.assertLess(elapsed, 0.5)
+        self.assertTrue(first["created"])
+        self.assertTrue(second["duplicate"])
+        self.assertEqual(first["work_item_id"], second["work_item_id"])
+        self.assertIn(first["work_item_id"], first["output"])
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["status"], "agent_todo")
+        self.assertEqual(rows[0]["context"], task)
+        self.assertEqual(rows[0]["sources"], [r"C:\Users\Liam\Downloads\candidate-workflow"])
+        self.assertIn("file_assessment", first["routing_signals"])
+        self.assertIn("validation_or_proof", first["routing_signals"])
+
+    def test_short_allowlisted_queue_status_stays_inline(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_queue_items(root, [])
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_create_async_dispatch_item") as create, \
+                 patch.object(backend, "_run_wsl") as run:
+                result = backend.wsl_hermes(backend.TaskRun(task="Queue status"))
+        create.assert_not_called()
+        run.assert_not_called()
+        self.assertEqual(result["selected_route"], "local_queue_status")
+        self.assertEqual(result["timeout_contract"], "inline_command")
+        self.assertEqual(result["timeout_seconds"], backend.INLINE_COMMAND_TIMEOUT_SECONDS)
+
+    def test_system_status_reports_bridge_and_downstream_without_agent_or_queue(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_queue_items(root, [])
+            readiness = {
+                "codex": {"available": True, "state": "ready", "executable": "/usr/bin/codex", "authenticated": True},
+                "hermes": {"available": True, "state": "ready", "executable": "/usr/bin/hermes"},
+            }
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "codex_policy_readiness", return_value=readiness["codex"]), \
+                 patch.object(backend, "_binary_readiness", side_effect=lambda name, **_: readiness[name]), \
+                 patch.object(backend, "_process_marker_running", return_value=False), \
+                 patch.object(backend, "_queue_runner_status", return_value={"available": False, "state": "unavailable", "pid": None}), \
+                 patch.object(backend, "_create_async_dispatch_item") as create, \
+                 patch.object(backend, "_run_hermes_message") as hermes:
+                result = backend.wsl_hermes(backend.TaskRun(task="show status"))
+        create.assert_not_called()
+        hermes.assert_not_called()
+        self.assertEqual(result["state"], "degraded")
+        self.assertIn("Bridge health: not_running", result["output"])
+        self.assertIn("Backend health: ready", result["output"])
+        self.assertIn("Runner state: on_demand_idle", result["output"])
+        self.assertIn("Codex availability: ready", result["output"])
+        self.assertIn("Hermes availability: ready", result["output"])
+
+    def test_process_marker_requires_real_process_argument_not_shell_text(self):
+        shell = Mock()
+        shell.read_bytes.return_value = b"/bin/bash\0-c\0inspect connectors/telegram_bridge/telegram_bridge.py\0"
+        bridge = Mock()
+        bridge.read_bytes.return_value = b"python3\0/home/liam/agentic-os-live/connectors/telegram_bridge/telegram_bridge.py\0"
+        with patch.object(Path, "glob", return_value=[shell]):
+            self.assertFalse(backend._process_marker_running("telegram_bridge.py"))
+        with patch.object(Path, "glob", return_value=[shell, bridge]):
+            self.assertTrue(backend._process_marker_running("telegram_bridge.py"))
+
+    def test_system_status_degrades_for_latest_route_failure_and_recovers_after_success(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_queue_items(root, [])
+            log = root / "logs" / "local_agent_route.jsonl"
+            log.parent.mkdir(parents=True)
+            failure = {
+                "timestamp": "2026-07-17T10:00:00Z",
+                "route": "codex",
+                "success": False,
+                "failure_class": "startup_timeout",
+                "stage": "startup",
+            }
+            log.write_text(json.dumps(failure) + "\n", encoding="utf-8")
+            readiness = {
+                "codex": {"available": True, "state": "ready", "executable": "/usr/bin/codex"},
+                "hermes": {"available": True, "state": "ready", "executable": "/usr/bin/hermes"},
+            }
+            patches = (
+                patch.object(backend, "BASE_DIR", root),
+                patch.object(backend, "codex_policy_readiness", return_value=readiness["codex"]),
+                patch.object(backend, "_binary_readiness", side_effect=lambda name, **_: readiness[name]),
+                patch.object(backend, "_process_marker_running", return_value=True),
+                patch.object(backend, "_queue_runner_status", return_value={"available": True, "pid": 123}),
+            )
+            with patches[0], patches[1], patches[2], patches[3], patches[4]:
+                degraded = backend._operator_system_status_closeout()
+                log.write_text(
+                    json.dumps(failure) + "\n" + json.dumps({
+                        "timestamp": "2026-07-17T10:01:00Z",
+                        "route": "codex",
+                        "success": True,
+                    }) + "\n",
+                    encoding="utf-8",
+                )
+                recovered = backend._operator_system_status_closeout()
+
+        self.assertEqual(degraded["state"], "degraded")
+        self.assertEqual(degraded["last_route_failure"]["failure_class"], "startup_timeout")
+        self.assertEqual(recovered["state"], "healthy")
+        self.assertIsNone(recovered["last_route_failure"])
+
+    def test_existing_receipt_read_is_inline_and_does_not_create_work(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            receipt = root / "queue" / "receipts" / "AOS-2026-0200.md"
+            receipt.parent.mkdir(parents=True)
+            receipt.write_text(
+                "NEEDS ATTENTION\n\nFiles touched:\n- None reported\n\nValidation:\n- route failed\n\nBlockers:\n- execution_timeout at execution\n\nNext action:\n- repair route\n",
+                encoding="utf-8",
+            )
+            notification = receipt.with_name("AOS-2026-0200-notification-later.md")
+            notification.write_text("Notification only; no diagnostic sections.\n", encoding="utf-8")
+            item = self.approval_item("AOS-2026-0200", "blocked", title="Repair Codex route")
+            item["receipts"] = [
+                {"path": "queue/receipts/AOS-2026-0200.md", "status": "blocked"},
+                {"path": "queue/receipts/AOS-2026-0200-notification-later.md", "status": "blocked"},
+            ]
+            self.write_queue_items(root, [item])
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_create_async_dispatch_item") as create, \
+                 patch.object(backend, "_run_hermes_message") as hermes:
+                result = backend.wsl_hermes(backend.TaskRun(task="Explain receipt AOS-2026-0200 and show why it was blocked"))
+                rows = backend._read_queue_items()
+        create.assert_not_called()
+        hermes.assert_not_called()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(result["selected_route"], "local_existing_item_read")
+        self.assertFalse(result["created"])
+        self.assertIn("execution_timeout at execution", result["output"])
+        self.assertEqual(result["receipt_path"], "queue/receipts/AOS-2026-0200.md")
+        self.assertEqual(len(result["document_paths"]), 1)
+
+    def test_ordinary_conversation_uses_direct_hermes_without_queue(self):
+        reply = {
+            "success": True,
+            "reply": "I can help with the current Agentic OS.",
+            "output": "I can help with the current Agentic OS.",
+            "stdout": "I can help with the current Agentic OS.",
+            "stderr": "",
+            "returncode": 0,
+            "token_usage": {"available": False},
+            "token_usage_text": "Token usage: unavailable from current CLI output",
+        }
+        with patch.object(backend, "_run_hermes_message", return_value=reply) as hermes, \
+             patch.object(backend, "_hermes_coordinator_closeout", return_value={"success": True, "selected_route": "hermes_coordinator", "output": reply["reply"]}), \
+             patch.object(backend, "_create_async_dispatch_item") as create:
+            result = backend.wsl_hermes(backend.TaskRun(task="What can you help me with?"))
+        create.assert_not_called()
+        hermes.assert_called_once()
+        self.assertEqual(result["selected_route"], "hermes_coordinator")
+
+    def test_already_metered_hermes_result_is_not_aggregated_twice(self):
+        result = {
+            "success": True, "output": "Natural Hermes answer", "stdout": "Natural Hermes answer", "stderr": "",
+            "returncode": 0, "token_usage_logged": True,
+            "token_usage": {"available": True, "session_id": "hermes-session", "input_tokens": 12, "output_tokens": 3, "total_tokens": 15},
+            "token_usage_text": "Token usage: input 12, output 3, total 15",
+        }
+        route = {"requested_target": "hermes", "selected_route": "hermes_coordinator", "delegation_reason": "fixture", "codex_forbidden": "no"}
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch.object(backend, "RESULTS_DIR", Path(tmp)), \
+             patch.object(backend, "_log_token_usage") as log:
+            closeout = backend._hermes_coordinator_closeout(result, "fixture question", route)
+        log.assert_not_called()
+        self.assertTrue(closeout["success"])
+
+    def test_codex_json_summary_captures_exact_reported_usage_only(self):
+        stream = "\n".join((
+            json.dumps({"type": "thread.started", "thread_id": "fixture-session"}),
+            json.dumps({"type": "item.completed", "item": {"type": "agent_message", "text": "PASS\nValidation: fixture"}}),
+            json.dumps({"type": "turn.completed", "usage": {"input_tokens": 12, "output_tokens": 5, "cached_input_tokens": 3}}),
+        ))
+        message, usage, token_text, started = backend._codex_json_summary(stream)
+        self.assertTrue(started)
+        self.assertEqual(message, "PASS\nValidation: fixture")
+        self.assertEqual(usage["total_tokens"], 17)
+        self.assertEqual(usage["session_id"], "fixture-session")
+        self.assertEqual(usage["total_input"], 12)
+        self.assertEqual(usage["cached_input"], 3)
+        self.assertEqual(usage["non_cached_input"], 9)
+        self.assertEqual(usage["input_plus_output"], 17)
+        self.assertEqual(usage["fresh_input"], 9)
+        self.assertEqual(usage["cache_ratio"], 0.333333)
+        self.assertEqual(token_text, "Token usage: input 12, output 5, cached input 3, total 17")
+        self.assertEqual(
+            backend._queue_artifact_candidates_from_text("Diagnostics: logs/local_agent_route.jsonl."),
+            ["logs/local_agent_route.jsonl"],
+        )
+
+    def test_natural_language_explicit_workbench_routes_bypass_hermes(self):
+        cases = (
+            ("give this task to Codex: inspect the local route", "codex", "direct_codex"),
+            ("Use Claude Code for this: inspect the local route", "claude", "direct_claude"),
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_queue_templates(root)
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_queue_runner_status", return_value={"available": True, "state": "running", "pid": 1}), \
+                 patch.object(backend, "_run_hermes_message") as hermes:
+                results = [backend.wsl_hermes(backend.TaskRun(task=task, source="local_fixture")) for task, _, _ in cases]
+                rows = backend._read_queue_items()
+        hermes.assert_not_called()
+        self.assertEqual([row["owner"] for row in results], [case[1] for case in cases])
+        self.assertEqual([row["selected_route"] for row in results], [case[2] for case in cases])
+        self.assertEqual([row["owner"] for row in rows], ["codex", "claude"])
+
+    def test_explicit_codex_review_request_uses_native_hermes_as_outer_coordinator(self):
+        plan_reply = {
+            "success": True,
+            "reply": '```json\n{"title":"Coordinated fixture","tasks":[{"title":"Child one","context":"one","definition_of_done":"pass"}]}\n```',
+            "output": '```json\n{"title":"Coordinated fixture","tasks":[{"title":"Child one","context":"one","definition_of_done":"pass"}]}\n```',
+            "stdout": "", "stderr": "", "returncode": 0,
+            "token_usage": {"session_id": "hermes-plan-session"},
+            "token_usage_text": "Token usage: fixture",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_queue_items(root, [])
+            self.write_queue_references(root)
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_run_hermes_message", return_value=plan_reply) as hermes, \
+                 patch.object(backend, "_accept_async_queue_runner", return_value={"accepted": True}):
+                result = backend.wsl_hermes(backend.TaskRun(
+                    task="give this to Codex, review it and send it back if needed",
+                    source="local_fixture",
+                ))
+                rows = backend._read_queue_items()
+        hermes.assert_called_once()
+        self.assertEqual(hermes.call_args.kwargs["role"], "coordinator")
+        self.assertEqual(result["selected_route"], "hermes_orchestration")
+        self.assertEqual(result["outer_coordinator"], "hermes")
+        self.assertEqual(result["coordinator_profile"], "aos-orchestrator")
+        parent = next(row for row in rows if "hermes_orchestration_parent" in row.get("tags", []))
+        child = next(row for row in rows if "hermes_orchestration_child" in row.get("tags", []))
+        self.assertEqual(parent["owner"], "hermes")
+        self.assertEqual(child["owner"], "codex")
+        self.assertEqual(child["orchestration"]["outer_coordinator"], "hermes")
+
+    def test_structured_queue_question_is_read_only_and_ambiguous_question_uses_native_hermes(self):
+        reply = {
+            "success": True,
+            "reply": "Hermes says the highest-leverage next step is to inspect the failing receipt first.",
+            "output": "Hermes says the highest-leverage next step is to inspect the failing receipt first.",
+            "stdout": "Hermes says the highest-leverage next step is to inspect the failing receipt first.",
+            "stderr": "",
+            "returncode": 0,
+            "token_usage": {"available": False},
+            "token_usage_text": "Token usage: unavailable from current CLI output",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            item = self.sample_queue_items()[2]
+            self.write_queue_items(root, [item])
+            before = (root / "queue/work_items.jsonl").read_bytes()
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_create_async_dispatch_item") as create, \
+                 patch.object(backend, "_run_hermes_message", return_value=reply) as hermes:
+                status = backend.wsl_hermes(backend.TaskRun(task="What is currently blocked?"))
+                after_status = (root / "queue/work_items.jsonl").read_bytes()
+                fallback = backend.wsl_hermes(backend.TaskRun(task="What is the wisest way to prioritise this situation?"))
+                after_fallback = (root / "queue/work_items.jsonl").read_bytes()
+        create.assert_not_called()
+        hermes.assert_called_once()
+        self.assertEqual(status["selected_route"], "local_queue_read")
+        self.assertIn("Blocked connector decision", status["output"])
+        self.assertEqual(before, after_status)
+        self.assertEqual(after_status, after_fallback)
+        self.assertEqual(fallback["selected_route"], "hermes_coordinator")
+        self.assertIn("highest-leverage", fallback["output"])
+
+    def test_hermes_orchestration_children_pass_after_zero_one_and_two_corrections(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_queue_items(root, [])
+            self.write_queue_templates(root)
+            self.write_queue_references(root)
+            plan = {
+                "title": "Hermes fixture workflow",
+                "children": [
+                    {"title": "Pass first review", "context": "fixture one", "definition_of_done": "pass"},
+                    {"title": "Pass correction one", "context": "fixture two", "definition_of_done": "pass"},
+                    {"title": "Pass correction two", "context": "fixture three", "definition_of_done": "pass"},
+                ],
+            }
+            queue_tool = backend._load_queue_tool()
+            worker_calls = []
+            review_calls = []
+            pass_at = {"Pass first review": 1, "Pass correction one": 2, "Pass correction two": 3}
+
+            def worker(owner, prompt, item, attempt=1):
+                worker_calls.append((owner, item["title"], attempt))
+                return {
+                    "success": True, "output": "PASS\nFiles touched: None\nValidation: fixture passed\nBlockers: None",
+                    "stdout": "PASS", "stderr": "", "returncode": 0,
+                    "token_usage": {"session_id": f"codex-{item['step_index']}-{attempt}"},
+                    "token_usage_text": f"Token usage: Codex fixture {attempt}",
+                }
+
+            def review(item, owner, attempt, worker_result):
+                review_calls.append((item["title"], attempt))
+                passing = attempt >= pass_at[item["title"]]
+                return {
+                    "success": True, "output": "PASS" if passing else f"REVISE: correction {attempt}",
+                    "stdout": "", "stderr": "", "returncode": 0,
+                    "token_usage": {"session_id": f"hermes-{item['step_index']}-{attempt}"},
+                    "token_usage_text": f"Token usage: Hermes fixture {attempt}",
+                }
+
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_load_queue_tool", return_value=queue_tool), \
+                 patch.object(queue_tool, "finalize_done", return_value={}), \
+                 patch.object(backend, "_queue_run_worker", side_effect=worker), \
+                 patch.object(backend, "_queue_run_hermes_review", side_effect=review), \
+                 patch.object(backend, "_notify_queue_running", return_value=None), \
+                 patch.object(backend, "_notify_queue_completion", return_value=None):
+                parent, children = backend._create_hermes_orchestration_items(
+                    backend.TaskRun(task="give this to Codex, review it and send it back if needed", source="local_fixture"),
+                    plan,
+                    "fixture-orchestration-pass",
+                )
+                results = [backend.run_queue_item(child["id"]) for child in children]
+                final_parent = backend._queue_find_item(parent["id"])
+                final_children = [backend._queue_find_item(child["id"]) for child in children]
+                events_path = root / backend.aos_orchestration.EVENTS_PATH
+                events = [json.loads(line) for line in events_path.read_text(encoding="utf-8").splitlines()]
+
+        self.assertEqual([result["attempts_used"] for result in results], [1, 2, 3])
+        self.assertTrue(all(result["success"] for result in results))
+        self.assertTrue(all(result["outer_coordinator"] == "hermes" for result in results))
+        self.assertTrue(all(owner == "codex" for owner, _, _ in worker_calls))
+        self.assertEqual([row["status"] for row in final_children], ["done", "done", "done"])
+        self.assertEqual(final_parent["status"], "done")
+        self.assertEqual(sum(event.get("event") == "hermes_orchestration_completed" for event in events), 1)
+        self.assertEqual(sum(event.get("event") == "hermes_review_escalated_to_liam" for event in events), 0)
+        self.assertEqual(len(worker_calls), 6)
+        self.assertEqual(len(review_calls), 6)
+
+    def test_hermes_orchestration_third_failed_review_escalates_once_without_fourth_attempt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_queue_items(root, [])
+            self.write_queue_templates(root)
+            self.write_queue_references(root)
+            plan = {"title": "Failure fixture", "children": [{
+                "title": "Fail all reviews", "context": "fixture", "definition_of_done": "pass review",
+            }]}
+            queue_tool = backend._load_queue_tool()
+            worker_calls = []
+
+            def worker(owner, prompt, item, attempt=1):
+                worker_calls.append(attempt)
+                return {
+                    "success": True, "output": "PASS\nFiles touched: None\nValidation: fixture\nBlockers: None",
+                    "stdout": "", "stderr": "", "returncode": 0,
+                    "token_usage": {"session_id": f"codex-fail-{attempt}"},
+                    "token_usage_text": "Token usage: fixture",
+                }
+
+            review = lambda item, owner, attempt, worker_result: {
+                "success": True, "output": f"REVISE: failed review {attempt}", "stdout": "", "stderr": "", "returncode": 0,
+                "token_usage": {"session_id": f"hermes-fail-{attempt}"}, "token_usage_text": "Token usage: fixture",
+            }
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_load_queue_tool", return_value=queue_tool), \
+                 patch.object(queue_tool, "finalize_done", return_value={}), \
+                 patch.object(backend, "_queue_run_worker", side_effect=worker), \
+                 patch.object(backend, "_queue_run_hermes_review", side_effect=review), \
+                 patch.object(backend, "_notify_queue_running", return_value=None), \
+                 patch.object(backend, "_notify_queue_completion", return_value=None):
+                parent, children = backend._create_hermes_orchestration_items(
+                    backend.TaskRun(task="give this to Codex and review it", source="local_fixture"),
+                    plan,
+                    "fixture-orchestration-fail",
+                )
+                result = backend.run_queue_item(children[0]["id"])
+                with self.assertRaises(backend.HTTPException) as fourth:
+                    backend.run_queue_item(children[0]["id"])
+                final_parent = backend._queue_find_item(parent["id"])
+                events_path = root / backend.aos_orchestration.EVENTS_PATH
+                events = [json.loads(line) for line in events_path.read_text(encoding="utf-8").splitlines()]
+
+        self.assertEqual(result["attempts_used"], 3)
+        self.assertEqual(worker_calls, [1, 2, 3])
+        self.assertEqual(fourth.exception.status_code, 409)
+        self.assertEqual(final_parent["status"], "human_review")
+        escalations = [event for event in events if event.get("event") == "hermes_review_escalated_to_liam"]
+        self.assertEqual(len(escalations), 1)
+        self.assertFalse(escalations[0]["fourth_attempt_allowed"])
+
+    def test_queue_creation_failure_is_truthful_and_starts_no_agent(self):
+        with patch.object(backend, "_create_async_dispatch_item", side_effect=OSError("fixture queue unavailable")), \
+             patch.object(backend, "_run_wsl") as run:
+            with self.assertRaises(backend.HTTPException) as raised:
+                backend.wsl_hermes(backend.TaskRun(task="Give this task to Codex: assess the files and repair the implementation"))
+        run.assert_not_called()
+        self.assertEqual(raised.exception.status_code, 503)
+        self.assertEqual(raised.exception.detail["state"], "queue_creation_failed")
+        self.assertFalse(raised.exception.detail["accepted"])
+
+    def test_runner_unavailable_ack_leaves_item_truthfully_queued(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_queue_runner_status", return_value={"available": False, "state": "unavailable", "pid": None}), \
+                 patch.object(backend.subprocess, "Popen", side_effect=OSError("runner unavailable")):
+                result = backend.wsl_hermes(backend.TaskRun(task="Give this task to Codex: build and validate the local fixture"))
+                item = backend._queue_find_item(result["work_item_id"])
+        self.assertFalse(result["runner_available"])
+        self.assertFalse(result["runner_accepted"])
+        self.assertIn("runner unavailable", result["output"])
+        self.assertEqual(item["status"], "agent_todo")
+
+    def test_stopped_recurring_runner_accepts_item_through_same_runner_one_shot_mode(self):
+        process = types.SimpleNamespace(pid=456)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_queue_runner_status", return_value={"available": False, "state": "unavailable", "pid": None}), \
+                 patch.object(backend.subprocess, "Popen", return_value=process) as popen:
+                result = backend.wsl_hermes(backend.TaskRun(task="Give this task to Codex: assess and repair the repository files"))
+        self.assertTrue(result["runner_accepted"])
+        self.assertEqual(result["runner_mode"], "one_shot")
+        self.assertEqual(result["runner_state"], "accepted")
+        command = popen.call_args.args[0]
+        self.assertIn("aos-orchestration-runner.py", command[1])
+        self.assertEqual(command[-2:], ["--dispatch-item", result["work_item_id"]])
+
+    def test_local_fixture_source_never_enters_telegram_notification_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            body = backend.TaskRun(
+                task="Codex: build and validate a harmless local fixture",
+                source="local_fixture",
+                delivery_id="fixture-1",
+            )
+            send = Mock()
+            with patch.object(backend, "BASE_DIR", root):
+                item, created, _, _ = backend._create_async_dispatch_item(body)
+                running = backend._notify_queue_running(item["id"], send_telegram=send)
+                completion = backend._notify_queue_completion(
+                    item["id"], "blocked", "queue/receipts/missing.md", send_telegram=send,
+                )
+
+        self.assertTrue(created)
+        self.assertEqual(item["source"], "local_fixture")
+        self.assertNotIn("telegram", item["tags"])
+        self.assertIsNone(running)
+        self.assertIsNone(completion)
+        send.assert_not_called()
 
     def test_unavailable_all_zero_token_block_is_not_counted_as_exact_zero(self):
         unavailable = {
@@ -179,6 +800,26 @@ class HermesComposioTests(unittest.TestCase):
             "".join(json.dumps(item, sort_keys=True) + "\n" for item in items),
             encoding="utf-8",
         )
+
+    def route_metadata_fixture(self, lane="hermes"):
+        return {
+            "route_config_version": "fixture",
+            "lane": lane,
+            "profile_requested": "default",
+            "profile_used": "default",
+            "profile": "default",
+            "profile_fallback_reason": "fixture route",
+            "provider_requested": "configured externally",
+            "provider_used": "default",
+            "provider_confirmed": "unavailable from current CLI output",
+            "model_requested": "configured externally",
+            "model_used": "default",
+            "model_confirmed": "unavailable from current CLI output",
+            "explicit_model_provider_route": False,
+            "escalation_profile": "",
+            "escalation_rule": "fixture escalation rule",
+            "route_policy": "fixture",
+        }
 
     def test_hermes_ui_status_reports_reachable_only_when_endpoint_answers(self):
         launcher = {"success": True, "stdout": "state=installed_stopped\nversion=Hermes Agent v0.18.0\nurl=http://127.0.0.1:8081/", "output": "", "returncode": 0}
@@ -411,6 +1052,198 @@ class HermesComposioTests(unittest.TestCase):
             },
         ]
 
+    def approval_item(self, item_id, status, *, title="Repair local routing", context="Local code and tests only"):
+        return {
+            "id": item_id,
+            "title": title,
+            "status": status,
+            "owner_type": "agent",
+            "owner": "codex",
+            "priority": 5,
+            "requested_by": "Liam",
+            "source": "telegram",
+            "tags": ["async_dispatch", "telegram"],
+            "context": context,
+            "client_scope": "global",
+            "context_classification": "technical_only",
+            "brain_context_status": "not_applicable",
+            "sources": [],
+            "allowed_actions": ["local_read", "local_edit", "local_test"],
+            "stop_conditions": ["external_send", "destructive_action_outside_scope"],
+            "definition_of_done": "Local repair validated with a durable receipt.",
+            "claim": {"claimed_by": None, "claimed_at": None},
+            "receipts": [],
+            "dispatch": {
+                "reply_to": "fixture-chat",
+                "delivery_id": "original-task",
+                "idempotency_key": f"fixture:{item_id}",
+            },
+            "created_at": "2026-07-17T10:00:00Z",
+            "updated_at": "2026-07-17T10:00:00Z",
+        }
+
+    def test_telegram_approval_parser_accepts_bounded_phrase_family(self):
+        for phrase in ("I approve", "approved", "accept", "continue", "resume", "go ahead", "yes, proceed"):
+            with self.subTest(phrase=phrase):
+                self.assertIsNotNone(backend._telegram_approval_intent(phrase))
+        self.assertIsNone(backend._telegram_approval_intent("acceptance criteria need editing"))
+
+    def test_needs_input_approval_resumes_same_item_and_replay_is_idempotent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            item = self.approval_item("AOS-2026-0200", "needs_input")
+            self.write_queue_items(root, [item])
+            runner = {"available": True, "accepted": True, "state": "accepted", "pid": 41, "mode": "one_shot"}
+            body = backend.TaskRun(task="I approve", delivery_id="approval-event-1", reply_to="fixture-chat")
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_accept_async_queue_runner", return_value=runner) as dispatch, \
+                 patch.object(backend, "_create_async_dispatch_item") as create:
+                first = backend.wsl_hermes(body)
+                replay = backend.wsl_hermes(body)
+                rows = backend._read_queue_items()
+
+        create.assert_not_called()
+        dispatch.assert_called_once()
+        self.assertEqual(first["work_item_id"], item["id"])
+        self.assertEqual(first["state"], "resumed")
+        self.assertFalse(first["created"])
+        self.assertTrue(replay["duplicate"])
+        self.assertEqual(replay["state"], "approval-replay")
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["status"], "agent_todo")
+        self.assertEqual(len(rows[0]["receipts"]), 1)
+
+    def test_pending_approval_effect_reconciles_after_transition_ambiguity(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            item = self.approval_item("AOS-2026-0205", "agent_todo")
+            body = backend.TaskRun(task="resume", delivery_id="approval-event-pending", reply_to="fixture-chat")
+            event_key = backend._telegram_approval_event_key(body, backend._telegram_approval_intent(body.task))
+            item["approval_effects"] = {
+                event_key: {"event": "telegram_approval", "status": "pending", "action": "resume"},
+            }
+            self.write_queue_items(root, [item])
+            runner = {"available": True, "accepted": True, "state": "accepted", "pid": 42, "mode": "one_shot"}
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_accept_async_queue_runner", return_value=runner) as dispatch, \
+                 patch.object(backend, "_create_async_dispatch_item") as create:
+                result = backend.wsl_hermes(body)
+                rows = backend._read_queue_items()
+
+        create.assert_not_called()
+        dispatch.assert_called_once()
+        self.assertEqual(result["work_item_id"], item["id"])
+        self.assertEqual(rows[0]["approval_effects"][event_key]["status"], "applied")
+        self.assertEqual(len(rows), 1)
+
+    def test_human_review_accept_closes_same_item_without_second_telegram_or_replay_receipt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            item = self.approval_item("AOS-2026-0201", "human_review")
+            self.write_queue_items(root, [item])
+            body = backend.TaskRun(task="accept", delivery_id="approval-event-2", reply_to="fixture-chat")
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend.aos_orchestration, "tick", return_value={"advanced": []}), \
+                 patch.object(backend, "_telegram_reply_on_close") as telegram, \
+                 patch.object(backend, "_create_async_dispatch_item") as create:
+                first = backend.wsl_hermes(body)
+                replay = backend.wsl_hermes(body)
+                rows = backend._read_queue_items()
+                receipts = list((root / "queue" / "receipts").glob(f"{item['id']}-*.md"))
+
+        create.assert_not_called()
+        telegram.assert_not_called()
+        self.assertEqual(first["work_item_id"], item["id"])
+        self.assertEqual(first["status"], "done")
+        self.assertEqual(replay["state"], "approval-replay")
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(len(receipts), 1)
+        self.assertEqual(len(rows[0]["receipts"]), 1)
+
+    def test_approval_with_two_pending_targets_fails_closed_with_candidate_ids(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            items = [
+                self.approval_item("AOS-2026-0202", "needs_input"),
+                self.approval_item("AOS-2026-0203", "human_review"),
+            ]
+            self.write_queue_items(root, items)
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_create_async_dispatch_item") as create, \
+                 patch.object(backend, "_accept_async_queue_runner") as dispatch:
+                result = backend.wsl_hermes(backend.TaskRun(
+                    task="go ahead", delivery_id="approval-event-3", reply_to="fixture-chat",
+                ))
+                rows = backend._read_queue_items()
+
+        create.assert_not_called()
+        dispatch.assert_not_called()
+        self.assertEqual(result["state"], "approval-target-ambiguous")
+        self.assertEqual(result["candidate_ids"], [
+            "AOS-2026-0202 — Repair local routing",
+            "AOS-2026-0203 — Repair local routing",
+        ])
+        self.assertEqual(rows, items)
+
+    def test_approval_with_no_pending_target_does_not_create_task(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_queue_items(root, [])
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_create_async_dispatch_item") as create, \
+                 patch.object(backend, "_accept_async_queue_runner") as dispatch:
+                result = backend.wsl_hermes(backend.TaskRun(
+                    task="yes, proceed", delivery_id="approval-event-4", reply_to="fixture-chat",
+                ))
+                rows = backend._read_queue_items()
+
+        create.assert_not_called()
+        dispatch.assert_not_called()
+        self.assertEqual(result["state"], "approval-target-missing")
+        self.assertEqual(rows, [])
+
+    def test_late_explicit_approval_returns_existing_completed_item(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            item = self.approval_item("AOS-2026-0204", "done")
+            self.write_queue_items(root, [item])
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_create_async_dispatch_item") as create, \
+                 patch.object(backend, "_accept_async_queue_runner") as dispatch:
+                result = backend.wsl_hermes(backend.TaskRun(
+                    task=f"approved {item['id']}", delivery_id="approval-event-5", reply_to="fixture-chat",
+                ))
+                rows = backend._read_queue_items()
+
+        create.assert_not_called()
+        dispatch.assert_not_called()
+        self.assertEqual(result["state"], "already-completed")
+        self.assertEqual(result["work_item_id"], item["id"])
+        self.assertEqual(len(rows), 1)
+
+    def test_generic_approval_cannot_authorize_external_or_destructive_action(self):
+        cases = (
+            ("Send the existing Gmail draft to the client", "Send email after review"),
+            ("Deploy the release and git push", "Publish approved release"),
+        )
+        for index, (title, context) in enumerate(cases, start=1):
+            with self.subTest(title=title), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                item = self.approval_item(f"AOS-2026-021{index}", "needs_input", title=title, context=context)
+                self.write_queue_items(root, [item])
+                with patch.object(backend, "BASE_DIR", root), \
+                     patch.object(backend, "_create_async_dispatch_item") as create, \
+                     patch.object(backend, "_accept_async_queue_runner") as dispatch:
+                    result = backend.wsl_hermes(backend.TaskRun(
+                        task=f"I approve {item['id']}", delivery_id=f"external-{index}", reply_to="fixture-chat",
+                    ))
+                    rows = backend._read_queue_items()
+            create.assert_not_called()
+            dispatch.assert_not_called()
+            self.assertEqual(result["state"], "explicit-action-approval-required")
+            self.assertEqual(rows[0]["status"], "needs_input")
+            self.assertEqual(len(rows), 1)
+
     def test_backup_status_no_receipts(self):
         with tempfile.TemporaryDirectory() as tmp:
             receipt_path = Path(tmp) / "queue" / "receipts" / "backups.jsonl"
@@ -454,45 +1287,34 @@ class HermesComposioTests(unittest.TestCase):
         self.assertTrue(result["needs_attention"])
         self.assertEqual(result["latest"]["errors"], ["Target drive is absent"])
 
-    def test_normal_task_uses_hermes_coordinator(self):
-        command, result = self.route("quick search for local micro cement plasterers")
-        self.assertIn("aos-hermes-coordinator.sh", command)
-        self.assertIn("--prompt-file", command)
-        self.assertNotIn("quick search for local micro cement plasterers", command)
-        self.assertEqual(result["selected_route"], "hermes_coordinator")
+    def test_intelligent_fallback_uses_hermes_while_explicit_workbenches_queue_directly(self):
+        cases = (
+            ("quick search for local micro cement plasterers", "hermes"),
+            ("get Hermes to quick search for local micro cement plasterers", "hermes"),
+            ("get Codex to inspect dashboard files", "codex"),
+            ("get Claude to polish the dashboard UI", "claude"),
+            ("quick search, do not use Codex", "hermes"),
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_queue_runner_status", return_value={"available": True, "state": "running", "pid": 1}), \
+                 patch.object(backend, "_run_hermes_message", return_value={"success": True, "reply": "Hermes answer"}) as hermes, \
+                 patch.object(backend, "_hermes_coordinator_closeout", side_effect=lambda result, task, route: {
+                     "success": True, "selected_route": "hermes_coordinator", "output": result["reply"],
+                 }):
+                results = [backend.wsl_hermes(backend.TaskRun(task=task)) for task, _ in cases]
+                rows = backend._read_queue_items()
+        self.assertEqual(hermes.call_count, 3)
+        self.assertEqual(
+            [row["selected_route"] for row in results],
+            ["hermes_coordinator", "hermes_coordinator", "direct_codex", "direct_claude", "hermes_coordinator"],
+        )
+        self.assertEqual([row["owner"] for row in rows], ["codex", "claude"])
 
-    def test_explicit_hermes_uses_coordinator(self):
-        for task in (
-            "get Hermes to quick search for local micro cement plasterers",
-            "/work hermes quick search for local micro cement plasterers",
-        ):
-            command, result = self.route(task)
-            self.assertIn("aos-hermes-coordinator.sh", command)
-            self.assertNotIn("aos-hermes codex", command)
-            self.assertIn("--prompt-file", command)
-            self.assertEqual(result["selected_route"], "hermes_coordinator")
-
-    def test_codex_forbidden_forces_hermes(self):
-        for task in ("quick search, do not use Codex", "I don't want Codex to do it"):
-            command, result = self.route(task)
-            self.assertIn("aos-hermes-coordinator.sh", command)
-            self.assertEqual(result["codex_forbidden"], "yes")
-            self.assertEqual(result["delegation_reason"], "Codex forbidden by operator")
-
-    def test_explicit_codex_is_direct(self):
-        with patch.object(backend, "_run_codex_local", return_value=self.RUN_RESULT) as run, \
-             patch.object(backend, "_log_token_usage"):
-            result = backend.wsl_hermes(backend.TaskRun(task="get Codex to inspect dashboard files"))
-        run.assert_called_once()
-        self.assertEqual(result["selected_route"], "direct_codex")
-
-    def test_explicit_claude_is_direct(self):
-        command, result = self.route("get Claude to polish the dashboard UI")
-        self.assertTrue(command.startswith('aos-hermes claude "$(<'))
-        self.assertEqual(result["selected_route"], "direct_claude")
-
-    def test_adversarial_prompts_use_temp_file_not_shell_text(self):
+    def test_adversarial_prompt_is_preserved_as_queue_context_not_shell_text(self):
         task = "\n".join((
+            "Give this task to Codex:",
             "Markdown with `backticks` and $(touch /tmp/bad)",
             "Use $VARS and \"quotes\" and 'single quotes'",
             r"Windows path: C:\Users\Admin\Documents\A-Time to revenue\Agentic OS Live",
@@ -501,17 +1323,17 @@ class HermesComposioTests(unittest.TestCase):
             "```",
             "x" * 5000,
         ))
-        seen, result = self.route_with_prompt_file(task)
-
-        self.assertEqual(result["selected_route"], "hermes_coordinator")
-        self.assertIn("aos-hermes-coordinator.sh", seen["command"])
-        self.assertIn("--prompt-file", seen["command"])
-        self.assertNotIn("$(touch /tmp/bad)", seen["command"])
-        self.assertNotIn("$VARS", seen["command"])
-        self.assertNotIn("`backticks`", seen["command"])
-        self.assertEqual(seen["prompt"], task)
-        self.assertTrue(seen["prompt_exists_during_run"])
-        self.assertFalse(seen["prompt_exists_after_run"])
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_queue_runner_status", return_value={"available": True, "state": "running", "pid": 1}), \
+                 patch.object(backend, "_run_wsl") as run:
+                result = backend.wsl_hermes(backend.TaskRun(task=task))
+                item = backend._queue_find_item(result["work_item_id"])
+        run.assert_not_called()
+        self.assertEqual(result["selected_route"], "direct_codex")
+        self.assertEqual(item["context"], task)
+        self.assertIn(r"C:\Users\Admin\Documents\A-Time to revenue\Agentic OS Live", item["sources"])
 
     def test_hermes_message_uses_wrapper_prompt_file_and_usage_file(self):
         seen = {}
@@ -699,11 +1521,11 @@ class HermesComposioTests(unittest.TestCase):
 
                 result = backend.close_queue_item_review(
                     step2_id,
-                    backend.QueueReviewClose(status="done", review_note="Approved for final packaging."),
+                    backend.QueueReviewClose(status="done", action="approve", review_note="Approved for final packaging."),
                 )
                 repeated_review = backend.close_queue_item_review(
                     step2_id,
-                    backend.QueueReviewClose(status="done", review_note="This should not replace the original note."),
+                    backend.QueueReviewClose(status="done", action="approve", review_note="This should not replace the original note."),
                 )
                 repeat = backend.orchestration_tick()
                 summary_after = backend.queue_summary()
@@ -835,11 +1657,11 @@ class HermesComposioTests(unittest.TestCase):
                  patch.object(backend.latitude_telemetry, "trace"):
                 result = backend.close_queue_item_review(
                     "AOS-2026-0073",
-                    backend.QueueReviewClose(status="done", review_note="Approved for final packaging."),
+                    backend.QueueReviewClose(status="done", action="approve", review_note="Approved for final packaging."),
                 )
                 repeated = backend.close_queue_item_review(
                     "AOS-2026-0073",
-                    backend.QueueReviewClose(status="done", review_note="Approved for final packaging."),
+                    backend.QueueReviewClose(status="done", action="approve", review_note="Approved for final packaging."),
                 )
 
             json.dumps(result, sort_keys=True)
@@ -922,6 +1744,7 @@ class HermesComposioTests(unittest.TestCase):
                 "allowed_actions": ["local_read"],
                 "stop_conditions": ["external_send"],
                 "definition_of_done": "Write a concrete local artifact.",
+                "review": "model",
             }])
             self.write_queue_templates(root)
             self.write_queue_references(root)
@@ -931,13 +1754,17 @@ class HermesComposioTests(unittest.TestCase):
 
             def codex_capture(prompt, item=None):
                 prompts.append(prompt)
+                artifact = root / "workflows" / "queue_artifacts" / "AOS-2026-0099_output.md"
+                artifact.parent.mkdir(parents=True, exist_ok=True)
+                artifact.write_text("fixture output\n", encoding="utf-8")
                 return {
                     "success": True,
                     "output": "PASS\nFiles touched: workflows/queue_artifacts/AOS-2026-0099_output.md\nValidation: local check\nBlockers: None\nNext action: Liam review",
                     "stdout": "",
                     "stderr": "",
                     "returncode": 0,
-                    "timeout_seconds": backend.QUEUE_WORKER_TIMEOUT_SECONDS,
+                    "command_stage": "execution",
+                    "timeout_seconds": backend.AGENT_TIMEOUT_SECONDS,
                     "token_usage_text": "Token usage: unavailable from current CLI output",
                     "token_usage": {"available": False},
                 }
@@ -947,14 +1774,6 @@ class HermesComposioTests(unittest.TestCase):
                 match = re.search(r"(?:--prompt-file\s+|<)(?P<quote>['\"]?)(?P<path>[^'\")]+)(?P=quote)", command)
                 if match:
                     prompts.append(Path(match.group("path")).read_text(encoding="utf-8"))
-                if len(commands) == 1:
-                    return {
-                        "success": True,
-                        "output": "PASS\nFiles touched: workflows/queue_artifacts/AOS-2026-0099_output.md\nValidation: local check\nBlockers: None\nNext action: Liam review\nToken usage: unavailable from current CLI output",
-                        "stdout": "PASS\nFiles touched: workflows/queue_artifacts/AOS-2026-0099_output.md\nValidation: local check\nBlockers: None\nNext action: Liam review",
-                        "stderr": "",
-                        "returncode": 0,
-                    }
                 return {"success": True, "output": "PASS", "stdout": "PASS", "stderr": "", "returncode": 0}
 
             def log_capture(route, agent, task, token_usage, token_usage_text, route_metadata=None):
@@ -969,10 +1788,17 @@ class HermesComposioTests(unittest.TestCase):
 
             self.assertTrue(result["success"])
             self.assertEqual(result["status"], "human_review")
-            self.assertEqual([], commands)
+            prompt_commands = [command for command in commands if "--prompt-file" in command]
+            self.assertGreaterEqual(len(prompt_commands), 1)
+            for command in prompt_commands:
+                self.assertNotIn("$(bad)", command)
+                self.assertNotIn("$VARS", command)
+                self.assertNotIn("`ticks`", command)
             self.assertIn(adversarial_title, prompts[0])
             self.assertIn("Required local artifact path:", prompts[0])
-            self.assertEqual(token_tasks, [f"AOS-2026-0099 | codex | {adversarial_title[:160]}"])
+            self.assertEqual(token_tasks[0], f"AOS-2026-0099 | codex | {adversarial_title[:160]}")
+            self.assertEqual(len(token_tasks), 2)
+            self.assertIn("Review this Agentic OS queue worker result", token_tasks[1])
             self.assertNotIn("multi-line\nmarkdown", token_tasks[0])
 
             item = json.loads((root / "queue" / "work_items.jsonl").read_text(encoding="utf-8").splitlines()[0])
@@ -1035,7 +1861,7 @@ class HermesComposioTests(unittest.TestCase):
             self.assertEqual(unknown["model_confirmed"], "unavailable from current CLI output")
 
         expected_profiles = {
-            "hermes": "default",
+            "hermes": "aos-orchestrator",
             "revenue": "default",
             "marketing": "default",
             "delivery": "default",
@@ -1045,6 +1871,7 @@ class HermesComposioTests(unittest.TestCase):
         }
         for lane, profile in expected_profiles.items():
             self.assertEqual(backend._queue_resolve_route_metadata(lane)["profile"], profile)
+        self.assertEqual(backend._queue_resolve_route_metadata("unknown")["profile"], "aos-orchestrator")
 
     def test_model_routes_source_profile_metadata_and_unknown_lane_defaults(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1220,6 +2047,9 @@ class HermesComposioTests(unittest.TestCase):
                         run_capture.calls = 0
                     run_capture.calls += 1
                     if run_capture.calls == 1:
+                        artifact = root / "workflows" / "queue_artifacts" / "AOS-2026-0100_output.md"
+                        artifact.parent.mkdir(parents=True, exist_ok=True)
+                        artifact.write_text("fixture output\n", encoding="utf-8")
                         return {
                             "success": True,
                             "output": "PASS\nFiles touched: workflows/queue_artifacts/AOS-2026-0100_output.md\nValidation: local check\nBlockers: None\nNext action: Liam review\nToken usage: unavailable from current CLI output",
@@ -1250,7 +2080,7 @@ class HermesComposioTests(unittest.TestCase):
             self.assertIn("Provider confirmed: unavailable from current CLI output", receipt)
             self.assertIn("Escalation rule: Escalate for direct prospect-facing copy", receipt)
             self.assertIn("Token usage:", receipt)
-            self.assertIn("- Attempt 1 worker: unavailable from current CLI output", receipt)
+            self.assertIn("- Attempt 1 worker (role=implementer; session=unavailable): unavailable from current CLI output", receipt)
 
             records = [json.loads(line) for line in token_file.read_text(encoding="utf-8").splitlines()]
             self.assertEqual(len(records), 1)
@@ -1267,11 +2097,24 @@ class HermesComposioTests(unittest.TestCase):
             self.assertEqual(records[0]["model_confirmed"], "unavailable from current CLI output")
             self.assertNotIn("FULL PROMPT SENTINEL", record_text)
 
-    def test_search_firecrawl_and_composio_decisions_stay_with_hermes(self):
-        for task in ("search the web", "scrape this page", "use Firecrawl", "use Composio to check mail"):
-            command, result = self.route(task)
-            self.assertIn("aos-hermes-coordinator.sh", command, task)
-            self.assertEqual(result["selected_route"], "hermes_coordinator")
+    def test_search_firecrawl_and_composio_work_uses_native_hermes_fallback(self):
+        reply = {"success": True, "reply": "Hermes handled the intelligent request."}
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_queue_items(root, [])
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_run_hermes_message", return_value=reply) as hermes, \
+                 patch.object(backend, "_hermes_coordinator_closeout", side_effect=lambda result, task, route: {
+                     "success": True, "selected_route": "hermes_coordinator", "output": result["reply"],
+                 }):
+                results = [
+                    backend.wsl_hermes(backend.TaskRun(task=task))
+                    for task in ("search the web", "scrape this page", "use Firecrawl", "use Composio to check mail")
+                ]
+                rows = backend._read_queue_items()
+        self.assertEqual(hermes.call_count, 4)
+        self.assertTrue(all(result["selected_route"] == "hermes_coordinator" for result in results))
+        self.assertEqual(rows, [])
 
     def test_queue_intent_creates_local_queue_item_without_wsl(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1314,10 +2157,16 @@ class HermesComposioTests(unittest.TestCase):
             run.assert_not_called()
             self.assertEqual([result["owner"] for result in results], [owner for _, owner in cases])
 
-    def test_non_prefix_queue_language_falls_through_to_hermes(self):
-        command, result = self.route("Please add this to the queue: have Codex inspect the route")
-        self.assertIn("aos-hermes-coordinator.sh", command)
-        self.assertEqual(result["selected_route"], "hermes_coordinator")
+    def test_non_prefix_queue_language_uses_async_queue_contract(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_queue_runner_status", return_value={"available": True, "state": "running", "pid": 1}), \
+                 patch.object(backend, "_run_wsl") as run:
+                result = backend.wsl_hermes(backend.TaskRun(task="Please add this to the queue: have Codex inspect the route"))
+        run.assert_not_called()
+        self.assertEqual(result["selected_route"], "direct_codex")
+        self.assertEqual(result["owner"], "codex")
 
     def test_queue_status_intent_returns_counts_without_wsl(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1476,25 +2325,6 @@ class HermesComposioTests(unittest.TestCase):
         self.assertLess(active["itemCount"], all_items["itemCount"])
         self.assertEqual(all_items["totalCount"], len(items))
 
-    def test_queue_read_skips_one_malformed_record_and_keeps_valid_records(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            queue = root / "queue"
-            queue.mkdir(parents=True)
-            queue_path = queue / "work_items.jsonl"
-            original = '{"id":"AOS-2026-9012","status":"inbox"}\n{broken\n{"id":"AOS-2026-9013","status":"done"}\n'
-            queue_path.write_text(original, encoding="utf-8")
-            with patch.object(backend, "BASE_DIR", root):
-                result = backend.queue_items("all")
-                summary = backend.queue_summary()
-            preserved = queue_path.read_text(encoding="utf-8")
-        self.assertTrue(result["success"])
-        self.assertEqual(["AOS-2026-9012", "AOS-2026-9013"], [row["id"] for row in result["items"]])
-        self.assertEqual({"invalidRecordCount": 1}, result["diagnostics"])
-        self.assertEqual({"invalidRecordCount": 1}, summary["diagnostics"])
-        self.assertNotIn("broken", json.dumps(result))
-        self.assertEqual(original, preserved)
-
     def test_dashboard_cockpit_uses_queue_summary_needs_me_source(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -1598,6 +2428,24 @@ class HermesComposioTests(unittest.TestCase):
 
         self.assertEqual(cockpit["needs_me_count"], 9)
         self.assertEqual(len(cockpit["needs_me"]), cockpit["needs_me_count"])
+
+    def test_model_turn_threshold_adds_needs_me_only_above_default(self):
+        items = [
+            {"id": "AOS-2026-0001", "title": "Above", "status": "done", "priority": 1, "created_at": "2026-07-05T10:00:00Z"},
+            {"id": "AOS-2026-0002", "title": "At", "status": "done", "priority": 1, "created_at": "2026-07-05T10:01:00Z"},
+            {"id": "AOS-2026-0003", "title": "Below", "status": "done", "priority": 1, "created_at": "2026-07-05T10:02:00Z"},
+        ]
+        records = [
+            {"item_id": "AOS-2026-0001", "timestamp": "2026-07-05T11:00:00Z", "model_turns": 76},
+            {"item_id": "AOS-2026-0002", "timestamp": "2026-07-05T11:00:00Z", "model_turns": 75},
+            {"item_id": "AOS-2026-0003", "timestamp": "2026-07-05T11:00:00Z", "model_turns": 74},
+        ]
+        attributions = backend._queue_invocation_attributions(records)
+        needs_me = backend._queue_human_needed_items(items, attributions)
+        public = backend._queue_public_item(items[0], attributions)
+        self.assertEqual(["AOS-2026-0001"], [item["id"] for item in needs_me])
+        self.assertEqual(["excessive model turns"], public["needs_me"])
+        self.assertEqual(backend.MODEL_TURNS_THRESHOLD_DEFAULT, 75)
 
     def test_telegram_send_test_endpoint_is_idempotent(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1925,7 +2773,7 @@ class HermesComposioTests(unittest.TestCase):
                  patch.object(backend, "_run_wsl") as run:
                 result = backend.close_queue_item_review(
                     "AOS-2026-0002",
-                    backend.QueueReviewClose(review_note="Looks good after receipt review."),
+                    backend.QueueReviewClose(action="approve", review_note="Looks good after receipt review."),
                 )
 
             run.assert_not_called()
@@ -1943,6 +2791,62 @@ class HermesComposioTests(unittest.TestCase):
             self.assertEqual(item["receipts"][0]["path"], result["receipt_path"])
             self.assertEqual(item["receipts"][0]["status"], "done")
 
+    def test_human_review_detail_shows_substantive_receipt_and_note_save_cannot_close(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            receipt_path = "queue/receipts/AOS-2026-0002-run.md"
+            notification_path = "queue/receipts/AOS-2026-0002-notification-later.md"
+            artifact_path = "workflows/queue_artifacts/AOS-2026-0002_result.md"
+            (root / "queue/receipts").mkdir(parents=True)
+            (root / "workflows/queue_artifacts").mkdir(parents=True)
+            (root / receipt_path).write_text(
+                "PASS\n\nAssigned worker: codex\nAttempts used: 2\n\nSummary for operator:\n- Actual repaired output.\n\nValidation:\n- Focused suite passed.\n\nArtifacts:\n- workflows/queue_artifacts/AOS-2026-0002_result.md\n\nBlockers:\n- None\n\nToken usage:\n- Total input: 100\n- Cached input: 80\n- Non-cached input: 20\n- Output: 10\n",
+                encoding="utf-8",
+            )
+            (root / notification_path).write_text("Notification only\n", encoding="utf-8")
+            (root / artifact_path).write_text("CONSOLIDATED ACTUAL ARTIFACT\n", encoding="utf-8")
+            item = self.sample_queue_items()[1]
+            item.update({
+                "status": "human_review",
+                "receipts": [
+                    {"path": receipt_path, "status": "human_review"},
+                    {"path": notification_path, "status": "human_review"},
+                ],
+            })
+            self.write_queue_items(root, [item])
+            queue_tool = backend._load_queue_tool()
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_load_queue_tool", return_value=queue_tool), \
+                 patch.object(queue_tool, "finalize_done", return_value={}), \
+                 patch.object(backend.aos_orchestration, "tick", return_value={"advanced": []}):
+                detail = backend.queue_item(item["id"])["item"]
+                note = backend.save_queue_item_review_note(
+                    item["id"], backend.QueueReviewNote(review_note="Optional note only"),
+                )
+                after_note = backend._queue_find_item(item["id"])
+                with self.assertRaises(backend.HTTPException) as generic_done:
+                    backend.close_queue_item_review(
+                        item["id"], backend.QueueReviewClose(status="done", review_note="No explicit action"),
+                    )
+                approved = backend.close_queue_item_review(
+                    item["id"], backend.QueueReviewClose(status="done", action="approve", review_note="Explicit approval"),
+                )
+
+        self.assertEqual(detail["latest_receipt"]["path"], receipt_path)
+        self.assertIn("Actual repaired output", detail["latest_receipt"]["content"])
+        self.assertEqual(detail["review_details"]["worker"], "codex")
+        self.assertEqual(detail["review_details"]["attempts"], 2)
+        self.assertIn("Focused suite passed", detail["review_details"]["validation"])
+        self.assertIn("Total input: 100", " ".join(detail["review_details"]["token_usage_lines"]))
+        self.assertEqual(detail["primary_artifact"]["path"], artifact_path)
+        self.assertIn("CONSOLIDATED ACTUAL ARTIFACT", detail["primary_artifact"]["content"])
+        self.assertFalse(note["state_changed"])
+        self.assertEqual(note["token_usage_text"], "Token usage: no agent invocation")
+        self.assertEqual(after_note["status"], "human_review")
+        self.assertEqual(generic_done.exception.status_code, 400)
+        self.assertIn("explicit review action required", generic_done.exception.detail)
+        self.assertEqual(approved["status"], "done")
+
     def test_dashboard_queue_review_close_can_mark_needs_input_or_blocked_with_note_receipt(self):
         for review_status in ("needs_input", "blocked"):
             with tempfile.TemporaryDirectory() as tmp:
@@ -1954,7 +2858,11 @@ class HermesComposioTests(unittest.TestCase):
                      patch.object(backend, "_run_wsl") as run:
                     result = backend.close_queue_item_review(
                         "AOS-2026-0002",
-                        backend.QueueReviewClose(status=review_status, review_note=f"Set {review_status} from dashboard."),
+                        backend.QueueReviewClose(
+                            status=review_status,
+                            action="needs_changes" if review_status == "needs_input" else "block",
+                            review_note=f"Set {review_status} from dashboard.",
+                        ),
                     )
 
                 run.assert_not_called()
@@ -1985,7 +2893,7 @@ class HermesComposioTests(unittest.TestCase):
             self.write_queue_items(root, [parent, child])
             with patch.object(backend, "BASE_DIR", root), patch.object(backend, "_run_wsl"):
                 result = backend.close_queue_item_review(
-                    parent["id"], backend.QueueReviewClose(status="needs_input", review_note="Fix the final spacing and rerun everything."),
+                    parent["id"], backend.QueueReviewClose(status="needs_input", action="needs_changes", review_note="Fix the final spacing and rerun everything."),
                 )
                 correction = result["correction_item"]
                 self.assertEqual("inbox", result["status"])
@@ -2000,7 +2908,7 @@ class HermesComposioTests(unittest.TestCase):
                 self.assertIn("complete validation obligation", correction["definition_of_done"])
                 with self.assertRaises(backend.HTTPException) as second:
                     backend.close_queue_item_review(
-                        parent["id"], backend.QueueReviewClose(status="needs_input", review_note="More changes."),
+                        parent["id"], backend.QueueReviewClose(status="needs_input", action="needs_changes", review_note="More changes."),
                     )
                 self.assertIn("new work item or package definition version", second.exception.detail)
                 rows = backend._read_queue_items()
@@ -2011,10 +2919,10 @@ class HermesComposioTests(unittest.TestCase):
                 backend.aos_orchestration.tick(root, allow_telegram_escalation=False)
                 self.assertEqual("human_review", backend._queue_find_item(parent["id"])["status"])
                 approved = backend.close_queue_item_review(
-                    parent["id"], backend.QueueReviewClose(status="done", review_note="Approved."),
+                    parent["id"], backend.QueueReviewClose(status="done", action="approve", review_note="Approved."),
                 )
                 repeated = backend.close_queue_item_review(
-                    parent["id"], backend.QueueReviewClose(status="done", review_note="Approved again."),
+                    parent["id"], backend.QueueReviewClose(status="done", action="approve", review_note="Approved again."),
                 )
                 self.assertEqual("done", approved["status"])
                 self.assertEqual(approved["receipt_path"], repeated["receipt_path"])
@@ -2030,8 +2938,8 @@ class HermesComposioTests(unittest.TestCase):
         dashboard_view = (root / "dashboard/frontend/src/views/DashboardV1.jsx").read_text(encoding="utf-8")
         self.assertIn("HumanReviewCard", queue_view)
         self.assertIn("Needs changes", review_card)
-        self.assertIn("needs_input", review_card)
-        self.assertIn("Needs changes", dashboard_view)
+        self.assertIn("needs_changes", review_card)
+        self.assertIn("HumanReviewCard", dashboard_view)
 
     def test_dashboard_queue_review_close_rejects_non_review_items(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -2042,7 +2950,7 @@ class HermesComposioTests(unittest.TestCase):
                 with self.assertRaises(backend.HTTPException) as raised:
                     backend.close_queue_item_review(
                         "AOS-2026-0002",
-                        backend.QueueReviewClose(review_note="Not ready for review close."),
+                        backend.QueueReviewClose(action="approve", review_note="Not ready for review close."),
                     )
 
             run.assert_not_called()
@@ -2568,6 +3476,196 @@ class HermesComposioTests(unittest.TestCase):
         self.assertIn("Revenue artifact body", prompt)
         self.assertIn("Do not claim an artifact is missing", prompt)
 
+    def test_reviewer_receives_final_artifact_instead_of_worker_transcript(self):
+        item = {
+            "id": "AOS-2026-0206", "title": "Reviewer input regression", "owner": "claude",
+            "context": "Require exact route evidence.", "definition_of_done": "Produce proof.",
+            "stop_conditions": ["external_send"],
+        }
+        full = "\n".join((
+            "PASS",
+            "Files touched: workflows/queue_artifacts/AOS-2026-0206_proof.md",
+            "Validation: pwd -> /home/liam/agentic-os-live",
+            "git rev-parse --show-toplevel -> /home/liam/agentic-os-live",
+            "/home/liam/.local/npm/bin/claude --version -> 2.1.207 (Claude Code)",
+            "Artifacts: workflows/queue_artifacts/AOS-2026-0206_proof.md",
+            "Blockers: None",
+        ))
+        worker_result = {
+            "output": "PASS\nFiles touched: workflows/queue_artifacts/AOS-2026-0206_proof.md\nValidation: pwd only",
+            "review_output": full,
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            artifact = root / "workflows" / "queue_artifacts" / "AOS-2026-0206_proof.md"
+            artifact.parent.mkdir(parents=True)
+            artifact.write_text("proof\n", encoding="utf-8")
+            with patch.object(backend, "BASE_DIR", root):
+                prompt = backend._queue_hermes_review_prompt(item, "claude", 1, worker_result)
+        self.assertIn("Final artifact: workflows/queue_artifacts/AOS-2026-0206_proof.md", prompt)
+        self.assertIn("proof", prompt)
+        self.assertNotIn("git rev-parse --show-toplevel", prompt)
+        self.assertNotIn("2.1.207 (Claude Code)", prompt)
+
+    def test_canonical_artifact_normalization_containment_resolution_and_hash(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            artifact = root / "workflows" / "queue_artifacts" / "proof.md"
+            artifact.parent.mkdir(parents=True)
+            artifact.write_text("CANONICAL_ARTIFACT_OK\n", encoding="utf-8")
+            outside = root.parent / f"{root.name}-outside.md"
+            outside.write_text("outside\n", encoding="utf-8")
+            escape = artifact.parent / "escape.md"
+            escape.symlink_to(outside)
+            try:
+                with patch.object(backend, "BASE_DIR", root):
+                    self.assertEqual(
+                        backend._queue_normalize_artifact_path("./workflows/queue_artifacts/proof.md"),
+                        "workflows/queue_artifacts/proof.md",
+                    )
+                    self.assertEqual(
+                        backend._queue_normalize_artifact_path(r"workflows\queue_artifacts\proof.md"),
+                        "workflows/queue_artifacts/proof.md",
+                    )
+                    resolved = backend._queue_read_artifact("workflows/queue_artifacts/proof.md")
+                    with self.assertRaisesRegex(ValueError, "authoritative Linux workspace"):
+                        backend._queue_normalize_artifact_path("../outside.md")
+                    with self.assertRaisesRegex(ValueError, "authoritative Linux workspace"):
+                        backend._queue_normalize_artifact_path(str(artifact))
+                    with self.assertRaisesRegex(ValueError, "authoritative Linux workspace"):
+                        backend._queue_read_artifact("workflows/queue_artifacts/escape.md")
+            finally:
+                outside.unlink(missing_ok=True)
+        self.assertEqual(resolved["path"], "workflows/queue_artifacts/proof.md")
+        self.assertEqual(resolved["sha256"], "8cf5278a792e55b3d24b94e71f31f63e6089469951cd1e7cfdbaa308c25a800c")
+
+    def test_aos_0156_regression_canonical_artifact_overrules_false_path_revise_without_retry(self):
+        work = self.approval_item("AOS-2026-0201", "agent_todo", title="Claude canonical artifact regression")
+        work.update({"owner": "claude", "source": "unit", "tags": ["async_dispatch"]})
+        calls = []
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_queue_items(root, [work])
+            self.write_queue_templates(root)
+            with patch.object(backend, "BASE_DIR", root):
+                artifact_path = backend._queue_default_artifact_path(work)
+
+                def worker(*args):
+                    calls.append(args)
+                    target = root / artifact_path
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_text("CLAUDE_CANONICAL_REGRESSION_OK\n", encoding="utf-8")
+                    return {
+                        "success": True,
+                        "output": f"PASS\nFiles touched: {artifact_path}\nValidation: canonical fixture\nBlockers: None\nNext action: Review",
+                        "returncode": 0,
+                        "token_usage_text": "Token usage: unavailable from current CLI output",
+                        "token_usage": {"available": False},
+                    }
+
+                review = {
+                    "success": True,
+                    "output": f"REVISE: artifact not found at an old workspace path: {artifact_path}",
+                    "returncode": 0,
+                    "token_usage_text": "Token usage: unavailable from current CLI output",
+                    "token_usage": {"available": False},
+                }
+                with patch.object(backend, "_queue_run_worker", side_effect=worker), \
+                     patch.object(backend, "_queue_run_hermes_review", return_value=review), \
+                     patch.object(backend, "_queue_resolve_route_metadata", return_value=self.route_metadata_fixture("claude")), \
+                     patch.object(backend, "_notify_queue_completion", return_value=None):
+                    result = backend.run_queue_item(work["id"])
+                    saved = backend._queue_find_item(work["id"])
+                    receipt = (root / result["receipt_path"]).read_text(encoding="utf-8")
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(result["attempts_used"], 1)
+        self.assertTrue(result["success"])
+        self.assertEqual(result["hermes_review"]["decision"], "PASS")
+        self.assertEqual(saved["status"], "human_review")
+        self.assertIn("AVAILABLE:", receipt)
+        self.assertIn("sha256", receipt)
+
+    def test_claimed_but_genuinely_absent_artifact_is_rejected_without_retry(self):
+        work = self.approval_item("AOS-2026-0202", "agent_todo", title="Missing artifact regression")
+        work.update({"owner": "claude", "source": "unit", "tags": ["async_dispatch"]})
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_queue_items(root, [work])
+            self.write_queue_templates(root)
+            with patch.object(backend, "BASE_DIR", root):
+                artifact_path = backend._queue_default_artifact_path(work)
+                worker_result = {
+                    "success": True,
+                    "output": f"PASS\nFiles touched: {artifact_path}\nValidation: claimed only\nBlockers: None",
+                    "returncode": 0,
+                    "token_usage_text": "Token usage: unavailable from current CLI output",
+                    "token_usage": {"available": False},
+                }
+                review = {
+                    "success": True, "output": "PASS", "returncode": 0,
+                    "token_usage_text": "Token usage: unavailable from current CLI output",
+                    "token_usage": {"available": False},
+                }
+                with patch.object(backend, "_queue_run_worker", return_value=worker_result) as worker, \
+                     patch.object(backend, "_queue_run_hermes_review", return_value=review), \
+                     patch.object(backend, "_queue_resolve_route_metadata", return_value=self.route_metadata_fixture("claude")), \
+                     patch.object(backend, "_notify_queue_completion", return_value=None):
+                    result = backend.run_queue_item(work["id"])
+                    receipt = (root / result["receipt_path"]).read_text(encoding="utf-8")
+        self.assertEqual(worker.call_count, 1)
+        self.assertFalse(result["success"])
+        self.assertEqual(result["status"], "needs_input")
+        self.assertIn("Claimed canonical artifact is genuinely absent", receipt)
+
+    def test_status_read_remains_responsive_while_controlled_worker_is_active(self):
+        work = self.approval_item("AOS-2026-0203", "agent_todo", title="Active status fixture")
+        work.update({"owner": "claude", "source": "unit", "tags": ["async_dispatch"]})
+        entered = threading.Event()
+        release = threading.Event()
+        result_holder = {}
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_queue_items(root, [work])
+            self.write_queue_templates(root)
+            with patch.object(backend, "BASE_DIR", root):
+                artifact_path = backend._queue_default_artifact_path(work)
+
+                def worker(*args):
+                    entered.set()
+                    release.wait(2)
+                    target = root / artifact_path
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_text("STATUS_ACTIVE_OK\n", encoding="utf-8")
+                    return {
+                        "success": True,
+                        "output": f"PASS\nFiles touched: {artifact_path}\nValidation: status active\nBlockers: None",
+                        "returncode": 0,
+                        "token_usage_text": "Token usage: unavailable from current CLI output",
+                        "token_usage": {"available": False},
+                    }
+
+                review = {
+                    "success": True, "output": "PASS", "returncode": 0,
+                    "token_usage_text": "Token usage: unavailable from current CLI output",
+                    "token_usage": {"available": False},
+                }
+                with patch.object(backend, "_queue_run_worker", side_effect=worker), \
+                     patch.object(backend, "_queue_run_hermes_review", return_value=review), \
+                     patch.object(backend, "_queue_resolve_route_metadata", return_value=self.route_metadata_fixture("claude")), \
+                     patch.object(backend, "_notify_queue_completion", return_value=None):
+                    thread = threading.Thread(target=lambda: result_holder.setdefault("result", backend.run_queue_item(work["id"])))
+                    thread.start()
+                    self.assertTrue(entered.wait(1))
+                    started = time.monotonic()
+                    status = backend._queue_status_closeout()
+                    elapsed = time.monotonic() - started
+                    release.set()
+                    thread.join(timeout=3)
+        self.assertLess(elapsed, 0.2)
+        self.assertIn("agent_working", status["output"])
+        self.assertFalse(thread.is_alive())
+        self.assertTrue(result_holder["result"]["success"])
+
     def test_dashboard_queue_status_endpoint_updates_item_and_rejects_invalid_status(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -2610,6 +3708,14 @@ class HermesComposioTests(unittest.TestCase):
                 "returncode": 0,
                 "token_usage_text": "Token usage: unavailable from current CLI output",
                 "token_usage": {"available": False},
+                "invocation": {
+                    "executable": "/home/liam/.local/npm/bin/codex",
+                    "linux_user": "liam",
+                    "effective_uid": 1002,
+                    "cwd": "/home/liam/agentic-os-live",
+                    "sandbox": "danger-full-access",
+                    "approval_policy": "never",
+                },
             }
             with patch.object(backend, "BASE_DIR", root), \
                  patch.object(backend, "_run_codex_local", return_value=worker_result) as run, \
@@ -2619,14 +3725,337 @@ class HermesComposioTests(unittest.TestCase):
                 result = backend.run_queue_item("AOS-2026-0002")
 
         run.assert_called_once()
-        self.assertIn("Required local artifact path:", run.call_args.args[0])
-        self.assertEqual("AOS-2026-0002", run.call_args.args[1]["id"])
+        self.assertIn("Required local artifact path", run.call_args.args[0])
+        self.assertEqual(run.call_args.args[1]["id"], "AOS-2026-0002")
         claude.assert_not_called()
         hermes.assert_not_called()
         self.assertTrue(result["success"])
         self.assertEqual(result["assigned_worker"], "codex")
         self.assertEqual(result["attempts_used"], 1)
-        self.assertEqual(result["worker_result"]["timeout_seconds"], backend.QUEUE_WORKER_TIMEOUT_SECONDS)
+        self.assertEqual(result["worker_result"]["command_stage"], "completion")
+
+    def test_healthy_heartbeat_beyond_120_seconds_is_not_stuck(self):
+        now = datetime.datetime.now(datetime.timezone.utc)
+        item = self.sample_queue_items()[1]
+        item.update({
+            "status": "agent_working",
+            "claim": {"claimed_by": "codex", "claimed_at": (now - datetime.timedelta(seconds=300)).isoformat()},
+            "worker_heartbeat_at": (now - datetime.timedelta(seconds=2)).isoformat(),
+            "updated_at": (now - datetime.timedelta(seconds=2)).isoformat(),
+        })
+        recovery = backend._queue_stuck_recovery(item, now=now)
+        self.assertFalse(recovery["stuck"])
+        self.assertLess(recovery["age_seconds"], backend.QUEUE_STUCK_TIMEOUT_SECONDS)
+
+    def test_stale_heartbeat_with_exact_live_worker_runtime_is_not_recovered(self):
+        now = datetime.datetime.now(datetime.timezone.utc)
+        item = self.sample_queue_items()[1]
+        item.update({
+            "status": "agent_working",
+            "claim": {"claimed_by": "claude", "claimed_at": (now - datetime.timedelta(seconds=300)).isoformat()},
+            "worker_heartbeat_at": (now - datetime.timedelta(seconds=backend.QUEUE_STUCK_TIMEOUT_SECONDS + 1)).isoformat(),
+            "updated_at": (now - datetime.timedelta(seconds=backend.QUEUE_STUCK_TIMEOUT_SECONDS + 1)).isoformat(),
+            "worker_runtime": {"pid": 4242, "process_start_id": "exact-start", "route": "aos-claude"},
+        })
+        with patch.object(backend, "_linux_process_start_id", return_value="exact-start"):
+            recovery = backend._queue_stuck_recovery(item, now=now)
+        self.assertFalse(recovery["stuck"])
+        self.assertTrue(recovery["runtime_live"])
+        self.assertIn("exact worker process is still live", recovery["reason"])
+
+    def test_dead_worker_is_recovered_to_blocked_with_receipt_and_clear_claim(self):
+        now = datetime.datetime.now(datetime.timezone.utc)
+        item = self.sample_queue_items()[1]
+        item.update({
+            "status": "agent_working",
+            "claim": {"claimed_by": "codex", "claimed_at": (now - datetime.timedelta(seconds=300)).isoformat()},
+            "worker_heartbeat_at": (now - datetime.timedelta(seconds=backend.QUEUE_STUCK_TIMEOUT_SECONDS + 1)).isoformat(),
+            "updated_at": (now - datetime.timedelta(seconds=backend.QUEUE_STUCK_TIMEOUT_SECONDS + 1)).isoformat(),
+        })
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_queue_items(root, [item])
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_queue_resolve_route_metadata", return_value=self.route_metadata_fixture("codex")), \
+                 patch.object(backend, "_notify_queue_completion", return_value=None), \
+                 patch.object(backend, "_queue_run_worker") as worker:
+                result = backend.run_queue_item(item["id"])
+                saved = backend._queue_find_item(item["id"])
+                receipt = (root / result["receipt_path"]).read_text(encoding="utf-8")
+        worker.assert_not_called()
+        self.assertTrue(result["recovered_stuck"])
+        self.assertEqual(saved["status"], "blocked")
+        self.assertEqual(saved["claim"], {"claimed_by": None, "claimed_at": None})
+        self.assertIn("NEEDS ATTENTION", receipt)
+        self.assertIn("last worker heartbeat", receipt)
+
+    def test_agent_exit_failure_writes_blocked_receipt_and_releases_claim(self):
+        worker_result = {
+            "success": False,
+            "output": "Agent process exited before completion",
+            "returncode": 7,
+            "token_usage_text": "Token usage: unavailable from current CLI output",
+            "token_usage": {"available": False},
+        }
+        review_result = {
+            "success": True,
+            "output": "PASS",
+            "returncode": 0,
+            "token_usage_text": "Token usage: unavailable from current CLI output",
+            "token_usage": {"available": False},
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_queue_items(root, [self.sample_queue_items()[1]])
+            self.write_queue_templates(root)
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_queue_run_worker", return_value=worker_result), \
+                 patch.object(backend, "_queue_run_hermes_review", return_value=review_result) as model_review, \
+                 patch.object(backend, "_queue_resolve_route_metadata", return_value=self.route_metadata_fixture("codex")), \
+                 patch.object(backend, "_notify_queue_completion", return_value=None):
+                result = backend.run_queue_item("AOS-2026-0002")
+                saved = backend._queue_find_item("AOS-2026-0002")
+                receipt = (root / result["receipt_path"]).read_text(encoding="utf-8")
+        self.assertFalse(result["success"])
+        self.assertEqual(saved["status"], "blocked")
+        self.assertEqual(saved["claim"], {"claimed_by": None, "claimed_at": None})
+        self.assertIn("worker exited with status 7", receipt)
+
+    def test_agent_reported_failure_is_classified_and_skips_hermes_review(self):
+        worker_result = {
+            "success": False,
+            "output": "NEEDS ATTENTION\nFiles touched: None\nValidation: local route ran\nBlockers: protected_boundary_stop\nNext action: review boundary",
+            "returncode": 0,
+            "failure_class": "agent_reported_task_failure",
+            "command_stage": "completion",
+            "diagnostic_log": "logs/local_agent_route.jsonl",
+            "captured_stdout_tail": "NEEDS ATTENTION",
+            "captured_stderr_tail": "",
+            "token_usage_text": "Token usage: unavailable from current CLI output",
+            "token_usage": {"available": False},
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_queue_items(root, [self.sample_queue_items()[1]])
+            self.write_queue_templates(root)
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_queue_run_worker", return_value=worker_result), \
+                 patch.object(backend, "_queue_run_hermes_review") as review, \
+                 patch.object(backend, "_queue_resolve_route_metadata", return_value=self.route_metadata_fixture("codex")), \
+                 patch.object(backend, "_notify_queue_completion", return_value=None):
+                result = backend.run_queue_item("AOS-2026-0002")
+                receipt = (root / result["receipt_path"]).read_text(encoding="utf-8")
+        review.assert_not_called()
+        self.assertEqual(result["status"], "blocked")
+        self.assertIn("agent_reported_task_failure", receipt)
+        self.assertNotIn("exited with status 0", receipt)
+
+    def test_telegram_style_dispatch_runs_once_after_ack_and_produces_receipt(self):
+        runner_path = MAIN.parents[2] / "tools" / "aos-orchestration-runner.py"
+        spec = importlib.util.spec_from_file_location("aos_async_runner_fixture", runner_path)
+        runner = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(runner)
+        task = r"Give this task to Codex: assess a candidate workflow at C:\Users\Liam\Downloads\candidate-workflow and incorporate it if useful, then validate end-to-end."
+        worker_calls = []
+        worker_result = {
+            "success": True,
+            "output": "PASS\nFiles touched: None\nValidation: disposable end-to-end proof\nBlockers: None\nNext action: Liam review",
+            "returncode": 0,
+            "token_usage_text": "Token usage: unavailable from current CLI output",
+            "token_usage": {"available": False},
+        }
+        review_result = {
+            "success": True,
+            "output": "PASS",
+            "returncode": 0,
+            "token_usage_text": "Token usage: unavailable from current CLI output",
+            "token_usage": {"available": False},
+        }
+
+        def delayed_worker(*args):
+            worker_calls.append(args)
+            time.sleep(0.15)
+            return worker_result
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_queue_templates(root)
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "INLINE_COMMAND_TIMEOUT_SECONDS", 0.05), \
+                 patch.object(backend, "_queue_runner_status", return_value={"available": True, "state": "running", "pid": 123}), \
+                 patch.object(backend, "_queue_run_worker", side_effect=delayed_worker), \
+                 patch.object(backend, "_queue_run_hermes_review", return_value=review_result) as model_review, \
+                 patch.object(backend, "_queue_resolve_route_metadata", return_value=self.route_metadata_fixture("hermes")), \
+                 patch.object(backend, "_notify_queue_completion", return_value={"result": "sent", "sent": True}):
+                acknowledgement = backend.wsl_hermes(backend.TaskRun(task=task, delivery_id="proof-update-1", reply_to="fixture-chat"))
+                duplicate = backend.wsl_hermes(backend.TaskRun(task=task, delivery_id="proof-update-1", reply_to="fixture-chat"))
+                result_holder = {}
+                thread = threading.Thread(
+                    target=lambda: result_holder.setdefault(
+                        "result", runner.dispatch_next(root, dispatch=lambda item_id: backend.run_queue_item(item_id))
+                    )
+                )
+                thread.start()
+                self.assertTrue(acknowledgement["request_returned_before_completion"])
+                self.assertTrue(thread.is_alive())
+                thread.join(timeout=3)
+                final_item = backend._queue_find_item(acknowledgement["work_item_id"])
+                receipt_path = result_holder["result"]["receipt_path"]
+                receipt = (root / receipt_path).read_text(encoding="utf-8")
+
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(acknowledgement["work_item_id"], duplicate["work_item_id"])
+        self.assertTrue(duplicate["duplicate"])
+        self.assertEqual(len(worker_calls), 1)
+        self.assertEqual(final_item["status"], "human_review")
+        self.assertEqual(final_item["claim"], {"claimed_by": None, "claimed_at": None})
+        self.assertIn("PASS", receipt)
+        self.assertIn("disposable end-to-end proof", receipt)
+
+    def test_split_telegram_work_request_creates_one_item_and_invokes_one_worker(self):
+        runner_path = MAIN.parents[2] / "tools" / "aos-orchestration-runner.py"
+        spec = importlib.util.spec_from_file_location("aos_split_runner_fixture", runner_path)
+        runner = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(runner)
+        first_part = "/work claude " + ("bounded dashboard repair details " * 140) + "\n\n4. Preserve architecture:"
+        second_part = "* Linux queue authority remains queue/work_items.jsonl.\n* Run the complete validation suite."
+        worker_result = {
+            "success": True,
+            "output": "PASS\nSummary for operator: Split intake proof completed locally; approval sends nothing externally.\nFiles touched: None\nValidation: one worker fixture\nBlockers: None\nNext action: Review",
+            "returncode": 0,
+            "token_usage_text": "Token usage: unavailable from current CLI output",
+            "token_usage": {"available": False},
+        }
+        review_result = {
+            "success": True,
+            "output": "PASS",
+            "returncode": 0,
+            "token_usage_text": "Token usage: unavailable from current CLI output",
+            "token_usage": {"available": False},
+        }
+        runner_state = {"available": True, "accepted": True, "state": "running", "pid": 123, "mode": "recurring"}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_queue_templates(root)
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_queue_runner_status", return_value=runner_state), \
+                 patch.object(backend, "_queue_run_worker", return_value=worker_result) as worker, \
+                 patch.object(backend, "_queue_run_hermes_review", return_value=review_result) as model_review, \
+                 patch.object(backend, "_queue_resolve_route_metadata", return_value=self.route_metadata_fixture("claude")), \
+                 patch.object(backend, "_notify_queue_completion", return_value=None):
+                first = backend.wsl_hermes(backend.TaskRun(task=first_part, source="telegram"))
+                second = backend.wsl_hermes(backend.TaskRun(task=second_part, source="telegram"))
+                completed = runner.dispatch_next(root, dispatch=lambda item_id: backend.run_queue_item(item_id))
+                rows = backend._read_queue_items()
+                prompt_files = list((root / "queue/run_prompts").glob("*.md"))
+                prompt_text = (root / rows[0]["run_prompt_path"]).read_text(encoding="utf-8")
+
+        self.assertTrue(first["created"])
+        self.assertEqual(second["state"], "split-work-request-merged")
+        self.assertFalse(second["created"])
+        self.assertFalse(second["runner_accepted"])
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(len(prompt_files), 1)
+        self.assertIn(first_part, prompt_text)
+        self.assertIn(second_part, prompt_text)
+        self.assertEqual(["consider decomposing"], rows[0]["needs_me"])
+        self.assertEqual(worker.call_count, 1)
+        model_review.assert_not_called()
+        self.assertEqual(completed["attempts_used"], 1)
+        self.assertEqual(rows[0]["status"], "human_review")
+
+    def test_explicit_model_review_uses_existing_path_with_final_artifact_only(self):
+        item = {
+            "id": "AOS-2026-0201",
+            "title": "Explicit model review proof",
+            "status": "agent_todo",
+            "priority": 5,
+            "requested_by": "Liam",
+            "owner_type": "agent",
+            "owner": "codex",
+            "source": "dashboard",
+            "tags": [],
+            "context": "Produce the bounded proof.",
+            "sources": [],
+            "allowed_actions": ["local_read", "local_test"],
+            "stop_conditions": ["external_send"],
+            "definition_of_done": "Final artifact exists.",
+            "claim": {"claimed_by": None, "claimed_at": None},
+            "receipts": [],
+            "review": "model",
+            "created_at": "2026-07-18T10:00:00Z",
+            "updated_at": "2026-07-18T10:00:00Z",
+        }
+        worker_result = {
+            "success": True,
+            "output": "PASS\nArtifacts: workflows/queue_artifacts/AOS-2026-0201_Explicit_model_review_proof.md\nValidation: deterministic proof",
+            "stdout": "RAW WORKER TRANSCRIPT AND RAW TEST LOGS",
+            "returncode": 0,
+            "token_usage_text": "Token usage: unavailable from current CLI output",
+            "token_usage": {"available": False},
+        }
+        review_result = {
+            "success": True,
+            "output": "PASS",
+            "returncode": 0,
+            "token_usage_text": "Token usage: unavailable from current CLI output",
+            "token_usage": {"available": False},
+        }
+        captured = {}
+
+        def review(item_arg, owner, attempt, result):
+            captured["prompt"] = backend._queue_hermes_review_prompt(item_arg, owner, attempt, result)
+            return review_result
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_queue_templates(root)
+            self.write_queue_items(root, [item])
+            artifact = root / "workflows/queue_artifacts/AOS-2026-0201_Explicit_model_review_proof.md"
+            artifact.parent.mkdir(parents=True)
+            artifact.write_text("FINAL ARTIFACT ONLY\n", encoding="utf-8")
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_queue_run_worker", return_value=worker_result), \
+                 patch.object(backend, "_queue_run_hermes_review", side_effect=review) as model_review, \
+                 patch.object(backend, "_queue_resolve_route_metadata", return_value=self.route_metadata_fixture("codex")), \
+                 patch.object(backend, "_notify_queue_completion", return_value=None):
+                result = backend.run_queue_item(item["id"])
+
+        self.assertEqual(result["status"], "human_review")
+        model_review.assert_called_once()
+        self.assertIn("FINAL ARTIFACT ONLY", captured["prompt"])
+        self.assertNotIn("RAW WORKER TRANSCRIPT", captured["prompt"])
+        self.assertNotIn("RAW TEST LOGS", captured["prompt"])
+
+    def test_async_completion_notification_uses_existing_idempotent_send_path(self):
+        item = self.sample_queue_items()[1]
+        item.update({
+            "source": "telegram",
+            "status": "human_review",
+            "dispatch": {"reply_to": "fixture-chat", "idempotency_key": "fixture-key"},
+        })
+        sends = []
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_queue_items(root, [item])
+            (root / "queue" / "notifications.json").write_text(json.dumps({
+                "escalation": {"unanswered_minutes": 10},
+                "allowlist": {"telegram": ["fixture-chat"], "agentmail_internal": []},
+            }), encoding="utf-8")
+            with patch.object(backend, "BASE_DIR", root):
+                first = backend._notify_queue_completion(
+                    item["id"], "human_review", "queue/receipts/fixture.md",
+                    send_telegram=lambda recipient, message: sends.append((recipient, message)),
+                )
+                second = backend._notify_queue_completion(
+                    item["id"], "human_review", "queue/receipts/fixture.md",
+                    send_telegram=lambda recipient, message: sends.append((recipient, message)),
+                )
+        self.assertEqual(first["result"], "sent")
+        self.assertEqual(second["result"], "already_sent")
+        self.assertEqual(len(sends), 1)
+        self.assertIn(item["id"], sends[0][1])
 
     def test_queue_item_run_pass_sets_human_review_and_attaches_receipt(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -2639,6 +4068,14 @@ class HermesComposioTests(unittest.TestCase):
                 "returncode": 0,
                 "token_usage_text": "Token usage: unavailable from current CLI output",
                 "token_usage": {"available": False},
+                "invocation": {
+                    "executable": "/home/liam/.local/npm/bin/codex",
+                    "linux_user": "liam",
+                    "effective_uid": 1002,
+                    "cwd": "/home/liam/agentic-os-live",
+                    "sandbox": "danger-full-access",
+                    "approval_policy": "never",
+                },
             }
             review_result = {
                 "success": True,
@@ -2663,6 +4100,11 @@ class HermesComposioTests(unittest.TestCase):
             self.assertIn("Review mode: none (deterministic proof)", receipt_text)
             self.assertIn("Review result: PASS", receipt_text)
             review.assert_not_called()
+            self.assertIn("Codex executable: /home/liam/.local/npm/bin/codex", receipt_text)
+            self.assertIn("Effective Linux user: liam", receipt_text)
+            self.assertIn("Working directory: /home/liam/agentic-os-live", receipt_text)
+            self.assertIn("Sandbox: danger-full-access", receipt_text)
+            self.assertIn("Approval policy: never", receipt_text)
             self.assertEqual(result["item"]["receipts"][0]["path"], result["receipt_path"])
             self.assertEqual(result["item"]["receipts"][0]["status"], "human_review")
 
@@ -2782,8 +4224,8 @@ class HermesComposioTests(unittest.TestCase):
             self.assertEqual(result["attempts_used"], 1)
             self.assertTrue(result["worker_result"]["timed_out"])
             receipt_text = (root / result["receipt_path"]).read_text(encoding="utf-8")
-            self.assertIn("execution_timeout at execution", receipt_text)
-            self.assertIn("logs/local_agent_route.jsonl", receipt_text)
+            self.assertIn("execution_timeout during execution", receipt_text)
+            self.assertIn("Diagnostic log: logs/local_agent_route.jsonl", receipt_text)
 
     def test_department_queue_runtime_prompt_is_compact(self):
         item = {
@@ -2887,11 +4329,106 @@ class HermesComposioTests(unittest.TestCase):
         self.assertIn("Next action:\n  - Add a queue item or continue normal Hermes work.", result["output"])
         self.assertEqual(backend._queue_items_path(), backend.BASE_DIR / "queue" / "work_items.jsonl")
 
+    def test_backend_queue_endpoints_read_authoritative_file_and_summary_is_meaningful(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            receipt = root / "queue" / "receipts" / "AOS-2026-9010.md"
+            receipt.parent.mkdir(parents=True, exist_ok=True)
+            receipt.write_text(
+                "PASS\n\nRoot cause / behavior changed:\n- Queue refresh now keeps prior counts after failures.\n\nValidation:\n- Browser proof exercised initial queue load.\n",
+                encoding="utf-8",
+            )
+            item = {
+                "id": "AOS-2026-9010",
+                "title": "Queue refresh repair",
+                "status": "human_review",
+                "owner": "hermes",
+                "priority": 5,
+                "receipts": [{"path": "queue/receipts/AOS-2026-9010.md", "status": "human_review"}],
+            }
+            self.write_queue_items(root, [item])
+            with patch.object(backend, "BASE_DIR", root):
+                status = backend.queue_status()
+                listed = backend.queue_items()
+
+        self.assertTrue(status["success"])
+        self.assertEqual(1, status["counts"]["human_review"])
+        self.assertEqual(root / "queue" / "work_items.jsonl", root / "queue" / "work_items.jsonl")
+        detail = listed["items"][0]
+        self.assertIn("prior counts", detail["summary_for_operator"])
+        self.assertIn("review-close", detail["summary_for_operator"])
+        self.assertNotEqual("Queue refresh repair", detail["summary_for_operator"])
+
+    def test_compacted_worker_closeout_gets_meaningful_safe_operator_summary(self):
+        item = {"id": "AOS-2026-0165", "title": "Dashboard recovery proof"}
+        result = {
+            "output": "PASS\nFiles touched: proof.md\nValidation: green\nBlockers: None",
+            "review_output": "Verification complete — dashboard and worker repairs are green.\n\nPASS",
+        }
+
+        summary = backend._queue_operator_summary_from_result(item, result)
+
+        self.assertIn("dashboard and worker repairs are green", summary)
+        self.assertIn("Approving closes this local review", summary)
+        self.assertIn("sends nothing externally", summary)
+
+    def test_human_review_close_uses_existing_review_close_and_correction_paths(self):
+        for status in ("done", "needs_input"):
+            with self.subTest(status=status), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                item = {
+                    "id": "AOS-2026-9011",
+                    "title": "Workflow review",
+                    "status": "human_review",
+                    "owner": "hermes",
+                    "owner_type": "workflow",
+                    "priority": 5,
+                    "tags": ["pkg:fixture", "pkgver:v1"],
+                    "receipts": [],
+                }
+                self.write_queue_items(root, [item])
+                with patch.object(backend, "BASE_DIR", root), \
+                     patch.object(backend.aos_orchestration, "tick", return_value={"advanced": []}) as tick:
+                    body = backend.QueueReviewClose(
+                        status=status,
+                        action="approve" if status == "done" else "needs_changes",
+                        review_note="operator note",
+                    )
+                    result = backend._close_queue_item_review("AOS-2026-9011", body, notify_telegram=False)
+                rows = [json.loads(line) for line in (root / "queue" / "work_items.jsonl").read_text(encoding="utf-8").splitlines()]
+                if status == "done":
+                    self.assertEqual("done", rows[0]["status"])
+                    tick.assert_called_once()
+                    self.assertIn("final-closeout", result["receipt_path"])
+                else:
+                    self.assertEqual("inbox", rows[0]["status"])
+                    self.assertIsNotNone(result["correction_item"])
+                    self.assertEqual("AOS-2026-9011", result["correction_item"]["parent_id"])
+
+    def test_queue_read_skips_one_malformed_record_and_keeps_valid_records(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            queue = root / "queue"
+            queue.mkdir(parents=True)
+            queue_path = queue / "work_items.jsonl"
+            original = '{"id":"AOS-2026-9012","status":"inbox"}\n{broken\n{"id":"AOS-2026-9013","status":"done"}\n'
+            queue_path.write_text(original, encoding="utf-8")
+            with patch.object(backend, "BASE_DIR", root):
+                result = backend.queue_items("all")
+                summary = backend.queue_summary()
+            preserved = queue_path.read_text(encoding="utf-8")
+        self.assertTrue(result["success"])
+        self.assertEqual(["AOS-2026-9012", "AOS-2026-9013"], [row["id"] for row in result["items"]])
+        self.assertEqual({"invalidRecordCount": 1}, result["diagnostics"])
+        self.assertEqual({"invalidRecordCount": 1}, summary["diagnostics"])
+        self.assertNotIn("broken", json.dumps(result))
+        self.assertEqual(original, preserved)
+
     def test_hermes_coordinator_rejects_windows_backend_path(self):
         windows_script = PureWindowsPath(r"Z:\workspace\tools\aos-hermes-coordinator.sh")
         with patch.object(backend, "HERMES_COORDINATOR", windows_script):
             with self.assertRaisesRegex(RuntimeError, "Windows and Windows-mounted paths"):
-                backend.wsl_hermes(backend.TaskRun(task="summarize the queue"))
+                backend._hermes_coordinator_command_template()
 
     def test_runtime_path_helper_rejects_windows_mount_and_preserves_linux(self):
         with self.assertRaisesRegex(RuntimeError, "Windows and Windows-mounted paths"):
@@ -2935,12 +4472,14 @@ class HermesComposioTests(unittest.TestCase):
 
     def test_direct_api_routes_are_preserved(self):
         with patch.object(backend, "_run_codex_local", return_value=self.RUN_RESULT) as codex_run, \
-             patch.object(backend, "_run_wsl", return_value=self.RUN_RESULT) as run, \
+             patch.object(backend, "_run_wsl", return_value=self.RUN_RESULT) as startup, \
+             patch.object(backend, "_run_wsl_supervised", return_value=self.RUN_RESULT) as run, \
              patch.object(backend, "_log_token_usage"):
             codex = backend.wsl_codex(backend.TaskRun(task="inspect files"))
             claude = backend.wsl_claude(backend.TaskRun(task="polish UI"))
             claude_command = run.call_args.args[0]
         codex_run.assert_called_once_with("inspect files")
+        startup.assert_called_once()
         self.assertTrue(claude_command.startswith('aos-hermes claude "$(<'))
         self.assertNotIn("polish UI", claude_command)
         self.assertEqual(codex["selected_route"], "direct_codex")
@@ -3017,10 +4556,10 @@ class HermesComposioTests(unittest.TestCase):
             "stderr": "Hermes diagnostic detail",
             "returncode": 0,
         }
-        with patch.object(backend, "_run_wsl", return_value=run_result), \
-             patch.object(backend, "_log_token_usage"), \
+        metadata = {**backend._select_hermes_entry_route("find local plasterers"), **backend._queue_resolve_route_metadata("hermes")}
+        with patch.object(backend, "_log_token_usage"), \
              patch.object(backend, "_write_hermes_result", return_value="hermes_20260623_123456.md") as writer:
-            result = backend.wsl_hermes(backend.TaskRun(task="find local plasterers"))
+            result = backend._hermes_coordinator_closeout(run_result, "find local plasterers", metadata)
 
         self.assertIn(f"Answer: {useful}", result["output"])
         self.assertIn("Result file: hermes_20260623_123456.md", result["output"])
@@ -3037,18 +4576,17 @@ class HermesComposioTests(unittest.TestCase):
     def test_hermes_answer_is_capped_and_pass_only_is_not_saved(self):
         long_answer = "x" * 2000
         long_result = {"success": True, "output": long_answer, "stdout": long_answer, "stderr": "", "returncode": 0}
-        with patch.object(backend, "_run_wsl", return_value=long_result), \
-             patch.object(backend, "_log_token_usage"), \
+        metadata = {**backend._select_hermes_entry_route("summarize this"), **backend._queue_resolve_route_metadata("hermes")}
+        with patch.object(backend, "_log_token_usage"), \
              patch.object(backend, "_write_hermes_result", return_value="hermes_long.md"):
-            closeout = backend.wsl_hermes(backend.TaskRun(task="summarize this"))
+            closeout = backend._hermes_coordinator_closeout(long_result, "summarize this", metadata)
         answer_line = closeout["output"].split("\nResult file:", 1)[0].removeprefix("PASS\nAnswer: ")
         self.assertLessEqual(len(answer_line), backend._HERMES_ANSWER_LIMIT)
         self.assertTrue(answer_line.endswith("…"))
 
-        with patch.object(backend, "_run_wsl", return_value=self.RUN_RESULT), \
-             patch.object(backend, "_log_token_usage"), \
+        with patch.object(backend, "_log_token_usage"), \
              patch.object(backend, "_write_hermes_result") as writer:
-            pass_only = backend.wsl_hermes(backend.TaskRun(task="health check"))
+            pass_only = backend._hermes_coordinator_closeout(self.RUN_RESULT, "health check", metadata)
         writer.assert_not_called()
         self.assertNotIn("Answer:", pass_only["output"])
         self.assertNotIn("Result file:", pass_only["output"])
@@ -3105,7 +4643,8 @@ class HermesComposioTests(unittest.TestCase):
             "LATITUDE_ENDPOINT": "https://latitude.example.test/events",
         }
         event = backend.latitude_telemetry.event_payload("backend.heartbeat", "dashboard_backend")
-        with patch.object(backend.latitude_telemetry, "_env_values", return_value=env), \
+        with patch.dict(backend.latitude_telemetry.os.environ, {"AOS_DISABLE_TELEMETRY": ""}), \
+             patch.object(backend.latitude_telemetry, "_env_values", return_value=env), \
              patch.object(backend.latitude_telemetry, "_write_state"), \
              patch.object(backend.latitude_telemetry.urllib.request, "urlopen", return_value=FakeLatitudeResponse()) as urlopen:
             result = backend.latitude_telemetry.send_event(event)
@@ -3495,78 +5034,15 @@ class HermesComposioTests(unittest.TestCase):
             self.assertIn("review_gate", contract)
             self.assertIn("artifact_expectations", contract)
 
-
-    def test_model_turn_threshold_adds_needs_me_only_above_default(self):
-        item = {"id": "AOS-2026-0200", "status": "done", "needs_me": []}
-        with patch.object(backend, "MODEL_TURNS_THRESHOLD", 75):
-            self.assertEqual([], backend._queue_needs_me_reasons(item, {"model_turns": 74}))
-            self.assertEqual([], backend._queue_needs_me_reasons(item, {"model_turns": 75}))
-            self.assertEqual(["excessive model turns"], backend._queue_needs_me_reasons(item, {"model_turns": 76}))
-
-    def test_reviewer_receives_final_artifact_instead_of_worker_transcript(self):
-        item = {"id": "AOS-2026-0201", "title": "Review bound", "context": "bounded", "stop_conditions": []}
-        worker = {
-            "output": "PASS\nArtifacts: workflows/queue_artifacts/final.md",
-            "stdout": "RAW TRANSCRIPT SENTINEL",
-        }
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            artifact = root / "workflows/queue_artifacts/final.md"
-            artifact.parent.mkdir(parents=True)
-            artifact.write_text("FINAL ARTIFACT SENTINEL\n", encoding="utf-8")
-            with patch.object(backend, "BASE_DIR", root):
-                prompt = backend._queue_hermes_review_prompt(item, "codex", 1, worker)
-        self.assertIn("FINAL ARTIFACT SENTINEL", prompt)
-        self.assertNotIn("RAW TRANSCRIPT SENTINEL", prompt)
-
-    def test_default_queue_review_is_deterministic_and_skips_hermes(self):
-        route = {
-            "lane": "operations", "profile_requested": "default", "profile_used": "default",
-            "profile_fallback_reason": "None", "model_requested": "configured externally",
-            "model_used": "configured externally", "provider_requested": "configured externally",
-            "provider_used": "configured externally", "model_confirmed": "unavailable",
-            "provider_confirmed": "unavailable", "escalation_rule": "none",
-        }
-        worker = {
-            "success": True,
-            "output": "PASS\nFiles touched: None\nValidation: deterministic proof\nArtifacts: None\nBlockers: None\nNext action: Review",
-            "returncode": 0,
-            "token_usage": {"available": False},
-            "token_usage_text": "Token usage: unavailable from current CLI output",
-        }
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            self.write_queue_templates(root)
-            with patch.object(backend, "BASE_DIR", root):
-                item = backend._queue_create_dashboard_item(backend.QueueItemCreate(
-                    title="Deterministic coding proof", owner="codex", definition_of_done="Proof passes."
-                ))
-                with patch.object(backend, "_queue_run_worker", return_value=worker), \
-                     patch.object(backend, "_queue_run_hermes_review") as model_review, \
-                     patch.object(backend, "_queue_resolve_route_metadata", return_value=route):
-                    result = backend.run_queue_item(item["id"])
-        self.assertEqual("human_review", result["status"])
-        self.assertEqual(1, result["attempts_used"])
-        model_review.assert_not_called()
-
-    def test_oversized_work_and_continuation_create_one_prompt_and_one_item(self):
-        first_part = "/work codex " + ("bounded repair details " * 200) + "\n\n4. Preserve architecture:"
-        second_part = "* Keep one queue item.\n* Run focused validation."
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            with patch.object(backend, "BASE_DIR", root):
-                first = backend.wsl_hermes(backend.TaskRun(task=first_part, source="telegram"))
-                second = backend.wsl_hermes(backend.TaskRun(task=second_part, source="telegram"))
-                rows = backend._read_queue_items()
-                prompt_files = list((root / "queue/run_prompts").glob("*.md"))
-                prompt_text = prompt_files[0].read_text(encoding="utf-8")
-        self.assertTrue(first["created"])
-        self.assertEqual("split-work-request-merged", second["state"])
-        self.assertEqual(1, len(rows))
-        self.assertEqual(1, len(prompt_files))
-        self.assertIn(first_part, prompt_text)
-        self.assertIn(second_part, prompt_text)
-        self.assertEqual(["consider decomposing"], rows[0]["needs_me"])
+    def test_command_intent_metadata_uses_live_backend_selected_route_names(self):
+        source_root = MAIN.parents[2]
+        routes = json.loads((source_root / "queue" / "command_routes.json").read_text(encoding="utf-8"))
+        intents = routes["intent_routes"]
+        self.assertEqual(routes["on_no_match"]["route"], "hermes_coordinator")
+        self.assertEqual(intents["explicit_codex"]["route"], "direct_codex")
+        self.assertEqual(intents["explicit_claude"]["route"], "direct_claude")
+        self.assertEqual(intents["codex_with_coordination_review"]["route"], "hermes_orchestration")
+        self.assertEqual(intents["fallback"]["route"], "hermes_coordinator")
 
 
 if __name__ == "__main__":

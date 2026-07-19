@@ -1,14 +1,15 @@
 # TTROS / Agentic OS Operating Baseline
+> Revisit: after authoritative runtime, launcher, or Codex policy changes. · Last touched: 2026-07-17.
 
-Date: 2026-06-26
+Date: 2026-07-17
 
 ## Live workspace
 
-Windows:
-`C:\Users\Admin\Documents\A-Time to revenue\Agentic OS Live`
+Linux:
+`AgenticOSClean` at `/home/liam/agentic-os-live`
 
-WSL:
-`AgenticOSClean` at `/mnt/c/Users/Admin/Documents/A-Time to revenue/Agentic OS Live`
+The prior Windows/`/mnt/c` tree is a frozen rollback snapshot, not a live
+workspace or invocation target.
 
 Memory root:
 `business_brain:README.md`
@@ -23,13 +24,15 @@ Branch: `main` tracking `origin/main`
 ## Launch commands
 
 Dashboard:
-`powershell -ExecutionPolicy Bypass -File "C:\Users\Admin\Documents\A-Time to revenue\Agentic OS Live\Start-AgenticOS-Dashboard.ps1"`
+`tools/aos-linux-runtime.sh desktop-start`
 
 Codex:
-`cd "/mnt/c/Users/Admin/Documents/A-Time to revenue/Agentic OS Live" && codex`
+`cd "/home/liam/agentic-os-live" && /home/liam/.local/npm/bin/codex --sandbox danger-full-access --ask-for-approval never -C /home/liam/agentic-os-live`
 
 Headless Codex route used by dashboard:
-`aos-codex '<task>'`
+`aos-codex '<task>'` forwards to `/api/wsl/codex`, whose shared policy adds the
+same executable, user, cwd, sandbox, and approval contract with captured output
+and no direct fallback.
 
 ## Status and tests
 

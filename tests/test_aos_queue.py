@@ -59,6 +59,25 @@ def parse_json(stdout):
 
 
 class AosQueueTest(unittest.TestCase):
+    def test_live_lane_profiles_and_model_routes_cover_alias_and_fallback_contracts(self):
+        module = load_tool_module()
+        lanes = module.load_lane_profiles(ROOT)
+        models = module.load_model_routes(ROOT)
+        lane_names = set(lanes["lanes"])
+        model_names = set(models["routes"])
+        fallback_lane = models["fallback"]["lane"]
+
+        self.assertEqual(module.resolve_route(ROOT, "ops")["profile_requested"], "aos-ops")
+        self.assertEqual(module.resolve_route(ROOT, "unassigned")["profile_requested"], "aos-orchestrator")
+        self.assertEqual(module.resolve_route(ROOT, "unassigned")["fallback_profile"], "none")
+        self.assertEqual(models["routes"]["ops"]["profile_requested"], "aos-ops")
+        self.assertEqual(models["fallback"]["profile_requested"], "aos-orchestrator")
+        self.assertEqual(lane_names - model_names - {fallback_lane}, set())
+        self.assertEqual(model_names - lane_names, {"codex", "claude"})
+        for lane in ("orchestrator", "hermes", "unassigned"):
+            self.assertTrue(lanes["lanes"][lane]["fail_if_unavailable"])
+            self.assertEqual(lanes["lanes"][lane]["fallback_profile"], "none")
+
     def _write_codex_reconcile_fixture(
         self, root, item_id="AOS-2026-0001", *, status="human_review",
         session_id="session-implementation", receipt_placeholder=False,
@@ -1021,6 +1040,173 @@ class AosQueueTest(unittest.TestCase):
             receipt_item = parse_json(receipt.stdout)
             self.assertEqual(receipt_item["status"], "done")
             self.assertEqual(receipt_item["receipts"][0]["path"], "queue/receipts/unit.md")
+
+    def test_worker_claim_heartbeat_renews_only_the_active_owner(self):
+        tool = load_tool_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            item = parse_json(run_cli(root, "create", "--title", "Heartbeat work", "--owner", "codex").stdout)
+            with patch.object(tool, "now_iso", side_effect=["2026-07-17T10:00:00Z", "2026-07-17T10:00:30Z"]):
+                claimed = tool.claim_item(root, item["id"], "codex")
+                renewed = tool.renew_claim(root, item["id"], "codex")
+            self.assertEqual(claimed["worker_heartbeat_at"], "2026-07-17T10:00:00Z")
+            self.assertEqual(renewed["worker_heartbeat_at"], "2026-07-17T10:00:30Z")
+            self.assertEqual(renewed["claim"]["claimed_by"], "codex")
+            with self.assertRaises(tool.QueueError):
+                tool.renew_claim(root, item["id"], "claude")
+
+            registered = tool.register_worker_runtime(
+                root, item["id"], "codex", os.getpid(), storage.process_start_identity(), "fixture",
+            )
+            self.assertEqual(registered["worker_runtime"]["pid"], os.getpid())
+            released = tool.release_item(root, item["id"], "agent_todo")
+            self.assertNotIn("worker_runtime", released)
+
+    def test_async_runner_does_not_recover_stale_heartbeat_while_exact_worker_process_is_live(self):
+        runner = load_runner_module()
+        now = runner.datetime.datetime.now(runner.datetime.timezone.utc)
+        stale_live = {
+            "id": "AOS-2026-0001", "status": "agent_working", "owner_type": "agent", "priority": 9,
+            "tags": ["async_dispatch"],
+            "claim": {"claimed_by": "claude", "claimed_at": (now - runner.datetime.timedelta(seconds=300)).isoformat()},
+            "worker_heartbeat_at": (now - runner.datetime.timedelta(seconds=120)).isoformat(),
+            "updated_at": (now - runner.datetime.timedelta(seconds=120)).isoformat(),
+            "worker_runtime": {
+                "pid": os.getpid(),
+                "process_start_id": storage.process_start_identity(),
+                "route": "aos-claude",
+                "registered_at": now.isoformat(),
+            },
+        }
+        ready = {
+            "id": "AOS-2026-0002", "status": "agent_todo", "owner_type": "agent", "priority": 1,
+            "tags": ["async_dispatch"], "claim": {"claimed_by": None, "claimed_at": None}, "updated_at": now.isoformat(),
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "queue").mkdir()
+            (root / "queue/work_items.jsonl").write_text(
+                "".join(json.dumps(item) + "\n" for item in (stale_live, ready)), encoding="utf-8",
+            )
+            selected = runner.next_async_item(root)
+        self.assertEqual(selected["id"], ready["id"])
+
+    def test_async_runner_recovers_expired_lease_before_ready_work_and_skips_healthy_claim(self):
+        runner = load_runner_module()
+        now = runner.datetime.datetime.now(runner.datetime.timezone.utc)
+        healthy = {
+            "id": "AOS-2026-0001", "status": "agent_working", "owner_type": "agent", "priority": 9,
+            "tags": ["async_dispatch"], "claim": {"claimed_by": "hermes", "claimed_at": (now - runner.datetime.timedelta(seconds=300)).isoformat()},
+            "worker_heartbeat_at": (now - runner.datetime.timedelta(seconds=2)).isoformat(), "updated_at": now.isoformat(),
+        }
+        dead = {
+            "id": "AOS-2026-0002", "status": "agent_working", "owner_type": "agent", "priority": 1,
+            "tags": ["async_dispatch"], "claim": {"claimed_by": "hermes", "claimed_at": (now - runner.datetime.timedelta(seconds=300)).isoformat()},
+            "worker_heartbeat_at": (now - runner.datetime.timedelta(seconds=120)).isoformat(), "updated_at": now.isoformat(),
+        }
+        ready = {
+            "id": "AOS-2026-0003", "status": "agent_todo", "owner_type": "agent", "priority": 10,
+            "tags": ["async_dispatch"], "claim": {"claimed_by": None, "claimed_at": None}, "updated_at": now.isoformat(),
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "queue").mkdir()
+            (root / "queue/work_items.jsonl").write_text(
+                "".join(json.dumps(item) + "\n" for item in (healthy, dead, ready)), encoding="utf-8",
+            )
+            with patch.dict(runner.os.environ, {"AOS_AGENT_LEASE_SECONDS": "90"}, clear=False):
+                first = runner.next_async_item(root)
+                dead["status"] = "blocked"
+                (root / "queue/work_items.jsonl").write_text(
+                    "".join(json.dumps(item) + "\n" for item in (healthy, dead, ready)), encoding="utf-8",
+                )
+                second = runner.next_async_item(root)
+        self.assertEqual(first["id"], dead["id"])
+        self.assertEqual(second["id"], ready["id"])
+
+    def test_async_runner_parent_timeout_covers_full_7800_second_claude_contract(self):
+        runner = load_runner_module()
+
+        class Response:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def read(self):
+                return b'{"success":true,"status":"human_review"}'
+
+        with patch.dict(runner.os.environ, {}, clear=True), \
+             patch.object(runner.urllib.request, "urlopen", return_value=Response()) as urlopen:
+            result = runner.dispatch_via_backend("AOS-2026-0204")
+
+        self.assertTrue(result["success"])
+        self.assertEqual(runner.DEFAULT_EXECUTION_TIMEOUT_SECONDS, 7800)
+        self.assertEqual(urlopen.call_args.kwargs["timeout"], 16100)
+
+    def test_heartbeat_lease_contract_allows_accelerated_7800_second_run(self):
+        runner = load_runner_module()
+        now = runner.datetime.datetime.now(runner.datetime.timezone.utc)
+        scaled_run_seconds = 7800
+        heartbeat_interval = 30
+        lease_seconds = 90
+        heartbeat_count = scaled_run_seconds // heartbeat_interval
+        latest_heartbeat = now - runner.datetime.timedelta(seconds=heartbeat_interval - 1)
+        item = {
+            "id": "AOS-2026-0205", "status": "agent_working", "owner_type": "agent", "priority": 9,
+            "tags": ["async_dispatch"],
+            "claim": {"claimed_by": "claude", "claimed_at": (now - runner.datetime.timedelta(seconds=scaled_run_seconds)).isoformat()},
+            "worker_heartbeat_at": latest_heartbeat.isoformat(), "updated_at": latest_heartbeat.isoformat(),
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "queue").mkdir()
+            (root / "queue/work_items.jsonl").write_text(json.dumps(item) + "\n", encoding="utf-8")
+            with patch.dict(runner.os.environ, {"AOS_AGENT_LEASE_SECONDS": str(lease_seconds)}, clear=False):
+                selected = runner.next_async_item(root)
+        self.assertEqual(heartbeat_count, 260)
+        self.assertLess(heartbeat_interval, lease_seconds)
+        self.assertIsNone(selected)
+
+    def test_one_shot_runner_dispatches_only_the_requested_tagged_item_without_tick(self):
+        runner = load_runner_module()
+        called = []
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "queue").mkdir()
+            items = [
+                {"id": "AOS-2026-0001", "status": "agent_todo", "owner_type": "agent", "tags": ["async_dispatch"]},
+                {"id": "AOS-2026-0002", "status": "agent_todo", "owner_type": "agent", "tags": ["ordinary"]},
+            ]
+            (root / "queue/work_items.jsonl").write_text(
+                "".join(json.dumps(item) + "\n" for item in items), encoding="utf-8",
+            )
+            accepted = runner.dispatch_item(root, "AOS-2026-0001", dispatch=lambda item_id: called.append(item_id) or {"success": True, "item_id": item_id})
+            refused = runner.dispatch_item(root, "AOS-2026-0002", dispatch=lambda item_id: {"success": True, "item_id": item_id})
+        self.assertEqual(called, ["AOS-2026-0001"])
+        self.assertTrue(accepted["success"])
+        self.assertEqual(refused["state"], "not_async_dispatch")
+
+    def test_detached_executor_uses_backend_virtualenv_and_keeps_startup_log(self):
+        runner = load_runner_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            backend_python = root / "dashboard/backend/.venv/bin/python"
+            backend_python.parent.mkdir(parents=True)
+            backend_python.write_text("#!/bin/sh\n", encoding="utf-8")
+            backend_python.chmod(0o755)
+            with patch.object(runner.subprocess, "Popen") as popen:
+                popen.return_value.pid = 4321
+                result = runner.dispatch_via_executor(root, "AOS-2026-0165")
+
+        command = popen.call_args.args[0]
+        self.assertEqual(command[0], str(backend_python))
+        self.assertEqual(command[-2:], ["--execute-item", "AOS-2026-0165"])
+        self.assertTrue(popen.call_args.kwargs["start_new_session"])
+        self.assertEqual(popen.call_args.kwargs["stderr"], subprocess.STDOUT)
+        self.assertEqual(result["executor_pid"], 4321)
+        self.assertEqual(result["executor_log"], "logs/runtime/queue-executor-AOS-2026-0165.log")
 
     def test_status_and_receipt_help_show_exact_syntax(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -56,6 +56,150 @@ def item(item_id, status, **extra):
 
 
 class AosOrchestrationTests(unittest.TestCase):
+    def test_completion_event_persists_successful_canonical_attachment_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_json(root / "queue" / "notifications.json", {
+                "escalation": {"unanswered_minutes": 10},
+                "allowlist": {"telegram": ["123"], "agentmail_internal": []},
+            })
+            receipt = root / "queue" / "receipts" / "AOS-2026-0207.md"
+            receipt.parent.mkdir(parents=True, exist_ok=True)
+            receipt.write_text("PASS\n", encoding="utf-8")
+            work = item("AOS-2026-0207", "human_review", source="telegram")
+
+            def sender(recipient, message, document_paths=None):
+                return {
+                    "message_sent": True,
+                    "documents": [{"path": path, "sent": True} for path in document_paths or []],
+                }
+
+            result = runner.attempt_telegram_send(
+                root, work, "123", "completion", send_telegram=sender,
+                key="async_completion:human_review", document_paths=[str(receipt)],
+            )
+
+        self.assertTrue(result["sent"])
+        self.assertEqual(result["attachments"], [{
+            "path": "queue/receipts/AOS-2026-0207.md", "sent": True,
+        }])
+
+    def test_operator_notification_format_covers_required_status_fixtures(self):
+        cases = [
+            ("agent_todo", "queued"),
+            ("needs_input", "needs input"),
+            ("human_review", "ready for review"),
+            ("done", "done"),
+            ("blocked", "failed"),
+            ("agent_working", "running"),
+        ]
+        for status, label in cases:
+            with self.subTest(status=status):
+                work = item("AOS-2026-0139", status, title="Receipt delivery improvement")
+                message = runner.format_operator_work_item_notification(
+                    work,
+                    status,
+                    summary="Receipt delivery improvement was validated locally.",
+                    receipt_path="queue/receipts/AOS-2026-0139.md" if status in {"done", "human_review", "blocked"} else None,
+                )
+                self.assertTrue(message.startswith("[AOS-2026-0139 — Receipt delivery improvement]\nWork item: AOS-2026-0139"))
+                self.assertIn(f"Status: {label}", message)
+                self.assertIn("Summary: Receipt delivery improvement was validated locally.", message)
+                self.assertNotIn("[AOS-2026-0139]", message)
+
+    def test_multiple_pending_item_labels_show_id_before_title(self):
+        rows = [
+            runner.operator_item_label(item("AOS-2026-0131", "agent_todo", title="Gmail draft capability")),
+            runner.operator_item_label(item("AOS-2026-0136", "human_review", title="Telegram approval-routing test")),
+            runner.operator_item_label(item("AOS-2026-0139", "needs_input", title="Receipt delivery improvement")),
+        ]
+        self.assertEqual(rows, [
+            "AOS-2026-0131 — Gmail draft capability",
+            "AOS-2026-0136 — Telegram approval-routing test",
+            "AOS-2026-0139 — Receipt delivery improvement",
+        ])
+
+    def test_generic_work_command_title_uses_specific_context_heading(self):
+        work = item("AOS-2026-0161", "human_review", title="/work claude PERMISSION MODE — SCOPED LOCAL TASK APPROVED")
+        work["context"] = "\n".join((
+            "/work claude PERMISSION MODE — SCOPED LOCAL TASK APPROVED",
+            "Do not ask for permission during this scoped local task.",
+            "NEEDS ME AND TASK-LABEL UX REPAIR — COMPLETE BOUNDED OUTCOME",
+        ))
+        self.assertEqual(
+            runner.operator_item_label(work),
+            "AOS-2026-0161 — NEEDS ME AND TASK-LABEL UX REPAIR — COMPLETE BOUNDED OUTCOME",
+        )
+
+    def test_generic_work_command_title_uses_inline_heading(self):
+        work = item(
+            "AOS-2026-0160",
+            "done",
+            title="/work claude CANONICAL CLAUDE AND TELEGRAM ATTACHMENT PROOF. Work only...",
+        )
+        work["context"] = (
+            "/work claude CANONICAL CLAUDE AND TELEGRAM ATTACHMENT PROOF. "
+            "Work only in /home/liam/agentic-os-live."
+        )
+        self.assertEqual(
+            runner.operator_item_label(work),
+            "AOS-2026-0160 — CANONICAL CLAUDE AND TELEGRAM ATTACHMENT PROOF",
+        )
+
+    def test_running_and_recovered_notifications_are_title_first(self):
+        running = item("AOS-2026-0136", "agent_working", title="Telegram approval-routing test")
+        running_message = runner.format_operator_work_item_notification(
+            running,
+            "agent_working",
+            summary="Telegram approval-routing test is now running through the assigned worker.",
+        )
+        self.assertTrue(running_message.startswith("[AOS-2026-0136 — Telegram approval-routing test]\nWork item: AOS-2026-0136"))
+        self.assertIn("Status: running", running_message)
+
+        recovered = item("AOS-2026-0139", "blocked", title="Receipt delivery improvement")
+        recovered_message = runner.format_operator_work_item_notification(
+            recovered,
+            "blocked",
+            summary="Receipt delivery improvement recovered a stuck worker and is blocked for review.",
+            receipt_path="queue/receipts/AOS-2026-0139-stuck.md",
+            receipt_attached=True,
+        )
+        self.assertTrue(recovered_message.startswith("[AOS-2026-0139 — Receipt delivery improvement]\nWork item: AOS-2026-0139"))
+        self.assertIn("Status: failed", recovered_message)
+        self.assertIn("Receipt: attached", recovered_message)
+
+    def test_dashboard_notification_and_approval_paths_use_title_first_helpers(self):
+        source = (Path(__file__).resolve().parents[1] / "dashboard" / "backend" / "main.py").read_text(encoding="utf-8")
+        self.assertIn("def _notify_queue_running", source)
+        self.assertIn("running_notification = _notify_queue_running(item_id)", source)
+        self.assertIn("aos_orchestration.format_operator_work_item_notification(\n            refreshed", source)
+        self.assertIn("candidate_ids = sorted(aos_orchestration.operator_item_label(row) for row in candidates)", source)
+        self.assertIn("Work item title: {aos_orchestration.operator_task_title(item)}", source)
+
+    def test_attention_escalation_telegram_message_uses_title_first_contract(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_json(root / "queue/notifications.json", {
+                "escalation": {"unanswered_minutes": 1},
+                "allowlist": {"telegram": ["1320777128"], "agentmail_internal": []},
+            })
+            stale = (datetime.now(timezone.utc) - timedelta(minutes=3)).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+            write_items(root, [item("AOS-2026-0139", "needs_input", title="Receipt delivery improvement", updated_at=stale)])
+            runner.tick(root, allow_telegram_escalation=False)
+            events = runner.read_jsonl(root / runner.EVENTS_PATH)
+            for event in events:
+                if event.get("event") == "notification_logged":
+                    event["created_at"] = stale
+            (root / runner.EVENTS_PATH).write_text(
+                "".join(json.dumps(row, sort_keys=True) + "\n" for row in events), encoding="utf-8"
+            )
+            sends = []
+            runner.tick(root, send_telegram=lambda chat, text: sends.append((chat, text)))
+
+        self.assertEqual(1, len(sends))
+        self.assertTrue(sends[0][1].startswith("[AOS-2026-0139 — Receipt delivery improvement]\nWork item: AOS-2026-0139"))
+        self.assertIn("Status: needs input", sends[0][1])
+
     def test_generic_dependency_unlock_runs_work_before_human_review(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -102,9 +246,13 @@ class AosOrchestrationTests(unittest.TestCase):
     def test_linux_launcher_uses_only_existing_runner_watch_mode(self):
         root = Path(__file__).resolve().parents[1]
         launcher = (root / "tools" / "aos-linux-runtime.sh").read_text(encoding="utf-8")
-        self.assertEqual(1, launcher.count("aos-orchestration-runner.py"))
+        self.assertIn('RUNNER_SCRIPT="${ROOT}/tools/aos-orchestration-runner.py"', launcher)
+        self.assertIn("canonical_runner_pid", launcher)
         self.assertIn("--watch --interval", launcher)
         self.assertNotIn("while true", launcher)
+        self.assertIn("desktop-start) desktop_start", launcher)
+        self.assertIn("desktop_cleanup\n  preflight\n  start_backend\n  start_frontend", launcher)
+        self.assertNotIn("desktop_cleanup\n  preflight\n  start_backend\n  start_frontend\n  start_runner", launcher)
         self.assertIn("if ! wait_http \"$BACKEND_URL\" backend; then\n    stop", launcher)
         self.assertIn("if ! wait_http \"$FRONTEND_URL\" frontend; then\n    stop", launcher)
         self.assertIn("grep -Ev 'grep|rg|codex|aos-linux-runtime\\.sh'", launcher)

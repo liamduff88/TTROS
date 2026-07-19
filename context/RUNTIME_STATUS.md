@@ -1,12 +1,12 @@
 # Agentic OS Live — Runtime Status
-> Revisit: after runtime or service topology changes. · Last touched: 2026-07-11.
+> Revisit: after runtime or service topology changes. · Last touched: 2026-07-17.
 
 Runtime:
 - WSL distro: AgenticOSClean
 - Canonical workspace: /home/liam/agentic-os-live
 - Authoritative storage: Linux-native filesystem
 - Frozen rollback: /mnt/c/Users/Admin/Documents/A-Time to revenue/Agentic OS Live
-- Portable root contract: `AOS_ROOT=/opt/agentic-os` (or another native Linux path)
+- Codex execution root: fixed at `/home/liam/agentic-os-live` (not caller-overridable)
 
 Services:
 - FastAPI: existing `dashboard/backend/main.py`, Linux port 8010
@@ -20,8 +20,15 @@ Ready:
 - aos-hermes
 
 Hermes delegates:
-- aos-hermes codex "TASK"
+- `aos-hermes codex "TASK"` forwards to the supervised `aos-codex` backend route
 - aos-hermes claude "TASK"
+
+Codex policy:
+- Executable: `/home/liam/.local/npm/bin/codex`
+- Linux user: `liam`
+- Working directory: `/home/liam/agentic-os-live`
+- Sandbox: `danger-full-access`
+- Approval policy: `never`
 
 Rules:
 - Old Ubuntu-24.04 is archive only.

@@ -1521,7 +1521,58 @@ def claim_item(root: Path, item_id: str, agent_id: str) -> dict:
         raise QueueError(f"Work item already claimed by {claimed_by}")
     timestamp = now_iso()
     item["claim"] = {"claimed_by": agent_id, "claimed_at": timestamp}
+    item["worker_heartbeat_at"] = timestamp
     item["status"] = "agent_working"
+    item["updated_at"] = timestamp
+    save_items(root, items)
+    return item
+
+
+@locked_queue_mutation
+def renew_claim(root: Path, item_id: str, agent_id: str) -> dict:
+    """Renew the existing worker claim without changing queue ownership or status."""
+    items = load_items(root)
+    item = find_item(items, item_id)
+    claimed_by = str((item.get("claim") or {}).get("claimed_by") or "")
+    if item.get("status") != "agent_working" or claimed_by != agent_id:
+        raise QueueError(f"Work item claim is not active for {agent_id}: {item_id}")
+    timestamp = now_iso()
+    item["worker_heartbeat_at"] = timestamp
+    item["updated_at"] = timestamp
+    save_items(root, items)
+    return item
+
+
+@locked_queue_mutation
+def register_worker_runtime(
+    root: Path,
+    item_id: str,
+    agent_id: str,
+    pid: int,
+    process_start_id: str,
+    route: str,
+) -> dict:
+    """Bind an active claim to an exact Linux process identity.
+
+    The PID alone is not sufficient because it can be reused after a worker
+    exits.  Recovery readers compare both values before treating a stale
+    heartbeat as abandoned.
+    """
+    items = load_items(root)
+    item = find_item(items, item_id)
+    claimed_by = str((item.get("claim") or {}).get("claimed_by") or "")
+    if item.get("status") != "agent_working" or claimed_by != agent_id:
+        raise QueueError(f"Work item claim is not active for {agent_id}: {item_id}")
+    if int(pid) < 1 or not str(process_start_id or "").strip():
+        raise QueueError("Worker runtime identity is incomplete")
+    timestamp = now_iso()
+    item["worker_runtime"] = {
+        "pid": int(pid),
+        "process_start_id": str(process_start_id),
+        "route": str(route or agent_id),
+        "registered_at": timestamp,
+    }
+    item["worker_heartbeat_at"] = timestamp
     item["updated_at"] = timestamp
     save_items(root, items)
     return item
@@ -1534,6 +1585,8 @@ def release_item(root: Path, item_id: str, status: str) -> dict:
     item = find_item(items, item_id)
     timestamp = now_iso()
     item["claim"] = {"claimed_by": None, "claimed_at": None}
+    item["worker_heartbeat_at"] = None
+    item.pop("worker_runtime", None)
     item["status"] = status
     item["updated_at"] = timestamp
     save_items(root, items)

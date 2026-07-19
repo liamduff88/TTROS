@@ -1,14 +1,14 @@
 {
   "version": "0",
-  "description": "Lightweight Agentic OS Work Queue route metadata. This file describes requested lane/profile/model policy only; it does not create Hermes runtimes or force provider switches.",
+  "description": "Lightweight Agentic OS Work Queue route metadata. Native Hermes coordinator/reviewer calls bind aos-orchestrator per invocation without changing the sticky default; Codex and Claude remain direct workbench routes.",
   "fallback": {
     "lane": "unassigned",
-    "profile_requested": "default",
+    "profile_requested": "aos-orchestrator",
     "provider": "configured externally",
     "model": "configured externally",
     "escalation_profile": "orchestrator_escalated",
     "escalation_rule": "Use Operating Hermes triage when the queue owner is missing or unknown.",
-    "policy": "Fallback to the single Operating Hermes runtime for triage and safe routing."
+    "policy": "Fallback to the single Operating Hermes runtime through a per-invocation aos-orchestrator binding; fail instead of substituting a workbench."
   },
   "routes": {
     "orchestrator": {
@@ -18,7 +18,7 @@
       "model": "configured externally",
       "escalation_profile": "orchestrator_escalated",
       "escalation_rule": "Strongest reasoning route for triage, review, and escalation judgment.",
-      "policy": "Use the single Operating Hermes runtime for cross-lane triage, review, and escalation decisions."
+      "policy": "Invoke aos-orchestrator per task for cross-lane triage, planning, review, and escalation; never switch the sticky global profile and never substitute Codex as outer coordinator."
     },
     "hermes": {
       "lane": "hermes",
@@ -27,7 +27,7 @@
       "model": "configured externally",
       "escalation_profile": "orchestrator_escalated",
       "escalation_rule": "Strongest reasoning route for triage, review, and escalation judgment.",
-      "policy": "Hermes is the one Operating Hermes runtime; this is metadata for the orchestrator lane, not a separate install."
+      "policy": "Hermes is the one Operating Hermes runtime. Bind aos-orchestrator per invocation and fail clearly if that profile cannot start; do not fall back to an outer Codex coordinator."
     },
     "revenue": {
       "lane": "revenue",
@@ -64,6 +64,15 @@
       "escalation_profile": "operations_escalated",
       "escalation_rule": "Use deterministic/local first, cheap model second, and escalate rarely.",
       "policy": "Prefer local deterministic handling for operational queue work before model assistance."
+    },
+    "ops": {
+      "lane": "ops",
+      "profile_requested": "aos-ops",
+      "provider": "configured externally",
+      "model": "configured externally",
+      "escalation_profile": "operations_escalated",
+      "escalation_rule": "Alias of the operations lane; use deterministic/local first, cheap model second, and escalate rarely.",
+      "policy": "Mirror the operations route for the accepted ops owner alias."
     },
     "codex": {
       "lane": "codex",

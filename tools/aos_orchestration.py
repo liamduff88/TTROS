@@ -38,6 +38,16 @@ ATTENTION_STATUSES = {"human_review", "needs_input", "blocked"}
 ADVANCE_FROM_STATUSES = {"inbox"}
 READY_STATUS = "agent_todo"
 DONE_STATUS = "done"
+OPERATOR_STATUS_LABELS = {
+    "inbox": "queued",
+    "agent_todo": "queued",
+    "agent_working": "running",
+    "needs_input": "needs input",
+    "human_review": "ready for review",
+    "done": "done",
+    "blocked": "failed",
+    "cancelled": "failed",
+}
 ALLOWED_ARTIFACT_PREFIXES = ("results/", "workflows/", "packets/", "logs/", "queue/receipts/")
 ARTIFACT_RE = re.compile(r"(?P<path>(?:results|workflows|packets|logs|queue/receipts)/[^\s`'\"<>]+?\.(?:md|txt|json|jsonl|pdf|html))")
 
@@ -159,6 +169,87 @@ def read_jsonl(path: Path) -> list[dict]:
         if isinstance(row, dict):
             rows.append(row)
     return rows
+
+
+def operator_task_title(item: dict) -> str:
+    title = re.sub(r"\s+", " ", str(item.get("title") or "")).strip()
+    if title.lower().startswith("/work ") or title.upper().startswith("PERMISSION MODE"):
+        # Telegram often stores the command and its useful all-caps heading on
+        # one long line. Recover that heading without rewriting historical data.
+        inline = re.sub(
+            r"^/work\s+(?:(?:claude|codex|hermes)\s+)?",
+            "",
+            re.sub(r"\s+", " ", str(item.get("context") or title)).strip(),
+            flags=re.IGNORECASE,
+        )
+        inline_match = re.match(r"([A-Z][A-Z0-9 /&+_\-]{7,160}?)(?:[.:](?:\s|$)|$)", inline)
+        if inline_match:
+            candidate = inline_match.group(1).strip()
+            if not candidate.upper().startswith("PERMISSION MODE"):
+                return candidate
+        for raw in str(item.get("context") or "").splitlines():
+            candidate = re.sub(r"^[#*\-\s]+", "", raw).strip().rstrip(":")
+            if not 8 <= len(candidate) <= 160:
+                continue
+            lowered = candidate.casefold()
+            if lowered.startswith((
+                "/work ", "permission mode", "do not ", "stop only", "use context/",
+                "work only in", "claude is for", "codex is for", "hermes is for",
+            )):
+                continue
+            letters = [char for char in candidate if char.isalpha()]
+            if letters and sum(char.isupper() for char in letters) / len(letters) >= 0.75:
+                return candidate[:160]
+    return title[:160] if title else "Untitled work item"
+
+
+def operator_status_label(status: str) -> str:
+    normalized = str(status or "").strip()
+    return OPERATOR_STATUS_LABELS.get(normalized, normalized or "queued")
+
+
+def operator_item_label(item: dict) -> str:
+    return f"{item.get('id') or 'unassigned'} — {operator_task_title(item)}"
+
+
+def format_operator_work_item_notification(
+    item: dict,
+    status: str | None = None,
+    *,
+    summary: str | None = None,
+    next_action: str | None = None,
+    receipt_path: str | None = None,
+    receipt_attached: bool | None = None,
+) -> str:
+    """Canonical operator-facing work item reference for Telegram surfaces."""
+    item_status = str(status or item.get("status") or "").strip()
+    label = operator_status_label(item_status)
+    item_id = str(item.get("id") or "unassigned").strip() or "unassigned"
+    title = operator_task_title(item)
+    summary_text = re.sub(r"\s+", " ", str(summary or "")).strip()
+    if not summary_text:
+        summary_text = f"{title} is {label}."
+    next_text = re.sub(r"\s+", " ", str(next_action or "")).strip()
+    if not next_text:
+        next_text = {
+            "queued": "None",
+            "running": "None",
+            "needs input": "Reply with the requested input.",
+            "ready for review": "Review the attached closeout.",
+            "done": "None",
+            "failed": "Review the attached receipt or local logs.",
+        }.get(label, "None")
+    if receipt_attached is None:
+        receipt_attached = bool(receipt_path)
+    receipt_text = "attached" if receipt_attached else (receipt_path or "None")
+    return "\n".join([
+        f"[{item_id} — {title}]",
+        f"Work item: {item_id}",
+        f"Status: {label}",
+        f"Summary: {summary_text}",
+        f"Next action: {next_text}",
+        f"Receipt: {receipt_text}",
+    ])
 
 
 def event_exists(events: list[dict], event_type: str, item_id: str, key: str = "") -> bool:
@@ -791,7 +882,11 @@ def process_notifications(
         key = f"{status}:telegram_operator"
         if _telegram_prior_send_event(events, item_id, key, recipient):
             continue
-        message = f"Agentic OS needs attention: {item_id} {status} - {item.get('title')}"
+        message = format_operator_work_item_notification(
+            item,
+            status,
+            summary=f"{operator_task_title(item)} is waiting in {operator_status_label(status)}.",
+        )
         record = attempt_telegram_send(root, item, recipient, message, send_telegram=send_telegram, key=key)
         append_jsonl(root / EVENTS_PATH, record)
         events.append(record)
@@ -803,7 +898,7 @@ def process_notifications(
     return actions
 
 
-def default_bridge_send(chat_id: str, text: str) -> None:
+def default_bridge_send(chat_id: str, text: str, document_paths: list[str] | None = None) -> None:
     import importlib.util
 
     root = aos_root()
@@ -832,9 +927,16 @@ def default_bridge_send(chat_id: str, text: str) -> None:
             raise
 
     bridge.api = tracking_api
-    bridge.send(chat_id, text, preserve_format=True)
+    delivery = bridge.send(chat_id, text, preserve_format=True, document_paths=document_paths or [])
     if not send_result["ok"]:
         raise OrchestrationError(str(send_result["error"] or "send_failed"))
+    documents = delivery.get("documents") if isinstance(delivery, dict) else []
+    if document_paths and (
+        len(documents) != len(document_paths)
+        or not all(isinstance(row, dict) and row.get("sent") is True for row in documents)
+    ):
+        raise OrchestrationError("telegram_document_delivery_failed")
+    return delivery
 
 
 def attempt_telegram_send(
@@ -843,8 +945,9 @@ def attempt_telegram_send(
     recipient: str,
     message: str,
     *,
-    send_telegram: Callable[[str, str], Any] | None = None,
+    send_telegram: Callable[..., Any] | None = None,
     key: str = "",
+    document_paths: list[str] | None = None,
 ) -> dict:
     config = load_notifications(root)
     item_id = str(item.get("id") or "")
@@ -913,8 +1016,12 @@ def attempt_telegram_send(
             "created_at": now_iso(),
         }
     sender = send_telegram or default_bridge_send
+    delivery_result = None
     try:
-        sender(recipient, message)
+        try:
+            delivery_result = sender(recipient, message, document_paths=document_paths or [])
+        except TypeError:
+            delivery_result = sender(recipient, message)
     except Exception as exc:
         receipt_path = log_notification_receipt(
             root, item, "telegram-escalation", str(item.get("status") or ""), "send_failed",
@@ -937,6 +1044,13 @@ def attempt_telegram_send(
         root, item, "telegram-escalation", str(item.get("status") or ""), "sent",
         f"recipient:{recipient}", effect_id=stable_effect,
     )
+    attachment_refs = []
+    for document_path in document_paths or []:
+        try:
+            attachment_refs.append(Path(document_path).resolve().relative_to(root.resolve()).as_posix())
+        except ValueError:
+            attachment_refs.append(Path(document_path).name)
+    delivery_documents = delivery_result.get("documents") if isinstance(delivery_result, dict) else []
     return {
         "event": "telegram_escalation",
         "item_id": item_id,
@@ -947,6 +1061,17 @@ def attempt_telegram_send(
         "sent": True,
         "duplicate_blocked": False,
         "bridge_function": "connectors.telegram_bridge.telegram_bridge.send",
+        "attachments": [
+            {
+                "path": path,
+                "sent": (
+                    bool(delivery_documents[index].get("sent"))
+                    if index < len(delivery_documents) and isinstance(delivery_documents[index], dict)
+                    else True
+                ),
+            }
+            for index, path in enumerate(attachment_refs)
+        ],
         "receipt_path": receipt_path,
         "created_at": now_iso(),
         "effect_id": f"{stable_effect}:result",

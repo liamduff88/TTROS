@@ -1,23 +1,34 @@
 {
   "version": "0",
-  "description": "Thin Agentic OS lane to Hermes profile map. Profiles live in the single Operating Hermes runtime; this file does not create Hermes installs, switch global defaults, or store secrets.",
+  "description": "Thin Agentic OS lane to Hermes profile map. Coordinator/reviewer calls bind aos-orchestrator per invocation; this file never creates installs, switches the sticky global default, or stores secrets.",
   "fallback_profile": "default",
   "lanes": {
     "orchestrator": {
       "lane": "orchestrator",
       "profile_requested": "aos-orchestrator",
-      "fallback_profile": "default",
+      "fallback_profile": "none",
+      "fail_if_unavailable": true,
       "enabled_only_when_model_configured": true,
       "purpose": "Queue triage, cross-lane coordination, review, and escalation judgment.",
-      "escalation_note": "Escalate unclear ownership, cross-lane conflicts, or high-risk operator decisions to the default Operating Hermes route."
+      "escalation_note": "Fail clearly if the scoped aos-orchestrator profile cannot start; never switch the sticky profile or substitute Codex."
     },
     "hermes": {
       "lane": "hermes",
       "profile_requested": "aos-orchestrator",
-      "fallback_profile": "default",
+      "fallback_profile": "none",
+      "fail_if_unavailable": true,
       "enabled_only_when_model_configured": true,
       "purpose": "Operating Hermes coordinator lane for dashboard and queue review work.",
-      "escalation_note": "Use default Operating Hermes when the orchestrator profile is not model-configured."
+      "escalation_note": "Fail clearly if the scoped aos-orchestrator profile cannot start; no fallback coordinator is permitted."
+    },
+    "unassigned": {
+      "lane": "unassigned",
+      "profile_requested": "aos-orchestrator",
+      "fallback_profile": "none",
+      "fail_if_unavailable": true,
+      "enabled_only_when_model_configured": true,
+      "purpose": "Route ownerless or unknown-lane triage to the Operating Hermes coordinator.",
+      "escalation_note": "Fail clearly if the scoped aos-orchestrator profile cannot start; never substitute a workbench."
     },
     "revenue": {
       "lane": "revenue",

@@ -129,7 +129,6 @@ CLAUDE_USAGE_READER_WSL = str(BASE_DIR / "dashboard" / "backend" / "claude_usage
 def _require_authority() -> Path:
     return assert_authoritative_root(BASE_DIR)
 
-
 @app.middleware("http")
 async def linux_authority_boundary(request: Request, call_next):
     """Reject every HTTP mutation before an endpoint can create side effects."""
@@ -233,7 +232,7 @@ def health():
     return {
         "status": "ok",
         "version": "0.1.0",
-        "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
+        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
         "workspace": str(BASE_DIR),
         "token_usage": {"available": False, "no_agent_invocation": True},
         "token_usage_text": "Token usage: no agent invocation",
@@ -556,6 +555,11 @@ class QueueStatusUpdate(BaseModel):
 class QueueReviewClose(BaseModel):
     status: str = "done"
     review_note: str = ""
+    action: str = ""
+
+
+class QueueReviewNote(BaseModel):
+    review_note: str = ""
 
 
 class QueueArtifactFolderOpen(BaseModel):
@@ -635,7 +639,7 @@ _QUEUE_ARTIFACT_ALLOWED_PREFIXES = (
 _QUEUE_ARTIFACT_EXTENSIONS = {".md", ".txt", ".json", ".jsonl"}
 _QUEUE_ARTIFACT_SECRET_RE = re.compile(r"(^|[/.])(\.env|env\.|.*secret.*|.*token.*|.*credential.*|.*password.*)", re.IGNORECASE)
 _QUEUE_ARTIFACT_PATH_RE = re.compile(
-    r"(?P<path>(?:queue/receipts|results|workflows|packets|logs)/[^\s`'\"<>]+?\.(?:md|txt|json|jsonl))",
+    r"(?P<path>(?:queue/receipts|results|workflows|packets|logs)/[^\s`'\"<>]+?\.(?:jsonl|json|md|txt))",
     re.IGNORECASE,
 )
 _QUEUE_ARTIFACT_MAX_BYTES = 250_000
@@ -712,11 +716,11 @@ AGENT_TIMEOUT_SECONDS = _timeout_seconds_from_env(
 AGENT_STARTUP_TIMEOUT_SECONDS = _timeout_seconds_from_env(
     "AOS_AGENT_STARTUP_TIMEOUT_SECONDS", default=60, minimum=1,
 )
-QUEUE_WORKER_TIMEOUT_SECONDS = _timeout_seconds_from_env(
-    "AOS_QUEUE_WORKER_TIMEOUT_SECONDS", default=1200, minimum=900,
+# Backward-compatible name for existing queue worker/result payloads.
+QUEUE_WORKER_TIMEOUT_SECONDS = AGENT_TIMEOUT_SECONDS
+QUEUE_HERMES_REVIEW_TIMEOUT_SECONDS = _timeout_seconds_from_env(
+    "AOS_AGENT_REVIEW_TIMEOUT_SECONDS", default=120, minimum=1,
 )
-QUEUE_HERMES_REVIEW_TIMEOUT_SECONDS = 120
-QUEUE_STUCK_TIMEOUT_SECONDS = QUEUE_WORKER_TIMEOUT_SECONDS + QUEUE_HERMES_REVIEW_TIMEOUT_SECONDS + 180
 MODEL_TURNS_THRESHOLD_DEFAULT = 75
 MODEL_TURNS_THRESHOLD = _timeout_seconds_from_env(
     "AOS_MODEL_TURNS_THRESHOLD", default=MODEL_TURNS_THRESHOLD_DEFAULT, minimum=1,
@@ -728,8 +732,22 @@ USAGE_COUNTER_FIELDS = (
     "input_plus_output", "fresh_input", "largest_tool_result_bytes",
     "context_pct_at_close",
 )
+QUEUE_HEARTBEAT_INTERVAL_SECONDS = _timeout_seconds_from_env(
+    "AOS_AGENT_HEARTBEAT_SECONDS", default=30, minimum=1,
+)
+QUEUE_STUCK_TIMEOUT_SECONDS = _timeout_seconds_from_env(
+    "AOS_AGENT_LEASE_SECONDS", default=90, minimum=5,
+)
 AGENT_GRACEFUL_TERMINATION_SECONDS = _timeout_seconds_from_env(
     "AOS_AGENT_GRACEFUL_TERMINATION_SECONDS", default=10, minimum=1,
+)
+QUEUE_FINALIZATION_TIMEOUT_SECONDS = _timeout_seconds_from_env(
+    "AOS_AGENT_FINALIZATION_TIMEOUT_SECONDS", default=120, minimum=1,
+)
+AGENT_PARENT_TIMEOUT_SECONDS = (
+    AGENT_STARTUP_TIMEOUT_SECONDS
+    + AGENT_TIMEOUT_SECONDS
+    + AGENT_GRACEFUL_TERMINATION_SECONDS
 )
 LOCAL_AGENT_ROUTE_LOG = LOGS_DIR / "local_agent_route.jsonl"
 
@@ -1195,8 +1213,9 @@ def _quoted_linux_path(path: Path | str) -> str:
 
 
 def _run_wsl(bash_cmd: str, timeout: int = 60) -> dict:
-    """Compatibility name for running a command in the current Linux runtime."""
-    full_cmd = f"{WSL_ENV}; {bash_cmd}"
+    """Compatibility helper for bounded commands in the authoritative Linux root."""
+    root = _quoted_linux_path(BASE_DIR)
+    full_cmd = f"{WSL_ENV}; export AOS_ROOT={root}; cd {root}; {bash_cmd}"
     try:
         result = subprocess.run(
             ["bash", "-lc", full_cmd],
@@ -1232,6 +1251,59 @@ def _run_wsl(bash_cmd: str, timeout: int = 60) -> dict:
         return {"success": False, "output": "bash not found — Linux runtime unavailable", "returncode": -1}
     except Exception as e:
         return {"success": False, "output": f"Error: {e}", "returncode": -1}
+
+
+def _run_wsl_supervised(bash_cmd: str, timeout: int, *, on_process_start=None) -> dict:
+    """Process-group-supervised helper for long-running Claude execution."""
+    root = _quoted_linux_path(BASE_DIR)
+    full_cmd = f"{WSL_ENV}; export AOS_ROOT={root}; cd {root}; {bash_cmd}"
+    started = time.monotonic()
+    try:
+        process = subprocess.Popen(
+            ["bash", "-lc", full_cmd], cwd=str(BASE_DIR),
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, encoding="utf-8", errors="replace",
+            start_new_session=True, close_fds=True,
+        )
+        if on_process_start is not None:
+            try:
+                on_process_start(process)
+            except Exception:
+                _terminate_process_group(process)
+                raise
+        try:
+            stdout, stderr = process.communicate(timeout=timeout)
+            timed_out = False
+        except subprocess.TimeoutExpired as exc:
+            partial_stdout = str(exc.stdout or "")
+            partial_stderr = str(exc.stderr or "")
+            _terminate_process_group(process)
+            final_stdout, final_stderr = process.communicate()
+            stdout = partial_stdout + str(final_stdout or "")
+            stderr = partial_stderr + str(final_stderr or "")
+            timed_out = True
+        stdout = stdout.strip()
+        stderr = stderr.strip()
+        elapsed = round(time.monotonic() - started, 3)
+        if timed_out:
+            return {
+                "success": False, "output": f"Command timed out after {timeout}s",
+                "stdout": stdout, "stderr": stderr or f"Command timed out after {timeout}s",
+                "returncode": process.returncode if process.returncode is not None else -1,
+                "timed_out": True, "timeout_seconds": timeout, "elapsed_seconds": elapsed,
+                "graceful_termination_seconds": AGENT_GRACEFUL_TERMINATION_SECONDS,
+            }
+        return {
+            "success": process.returncode == 0,
+            "output": stdout or stderr or "(no output)",
+            "stdout": stdout, "stderr": stderr, "returncode": process.returncode,
+            "timeout_seconds": timeout, "elapsed_seconds": elapsed,
+            "graceful_termination_seconds": AGENT_GRACEFUL_TERMINATION_SECONDS,
+        }
+    except FileNotFoundError:
+        return {"success": False, "output": "bash not found — Linux runtime unavailable", "returncode": -1}
+    except Exception as exc:
+        return {"success": False, "output": f"Error: {exc}", "returncode": -1}
 
 
 def _run_agentic_os_clean_bash(bash_cmd: str, timeout: int = 60) -> dict:
@@ -1422,11 +1494,44 @@ def _write_agent_prompt_file(prompt: str, prefix: str = "aos_prompt_") -> tuple[
     return prompt_path, _path_for_wsl_command(prompt_path)
 
 
-def _run_wsl_prompt_command(command_template: str, prompt: str, timeout: int) -> dict:
+def _run_wsl_prompt_command(
+    command_template: str,
+    prompt: str,
+    timeout: int,
+    *,
+    startup_timeout: int | None = None,
+    on_process_start=None,
+) -> dict:
     prompt_path, prompt_wsl_path = _write_agent_prompt_file(prompt)
     try:
+        if startup_timeout is not None:
+            startup = _run_wsl(
+                "command -v aos-hermes >/dev/null && command -v aos-claude >/dev/null "
+                "&& /home/liam/.local/npm/bin/claude --version",
+                timeout=startup_timeout,
+            )
+            if not startup.get("success"):
+                return {
+                    **startup,
+                    "command_stage": "startup",
+                    "startup_timeout_seconds": startup_timeout,
+                    "execution_timeout_seconds": timeout,
+                    "parent_timeout_seconds": startup_timeout + timeout + AGENT_GRACEFUL_TERMINATION_SECONDS,
+                }
         command = command_template.format(prompt_file=shlex.quote(prompt_wsl_path))
-        return _run_wsl(command, timeout=timeout)
+        result = (
+            _run_wsl_supervised(command, timeout=timeout, on_process_start=on_process_start)
+            if startup_timeout is not None
+            else _run_wsl(command, timeout=timeout)
+        )
+        return {
+            **result,
+            "command_stage": "execution" if result.get("timed_out") else "completion",
+            "startup_timeout_seconds": startup_timeout,
+            "execution_timeout_seconds": timeout,
+            "parent_timeout_seconds": (startup_timeout or 0) + timeout + AGENT_GRACEFUL_TERMINATION_SECONDS,
+            "startup_output": startup.get("output", "") if startup_timeout is not None else "",
+        }
     finally:
         try:
             prompt_path.unlink()
@@ -2851,9 +2956,14 @@ def _dashboard_token_strip(records: list[dict]) -> dict:
     }
 
 
-def _recent_file_items() -> list[dict]:
+def _recent_file_items(limit: int = 200) -> list[dict]:
+    """Return the most-recently-modified allowlisted files without reading every candidate's content.
+
+    Candidates are ranked by a cheap stat() first; file content is only read for the
+    top `limit` results, so this stays fast even as queue/receipts, results, and logs grow.
+    """
     roots = [QUEUE_DIR / "receipts", RESULTS_DIR, LOGS_DIR]
-    items = []
+    candidates: list[tuple[float, Path, str]] = []
     for root in roots:
         if not root.exists():
             continue
@@ -2864,18 +2974,27 @@ def _recent_file_items() -> list[dict]:
             if _QUEUE_ARTIFACT_SECRET_RE.search(rel):
                 continue
             try:
-                content = path.read_text(encoding="utf-8", errors="replace")
-                items.append({
-                    "id": rel,
-                    "path": rel,
-                    "title": _markdown_title(content, path.name),
-                    "source": "receipt" if "queue/receipts" in rel or "/receipts/" in rel else ("result" if rel.startswith("results/") else "log"),
-                    "modified": datetime.datetime.fromtimestamp(path.stat().st_mtime).isoformat(),
-                    "preview": _redacted_preview(content, 2400),
-                })
+                mtime = path.stat().st_mtime
             except OSError:
                 continue
-    return sorted(items, key=lambda item: item.get("modified") or "", reverse=True)
+            candidates.append((mtime, path, rel))
+    candidates.sort(key=lambda row: row[0], reverse=True)
+
+    items = []
+    for mtime, path, rel in candidates[:limit]:
+        try:
+            content = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        items.append({
+            "id": rel,
+            "path": rel,
+            "title": _markdown_title(content, path.name),
+            "source": "receipt" if "queue/receipts" in rel or "/receipts/" in rel else ("result" if rel.startswith("results/") else "log"),
+            "modified": datetime.datetime.fromtimestamp(mtime).isoformat(),
+            "preview": _redacted_preview(content, 2400),
+        })
+    return items
 
 
 def _dashboard_activity_feed(recent_sources: list[dict] | None = None) -> list[dict]:
@@ -2969,7 +3088,11 @@ def _telegram_configured_operator_chat() -> str | None:
 
 
 def _telegram_reply_to(item: dict) -> str | None:
-    reply_to = item.get("reply_to") or item.get("chat_id") or item.get("telegram_chat_id")
+    dispatch = item.get("dispatch") if isinstance(item.get("dispatch"), dict) else {}
+    reply_to = (
+        item.get("reply_to") or item.get("chat_id") or item.get("telegram_chat_id")
+        or dispatch.get("reply_to")
+    )
     if reply_to:
         return str(reply_to)
     for ref in item.get("source_refs") or []:
@@ -3025,7 +3148,14 @@ def _telegram_reply_on_close(item: dict, status: str, note: str, receipt_path: s
             "reason": "chat_id_unavailable",
         }
 
-    message = f"Queue item {item.get('id')} closed as {status}. {note}".strip()
+    message = aos_orchestration.format_operator_work_item_notification(
+        item,
+        status,
+        summary=(note or f"{aos_orchestration.operator_task_title(item)} was closed from review."),
+        next_action="None" if status == "done" else "Review the attached closeout.",
+        receipt_path=receipt_path,
+        receipt_attached=bool(receipt_path),
+    )
     event = {
         "mode": "live_bridge_send",
         "bridge_function": "connectors.telegram_bridge.telegram_bridge.send",
@@ -3049,7 +3179,8 @@ def _telegram_reply_on_close(item: dict, status: str, note: str, receipt_path: s
                 raise
 
         bridge.api = tracking_api
-        bridge.send(reply_to, message, preserve_format=True)
+        docs = [str(BASE_DIR / receipt_path)] if receipt_path and (BASE_DIR / receipt_path).is_file() else []
+        bridge.send(reply_to, message, preserve_format=True, document_paths=docs)
         if not send_result["ok"]:
             bridge.log(
                 f"dashboard_close_hook_send_failed item={item.get('id')} status={status} "
@@ -3412,12 +3543,8 @@ def composio_connections():
 
 @app.get("/api/wsl/status")
 def wsl_status():
-    """Check aos-hermes status inside AgenticOSClean."""
-    result = _run_wsl("aos-hermes status")
-    result["output"] = f"{result.get('output', '').rstrip()}\nToken usage: no agent invocation".lstrip()
-    result["token_usage"] = {"available": False, "no_agent_invocation": True}
-    result["token_usage_text"] = "Token usage: no agent invocation"
-    return result
+    """Report bridge and downstream operator-route health without invoking an agent."""
+    return _operator_system_status_closeout()
 
 
 @app.get("/api/hermes-ui/status")
@@ -3543,6 +3670,25 @@ def _token_usage_from_hermes_usage_report(usage: dict | None) -> tuple[dict, str
         "completed": usage.get("completed"),
         "failed": failed,
     }
+    session_id = str(usage.get("session_id") or usage.get("thread_id") or "").strip()
+    if session_id:
+        token_usage["session_id"] = session_id
+    input_tokens = fields.get("input_tokens")
+    cached_input = fields.get("cache_read_tokens")
+    output_tokens = fields.get("output_tokens")
+    if isinstance(input_tokens, int):
+        token_usage["total_input"] = input_tokens
+    if isinstance(cached_input, int):
+        token_usage["cached_input"] = cached_input
+    if isinstance(input_tokens, int) and isinstance(cached_input, int) and cached_input <= input_tokens:
+        token_usage["non_cached_input"] = input_tokens - cached_input
+        token_usage["fresh_input"] = input_tokens - cached_input
+    if isinstance(output_tokens, int):
+        token_usage["output"] = output_tokens
+    if isinstance(input_tokens, int) and isinstance(output_tokens, int):
+        token_usage["input_plus_output"] = input_tokens + output_tokens
+    if isinstance(fields.get("reasoning_tokens"), int):
+        token_usage["reasoning"] = fields["reasoning_tokens"]
     if failure:
         token_usage["failure"] = failure
 
@@ -3570,7 +3716,15 @@ def _read_hermes_usage_report(path: Path) -> dict | None:
     return value if isinstance(value, dict) else None
 
 
-def _run_hermes_message(text: str) -> dict:
+def _run_hermes_message(
+    text: str,
+    *,
+    role: str = "conversation",
+    attempt: int | None = None,
+    item_id: str = "",
+    timeout: int | None = None,
+) -> dict:
+    invocation_id = f"hermes-{uuid.uuid4().hex}"
     prompt_path, prompt_wsl_path = _write_agent_prompt_file(text, prefix="hermes_message_")
     usage_handle = tempfile.NamedTemporaryFile(
         "w",
@@ -3589,7 +3743,7 @@ def _run_hermes_message(text: str) -> dict:
         f"--prompt-file {_quoted_linux_path(prompt_wsl_path)}"
     )
     try:
-        result = _run_agentic_os_clean_bash(command, timeout=120)
+        result = _run_agentic_os_clean_bash(command, timeout=timeout or AGENT_TIMEOUT_SECONDS)
         usage_report = _read_hermes_usage_report(usage_path)
     finally:
         for path in (prompt_path, usage_path):
@@ -3600,6 +3754,7 @@ def _run_hermes_message(text: str) -> dict:
 
     reply = _clean_hermes_stream(result.get("stdout") or result.get("output") or "")
     token_usage, token_usage_text = _token_usage_from_hermes_usage_report(usage_report)
+    token_usage.setdefault("invocation_id", invocation_id)
     metadata = {
         "requested_target": "hermes",
         "selected_route": "hermes_message",
@@ -3607,16 +3762,29 @@ def _run_hermes_message(text: str) -> dict:
         "codex_forbidden": "no",
         "profile_requested": "aos-orchestrator",
         "profile_used": "aos-orchestrator",
+        "role": role,
+        "attempt": attempt,
+        "item_id": item_id,
+        "invocation_id": invocation_id,
     }
     _log_token_usage("hermes", "hermes", text, token_usage, token_usage_text, metadata)
     return {
         "success": bool(result.get("success")) and not token_usage.get("failed", False),
         "reply": reply,
+        "output": reply,
+        "stdout": reply,
         "token_usage": token_usage,
         "token_usage_text": token_usage_text,
         "returncode": result.get("returncode", -1),
         "stderr": _clean_hermes_stream(result.get("stderr")),
         "raw_output_tail": "\n".join((str(result.get("stdout") or result.get("output") or "")).splitlines()[-20:]),
+        "invocation_id": invocation_id,
+        "session_id": token_usage.get("session_id"),
+        "profile_requested": "aos-orchestrator",
+        "profile_used": "aos-orchestrator",
+        "role": role,
+        "attempt": attempt,
+        "token_usage_logged": True,
     }
 
 
@@ -3774,16 +3942,27 @@ _CODEX_FORBIDDEN_RE = re.compile(
 )
 _EXPLICIT_TARGET_RE = {
     target: re.compile(
-        rf"\b(?:get|tell|use)\s+{target}\b|\b(?:get|tell)\s+{target}\s+to\b",
+        rf"\b(?:get|tell|use|ask|have)\s+{target}\b"
+        rf"|\b(?:give|send|delegate|route|assign|hand)\b[^.!?\n]{{0,80}}\bto\s+{target}\b"
+        rf"|(?:^|\n)\s*{target}(?:\s+code)?\s*:"
+        rf"|(?:^|[/\s])work\s+{target}\b",
         re.IGNORECASE,
     )
     for target in ("codex", "claude", "hermes")
 }
+_HERMES_ORCHESTRATION_RE = re.compile(
+    r"\b(?:coordinate|coordinator|oversee|orchestrate)\b"
+    r"|\breview\s+(?:it|the\s+(?:work|result|receipt|diff|tests?))\b"
+    r"|\bsend\s+(?:it|this|the\s+work)\s+back\b"
+    r"|\b(?:request|make|apply)\s+(?:a\s+)?corrections?\b",
+    re.IGNORECASE,
+)
 _QUEUE_CREATE_PREFIX = "Add this to the queue:"
 _QUEUE_CREATE_RE = re.compile(rf"^{re.escape(_QUEUE_CREATE_PREFIX)}", re.IGNORECASE)
 _QUEUE_LIST_PREFIX = "List queue:"
 _QUEUE_LIST_RE = re.compile(rf"^{re.escape(_QUEUE_LIST_PREFIX)}", re.IGNORECASE)
 _QUEUE_STATUS_INTENTS = {"queue status", "show queue status", "show queue summary"}
+_SYSTEM_STATUS_INTENTS = {"/status", "status", "show status", "system status", "operator status", "show system status"}
 _QUEUE_FILTERED_READ_INTENTS = {
     "what is currently blocked?": ("blocked", "Blocked queue items"),
     "show queue items needing review": ("human_review", "Queue items needing review"),
@@ -3871,6 +4050,13 @@ class _QueueToolFallback:
     def create_item(self, root: Path, args):
         with queue_write_lock(root):
             items = self.load_items(root)
+            idempotency_key = str(getattr(args, "idempotency_key", "") or "").strip()
+            if idempotency_key:
+                for existing in items:
+                    dispatch = existing.get("dispatch")
+                    if isinstance(dispatch, dict) and dispatch.get("idempotency_key") == idempotency_key:
+                        setattr(args, "idempotency_duplicate", True)
+                        return existing
             now = self.now_iso()
             item = {
             "id": self._next_id(items, now),
@@ -3893,12 +4079,65 @@ class _QueueToolFallback:
             "depends_on": _queue_split_text(getattr(args, "depends_on", "")),
             "on_complete": getattr(args, "on_complete", None) or None,
             "workbench": getattr(args, "workbench", None) or None,
+            "review": getattr(args, "review", None) or "none",
             "receipts": [],
             "claim": {"claimed_by": None, "claimed_at": None},
             "created_at": now,
             "updated_at": now,
             }
+            if idempotency_key:
+                item["dispatch"] = {
+                    "idempotency_key": idempotency_key,
+                    "inbound_route": str(getattr(args, "inbound_route", "") or ""),
+                    "delivery_id": str(getattr(args, "delivery_id", "") or ""),
+                    "reply_to": str(getattr(args, "reply_to", "") or ""),
+                    "accepted_at": now,
+                }
+                setattr(args, "idempotency_duplicate", False)
+            for key in ("run_prompt_path", "needs_me"):
+                value = getattr(args, key, None)
+                if value:
+                    item[key] = value
             items.append(item)
+            self.save_items(root, items)
+            return item
+
+    def claim_item(self, root: Path, item_id: str, agent_id: str):
+        with queue_write_lock(root):
+            items = self.load_items(root)
+            item = self.find_item(items, item_id)
+            claimed_by = str((item.get("claim") or {}).get("claimed_by") or "")
+            if claimed_by and claimed_by != agent_id:
+                raise ValueError(f"Work item already claimed by {claimed_by}")
+            now = self.now_iso()
+            item["claim"] = {"claimed_by": agent_id, "claimed_at": now}
+            item["worker_heartbeat_at"] = now
+            item["status"] = "agent_working"
+            item["updated_at"] = now
+            self.save_items(root, items)
+            return item
+
+    def renew_claim(self, root: Path, item_id: str, agent_id: str):
+        with queue_write_lock(root):
+            items = self.load_items(root)
+            item = self.find_item(items, item_id)
+            if item.get("status") != "agent_working" or str((item.get("claim") or {}).get("claimed_by") or "") != agent_id:
+                raise ValueError(f"Work item claim is not active for {agent_id}: {item_id}")
+            now = self.now_iso()
+            item["worker_heartbeat_at"] = now
+            item["updated_at"] = now
+            self.save_items(root, items)
+            return item
+
+    def release_item(self, root: Path, item_id: str, status: str):
+        with queue_write_lock(root):
+            self._refuse_done_transition(status)
+            items = self.load_items(root)
+            item = self.find_item(items, item_id)
+            item["claim"] = {"claimed_by": None, "claimed_at": None}
+            item["worker_heartbeat_at"] = None
+            item["status"] = status
+            item["updated_at"] = self.now_iso()
             self.save_items(root, items)
             return item
 
@@ -3975,12 +4214,12 @@ def _queue_model_routes_path() -> Path:
 def _queue_route_fallback(lane: str = "unassigned") -> dict:
     return {
         "lane": lane or "unassigned",
-        "profile_requested": "default",
+        "profile_requested": "aos-orchestrator",
         "provider": "configured externally",
         "model": "configured externally",
         "escalation_profile": "orchestrator_escalated",
         "escalation_rule": "Use Operating Hermes triage when the queue owner is missing or unknown.",
-        "policy": "Fallback to the single Operating Hermes runtime for triage and safe routing.",
+        "policy": "Fallback to native Operating Hermes through a scoped aos-orchestrator invocation; never substitute a workbench.",
     }
 
 
@@ -4072,8 +4311,9 @@ def _queue_resolve_route_metadata(owner: object) -> dict:
         _queue_provider_value_is_safe(provider_requested)
         and _queue_route_value_is_explicit(model_requested)
     )
-    profile_used = "explicit_model_provider_route" if explicit_route else "default"
-    profile_fallback_reason = "" if explicit_route else "explicit provider/model route missing or placeholder"
+    scoped_orchestrator = profile_requested == "aos-orchestrator"
+    profile_used = "aos-orchestrator" if scoped_orchestrator else "explicit_model_provider_route" if explicit_route else "default"
+    profile_fallback_reason = "" if scoped_orchestrator or explicit_route else "explicit provider/model route missing or placeholder"
     provider_used = provider_requested if explicit_route else "default"
     model_used = model_requested if explicit_route else "default"
     model_confirmed = "configured in queue/model_routes.json" if explicit_route else "unavailable from current CLI output"
@@ -4426,7 +4666,7 @@ def _queue_write_run_receipt(item_id: str, receipt_text: str) -> str:
 
 
 def _queue_artifact_block_reason(path_text: str) -> str | None:
-    normalized = path_text.replace("\\", "/").lstrip("./")
+    normalized = str(path_text or "").replace("\\", "/").lstrip("./")
     if _QUEUE_ARTIFACT_SECRET_RE.search(normalized):
         return "path is blocked because it looks like a secret or environment file"
     if Path(normalized).suffix.lower() not in _QUEUE_ARTIFACT_EXTENSIONS:
@@ -4436,29 +4676,31 @@ def _queue_artifact_block_reason(path_text: str) -> str | None:
     return None
 
 
+def _queue_normalize_artifact_path(path_text: str) -> str:
+    """Return one canonical POSIX path beneath the authoritative repository root."""
+    raw = str(path_text or "").strip().strip("`'\"")
+    if not raw:
+        raise ValueError("artifact path is required")
+    if "\\" in raw:
+        raw = raw.replace("\\", "/")
+    try:
+        target = resolve_root_relative(raw, root=BASE_DIR)
+        canonical = target.relative_to(BASE_DIR.resolve()).as_posix()
+    except (AosPathError, ValueError) as exc:
+        raise ValueError("artifact path must be root-relative and stay inside the authoritative Linux workspace") from exc
+    blocked = _queue_artifact_block_reason(canonical)
+    if blocked:
+        raise ValueError(blocked)
+    return canonical
+
+
+_QUEUE_ARTIFACT_READ_CACHE: dict[str, tuple[float, int, dict]] = {}
+
+
 def _queue_read_artifact(relative_path: str, *, receipt_only: bool = False) -> dict:
     path_text = str(relative_path or "").strip()
-    if not path_text:
-        raise ValueError("artifact path is required")
-    if Path(path_text).is_absolute():
-        raise ValueError("artifact path must be root-relative")
-
-    blocked = _queue_artifact_block_reason(path_text)
-    if blocked:
-        raise ValueError(blocked)
-
-    try:
-        target = resolve_root_relative(path_text, root=BASE_DIR)
-    except AosPathError as exc:
-        raise ValueError(str(exc)) from exc
-
-    try:
-        root_relative = target.relative_to(BASE_DIR.resolve()).as_posix()
-    except ValueError as exc:
-        raise ValueError("artifact path must stay inside the workspace") from exc
-    blocked = _queue_artifact_block_reason(root_relative)
-    if blocked:
-        raise ValueError(blocked)
+    root_relative = _queue_normalize_artifact_path(path_text)
+    target = resolve_root_relative(root_relative, root=BASE_DIR)
 
     if receipt_only:
         try:
@@ -4471,14 +4713,23 @@ def _queue_read_artifact(relative_path: str, *, receipt_only: bool = False) -> d
     stat = target.stat()
     if stat.st_size > _QUEUE_ARTIFACT_MAX_BYTES:
         raise ValueError("artifact is too large to display in the dashboard")
-    return {
+
+    cache_key = str(target)
+    cached = _QUEUE_ARTIFACT_READ_CACHE.get(cache_key)
+    if cached and cached[0] == stat.st_mtime and cached[1] == stat.st_size:
+        return {**cached[2], "path": root_relative}
+
+    result = {
         "path": root_relative,
         "name": target.name,
         "extension": target.suffix.lower(),
         "size_bytes": stat.st_size,
         "modified": datetime.datetime.fromtimestamp(stat.st_mtime, datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
+        "sha256": hashlib.sha256(target.read_bytes()).hexdigest(),
         "content": target.read_text(encoding="utf-8", errors="replace"),
     }
+    _QUEUE_ARTIFACT_READ_CACHE[cache_key] = (stat.st_mtime, stat.st_size, result)
+    return result
 
 
 def _queue_receipt_artifact(relative_path: str) -> tuple[str, str]:
@@ -4596,6 +4847,10 @@ def _queue_unique_artifact_paths(paths: list[str]) -> list[str]:
     seen = set()
     for path in paths:
         cleaned = str(path or "").strip().strip("`'\"")
+        try:
+            cleaned = _queue_normalize_artifact_path(cleaned)
+        except ValueError:
+            pass
         if not cleaned or cleaned in seen:
             continue
         seen.add(cleaned)
@@ -4617,8 +4872,10 @@ def _queue_verified_artifacts_from_worker_result(item: dict, worker_result: dict
                 artifact = _queue_read_artifact(path)
                 ref.update({
                     "available": True,
+                    "path": artifact["path"],
                     "size_bytes": artifact["size_bytes"],
                     "modified": artifact["modified"],
+                    "sha256": artifact["sha256"],
                     "content_excerpt": _bounded_hermes_answer(artifact["content"], 900),
                 })
             except FileNotFoundError:
@@ -4638,7 +4895,10 @@ def _queue_render_verified_artifacts(artifacts: list[dict], *, include_excerpt: 
     for artifact in artifacts:
         path = artifact.get("path", "")
         if artifact.get("available"):
-            lines.append(f"- AVAILABLE: {path} ({artifact.get('size_bytes', 0)} bytes)")
+            lines.append(
+                f"- AVAILABLE: {path} ({artifact.get('size_bytes', 0)} bytes; "
+                f"sha256 {artifact.get('sha256', 'unavailable')})"
+            )
             if include_excerpt:
                 lines.append("  Content excerpt:")
                 lines.extend(f"  {line}" for line in str(artifact.get("content_excerpt") or "").splitlines()[:20])
@@ -4829,7 +5089,16 @@ def _queue_latest_receipt(item: dict) -> dict | None:
     receipts = item.get("receipts") or []
     if not receipts:
         return None
-    latest = receipts[-1]
+    latest = next(
+        (
+            row for row in reversed(receipts)
+            if not any(
+                marker in str(row if isinstance(row, str) else (row or {}).get("path") or "")
+                for marker in ("-notification-", "-telegram-escalation-", "-review-note-")
+            )
+        ),
+        receipts[-1],
+    )
     if isinstance(latest, str):
         latest = {"path": latest}
     if not isinstance(latest, dict):
@@ -4866,6 +5135,67 @@ def _queue_latest_receipt(item: dict) -> dict | None:
     }
 
 
+def _queue_review_details(item: dict, latest_receipt: dict | None) -> dict:
+    content = str((latest_receipt or {}).get("content") or "")
+    blocker = _receipt_section_value(content, "Blockers", "")
+    if blocker.casefold() in {"none", "none reported", "- none"}:
+        blocker = ""
+    review_result = str(_field_from_output(content, "Review result") or "")
+    if review_result.casefold() in {"", "pass", "passed", "none"}:
+        review_result = ""
+    attempts_text = _field_from_output(content, "Attempts used")
+    try:
+        attempts = int(attempts_text) if attempts_text else None
+    except ValueError:
+        attempts = attempts_text or None
+    return {
+        "summary": _queue_summary_for_operator(item, latest_receipt),
+        "failure_explanation": blocker or review_result,
+        "worker": _field_from_output(content, "Assigned worker") or str(item.get("owner") or "unassigned"),
+        "attempts": attempts,
+        "validation": _receipt_section_value(content, "Validation", ""),
+        "token_usage_lines": (latest_receipt or {}).get("token_usage_lines") or _queue_token_usage_lines(content),
+        "receipt_path": str((latest_receipt or {}).get("path") or ""),
+        "receipt_content": content,
+    }
+
+
+def _queue_summary_for_operator(item: dict, latest_receipt: dict | None) -> str:
+    """Return a deterministic useful operator summary; never just echo the title."""
+    title = str(item.get("title") or "").strip()
+    receipt_content = str((latest_receipt or {}).get("content") or "")
+    candidates = [
+        _receipt_section_value(receipt_content, "Summary for operator", ""),
+        _receipt_section_value(receipt_content, "Root cause / behavior changed", ""),
+        _receipt_section_value(receipt_content, "Validation", ""),
+        _receipt_section_value(receipt_content, "Summary", ""),
+        str(item.get("context") or ""),
+        str(item.get("definition_of_done") or ""),
+    ]
+    for candidate in candidates:
+        text = re.sub(r"\s+", " ", str(candidate or "")).strip(" -")
+        if not text or text in {"None reported", "No validation reported"}:
+            continue
+        if title and text.casefold() == title.casefold():
+            continue
+        if title and text.casefold().startswith(title.casefold()) and len(text) <= len(title) + 24:
+            continue
+        summary = _bounded_hermes_answer(text, 320)
+        status = str(item.get("status") or "").strip()
+        if status == "human_review":
+            return (
+                f"{summary} Approving uses the existing local review-close path and deterministic resume tick; "
+                "it does not send anything externally."
+            )
+        if status == "needs_input":
+            return f"{summary} This needs operator input through the existing queue path; no external send is performed."
+        return summary
+    return (
+        "Recorded queue metadata does not include a substantive closeout summary yet. "
+        "Inspect the linked receipt/artifact before acting; dashboard actions remain local and do not send externally."
+    )
+
+
 def _queue_detail_item(item: dict, invocation_attributions: dict[str, dict] | None = None) -> dict:
     public = _queue_public_item(item, invocation_attributions)
     latest_receipt = _queue_latest_receipt(item)
@@ -4876,7 +5206,19 @@ def _queue_detail_item(item: dict, invocation_attributions: dict[str, dict] | No
         step_progress = {"current": max(0, min(step_index, len(steps))), "total": len(steps), "label": f"{max(0, min(step_index, len(steps)))} of {len(steps)}"}
     integrated_review_path = f"workflows/queue_artifacts/{item.get('id')}_final_integrated_dashboard_review.md"
     integrated_review = _queue_artifact_ref(integrated_review_path) if item.get("owner_type") == "workflow" and (BASE_DIR / integrated_review_path).is_file() else None
+    run_artifacts = _queue_artifact_refs(item, latest_receipt.get("content", "") if latest_receipt else "")
+    latest_receipt_path = str((latest_receipt or {}).get("path") or "")
+    primary_artifact = next(
+        (ref for ref in run_artifacts if ref.get("available") and ref.get("path") != latest_receipt_path),
+        None,
+    )
+    if primary_artifact:
+        try:
+            primary_artifact = {**primary_artifact, "content": _queue_read_artifact(primary_artifact["path"])["content"]}
+        except (FileNotFoundError, ValueError, OSError):
+            primary_artifact = None
     public.update({
+        "detail_loaded": True,
         "requested_by": item.get("requested_by", ""),
         "owner_type": item.get("owner_type", ""),
         "source": item.get("source", ""),
@@ -4899,7 +5241,15 @@ def _queue_detail_item(item: dict, invocation_attributions: dict[str, dict] | No
         "claim": item.get("claim") or {"claimed_by": None, "claimed_at": None},
         "receipts": item.get("receipts") or [],
         "latest_receipt": latest_receipt,
-        "run_artifacts": _queue_artifact_refs(item, latest_receipt.get("content", "") if latest_receipt else ""),
+        "summary_for_operator": _queue_summary_for_operator(item, latest_receipt),
+        "review_details": _queue_review_details(item, latest_receipt),
+        "review_notes": item.get("review_notes") or [],
+        "latest_review_note": (item.get("review_notes") or [None])[-1],
+        "run_artifacts": run_artifacts,
+        "primary_artifact": primary_artifact,
+        "external_handoff_relevant": bool(_external_action_matches(
+            f"{item.get('title', '')}\n{item.get('context', '')}"
+        )),
         "final_result": _queue_final_result_for_item(item),
         "integrated_review_artifact": integrated_review,
         "client_scope": item.get("client_scope"),
@@ -4908,6 +5258,26 @@ def _queue_detail_item(item: dict, invocation_attributions: dict[str, dict] | No
         "pipeline": _queue_pipeline(item),
         "stuck_recovery": _queue_stuck_recovery(item),
     })
+    return public
+
+
+def _queue_list_item(item: dict, invocation_attributions: dict[str, dict] | None = None) -> dict:
+    """Return a compact list row; load full artifact detail only on selection."""
+    public = _queue_public_item(item, invocation_attributions)
+    public.update({
+        "detail_loaded": False,
+        "source": item.get("source", ""),
+        "workbench": item.get("workbench", ""),
+        "lane": _queue_item_lane(item),
+    })
+    if item.get("status") in {"human_review", "needs_input"}:
+        latest = _queue_latest_receipt(item)
+        public["summary_for_operator"] = _queue_summary_for_operator(item, latest)
+        if latest:
+            public["latest_receipt"] = {
+                key: latest.get(key)
+                for key in ("path", "status", "created_at", "available", "summary")
+            }
     return public
 
 
@@ -5032,13 +5402,164 @@ def _queue_status_closeout() -> dict:
     }
 
 
+def _process_marker_running(marker: str) -> bool:
+    for proc in Path("/proc").glob("[0-9]*/cmdline"):
+        try:
+            args = [
+                part.decode("utf-8", errors="replace")
+                for part in proc.read_bytes().split(b"\0")
+                if part
+            ]
+        except OSError:
+            continue
+        for arg in args:
+            if Path(arg).name != marker:
+                continue
+            if arg == marker or not any(character.isspace() for character in arg) or Path(arg).is_file():
+                return True
+    return False
+
+
+def _binary_readiness(binary: str, *, login_status: bool = False) -> dict:
+    executable = shutil.which(binary)
+    if not executable:
+        return {"available": False, "state": "missing", "executable": ""}
+    try:
+        version = subprocess.run(
+            [executable, "--version"], cwd=str(BASE_DIR), capture_output=True, text=True,
+            encoding="utf-8", errors="replace", timeout=5, check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return {"available": False, "state": type(exc).__name__, "executable": executable}
+    result = {
+        "available": version.returncode == 0,
+        "state": "ready" if version.returncode == 0 else "version_probe_failed",
+        "executable": executable,
+        "version": _bounded_stream_tail(version.stdout or version.stderr, 160).splitlines()[-1] if (version.stdout or version.stderr) else "unavailable",
+    }
+    if login_status and result["available"]:
+        try:
+            auth = subprocess.run(
+                [executable, "login", "status"], cwd=str(BASE_DIR), capture_output=True, text=True,
+                encoding="utf-8", errors="replace", timeout=5, check=False,
+            )
+            result["authenticated"] = auth.returncode == 0 and "logged in" in (auth.stdout + auth.stderr).lower()
+            if not result["authenticated"]:
+                result["state"] = "authentication_unavailable"
+                result["available"] = False
+        except (OSError, subprocess.TimeoutExpired):
+            result["authenticated"] = False
+            result["state"] = "authentication_probe_failed"
+            result["available"] = False
+    return result
+
+
+def _latest_route_failure() -> dict | None:
+    path = LOCAL_AGENT_ROUTE_LOG if BASE_DIR == _IMPORTED_BASE_DIR else BASE_DIR / "logs" / "local_agent_route.jsonl"
+    if not path.is_file():
+        return None
+    for raw in reversed(path.read_text(encoding="utf-8", errors="replace").splitlines()):
+        try:
+            row = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(row, dict) or "success" not in row:
+            continue
+        if row.get("success") is not False:
+            return None
+        return {
+            "timestamp": row.get("timestamp"),
+            "route": row.get("route"),
+            "item_id": row.get("item_id"),
+            "failure_class": row.get("failure_class"),
+            "stage": row.get("stage"),
+            "log_path": "logs/local_agent_route.jsonl",
+        }
+    return None
+
+
+def _operator_system_status_closeout() -> dict:
+    try:
+        items = _read_queue_items()
+        queue_state = "healthy"
+    except ValueError:
+        items = []
+        queue_state = "invalid"
+    runner = _queue_runner_status(BASE_DIR)
+    actionable = [
+        item for item in items
+        if "async_dispatch" in {str(tag) for tag in item.get("tags") or []}
+        and item.get("status") in {"agent_todo", "agent_working"}
+    ]
+    if runner.get("available"):
+        runner_state = "running"
+    elif actionable:
+        runner_state = "stopped_with_pending_work"
+    else:
+        runner_state = "on_demand_idle"
+    codex = codex_policy_readiness(CODEX_TARGET)
+    hermes = _binary_readiness("hermes")
+    bridge_running = _process_marker_running("telegram_bridge.py")
+    bridge_state = "running" if bridge_running else "not_running"
+    failure = _latest_route_failure()
+    downstream_ready = (
+        queue_state == "healthy"
+        and runner_state != "stopped_with_pending_work"
+        and bool(codex.get("available"))
+        and bool(hermes.get("available"))
+        and failure is None
+    )
+    overall = "healthy" if bridge_running and downstream_ready else "degraded"
+    last_failure = (
+        f"{failure.get('failure_class')} at {failure.get('stage')} ({failure.get('item_id') or 'no item'})"
+        if failure else "none recorded"
+    )
+    output = "\n".join((
+        "PASS" if overall == "healthy" else "NEEDS ATTENTION",
+        f"Operator system: {overall}",
+        f"Bridge health: {bridge_state}",
+        "Backend health: ready (this endpoint is responding)",
+        f"Queue health: {queue_state}; items={len(items)}; actionable={len(actionable)}",
+        f"Runner state: {runner_state}",
+        f"Local agent route: {'ready' if downstream_ready else 'degraded'}",
+        (
+            f"Codex availability: {codex.get('state')}; executable={codex.get('executable') or 'missing'}; "
+            f"user={codex.get('linux_user') or 'unknown'}; cwd={codex.get('cwd') or 'unknown'}; "
+            f"sandbox={codex.get('sandbox') or 'unknown'}; approval_policy={codex.get('approval_policy') or 'unknown'}"
+        ),
+        f"Hermes availability: {hermes.get('state')}; executable={hermes.get('executable') or 'missing'}",
+        f"Last route failure: {last_failure}",
+        "Token usage: no agent invocation",
+    ))
+    return {
+        "success": overall == "healthy",
+        "output": output,
+        "returncode": 0 if overall == "healthy" else 2,
+        "state": overall,
+        "bridge": {"state": bridge_state, "running": bridge_running},
+        "backend": {"state": "ready", "available": True},
+        "queue": {"state": queue_state, "items": len(items), "actionable": len(actionable)},
+        "runner": {**runner, "state": runner_state},
+        "local_agent_route": {"state": "ready" if downstream_ready else "degraded", "ready": downstream_ready},
+        "codex": codex,
+        "hermes": hermes,
+        "last_route_failure": failure,
+        "requested_target": "operator_status",
+        "selected_route": "local_system_status",
+        "delegation_reason": "bounded read-only system health intent",
+        "codex_forbidden": "no",
+        "token_usage": {"available": False, "no_agent_invocation": True},
+        "token_usage_text": "Token usage: no agent invocation",
+    }
+
+
 def _queue_public_item(item: dict, invocation_attributions: dict[str, dict] | None = None) -> dict:
     attributions = _queue_invocation_attributions() if invocation_attributions is None else invocation_attributions
     attribution = attributions.get(str(item.get("id") or ""), {})
     needs_me = _queue_needs_me_reasons(item, attribution)
     return {
         "id": item.get("id", ""),
-        "title": item.get("title", ""),
+        "title": aos_orchestration.operator_task_title(item),
         "status": item.get("status", ""),
         "owner": item.get("owner", "unassigned"),
         "priority": item.get("priority", 0),
@@ -5204,10 +5725,10 @@ def queue_summary():
         }
 
     counts = {status: sum(1 for item in items if item.get("status") == status) for status in _QUEUE_STATUSES}
-    needs_liam = _queue_human_needed_count(counts)
-    active_items = _queue_active_items(items)
-    human_needed_items = _queue_human_needed_items(items)
     invocation_attributions = _queue_invocation_attributions()
+    human_needed_items = _queue_human_needed_items(items, invocation_attributions)
+    needs_liam = len(human_needed_items)
+    active_items = _queue_active_items(items)
     return {
         "success": True,
         "counts": counts,
@@ -5254,7 +5775,7 @@ def queue_items(scope: str | None = None):
         "itemCount": len(items),
         "totalCount": len(all_items),
         "diagnostics": diagnostics,
-        "items": [_queue_detail_item(item, invocation_attributions) for item in items],
+        "items": [_queue_list_item(item, invocation_attributions) for item in items],
     }
 
 
@@ -5418,9 +5939,49 @@ def attach_queue_item_receipt(item_id: str, body: QueueReceiptAttach):
     }
 
 
-@app.post("/api/queue/items/{item_id}/review-close")
-def close_queue_item_review(item_id: str, body: QueueReviewClose):
-    """Close one human_review queue item with an optional local review note."""
+@app.post("/api/queue/items/{item_id}/review-note")
+def save_queue_item_review_note(item_id: str, body: QueueReviewNote):
+    """Save an optional local operator note without changing review state."""
+    note = str(body.review_note or "").strip()
+    if len(note) > 500:
+        raise HTTPException(status_code=400, detail="review_note must be 500 characters or fewer")
+    queue_tool = _load_queue_tool()
+    try:
+        _queue_find_item(item_id)
+        with queue_write_lock(BASE_DIR):
+            items = queue_tool.load_items(BASE_DIR)
+            item = next(row for row in items if row.get("id") == item_id)
+            if item.get("status") != "human_review":
+                raise ValueError("review notes can only be saved while an item is in human_review")
+            timestamp = queue_tool.now_iso()
+            if note:
+                item.setdefault("review_notes", []).append({
+                    "note": note,
+                    "created_at": timestamp,
+                    "saved_by": "Liam",
+                    "token_usage_text": "Token usage: no agent invocation",
+                })
+            item["updated_at"] = timestamp
+            queue_tool.save_items(BASE_DIR, items)
+    except (KeyError, StopIteration, ValueError) as exc:
+        if isinstance(exc, (KeyError, StopIteration)):
+            raise HTTPException(status_code=404, detail="queue item not found")
+        raise HTTPException(status_code=400, detail=str(exc))
+    refreshed = _queue_find_item(item_id)
+    return {
+        "ok": True,
+        "success": True,
+        "item_id": item_id,
+        "status": refreshed.get("status"),
+        "state_changed": False,
+        "token_usage": {"available": False, "no_agent_invocation": True},
+        "token_usage_text": "Token usage: no agent invocation",
+        "item": _queue_detail_item(refreshed),
+    }
+
+
+def _close_queue_item_review(item_id: str, body: QueueReviewClose, *, notify_telegram: bool) -> dict:
+    """Apply the canonical review-close contract, optionally suppressing a second Telegram reply."""
     tick_result = None
     telegram_reply = None
     correction_item = None
@@ -5433,6 +5994,17 @@ def close_queue_item_review(item_id: str, body: QueueReviewClose):
         already_closed = existing.get("status") == status and status == "done"
         if existing.get("status") != "human_review" and not already_closed and not is_workflow_correction:
             raise ValueError("only human_review items can be closed from review")
+        expected_actions = {
+            "done": {"approve"},
+            "needs_input": {"needs_changes"},
+            "blocked": {"block", "reject"},
+        }[status]
+        if str(body.action or "").strip().lower() not in expected_actions:
+            raise ValueError(
+                f"explicit review action required for {status}: {', '.join(sorted(expected_actions))}"
+            )
+        if status in {"needs_input", "blocked"} and not str(body.review_note or "").strip():
+            raise ValueError("Needs changes and Reject require an operator review note")
         if is_workflow_correction:
             correction_item, receipt_path = _create_workflow_correction(existing, body.review_note)
         elif already_closed:
@@ -5446,7 +6018,8 @@ def close_queue_item_review(item_id: str, body: QueueReviewClose):
                 else _queue_write_review_receipt(item_id, body.review_note, status)
             )
             _load_queue_tool().attach_receipt(BASE_DIR, item_id, receipt_path, status)
-            telegram_reply = _telegram_reply_on_close(existing, status, body.review_note, receipt_path)
+            if notify_telegram:
+                telegram_reply = _telegram_reply_on_close(existing, status, body.review_note, receipt_path)
         if status == "done":
             tick_result = aos_orchestration.tick(BASE_DIR, allow_telegram_escalation=False)
     except KeyError:
@@ -5480,6 +6053,12 @@ def close_queue_item_review(item_id: str, body: QueueReviewClose):
         "correction_item": _queue_detail_item(correction_item) if correction_item else None,
         "final_result": final_result,
     }
+
+
+@app.post("/api/queue/items/{item_id}/review-close")
+def close_queue_item_review(item_id: str, body: QueueReviewClose):
+    """Close one human_review queue item with an optional local review note."""
+    return _close_queue_item_review(item_id, body, notify_telegram=True)
 
 
 @app.get("/api/queue/receipt")
@@ -5554,7 +6133,7 @@ def dashboard_cockpit():
         workbenches.append({
             "id": name,
             "name": name.replace("-", " ").title(),
-            "status": "Unavailable" if name in {"antigravity", "graphify"} and not open_items else ("Needs Me" if any(item.get("status") in needs_me_statuses for item in open_items) else "Ready"),
+            "status": "Unavailable" if name in {"antigravity", "graphify"} and not open_items else ("Needs Me" if any(item.get("status") in needs_me_statuses or item.get("needs_me") for item in open_items) else "Ready"),
             "last_task": open_items[0].get("title") if open_items else "No active task",
             "tokens_today": "unavailable" if not tool or tool.get("unavailable") else tool.get("tokens"),
             "unavailable": name in {"antigravity", "graphify"} and not open_items,
@@ -5563,14 +6142,14 @@ def dashboard_cockpit():
         "success": True,
         "counts": counts,
         "needs_me": needs_me,
-        "needs_me_count": _queue_human_needed_count(counts),
-        "human_needed_count": _queue_human_needed_count(counts),
+        "needs_me_count": len(needs_me),
+        "human_needed_count": len(needs_me),
         "human_needed_statuses": sorted(_HUMAN_NEEDED_STATUSES),
         "stalled": stalled,
         "stalled_count": len(stalled),
         "queue_items": items,
         "lane_activity": _dashboard_lane_activity(items),
-        "recent_output": _recent_file_items()[:8],
+        "recent_output": _recent_file_items(limit=8),
         "tokens": token_summary,
         "workbenches": workbenches,
         "backup": backup,
@@ -5766,7 +6345,7 @@ def _cockpit_command_title(text: str) -> str:
         return compact
 
     first_line = next((line.strip() for line in text.splitlines() if line.strip()), "")
-    title = first_line or compact
+    title = aos_orchestration.operator_task_title({"title": first_line or compact, "context": text})
     if len(title) > 120:
         return f"{title[:117].rstrip()}..."
     return title
@@ -6967,7 +7546,7 @@ def _hermes_coordinator_command_template(route_metadata: dict | None = None) -> 
     return f"{command} --prompt-file {{prompt_file}}"
 
 
-def _queue_run_worker(owner: str, prompt: str, item: dict) -> dict:
+def _queue_run_worker(owner: str, prompt: str, item: dict, attempt: int = 1) -> dict:
     route_metadata = _queue_resolve_route_metadata(owner)
     metadata = {
         "requested_target": owner,
@@ -6976,6 +7555,9 @@ def _queue_run_worker(owner: str, prompt: str, item: dict) -> dict:
         "codex_forbidden": "no",
         "timeout_seconds": QUEUE_WORKER_TIMEOUT_SECONDS,
         "queue_item_id": item.get("id", ""),
+        "item_id": item.get("id", ""),
+        "role": "implementer",
+        "attempt": attempt,
         "queue_item_title": item.get("title", ""),
         "queue_lane": route_metadata["lane"],
         **route_metadata,
@@ -6984,7 +7566,45 @@ def _queue_run_worker(owner: str, prompt: str, item: dict) -> dict:
         result = _run_codex_local(prompt, item)
         return _compact_agent_closeout(result, "codex", "codex", _queue_token_task_label(item, owner), metadata)
     if owner == "claude":
-        result = _run_wsl_prompt_command('aos-hermes claude "$(<{prompt_file})"', prompt, QUEUE_WORKER_TIMEOUT_SECONDS)
+        item_id = str(item.get("id") or "")
+
+        def register_runtime(process: subprocess.Popen) -> None:
+            start_id = _linux_process_start_id(process.pid)
+            if not start_id:
+                raise RuntimeError("Claude worker process identity could not be established")
+            _load_queue_tool().register_worker_runtime(
+                BASE_DIR, item_id, "claude", process.pid, start_id, "aos-claude",
+            )
+
+        result = _run_wsl_prompt_command(
+            'aos-hermes claude "$(<{prompt_file})"',
+            prompt,
+            QUEUE_WORKER_TIMEOUT_SECONDS,
+            startup_timeout=AGENT_STARTUP_TIMEOUT_SECONDS,
+            on_process_start=register_runtime,
+        )
+        invocation = {
+            "executable": "/home/liam/.local/npm/bin/claude",
+            "wrapper": "/home/liam/.local/bin/aos-claude",
+            "cwd": str(BASE_DIR),
+            "aos_root": str(BASE_DIR),
+            "invocation_count": 1,
+        }
+        log_path = _local_agent_route_log({
+            "route": "claude", "item_id": str(item.get("id") or ""),
+            "success": bool(result.get("success")),
+            "failure_class": result.get("failure_class"),
+            "stage": result.get("command_stage") or "completion",
+            "elapsed_seconds": result.get("elapsed_seconds"),
+            "returncode": result.get("returncode"),
+            "startup_timeout_seconds": AGENT_STARTUP_TIMEOUT_SECONDS,
+            "execution_timeout_seconds": QUEUE_WORKER_TIMEOUT_SECONDS,
+            "parent_timeout_seconds": AGENT_PARENT_TIMEOUT_SECONDS,
+            "stdout_tail": _bounded_stream_tail(result.get("stdout")),
+            "stderr_tail": _bounded_stream_tail(result.get("stderr")),
+            **invocation,
+        })
+        result = {**result, "invocation": invocation, "log_path": log_path}
         return _compact_agent_closeout(result, "claude", "claude", _queue_token_task_label(item, owner), metadata)
     command_template = _hermes_coordinator_command_template(route_metadata)
     result = _run_wsl_prompt_command(command_template, prompt, QUEUE_WORKER_TIMEOUT_SECONDS)
@@ -7029,7 +7649,7 @@ def _queue_hermes_review_prompt(item: dict, owner: str, attempt: int, worker_res
 
 
 def _queue_final_review_input(item: dict, worker_result: dict, verified_artifacts: list[dict] | None = None) -> str:
-    """Return only a final artifact, or a bounded final closeout when none exists."""
+    """Return only a final artifact, or a bounded final closeout when no artifact exists."""
     artifacts = verified_artifacts or _queue_verified_artifacts_from_worker_result(item, worker_result)
     for artifact in artifacts:
         if not artifact.get("available"):
@@ -7067,11 +7687,12 @@ def _queue_deterministic_review_result() -> dict:
 
 def _queue_run_hermes_review(item: dict, owner: str, attempt: int, worker_result: dict) -> dict:
     prompt = _queue_hermes_review_prompt(item, owner, attempt, worker_result)
-    route_metadata = _queue_resolve_route_metadata("hermes")
-    command_template = _hermes_coordinator_command_template(route_metadata)
-    result = _run_wsl_prompt_command(command_template, prompt, QUEUE_HERMES_REVIEW_TIMEOUT_SECONDS)
-    token_usage, token_usage_text = _extract_token_usage(
-        str(result.get("output") or ""), str(result.get("stdout") or ""), str(result.get("stderr") or "")
+    result = _run_hermes_message(
+        prompt,
+        role="reviewer",
+        attempt=attempt,
+        item_id=str(item.get("id") or ""),
+        timeout=QUEUE_HERMES_REVIEW_TIMEOUT_SECONDS,
     )
     return {
         "success": bool(result.get("success")),
@@ -7081,8 +7702,14 @@ def _queue_run_hermes_review(item: dict, owner: str, attempt: int, worker_result
         "returncode": result.get("returncode", -1),
         "timed_out": bool(result.get("timed_out")),
         "timeout_seconds": result.get("timeout_seconds"),
-        "token_usage": token_usage,
-        "token_usage_text": token_usage_text,
+        "token_usage": result.get("token_usage") or {"available": False},
+        "token_usage_text": result.get("token_usage_text") or "Token usage: unavailable from current CLI output",
+        "invocation_id": result.get("invocation_id"),
+        "session_id": result.get("session_id"),
+        "profile_requested": "aos-orchestrator",
+        "profile_used": "aos-orchestrator",
+        "role": "reviewer",
+        "attempt": attempt,
     }
 
 
@@ -7103,6 +7730,35 @@ def _queue_parse_review(review_result: dict) -> tuple[str, str]:
     return "REVISE", "Hermes review did not return PASS. Review the worker result and provide a corrected closeout."
 
 
+_REVIEW_MISSING_ARTIFACT_RE = re.compile(
+    r"(?is)\b(?:artifact|receipt|file|path)\b.{0,120}\b(?:missing|not found|does not exist|unavailable|blocked)\b"
+    r"|\b(?:missing|not found|does not exist)\b.{0,120}\b(?:artifact|receipt|file|path)\b"
+)
+
+
+def _queue_review_decision(item: dict, worker_result: dict, review_result: dict) -> tuple[str, str]:
+    """Combine Hermes quality review with authoritative local artifact evidence."""
+    verified = _queue_verified_artifacts_from_worker_result(item, worker_result)
+    claimed_paths = _queue_unique_artifact_paths(
+        _queue_artifact_candidates_from_text(str(worker_result.get("output") or ""))
+    )
+    for required_path in claimed_paths:
+        required = next((row for row in verified if row.get("path") == required_path), None)
+        if not required or not required.get("available"):
+            reason = (required or {}).get("reason") or "artifact was not reported"
+            return "REVISE", f"Claimed canonical artifact is genuinely absent: {required_path} ({reason})."
+
+    decision, instructions = _queue_parse_review(review_result)
+    if decision == "REVISE" and _REVIEW_MISSING_ARTIFACT_RE.search(
+        str(review_result.get("output") or instructions)
+    ):
+        return "PASS", (
+            "PASS: authoritative Linux-root verification found the required canonical artifact; "
+            "the reviewer path-missing claim was rejected without rerunning the worker."
+        )
+    return decision, instructions
+
+
 def _queue_result_summary(result: dict, limit: int = 900) -> str:
     text = str(result.get("output") or result.get("stdout") or result.get("stderr") or "").strip()
     if not text:
@@ -7115,8 +7771,25 @@ def _queue_result_field(result: dict, label: str, default: str = "None reported"
     return _field_from_output(raw, label) or default
 
 
+def _queue_operator_summary_from_result(item: dict, result: dict) -> str:
+    """Return a useful safe summary even when a wrapper compacts the closeout."""
+    explicit = _queue_result_field(result, "Summary for operator", "")
+    if explicit:
+        return explicit
+    review_lines = [
+        re.sub(r"\s+", " ", line).strip(" -*\t")
+        for line in str(result.get("review_output") or "").splitlines()
+    ]
+    summary = next(
+        (line for line in review_lines if line and line.upper() not in {"PASS", "NEEDS ATTENTION"}),
+        f"{aos_orchestration.operator_task_title(item)} passed its assigned worker and configured review gate.",
+    )
+    summary = _bounded_hermes_answer(summary, 360).rstrip(". ") + "."
+    return f"{summary} Approving closes this local review; it sends nothing externally."
+
+
 def _queue_item_timestamp(item: dict) -> datetime.datetime | None:
-    for key in ("claim", "updated_at", "created_at"):
+    for key in ("worker_heartbeat_at", "claim", "updated_at", "created_at"):
         value = item.get(key)
         if key == "claim" and isinstance(value, dict):
             value = value.get("claimed_at")
@@ -7124,6 +7797,43 @@ def _queue_item_timestamp(item: dict) -> datetime.datetime | None:
         if parsed:
             return parsed
     return None
+
+
+def _linux_process_start_id(pid: int) -> str | None:
+    """Return Linux /proc starttime for PID-reuse-safe liveness checks."""
+    try:
+        stat = Path(f"/proc/{int(pid)}/stat").read_text(encoding="utf-8")
+        fields = stat.rsplit(") ", 1)[1].split()
+        return fields[19]
+    except (OSError, ValueError, IndexError):
+        return None
+
+
+def _queue_worker_runtime_live(item: dict) -> bool:
+    runtime = item.get("worker_runtime")
+    if not isinstance(runtime, dict):
+        return False
+    try:
+        pid = int(runtime.get("pid"))
+    except (TypeError, ValueError):
+        return False
+    expected = str(runtime.get("process_start_id") or "")
+    return bool(expected and _linux_process_start_id(pid) == expected)
+
+
+def _queue_heartbeat_loop(item_id: str, owner: str, stop: threading.Event) -> None:
+    interval = min(QUEUE_HEARTBEAT_INTERVAL_SECONDS, max(1, QUEUE_STUCK_TIMEOUT_SECONDS // 3))
+    while not stop.wait(interval):
+        try:
+            _load_queue_tool().renew_claim(BASE_DIR, item_id, owner)
+        except Exception as exc:
+            _dashboard_backend_log({
+                "event": "queue_worker_heartbeat_stopped",
+                "item_id": item_id,
+                "owner": owner,
+                "reason": type(exc).__name__,
+            })
+            return
 
 
 def _queue_stuck_recovery(item: dict, now: datetime.datetime | None = None) -> dict:
@@ -7135,17 +7845,23 @@ def _queue_stuck_recovery(item: dict, now: datetime.datetime | None = None) -> d
             "stuck": True,
             "age_seconds": None,
             "timeout_seconds": QUEUE_STUCK_TIMEOUT_SECONDS,
-            "reason": "agent_working item has no readable claim/update timestamp",
+            "reason": "agent_working item has no readable heartbeat/claim timestamp",
         }
     now = now or datetime.datetime.now(datetime.timezone.utc)
     if now.tzinfo is None:
         now = now.replace(tzinfo=datetime.timezone.utc)
     age = max(0, int((now - started.astimezone(datetime.timezone.utc)).total_seconds()))
+    runtime_live = age >= QUEUE_STUCK_TIMEOUT_SECONDS and _queue_worker_runtime_live(item)
     return {
-        "stuck": age >= QUEUE_STUCK_TIMEOUT_SECONDS,
+        "stuck": age >= QUEUE_STUCK_TIMEOUT_SECONDS and not runtime_live,
         "age_seconds": age,
         "timeout_seconds": QUEUE_STUCK_TIMEOUT_SECONDS,
-        "reason": f"agent_working for {age}s; recovery threshold is {QUEUE_STUCK_TIMEOUT_SECONDS}s",
+        "runtime_live": runtime_live,
+        "reason": (
+            f"last worker heartbeat was {age}s ago, but the exact worker process is still live"
+            if runtime_live
+            else f"last worker heartbeat was {age}s ago; lease threshold is {QUEUE_STUCK_TIMEOUT_SECONDS}s"
+        ),
     }
 
 
@@ -7154,6 +7870,7 @@ def _queue_recovery_receipt_text(item: dict, owner: str, reason: str) -> str:
     return "\n".join((
         "NEEDS ATTENTION",
         "",
+        f"Work item title: {aos_orchestration.operator_task_title(item)}",
         f"Work item ID: {item.get('id', '')}",
         f"Assigned worker: {owner}",
         f"Lane: {route_metadata['lane']}",
@@ -7212,19 +7929,76 @@ def _queue_run_receipt_text(
     for attempt in attempts:
         worker_token = attempt["worker_result"].get("token_usage_text") or "Token usage: unavailable from current CLI output"
         review_token = attempt["review_result"].get("token_usage_text") or "Token usage: unavailable from current CLI output"
-        token_lines.append(f"- Attempt {attempt['attempt']} worker: {_token_usage_detail(worker_token)}")
+        worker_usage = attempt["worker_result"].get("token_usage") or {}
+        review_usage = attempt["review_result"].get("token_usage") or {}
+        token_lines.append(
+            f"- Attempt {attempt['attempt']} worker (role=implementer; session="
+            f"{worker_usage.get('session_id') or worker_usage.get('invocation_id') or 'unavailable'}): "
+            f"{_token_usage_detail(worker_token)}"
+        )
         token_lines.append(
             f"- Attempt {attempt['attempt']} worker counters: "
-            + json.dumps(_usage_counters_from_token_usage(attempt["worker_result"].get("token_usage") or {}), sort_keys=True)
+            + json.dumps(_usage_counters_from_token_usage(worker_usage), sort_keys=True)
         )
-        token_lines.append(f"- Attempt {attempt['attempt']} {review_label}: {_token_usage_detail(review_token)}")
+        for handoff_index, handoff in enumerate(attempt["worker_result"].get("handoff_sessions") or [], start=1):
+            handoff_usage = handoff.get("token_usage") if isinstance(handoff, dict) else {}
+            token_lines.append(
+                f"- Attempt {attempt['attempt']} context handoff {handoff_index} (fresh session="
+                f"{handoff.get('session_id') or 'unavailable'}; artifact={handoff.get('handoff_artifact') or 'unavailable'}): "
+                f"{_token_usage_detail(str(handoff.get('token_usage_text') or 'Token usage: unavailable from current CLI output'))}"
+            )
+            token_lines.append(
+                f"- Attempt {attempt['attempt']} context handoff {handoff_index} counters: "
+                + json.dumps(_usage_counters_from_token_usage(handoff_usage), sort_keys=True)
+            )
+        token_lines.append(
+            f"- Attempt {attempt['attempt']} {review_label} (role=reviewer; session="
+            f"{review_usage.get('session_id') or review_usage.get('invocation_id') or 'unavailable'}): "
+            f"{_token_usage_detail(review_token)}"
+        )
+        token_lines.append(
+            f"- Attempt {attempt['attempt']} reviewer counters: "
+            + json.dumps(_usage_counters_from_token_usage(review_usage), sort_keys=True)
+        )
     if not token_lines:
         token_lines.append("- unavailable/no agent invocation")
     verified_artifacts = _queue_verified_artifacts_from_worker_result(item, last_worker)
+    diagnostic_lines = [
+        f"- Failure class: {last_worker.get('failure_class') or 'none'}",
+        f"- Command stage: {last_worker.get('command_stage') or 'completion'}",
+        f"- Elapsed seconds: {last_worker.get('elapsed_seconds') if last_worker.get('elapsed_seconds') is not None else 'unavailable'}",
+        f"- Startup timeout: {last_worker.get('startup_timeout_seconds') if last_worker.get('startup_timeout_seconds') is not None else 'not separately exposed'}",
+        f"- Execution timeout: {last_worker.get('execution_timeout_seconds') if last_worker.get('execution_timeout_seconds') is not None else last_worker.get('timeout_seconds', 'unavailable')}",
+        f"- Subprocess/parent timeout: {last_worker.get('parent_timeout_seconds') if last_worker.get('parent_timeout_seconds') is not None else AGENT_PARENT_TIMEOUT_SECONDS}",
+        f"- Graceful termination allowance: {last_worker.get('graceful_termination_seconds') if last_worker.get('graceful_termination_seconds') is not None else AGENT_GRACEFUL_TERMINATION_SECONDS}",
+        f"- Receipt/artifact finalization timeout: {QUEUE_FINALIZATION_TIMEOUT_SECONDS}",
+        f"- Diagnostic log: {last_worker.get('diagnostic_log') or 'logs/dashboard_backend.log'}",
+        f"- Captured stdout tail: {last_worker.get('captured_stdout_tail') or '(empty)'}",
+        f"- Captured stderr tail: {last_worker.get('captured_stderr_tail') or '(empty)'}",
+    ]
+    if owner == "codex":
+        invocation = last_worker.get("invocation") if isinstance(last_worker.get("invocation"), dict) else {}
+        diagnostic_lines.extend((
+            f"- Codex executable: {invocation.get('executable') or 'unavailable'}",
+            f"- Effective Linux user: {invocation.get('linux_user') or 'unavailable'} (uid={invocation.get('effective_uid', 'unavailable')})",
+            f"- Working directory: {invocation.get('cwd') or 'unavailable'}",
+            f"- Sandbox: {invocation.get('sandbox') or 'unavailable'}",
+            f"- Approval policy: {invocation.get('approval_policy') or invocation.get('ask_for_approval') or 'unavailable'}",
+        ))
+    if owner == "claude":
+        invocation = last_worker.get("invocation") if isinstance(last_worker.get("invocation"), dict) else {}
+        diagnostic_lines.extend((
+            f"- Claude executable: {invocation.get('executable') or 'unavailable'}",
+            f"- Claude wrapper: {invocation.get('wrapper') or 'unavailable'}",
+            f"- Working directory: {invocation.get('cwd') or 'unavailable'}",
+            f"- AOS_ROOT: {invocation.get('aos_root') or 'unavailable'}",
+            f"- Claude invocation count: {invocation.get('invocation_count', 'unavailable')}",
+        ))
 
     lines = [
         status_label,
         "",
+        f"Work item title: {aos_orchestration.operator_task_title(item)}",
         f"Work item ID: {item.get('id', '')}",
         f"Assigned worker: {owner}",
         f"Lane: {route_metadata['lane']}",
@@ -7246,6 +8020,9 @@ def _queue_run_receipt_text(
         "Worker result summary:",
         _queue_result_summary(last_worker),
         "",
+        "Summary for operator:",
+        f"- {_queue_operator_summary_from_result(item, last_worker)}",
+        "",
         "Files touched:",
         f"- {_queue_result_field(last_worker, 'Files touched')}",
         "",
@@ -7255,11 +8032,22 @@ def _queue_run_receipt_text(
         "Artifacts:",
         _queue_render_verified_artifacts(verified_artifacts, include_excerpt=False),
         "",
+        "Route diagnostics:",
+        *diagnostic_lines,
+        "",
         "Blockers:",
         f"- {reason or _queue_result_field(last_worker, 'Blockers')}",
         "",
         "Next action:",
-        "- Liam review in dashboard." if final_status == "human_review" else "- Liam input needed before another worker run.",
+        (
+            "- None; native Hermes accepted this orchestration child."
+            if final_status == "done"
+            else "- Liam review in dashboard."
+            if final_status == "human_review"
+            else "- Liam review of the parent orchestration escalation; no fourth child attempt is allowed."
+            if _is_hermes_orchestration_child(item)
+            else "- Liam input needed before another worker run."
+        ),
         "",
         "Token usage:",
         *token_lines,
@@ -7267,12 +8055,220 @@ def _queue_run_receipt_text(
     return "\n".join(lines)
 
 
+def _notify_queue_running(
+    item_id: str,
+    *,
+    send_telegram=None,
+) -> dict | None:
+    """Notify a Telegram-originated item when the dashboard runner claims it."""
+    try:
+        with queue_write_lock(BASE_DIR):
+            items = _read_queue_items()
+            item = next((row for row in items if row.get("id") == item_id), None)
+            if not item or str(item.get("source") or "").lower() != "telegram":
+                return None
+            recipient = _telegram_reply_to(item)
+            if not recipient:
+                return {"result": "skipped", "sent": False, "reason": "chat_id_unavailable"}
+            message = aos_orchestration.format_operator_work_item_notification(
+                item,
+                "agent_working",
+                summary=f"{aos_orchestration.operator_task_title(item)} is now running through the assigned worker.",
+                next_action="None",
+                receipt_attached=False,
+            )
+            result = aos_orchestration.attempt_telegram_send(
+                BASE_DIR,
+                item,
+                recipient,
+                message,
+                send_telegram=send_telegram,
+                key="async_running",
+                document_paths=[],
+            )
+            aos_orchestration.append_jsonl(BASE_DIR / aos_orchestration.EVENTS_PATH, result)
+            _load_queue_tool().save_items(BASE_DIR, items)
+            return result
+    except Exception as exc:
+        _dashboard_backend_log({
+            "event": "telegram_async_running",
+            "item_id": item_id,
+            "result": "send_failed",
+            "reason": type(exc).__name__,
+        })
+        return {"result": "send_failed", "sent": False, "reason": type(exc).__name__}
+
+
+def _notify_queue_completion(
+    item_id: str,
+    status: str,
+    receipt_path: str,
+    *,
+    send_telegram=None,
+) -> dict | None:
+    """Notify a Telegram-originated item through the existing idempotent send path."""
+    try:
+        with queue_write_lock(BASE_DIR):
+            items = _read_queue_items()
+            item = next((row for row in items if row.get("id") == item_id), None)
+            if not item or str(item.get("source") or "").lower() != "telegram":
+                return None
+            recipient = _telegram_reply_to(item)
+            if not recipient:
+                return {"result": "skipped", "sent": False, "reason": "chat_id_unavailable"}
+            label = aos_orchestration.operator_status_label(status)
+            message = aos_orchestration.format_operator_work_item_notification(
+                item,
+                status,
+                summary=(
+                    f"{aos_orchestration.operator_task_title(item)} is ready for operator review."
+                    if status == "human_review"
+                    else f"{aos_orchestration.operator_task_title(item)} finished as {label}."
+                ),
+                next_action="Review the attached closeout." if status == "human_review" else "Review the attached receipt or local logs.",
+                receipt_path=receipt_path,
+                receipt_attached=bool(receipt_path),
+            )
+            docs = [str(BASE_DIR / receipt_path)] if receipt_path and (BASE_DIR / receipt_path).is_file() else []
+            result = aos_orchestration.attempt_telegram_send(
+                BASE_DIR,
+                item,
+                recipient,
+                message,
+                send_telegram=send_telegram,
+                key=f"async_completion:{status}",
+                document_paths=docs,
+            )
+            aos_orchestration.append_jsonl(BASE_DIR / aos_orchestration.EVENTS_PATH, result)
+            _load_queue_tool().save_items(BASE_DIR, items)
+            return result
+    except Exception as exc:
+        _dashboard_backend_log({
+            "event": "telegram_async_completion",
+            "item_id": item_id,
+            "status": status,
+            "result": "send_failed",
+            "reason": type(exc).__name__,
+        })
+        return {"result": "send_failed", "sent": False, "reason": type(exc).__name__}
+
+
+def _is_hermes_orchestration_child(item: dict) -> bool:
+    return (
+        "hermes_orchestration_child" in {str(tag) for tag in item.get("tags") or []}
+        and str(item.get("owner") or "").lower() == "codex"
+        and str(item.get("review") or "").lower() == "model"
+        and str((item.get("orchestration") or {}).get("outer_coordinator") or "hermes") == "hermes"
+    )
+
+
+def _escalate_hermes_orchestration_to_liam(item: dict, receipt_path: str, attempts_used: int) -> dict | None:
+    parent_id = str(item.get("parent_id") or "")
+    if not parent_id:
+        return None
+    queue_tool = _load_queue_tool()
+    with queue_write_lock(BASE_DIR):
+        items = queue_tool.load_items(BASE_DIR)
+        try:
+            parent = queue_tool.find_item(items, parent_id)
+        except (KeyError, ValueError):
+            return None
+        reasons = [str(value) for value in parent.get("needs_me") or []]
+        reason = f"Hermes rejected {item.get('id')} after the initial review and two corrections."
+        if reason not in reasons:
+            reasons.append(reason)
+        parent["needs_me"] = reasons
+        parent["status"] = "human_review"
+        parent["updated_at"] = queue_tool.now_iso()
+        queue_tool.save_items(BASE_DIR, items)
+    event = {
+        "event": "hermes_review_escalated_to_liam",
+        "effect_id": aos_orchestration.effect_identity("hermes_review_escalated_to_liam", parent_id, str(item.get("id") or "")),
+        "created_at": datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+        "parent_id": parent_id,
+        "item_id": item.get("id"),
+        "attempts_used": attempts_used,
+        "receipt_path": receipt_path,
+        "fourth_attempt_allowed": False,
+    }
+    events_path = BASE_DIR / aos_orchestration.EVENTS_PATH
+    if events_path.exists():
+        for line in events_path.read_text(encoding="utf-8").splitlines():
+            try:
+                existing_event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if existing_event.get("effect_id") == event["effect_id"]:
+                return existing_event
+    aos_orchestration.append_jsonl(BASE_DIR / aos_orchestration.EVENTS_PATH, event)
+    return event
+
+
+def _finalize_hermes_orchestration_parent(item: dict) -> dict | None:
+    parent_id = str(item.get("parent_id") or "")
+    if not parent_id:
+        return None
+    items = _read_queue_items()
+    try:
+        parent = next(row for row in items if row.get("id") == parent_id)
+    except StopIteration:
+        return None
+    children = sorted(
+        [row for row in items if row.get("parent_id") == parent_id and _is_hermes_orchestration_child(row)],
+        key=lambda row: (int(row.get("step_index") or 0), str(row.get("id") or "")),
+    )
+    if not children or any(row.get("status") != "done" for row in children):
+        return None
+    if parent.get("status") == "done":
+        return parent
+    receipt_path = f"queue/receipts/{parent_id}-hermes-orchestration.md"
+    receipt_target = BASE_DIR / receipt_path
+    child_lines = []
+    for child in children:
+        latest = _queue_latest_receipt(child)
+        child_lines.append(
+            f"- {child.get('id')}: done; worker=codex; receipt={(latest or {}).get('path') or 'unavailable'}"
+        )
+    durable_replace_text(receipt_target, "\n".join((
+        "PASS", "", f"Work item ID: {parent_id}",
+        "Summary for operator:",
+        "- Native Hermes coordinated and reviewed every bounded Codex child; all passed within the correction limit.",
+        "", "Worker:", "- Codex implemented every child; Hermes was outer coordinator/reviewer only.",
+        "", "Attempts:", *child_lines,
+        "", "Validation:", "- Every child has status done and a substantive receipt.",
+        "", "Blockers:", "- None",
+        "", "Next action:", "- None; workflow closed without Liam review.",
+        "", "Token usage:", "- Hermes and Codex invocations are recorded separately by invocation/session in the token ledgers.",
+        "",
+    )))
+    updated = _load_queue_tool().attach_receipt(BASE_DIR, parent_id, receipt_path, "done")
+    event = {
+        "event": "hermes_orchestration_completed",
+        "effect_id": aos_orchestration.effect_identity("hermes_orchestration_completed", parent_id),
+        "created_at": datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+        "parent_id": parent_id,
+        "child_ids": [row.get("id") for row in children],
+        "liam_review_required": False,
+        "receipt_path": receipt_path,
+    }
+    aos_orchestration.append_jsonl(BASE_DIR / aos_orchestration.EVENTS_PATH, event)
+    return updated
+
+
 @app.post("/api/queue/items/{item_id}/run")
 def run_queue_item(item_id: str):
     """Run one selected queue item through its assigned worker, then Hermes review."""
+    heartbeat_stop: threading.Event | None = None
+    heartbeat_thread: threading.Thread | None = None
     try:
         item = _queue_find_item(item_id)
         owner = _queue_worker_owner(item)
+        orchestration_child = _is_hermes_orchestration_child(item)
+        if orchestration_child and item.get("status") in {"done", "blocked"}:
+            raise HTTPException(
+                status_code=409,
+                detail="Hermes orchestration child is terminal; no fourth or duplicate attempt is allowed",
+            )
         latitude_telemetry.trace("runner.queue_run_start", "deterministic_runner", "agent_working", item_id=item_id, owner=owner)
         recovery = _queue_stuck_recovery(item)
         if item.get("status") == "agent_working":
@@ -7282,6 +8278,7 @@ def run_queue_item(item_id: str):
             receipt_path = _queue_write_run_receipt(item_id, receipt_text)
             updated = _load_queue_tool().attach_receipt(BASE_DIR, item_id, receipt_path, "blocked")
             updated = _load_queue_tool().release_item(BASE_DIR, item_id, "blocked")
+            notification = _notify_queue_completion(item_id, "blocked", receipt_path)
             latitude_telemetry.trace("runner.queue_run_recovered", "deterministic_runner", "blocked", item_id=item_id, owner=owner, receipt_path=receipt_path)
             return {
                 "ok": True,
@@ -7296,21 +8293,38 @@ def run_queue_item(item_id: str):
                 "hermes_review": {"decision": "RECOVERED", "output": recovery.get("reason", "")},
                 "worker_result": {"success": False, "output": recovery.get("reason", "")},
                 "attempts": [],
+                "notification": notification,
                 "item": _queue_detail_item(updated),
             }
 
         claim_owner = owner if owner != "unassigned" else "hermes"
         started = _load_queue_tool().claim_item(BASE_DIR, item_id, claim_owner)
+        heartbeat_stop = threading.Event()
+        heartbeat_thread = threading.Thread(
+            target=_queue_heartbeat_loop,
+            args=(item_id, claim_owner, heartbeat_stop),
+            name=f"queue-heartbeat-{item_id}",
+            daemon=True,
+        )
+        heartbeat_thread.start()
+        running_notification = _notify_queue_running(item_id)
         attempts = []
         revision_instructions = None
+        prior_worker_result: dict | None = None
+        max_attempts = 3 if orchestration_child else 2
+        passing_status = "done" if orchestration_child else "human_review"
         final_review = {"decision": "REVISE", "instructions": "No review completed."}
         final_status = "needs_input"
         reason = "The configured review gate did not pass the worker result."
 
-        for attempt_number in (1, 2):
+        for attempt_number in range(1, max_attempts + 1):
             run_item = _queue_find_item(item_id)
-            prompt = _queue_actual_run_prompt(run_item, owner if owner != "unassigned" else "hermes", revision_instructions, attempt_number)
-            worker_result = _queue_run_worker(owner, prompt, run_item)
+            prompt = _queue_actual_run_prompt(
+                run_item, owner if owner != "unassigned" else "hermes",
+                revision_instructions, attempt_number, max_attempts, prior_worker_result,
+            )
+            worker_result = _queue_run_worker(owner, prompt, run_item, attempt_number)
+            worker_failure_class = str(worker_result.get("failure_class") or "")
             if worker_result.get("success"):
                 review_result = (
                     _queue_run_hermes_review(run_item, owner, attempt_number, worker_result)
@@ -7332,21 +8346,38 @@ def run_queue_item(item_id: str):
             if worker_result.get("timed_out"):
                 final_status = "blocked"
                 decision = "REVISE"
-                review_text = f"Worker timed out after {worker_result.get('timeout_seconds')}s."
+                review_text = (
+                    f"{worker_failure_class or 'agent_route_timeout'} during {worker_result.get('command_stage') or 'execution'} "
+                    f"after {worker_result.get('elapsed_seconds', worker_result.get('timeout_seconds'))}s; "
+                    f"diagnostics: {worker_result.get('diagnostic_log') or 'logs/dashboard_backend.log'}."
+                )
+                review_result["output"] = f"REVISE: {review_text}\n\nHermes review output:\n{review_result.get('output', '')}"
+            elif int(worker_result.get("returncode", 0) or 0) != 0:
+                final_status = "blocked"
+                decision = "REVISE"
+                review_text = (
+                    f"{worker_failure_class or 'agent_process_failure'} at {worker_result.get('command_stage') or 'execution'}; "
+                    f"worker exited with status {worker_result.get('returncode', -1)}. "
+                    f"Diagnostics: {worker_result.get('diagnostic_log') or 'logs/dashboard_backend.log'}."
+                )
                 review_result["output"] = f"REVISE: {review_text}\n\nHermes review output:\n{review_result.get('output', '')}"
             elif not worker_result.get("success"):
                 final_status = "blocked"
                 decision = "REVISE"
-                review_text = _queue_result_field(worker_result, "Blockers", "Worker route failed before review.")
-                review_result["output"] = f"REVISE: {review_text}"
+                review_text = (
+                    f"{worker_failure_class or 'agent_reported_task_failure'}: "
+                    f"{worker_result.get('failure_detail') or _queue_result_field(worker_result, 'Blockers', 'worker did not report a blocker')}. "
+                    f"Diagnostics: {worker_result.get('diagnostic_log') or 'logs/dashboard_backend.log'}."
+                )
+                review_result["output"] = f"REVISE: {review_text}\n\nHermes review output:\n{review_result.get('output', '')}"
             else:
-                decision, review_text = _queue_parse_review(review_result)
+                decision, review_text = _queue_review_decision(run_item, worker_result, review_result)
                 if review_result.get("timed_out"):
                     final_status = "blocked"
                     review_text = f"Hermes review timed out after {review_result.get('timeout_seconds')}s."
                     review_result["output"] = f"REVISE: {review_text}"
             if final_status != "blocked":
-                decision, review_text = _queue_parse_review(review_result)
+                decision, review_text = _queue_review_decision(run_item, worker_result, review_result)
             final_review = {
                 "decision": decision,
                 "instructions": review_text if decision == "REVISE" else "",
@@ -7360,19 +8391,25 @@ def run_queue_item(item_id: str):
                 "review": final_review,
             })
             if decision == "PASS":
-                final_status = "human_review"
+                final_status = passing_status
                 reason = "None"
+                break
+            if review_text.startswith("Claimed canonical artifact is genuinely absent:"):
+                reason = review_text
                 break
             if final_status == "blocked":
                 reason = review_text
                 break
             revision_instructions = review_text
+            prior_worker_result = worker_result
 
-        if final_status != "human_review":
-            reason = final_review.get("instructions") or "The configured review gate requested revision after 2 attempts."
+        if final_status != passing_status:
+            reason = final_review.get("instructions") or f"The configured review gate requested revision after {max_attempts} attempts."
+            if orchestration_child:
+                final_status = "blocked"
 
         receipt_text = _queue_run_receipt_text(
-            "PASS" if final_status == "human_review" else "NEEDS ATTENTION",
+            "PASS" if final_status in {"human_review", "done"} else "NEEDS ATTENTION",
             item,
             owner,
             attempts,
@@ -7383,13 +8420,20 @@ def run_queue_item(item_id: str):
         receipt_path = _queue_write_run_receipt(item_id, receipt_text)
         updated = _load_queue_tool().attach_receipt(BASE_DIR, item_id, receipt_path, final_status)
         updated = _load_queue_tool().release_item(BASE_DIR, item_id, final_status)
+        orchestration_event = None
+        orchestration_parent = None
+        if orchestration_child and final_status == "done":
+            orchestration_parent = _finalize_hermes_orchestration_parent(updated)
+        elif orchestration_child:
+            orchestration_event = _escalate_hermes_orchestration_to_liam(updated, receipt_path, len(attempts))
+        notification = _notify_queue_completion(item_id, final_status, receipt_path)
         event_type = "queue.needs_me" if final_status in {"needs_input", "human_review", "blocked"} else "runner.queue_run_complete"
         latitude_telemetry.trace(event_type, "deterministic_runner", final_status, item_id=item_id, owner=owner, receipt_path=receipt_path, attempts_used=len(attempts))
     except KeyError:
         raise HTTPException(status_code=404, detail="queue item not found")
     except HTTPException:
         raise
-    except (ValueError, OSError) as exc:
+    except Exception as exc:
         try:
             failed_item = _queue_find_item(item_id)
             failed_owner = _queue_worker_owner(failed_item)
@@ -7402,10 +8446,15 @@ def run_queue_item(item_id: str):
         except Exception:
             pass
         raise HTTPException(status_code=400, detail=str(exc))
+    finally:
+        if heartbeat_stop is not None:
+            heartbeat_stop.set()
+        if heartbeat_thread is not None:
+            heartbeat_thread.join(timeout=2)
 
     return {
         "ok": True,
-        "success": final_status == "human_review",
+        "success": final_status in {"human_review", "done"},
         "item_id": item_id,
         "assigned_worker": owner,
         "attempts_used": len(attempts),
@@ -7415,6 +8464,11 @@ def run_queue_item(item_id: str):
         "hermes_review": final_review,
         "worker_result": attempts[-1]["worker_result"] if attempts else {},
         "attempts": attempts,
+        "running_notification": running_notification,
+        "notification": notification,
+        "outer_coordinator": "hermes" if orchestration_child else None,
+        "orchestration_event": orchestration_event,
+        "orchestration_parent_status": (orchestration_parent or {}).get("status") if orchestration_parent else None,
         "item": _queue_detail_item(updated),
     }
 
@@ -7437,7 +8491,8 @@ def _queue_list_closeout(status: str | None = None) -> dict:
         if (item.get("status") == status if status else item.get("status") in _ACTIVE_QUEUE_STATUSES)
     ]
     rows = [
-        f"  - {item.get('id', '')} | {item.get('status', '')} | {item.get('owner', 'unassigned')} | {item.get('title', '')}"
+        f"  - {aos_orchestration.operator_item_label(item)} | {item.get('status', '')} | {item.get('owner', 'unassigned')} | "
+        f"{item.get('id', '')} | {item.get('status', '')} | {item.get('owner', 'unassigned')} | {item.get('title', '')}"
         for item in sorted(filtered, key=_queue_item_sort_key)[:10]
     ] or ["  - None"]
     output = "\n".join((
@@ -7460,6 +8515,9 @@ def _queue_list_closeout(status: str | None = None) -> dict:
 
 def _queue_compact_item_row(item: dict) -> str:
     fields = [
+        aos_orchestration.operator_item_label(item),
+        str(item.get("owner", "unassigned")),
+        str(item.get("status", "")),
         str(item.get("id", "")),
         str(item.get("title", "")),
         str(item.get("owner", "unassigned")),
@@ -7510,19 +8568,237 @@ def _queue_filtered_read_closeout(status: str, heading: str) -> dict:
     }
 
 
+def _queue_recent_receipts_closeout() -> dict:
+    items = sorted(_read_queue_items(), key=_queue_item_sort_key)
+    rows = []
+    for item in items:
+        latest = _queue_latest_receipt(item)
+        if not latest or not latest.get("path"):
+            continue
+        rows.append(
+            f"  - {item.get('id')} | {item.get('status')} | {item.get('owner')} | {latest.get('path')} | {latest.get('summary')}"
+        )
+        if len(rows) >= 10:
+            break
+    return {
+        "success": True,
+        "output": "\n".join((
+            "PASS", "Latest substantive receipts:", *(rows or ["  - None"]),
+            "Lookup token usage: no agent invocation",
+        )),
+        "returncode": 0,
+        "requested_target": "queue",
+        "selected_route": "local_queue_receipts",
+        "delegation_reason": "structured receipt-state read",
+        "codex_forbidden": "no",
+        "token_usage": {"available": False, "no_agent_invocation": True},
+        "token_usage_text": "Token usage: no agent invocation",
+    }
+
+
+def _queue_token_state_closeout() -> dict:
+    records = _read_token_ledger_records()
+    views = [_token_record_view(row) for row in records]
+    exact = [row for row in views if row.get("availability_state") == "exact" and row.get("total_tokens") is not None]
+    unavailable = sum(row.get("availability_state") == "unavailable" for row in views)
+    total_input = sum(int(row.get("input_tokens") or 0) for row in exact)
+    total_output = sum(int(row.get("output_tokens") or 0) for row in exact)
+    total = sum(int(row.get("total_tokens") or 0) for row in exact)
+    latest = _sort_token_records_newest(records)[:5]
+    latest_lines = [
+        f"  - {_ledger_task_id(row)} | {_ledger_component(row)} | {_token_label(row)}"
+        for row in latest
+    ] or ["  - None"]
+    return {
+        "success": True,
+        "output": "\n".join((
+            "PASS", "Recorded token state:",
+            f"  - exact sessions: {len(exact)}",
+            f"  - total input: {total_input}",
+            f"  - output: {total_output}",
+            f"  - input plus output: {total}",
+            f"  - unavailable sessions: {unavailable}",
+            "Latest sessions:", *latest_lines,
+            "Lookup token usage: no agent invocation",
+        )),
+        "returncode": 0,
+        "requested_target": "queue",
+        "selected_route": "local_token_state",
+        "delegation_reason": "structured token-ledger read",
+        "codex_forbidden": "no",
+        "token_usage": {"available": False, "no_agent_invocation": True},
+        "token_usage_text": "Token usage: no agent invocation",
+    }
+
+
 def _try_queue_read_task(task: str) -> dict | None:
-    normalized = task.strip().lower()
-    if normalized in _QUEUE_STATUS_INTENTS:
+    normalized = " ".join(task.strip().lower().split())
+    normalized_without_punctuation = normalized.rstrip("?.!")
+    if normalized in _SYSTEM_STATUS_INTENTS:
+        return _operator_system_status_closeout()
+    if normalized in _QUEUE_STATUS_INTENTS or normalized_without_punctuation in _QUEUE_STATUS_INTENTS:
         return _queue_status_closeout()
     filtered_intent = _QUEUE_FILTERED_READ_INTENTS.get(normalized)
     if filtered_intent is not None:
         return _queue_filtered_read_closeout(*filtered_intent)
+    if re.search(r"\b(?:active|current|running|pending)\s+(?:queue\s+)?(?:tasks?|work|items?)\b|\bwhat\s+(?:is|are)\s+(?:currently\s+)?(?:active|running)\b", normalized):
+        return _queue_list_closeout(None)
+    if re.search(r"\b(?:show|list|read|what(?:'s| is)?|where(?:'s| is)?)\b[^.!?\n]{0,60}\b(?:latest\s+)?receipts?\b", normalized):
+        return _queue_recent_receipts_closeout()
+    if re.search(r"\b(?:how\s+many\s+tokens|token\s+usage|tokens?\s+(?:used|spent|reported))\b", normalized):
+        return _queue_token_state_closeout()
     is_queue_list, status, invalid = _queue_status_filter(task)
     if invalid is not None:
         return invalid
     if is_queue_list:
         return _queue_list_closeout(status)
     return None
+
+
+_EXISTING_ITEM_READ_RE = re.compile(
+    r"\b(?:read|show|explain|report|retrieve|surface|attach|status|details?|why|what\s+happened|failed|blocked|receipt|artifact|worker|owner|complete|completed|done|tokens?|attempts?)\b",
+    re.IGNORECASE,
+)
+_SUBSTANTIVE_CHANGE_RE = re.compile(
+    r"\b(?:implement|repair|fix|build|create|modify|edit|update|rerun|resume|execute|run\s+(?:the|this|it))\b",
+    re.IGNORECASE,
+)
+
+
+def _receipt_section_value(content: str, heading: str, default: str) -> str:
+    lines = str(content or "").splitlines()
+    for index, line in enumerate(lines):
+        if line.strip().rstrip(":").casefold() != heading.casefold():
+            continue
+        values = []
+        for candidate in lines[index + 1:]:
+            stripped = candidate.strip()
+            if not stripped:
+                if values:
+                    break
+                continue
+            if stripped.endswith(":") and not stripped.startswith(("-", "*")):
+                break
+            values.append(stripped.lstrip("-* "))
+            if sum(len(value) for value in values) >= 700:
+                break
+        if values:
+            return _bounded_hermes_answer(" ".join(values), 700)
+    inline = _field_from_output(content, heading)
+    return inline or default
+
+
+def _try_existing_item_read_task(task: str, body: TaskRun | None = None) -> dict | None:
+    ids = sorted({match.group(0).upper() for match in _TELEGRAM_APPROVAL_ITEM_RE.finditer(str(task or ""))})
+    if not _EXISTING_ITEM_READ_RE.search(task):
+        return None
+    if _SUBSTANTIVE_CHANGE_RE.search(task) and "do not create" not in task.lower():
+        return None
+    if len(ids) > 1:
+        return None
+    if not ids:
+        normalized = " ".join(str(task or "").lower().split())
+        if normalized not in {"why was it blocked?", "why was it blocked", "why did it fail?", "why did it fail", "what happened?", "what happened"}:
+            return None
+        candidates = [
+            row for row in _read_queue_items()
+            if row.get("status") in {"blocked", "needs_input", "human_review"}
+            and str(row.get("source") or "").lower() == "telegram"
+            and str(row.get("requested_by") or "").casefold() == "liam"
+        ]
+        incoming_reply = str(getattr(body, "reply_to", "") or "") if body is not None else ""
+        if incoming_reply:
+            correlated = [row for row in candidates if _telegram_item_matches_operator(row, body, explicit_id=False)]
+            candidates = correlated or candidates
+        if not candidates:
+            return None
+        candidates.sort(key=lambda row: (str(row.get("updated_at") or ""), str(row.get("id") or "")), reverse=True)
+        ids = [str(candidates[0].get("id") or "")]
+    try:
+        item = _queue_find_item(ids[0])
+    except KeyError:
+        return {
+            "success": False,
+            "created": False,
+            "output": f"NEEDS ATTENTION\nExisting work item {ids[0]} was not found.\nNo new work item was created.",
+            "returncode": 2,
+            "requested_target": "queue",
+            "selected_route": "local_existing_item_read",
+            "delegation_reason": "bounded existing-item read intent",
+            "token_usage": {"available": False, "no_agent_invocation": True},
+            "token_usage_text": "Token usage: no agent invocation",
+        }
+    receipts = item.get("receipts") or []
+    primary_path = f"queue/receipts/{item.get('id')}.md"
+    receipt = next(
+        (
+            {"path": row} if isinstance(row, str) else row
+            for row in receipts
+            if str(row if isinstance(row, str) else (row or {}).get("path") or "") == primary_path
+        ),
+        None,
+    )
+    if receipt is None:
+        receipt = next(
+            (
+                {"path": row} if isinstance(row, str) else row
+                for row in reversed(receipts)
+                if "-notification-" not in str(row if isinstance(row, str) else (row or {}).get("path") or "")
+                and "-telegram-escalation-" not in str(row if isinstance(row, str) else (row or {}).get("path") or "")
+            ),
+            None,
+        )
+    if receipt is None:
+        receipt = _queue_latest_receipt(item)
+    receipt_path = str((receipt or {}).get("path") or "")
+    receipt_content = ""
+    if receipt_path:
+        try:
+            receipt_content = _queue_read_artifact(receipt_path, receipt_only=True).get("content", "")
+        except (HTTPException, OSError, ValueError):
+            receipt_content = ""
+    files_touched = _receipt_section_value(receipt_content, "Files touched", "None reported")
+    validation = _receipt_section_value(receipt_content, "Validation", "No validation reported")
+    blockers = _receipt_section_value(receipt_content, "Blockers", "None reported")
+    next_action = _receipt_section_value(receipt_content, "Next action", "Review the existing item")
+    canonical_usage = _queue_canonical_token_usage(str(item.get("id") or ""))
+    recorded_usage = "; ".join((canonical_usage or {}).get("lines") or _queue_token_usage_lines(receipt_content)) or "unavailable"
+    artifacts = [row.get("path") for row in _queue_artifact_refs(item, receipt_content) if row.get("path")]
+    title = aos_orchestration.operator_task_title(item)
+    status = str(item.get("status") or "unavailable")
+    output = "\n".join((
+        f"[{title}]",
+        f"Work item: {item.get('id')}",
+        f"Status: {aos_orchestration.operator_status_label(status)}",
+        f"Summary: Existing item read inline; no new queue item or agent invocation.",
+        f"Files touched: {files_touched}",
+        f"Validation: {validation}",
+        f"Blockers: {blockers}",
+        f"Next action: {next_action}",
+        f"Receipt: {receipt_path or 'unavailable'}",
+        f"Artifacts: {', '.join(artifacts) if artifacts else 'None reported'}",
+        f"Recorded token accounting: {recorded_usage}",
+        "Lookup token usage: no agent invocation",
+    ))
+    document_paths = [str(BASE_DIR / receipt_path)] if receipt_path and (BASE_DIR / receipt_path).is_file() else []
+    return {
+        "success": True,
+        "accepted": True,
+        "created": False,
+        "output": output,
+        "returncode": 0,
+        "work_item_id": item.get("id"),
+        "status": status,
+        "receipt_path": receipt_path,
+        "document_paths": document_paths,
+        "artifacts": artifacts,
+        "requested_target": "queue",
+        "selected_route": "local_existing_item_read",
+        "delegation_reason": "bounded existing-item receipt/status read",
+        "codex_forbidden": "no",
+        "token_usage": {"available": False, "no_agent_invocation": True},
+        "token_usage_text": "Token usage: no agent invocation",
+    }
 
 
 def _infer_queue_owner(text: str) -> str:
@@ -7532,62 +8808,125 @@ def _infer_queue_owner(text: str) -> str:
     return "unassigned"
 
 
-_LONG_WORK_BODY_CHARS = 4_000
-_WORK_CONTINUATION_RE = re.compile(
+def _create_queue_item(text: str) -> dict:
+    queue_tool = _load_queue_tool()
+    owner = _infer_queue_owner(text)
+    args = argparse.Namespace(
+        title=text,
+        requested_by="hermes",
+        owner_type="agent",
+        owner=owner,
+        status="inbox",
+        priority=0,
+        source="dashboard/backend/hermes",
+        tags="hermes,queue",
+        context="",
+        sources="",
+        allowed_actions="",
+        stop_conditions="",
+        definition_of_done="",
+    )
+    return queue_tool.create_item(BASE_DIR, args)
+
+
+_DISPATCH_PATH_PATTERNS = (
+    re.compile(r"(?P<path>[A-Za-z]:\\[^\r\n`\"']+?)(?=(?:\s+(?:and|then)\s+(?:assess|review|compare|incorporate|implement|repair|build|test|validate)\b)|[.;,\n]|$)", re.IGNORECASE),
+    re.compile(r"(?P<path>/(?:mnt/[a-z]|home|tmp)/[^\r\n`\"']+?)(?=(?:\s+(?:and|then)\s+(?:assess|review|compare|incorporate|implement|repair|build|test|validate)\b)|[.;,\n]|$)", re.IGNORECASE),
+)
+_DISPATCH_ASSESS_RE = re.compile(r"\b(?:assess(?:ment)?|review|compare|audit|inspect)\b", re.IGNORECASE)
+_DISPATCH_IMPLEMENT_RE = re.compile(r"\b(?:implement|incorporate|repair|fix|build|create|modify|edit|update)\b", re.IGNORECASE)
+_DISPATCH_VALIDATE_RE = re.compile(r"\b(?:tests?|testing|validate|validation|end[- ]to[- ]end|prove|proof)\b", re.IGNORECASE)
+_DISPATCH_AGENT_RE = re.compile(r"\b(?:run|use|get|tell|ask)\s+(?:an?\s+)?(?:agent|workflow|hermes|codex|claude)\b", re.IGNORECASE)
+_DISPATCH_ARTIFACT_RE = re.compile(r"\b(?:repository|repo|files?|folders?|artifacts?|codebase|workspace)\b", re.IGNORECASE)
+_TELEGRAM_APPROVAL_PREFIX_RE = re.compile(
+    r"^\s*(?:(?:i\s+)?approve(?:d)?|accept(?:ed)?|continue|resume|go\s+ahead|yes\s*,?\s*proceed)\b",
+    re.IGNORECASE,
+)
+_TELEGRAM_APPROVAL_ITEM_RE = re.compile(r"\bAOS-\d{4}-\d{4}\b", re.IGNORECASE)
+_TELEGRAM_SPLIT_WINDOW_SECONDS = 120
+_TELEGRAM_CONTINUATION_RE = re.compile(
     r"^\s*(?:[-*•]\s+|\d+[.)]\s+|#{1,6}\s+|(?:validation|close\s*out|preserve\s+architecture)\b)",
+    re.IGNORECASE,
+)
+_EXTERNAL_OR_DESTRUCTIVE_ACTION_RE = re.compile(
+    r"\b(?:send(?:ing)?\b[^.;\n]{0,48}\b(?:email|draft|message)|"
+    r"reply(?:ing)?(?:\s+to)?|forward(?:ing)?|schedule[-\s]?send)\b|"
+    r"\b(?:change|update|replace|add|remove)(?:\s+(?:the\s+|a\s+))?recipients?\b|"
+    r"\b(?:delete|remove)\b|"
+    r"\b(?:credential|authentication|oauth|api[-\s]?key|secret)\b|"
+    r"\b(?:recurring|scheduled)\s+(?:external\s+)?(?:job|task|send)\b|"
+    r"\bgit\s+(?:commit|push)\b|\b(?:commit|push)\s+(?:to\s+)?git\b|"
+    r"\b(?:publish|deploy|deployment)\b|"
+    r"\b(?:pay|payment|transfer|money\s+movement|purchase)\b",
+    re.IGNORECASE,
+)
+_NEGATED_EXTERNAL_ACTION_RE = re.compile(
+    r"\b(?:do\s+not|don't|never|without|prohibit(?:s|ed|ing)?|block(?:s|ed|ing)?)\b[^.;\n]{0,48}$",
     re.IGNORECASE,
 )
 
 
-def _oversized_work_prompt_path(key: str) -> str:
-    digest = hashlib.sha256(key.encode("utf-8")).hexdigest()[:24]
-    return f"queue/run_prompts/work_{digest}.md"
+def _telegram_approval_intent(text: str) -> dict | None:
+    """Recognize a bounded approval family without using a model or fuzzy task inference."""
+    raw = str(text or "").strip()
+    if not _TELEGRAM_APPROVAL_PREFIX_RE.search(raw):
+        return None
+    normalized = " ".join(raw.split())
+    return {
+        "normalized": normalized[:1000],
+        "oversized": len(normalized) > 1000,
+        "target_ids": sorted({match.group(0).upper() for match in _TELEGRAM_APPROVAL_ITEM_RE.finditer(normalized)}),
+    }
 
 
-def _merge_oversized_work_continuation(body: TaskRun) -> dict | None:
-    """Merge an apparent split continuation into one recent oversized /work intake."""
+def _telegram_split_request_guard(body: TaskRun) -> dict | None:
+    """Merge a Telegram continuation into its existing oversized /work prompt."""
+    if str(getattr(body, "source", "telegram") or "telegram").strip().casefold() != "telegram":
+        return None
     text = str(body.task or "").strip()
-    if not text or text.startswith("/") or not _WORK_CONTINUATION_RE.search(text):
+    if not text or text.startswith("/") or not _TELEGRAM_CONTINUATION_RE.search(text):
         return None
     now = datetime.datetime.now(datetime.timezone.utc)
     candidates = []
     for item in _read_queue_items():
-        run_prompt_path = str(item.get("run_prompt_path") or "")
+        run_prompt_path = str(item.get("run_prompt_path") or "").strip()
         if not re.fullmatch(r"queue/run_prompts/[A-Za-z0-9_.-]+\.md", run_prompt_path):
-            continue
-        if str(item.get("source") or "").casefold() != str(body.source or "").casefold():
-            continue
-        dispatch = item.get("dispatch") if isinstance(item.get("dispatch"), dict) else {}
-        if str(body.reply_to or "") and str(dispatch.get("reply_to") or "") != str(body.reply_to):
             continue
         prompt_path = BASE_DIR / run_prompt_path
         try:
             stored = prompt_path.read_text(encoding="utf-8").strip()
         except OSError:
             continue
+        if len(stored) <= _LONG_WORK_BODY_CHARS or not stored.casefold().startswith("/work") or not stored.endswith(":"):
+            continue
+        if not _telegram_item_matches_operator(item, body, explicit_id=False):
+            continue
         created = _parse_record_timestamp(item.get("created_at"))
-        if not created or len(stored) <= _LONG_WORK_BODY_CHARS or not stored.casefold().startswith("/work") or not stored.endswith(":"):
+        if not created:
             continue
         age = (now - created.astimezone(datetime.timezone.utc)).total_seconds()
-        if 0 <= age <= 120:
+        if 0 <= age <= _TELEGRAM_SPLIT_WINDOW_SECONDS:
             candidates.append(item)
     if not candidates:
         return None
     prior = sorted(candidates, key=lambda row: str(row.get("created_at") or ""), reverse=True)[0]
     run_prompt_path = str(prior["run_prompt_path"])
+    prompt_path = BASE_DIR / run_prompt_path
     with queue_write_lock(BASE_DIR):
-        queue_tool = _load_queue_tool()
-        items = queue_tool.load_items(BASE_DIR)
-        stored_item = next(row for row in items if row.get("id") == prior.get("id"))
-        prompt_path = BASE_DIR / run_prompt_path
         current = prompt_path.read_text(encoding="utf-8").rstrip()
         durable_replace_text(prompt_path, f"{current}\n{text.rstrip()}\n")
-        reasons = [str(value) for value in stored_item.get("needs_me") or []]
-        if "consider decomposing" not in reasons:
-            reasons.append("consider decomposing")
-        stored_item["needs_me"] = reasons
-        stored_item["updated_at"] = queue_tool.now_iso()
-        queue_tool.save_items(BASE_DIR, items)
+        items = _read_queue_items()
+        stored_item = next((row for row in items if row.get("id") == prior.get("id")), None)
+        if stored_item is not None:
+            reasons = [str(value) for value in stored_item.get("needs_me") or []]
+            if "consider decomposing" not in reasons:
+                reasons.append("consider decomposing")
+            stored_item["needs_me"] = reasons
+            stored_item["updated_at"] = datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+            durable_replace_text(
+                _queue_items_path(),
+                "".join(json.dumps(row, sort_keys=True, separators=(",", ":")) + "\n" for row in items),
+            )
     return {
         "success": True,
         "accepted": True,
@@ -7596,70 +8935,562 @@ def _merge_oversized_work_continuation(body: TaskRun) -> dict | None:
         "state": "split-work-request-merged",
         "work_item_id": prior.get("id"),
         "runner_accepted": False,
-        "output": "PASS\nMerged the continuation into the existing oversized /work item.\nNo second work item or run-prompt file was created.",
+        "output": "\n".join((
+            "PASS",
+            f"Merged the continuation into {aos_orchestration.operator_item_label(prior)}.",
+            "No second work item or run-prompt file was created.",
+        )),
         "returncode": 0,
         "token_usage": {"available": False, "no_agent_invocation": True},
         "token_usage_text": "Token usage: no agent invocation",
     }
 
 
-def _create_queue_item(text: str, body: TaskRun | None = None) -> dict:
-    queue_tool = _load_queue_tool()
-    full_text = str(body.task if body is not None else text).strip()
-    oversized_work = full_text.casefold().startswith("/work") and len(full_text) > _LONG_WORK_BODY_CHARS
-    owner = _infer_queue_owner(full_text)
-    source = str(body.source if body is not None else "dashboard/backend/hermes").strip() or "dashboard/backend/hermes"
-    delivery_id = str(body.delivery_id if body is not None else "").strip()
-    reply_to = str(body.reply_to if body is not None else "").strip()
-    identity = delivery_id or " ".join(full_text.split()).casefold()
-    idempotency_key = f"work-intake:{source.casefold()}:{hashlib.sha256(identity.encode('utf-8')).hexdigest()}"
-    run_prompt_path = _oversized_work_prompt_path(idempotency_key) if oversized_work else ""
+def _telegram_item_conversation(item: dict) -> tuple[str, str]:
+    dispatch = item.get("dispatch") if isinstance(item.get("dispatch"), dict) else {}
+    source = str(item.get("source") or "").strip().lower()
+    reply_to = str(
+        item.get("reply_to") or item.get("chat_id") or item.get("telegram_chat_id")
+        or dispatch.get("reply_to") or ""
+    ).strip()
+    return source, reply_to
+
+
+def _safe_operator_telegram_chats() -> set[str]:
+    """Read only the unprotected notification allowlist used by queue routing."""
+    try:
+        config = json.loads((BASE_DIR / "queue" / "notifications.json").read_text(encoding="utf-8"))
+        values = ((config.get("allowlist") or {}).get("telegram") or [])
+    except (OSError, json.JSONDecodeError, AttributeError):
+        return set()
+    return {str(value).strip() for value in values if str(value).strip()}
+
+
+def _telegram_item_matches_operator(item: dict, body: TaskRun, *, explicit_id: bool) -> bool:
+    incoming_source = str(getattr(body, "source", "telegram") or "telegram").strip().lower()
+    incoming_reply = str(getattr(body, "reply_to", "") or "").strip()
+    item_source, item_reply = _telegram_item_conversation(item)
+    requested_by = str(item.get("requested_by") or "").strip().casefold()
+    if explicit_id and incoming_source == "telegram" and requested_by == "liam":
+        if not incoming_reply or not item_reply or incoming_reply == item_reply:
+            return True
+    if item_source != incoming_source:
+        return False
+    if incoming_reply:
+        if item_reply:
+            return incoming_reply == item_reply
+        return requested_by == "liam" and incoming_reply in _safe_operator_telegram_chats()
+    return not item_reply and requested_by == "liam"
+
+
+def _external_action_matches(text: str) -> list[str]:
+    matches = []
+    value = str(text or "")
+    for match in _EXTERNAL_OR_DESTRUCTIVE_ACTION_RE.finditer(value):
+        prefix = value[max(0, match.start() - 64):match.start()]
+        if _NEGATED_EXTERNAL_ACTION_RE.search(prefix):
+            continue
+        action = " ".join(match.group(0).split()).lower()
+        if action not in matches:
+            matches.append(action)
+    return matches
+
+
+def _approval_external_boundaries(item: dict, approval_text: str) -> list[str]:
+    values = [approval_text, item.get("title", ""), item.get("context", "")]
+    values.extend(str(value) for value in item.get("allowed_actions") or [])
+    matches = []
+    for value in values:
+        for match in _external_action_matches(value):
+            if match not in matches:
+                matches.append(match)
+    return matches
+
+
+def _telegram_approval_event_key(body: TaskRun, intent: dict) -> str:
+    source = str(getattr(body, "source", "telegram") or "telegram").strip().casefold()
+    reply_to = str(getattr(body, "reply_to", "") or "").strip()
+    delivery_id = str(getattr(body, "delivery_id", "") or "").strip()
+    stable_event = delivery_id or str(intent.get("normalized") or "").casefold()
+    digest = hashlib.sha256(f"{source}\0{reply_to}\0{stable_event}".encode("utf-8")).hexdigest()
+    return f"telegram-approval:{digest}"
+
+
+def _approval_effect_replay(items: list[dict], event_key: str) -> tuple[dict, dict] | None:
+    for item in items:
+        effects = item.get("approval_effects")
+        if isinstance(effects, dict) and isinstance(effects.get(event_key), dict):
+            return item, effects[event_key]
+    return None
+
+
+def _approval_clarification(state: str, candidate_ids: list[str], message: str) -> dict:
+    candidate_line = ", ".join(candidate_ids) if candidate_ids else "none"
+    return {
+        "success": False,
+        "accepted": False,
+        "created": False,
+        "duplicate": False,
+        "approval_routed": True,
+        "clarification_required": True,
+        "state": state,
+        "candidate_ids": candidate_ids,
+        "output": "\n".join((
+            "NEEDS ATTENTION",
+            message,
+            f"Safe candidate IDs: {candidate_line}.",
+            "No new work item was created and no runner or external action was started.",
+        )),
+        "returncode": 2,
+        "token_usage": {"available": False, "no_agent_invocation": True},
+        "token_usage_text": "Token usage: no agent invocation",
+    }
+
+
+def _approval_replay_closeout(item: dict, effect: dict) -> dict:
+    status = str(item.get("status") or effect.get("target_status") or "")
+    receipt_path = str(effect.get("receipt_path") or "")
+    return {
+        "success": True,
+        "accepted": True,
+        "created": False,
+        "duplicate": True,
+        "approval_routed": True,
+        "state": "approval-replay",
+        "work_item_id": item.get("id"),
+        "status": status,
+        "receipt_path": receipt_path,
+        "runner_accepted": False,
+        "output": aos_orchestration.format_operator_work_item_notification(
+            item,
+            status,
+            summary="Approval event already applied; no duplicate transition or dispatch.",
+            next_action="None",
+            receipt_path=receipt_path,
+            receipt_attached=bool(receipt_path),
+        ),
+        "returncode": 0,
+        "token_usage": {"available": False, "no_agent_invocation": True},
+        "token_usage_text": "Token usage: no agent invocation",
+    }
+
+
+def _save_approval_effect(item_id: str, event_key: str, **updates) -> dict:
+    with queue_write_lock(BASE_DIR):
+        queue_tool = _load_queue_tool()
+        items = queue_tool.load_items(BASE_DIR)
+        item = queue_tool.find_item(items, item_id)
+        effect = item.setdefault("approval_effects", {}).setdefault(event_key, {})
+        effect.update(updates)
+        item["updated_at"] = queue_tool.now_iso()
+        queue_tool.save_items(BASE_DIR, items)
+        return item
+
+
+def _approval_resume_receipt_path(item_id: str, event_key: str) -> str:
+    digest = event_key.rsplit(":", 1)[-1][:16]
+    return f"queue/receipts/{item_id}-telegram-approval-{digest}.md"
+
+
+def _resume_needs_input_from_telegram(item: dict, event_key: str) -> dict:
+    receipt_path = _approval_resume_receipt_path(str(item.get("id") or ""), event_key)
+    target = BASE_DIR / receipt_path
+    if not target.exists():
+        durable_replace_text(target, "\n".join((
+            "PASS",
+            "",
+            "Telegram approval routing:",
+            f"- Work item ID: {item.get('id')}",
+            "- Transition: needs_input -> agent_todo",
+            "- Result: existing item resumed; no new work item created",
+            "- External or destructive authority: not granted",
+            "- Token usage: no agent invocation",
+            "",
+        )))
+    refreshed = _queue_find_item(str(item.get("id") or ""))
+    if refreshed.get("status") == "needs_input":
+        receipt_attached = any(
+            isinstance(row, dict) and row.get("path") == receipt_path
+            for row in refreshed.get("receipts") or []
+        )
+        if receipt_attached:
+            refreshed = _load_queue_tool().update_status(BASE_DIR, refreshed["id"], "agent_todo")
+        else:
+            refreshed = _load_queue_tool().attach_receipt(BASE_DIR, refreshed["id"], receipt_path, "agent_todo")
+    runner = _accept_async_queue_runner(refreshed)
+    refreshed = _queue_find_item(refreshed["id"])
+    _save_approval_effect(
+        refreshed["id"], event_key, status="applied", action="resume",
+        target_status=refreshed.get("status"), receipt_path=receipt_path,
+        runner_state=runner.get("state"), runner_mode=runner.get("mode"),
+    )
+    return {
+        "success": True,
+        "accepted": True,
+        "created": False,
+        "duplicate": False,
+        "approval_routed": True,
+        "state": "resumed",
+        "work_item_id": refreshed["id"],
+        "status": refreshed.get("status"),
+        "receipt_path": receipt_path,
+        "runner_available": runner.get("available", False),
+        "runner_accepted": runner.get("accepted", False),
+        "runner_state": runner.get("state", "unavailable"),
+        "runner_mode": runner.get("mode", "existing_item"),
+        "output": aos_orchestration.format_operator_work_item_notification(
+            refreshed,
+            refreshed.get("status"),
+            summary="Existing needs_input item resumed; no new work item created.",
+            next_action="None",
+            receipt_path=receipt_path,
+            receipt_attached=bool(receipt_path),
+        ),
+        "returncode": 0,
+        "token_usage": {"available": False, "no_agent_invocation": True},
+        "token_usage_text": "Token usage: no agent invocation",
+    }
+
+
+def _accept_human_review_from_telegram(item: dict, event_key: str) -> dict:
+    refreshed = _queue_find_item(str(item.get("id") or ""))
+    if refreshed.get("status") == "done":
+        receipt_path = _queue_existing_review_receipt(refreshed, "done")
+    else:
+        closed = _close_queue_item_review(
+            refreshed["id"],
+            QueueReviewClose(status="done", review_note="Accepted through item-bound Telegram approval routing.", action="approve"),
+            notify_telegram=False,
+        )
+        receipt_path = str(closed.get("receipt_path") or "")
+        refreshed = _queue_find_item(refreshed["id"])
+    _save_approval_effect(
+        refreshed["id"], event_key, status="applied", action="accept",
+        target_status=refreshed.get("status"), receipt_path=receipt_path,
+    )
+    return {
+        "success": True,
+        "accepted": True,
+        "created": False,
+        "duplicate": False,
+        "approval_routed": True,
+        "state": "accepted-review",
+        "work_item_id": refreshed["id"],
+        "status": refreshed.get("status"),
+        "receipt_path": receipt_path,
+        "runner_accepted": False,
+        "output": aos_orchestration.format_operator_work_item_notification(
+            refreshed,
+            refreshed.get("status"),
+            summary="Existing human_review item accepted; no new work item created.",
+            next_action="None",
+            receipt_path=receipt_path,
+            receipt_attached=bool(receipt_path),
+        ),
+        "returncode": 0,
+        "token_usage": {"available": False, "no_agent_invocation": True},
+        "token_usage_text": "Token usage: no agent invocation",
+    }
+
+
+def _try_telegram_approval(body: TaskRun) -> dict | None:
+    if str(getattr(body, "source", "telegram") or "telegram").strip().lower() != "telegram":
+        return None
+    intent = _telegram_approval_intent(body.task)
+    if intent is None:
+        return None
+    if intent["oversized"]:
+        return _approval_clarification(
+            "approval-too-long", [],
+            "Approval replies must be bounded; send the approval and any new substantive request separately.",
+        )
+    event_key = _telegram_approval_event_key(body, intent)
+    pending_replay = _approval_effect_replay(_read_queue_items(), event_key)
+    if pending_replay is not None and pending_replay[1].get("status") == "pending":
+        if pending_replay[1].get("action") == "resume":
+            return _resume_needs_input_from_telegram(pending_replay[0], event_key)
+        return _accept_human_review_from_telegram(pending_replay[0], event_key)
+    with queue_write_lock(BASE_DIR):
+        queue_tool = _load_queue_tool()
+        items = queue_tool.load_items(BASE_DIR)
+        replay = _approval_effect_replay(items, event_key)
+        if replay is not None and replay[1].get("status") == "applied":
+            return _approval_replay_closeout(*replay)
+        explicit_ids = intent["target_ids"]
+        explicit = bool(explicit_ids)
+        if explicit:
+            candidates = [
+                row for row in items
+                if str(row.get("id") or "").upper() in explicit_ids
+                and row.get("status") in {"needs_input", "human_review", "done"}
+                and _telegram_item_matches_operator(row, body, explicit_id=True)
+            ]
+        else:
+            candidates = [
+                row for row in items
+                if row.get("status") in {"needs_input", "human_review"}
+                and _telegram_item_matches_operator(row, body, explicit_id=False)
+            ]
+        candidate_ids = sorted(aos_orchestration.operator_item_label(row) for row in candidates)
+        if len(candidates) != 1:
+            state = "approval-target-ambiguous" if len(candidates) > 1 else "approval-target-missing"
+            message = (
+                "Approval matches multiple pending items; reply with exactly one AOS item ID."
+                if len(candidates) > 1
+                else "No uniquely correlated pending approval exists; include the exact existing AOS item ID."
+            )
+            return _approval_clarification(state, candidate_ids, message)
+        item = candidates[0]
+        if item.get("status") == "done":
+            return {
+                **_approval_replay_closeout(item, {"target_status": "done"}),
+                "duplicate": False,
+                "state": "already-completed",
+            }
+        boundaries = _approval_external_boundaries(item, intent["normalized"])
+        if boundaries:
+            return _approval_clarification(
+                "explicit-action-approval-required", [str(item.get("id") or "")],
+                "This item proposes an external or destructive action. Generic approval cannot authorize it; use the item-bound gate naming the exact action and target.",
+            ) | {"blocked_actions": boundaries}
+        effect = item.setdefault("approval_effects", {}).setdefault(event_key, {
+            "event": "telegram_approval",
+            "status": "pending",
+            "action": "resume" if item.get("status") == "needs_input" else "accept",
+            "source": "telegram",
+            "delivery_id": str(getattr(body, "delivery_id", "") or ""),
+            "reply_to": str(getattr(body, "reply_to", "") or ""),
+            "created_at": queue_tool.now_iso(),
+        })
+        queue_tool.save_items(BASE_DIR, items)
+    if item.get("status") == "needs_input":
+        return _resume_needs_input_from_telegram(item, event_key)
+    return _accept_human_review_from_telegram(item, event_key)
+
+
+def _dispatch_source_paths(text: str) -> list[str]:
+    paths = []
+    for pattern in _DISPATCH_PATH_PATTERNS:
+        for match in pattern.finditer(str(text or "")):
+            path = match.group("path").strip()
+            if path and path not in paths:
+                paths.append(path)
+    return paths
+
+
+def _substantial_dispatch_signals(text: str) -> list[str]:
+    value = str(text or "")
+    paths = _dispatch_source_paths(value)
+    signals = []
+    if paths:
+        signals.append("supplied_path")
+    if _DISPATCH_ASSESS_RE.search(value) and (_DISPATCH_ARTIFACT_RE.search(value) or paths):
+        signals.append("file_assessment")
+    if _DISPATCH_IMPLEMENT_RE.search(value):
+        signals.append("implementation_or_artifact_change")
+    if _DISPATCH_VALIDATE_RE.search(value):
+        signals.append("validation_or_proof")
+    if _looks_multi_step(value):
+        signals.append("multiple_steps")
+    if _DISPATCH_AGENT_RE.search(value):
+        signals.append("explicit_agent_or_workflow")
+    if _DISPATCH_ARTIFACT_RE.search(value):
+        signals.append("repository_artifacts")
+    return signals
+
+
+def _dispatch_idempotency_key(task: str, source: str, delivery_id: str = "") -> str:
+    source_key = str(source or "telegram").strip().lower() or "telegram"
+    delivery_key = str(delivery_id or "").strip()
+    instruction_key = " ".join(str(task or "").split()).casefold()
+    stable_input = delivery_key if delivery_key else instruction_key
+    digest = hashlib.sha256(f"{source_key}\0{stable_input}".encode("utf-8")).hexdigest()
+    return f"telegram-dispatch:{digest}"
+
+
+_LONG_WORK_BODY_CHARS = 4_000
+
+
+def _long_work_prompt_path(idempotency_key: str) -> str:
+    digest = idempotency_key.rsplit(":", 1)[-1]
+    return f"queue/run_prompts/work_{digest[:24]}.md"
+
+
+def _write_long_work_prompt(relative_path: str, body: str) -> None:
+    target = BASE_DIR / relative_path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if not target.exists():
+        durable_replace_text(target, body.rstrip() + "\n")
+
+
+def _queue_runner_status(root: Path | None = None) -> dict:
+    root = Path(root or BASE_DIR)
+    pid_path = root / "logs" / "runtime" / "runner.pid"
+    try:
+        pid = int(pid_path.read_text(encoding="utf-8").strip())
+        os.kill(pid, 0)
+        cmdline = Path(f"/proc/{pid}/cmdline").read_bytes().replace(b"\0", b" ").decode("utf-8", errors="replace")
+    except (OSError, ValueError):
+        return {"available": False, "state": "unavailable", "pid": None}
+    expected = str(root / "tools" / "aos-orchestration-runner.py")
+    available = expected in cmdline
+    return {"available": available, "state": "running" if available else "unavailable", "pid": pid if available else None}
+
+
+def _accept_async_queue_runner(item: dict) -> dict:
+    recurring = _queue_runner_status(BASE_DIR)
+    if recurring["available"]:
+        return {**recurring, "accepted": True, "mode": "recurring"}
+    status = str(item.get("status") or "")
+    if status != "agent_todo":
+        return {
+            "available": status == "agent_working",
+            "accepted": status in {"agent_working", "human_review", "needs_input", "blocked", "done"},
+            "state": status or "unavailable",
+            "pid": None,
+            "mode": "existing_item",
+        }
+    try:
+        process = subprocess.Popen(
+            [
+                sys.executable,
+                str(BASE_DIR / "tools" / "aos-orchestration-runner.py"),
+                "--root",
+                str(BASE_DIR),
+                "--dispatch-item",
+                str(item.get("id") or ""),
+            ],
+            cwd=str(BASE_DIR),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+            close_fds=True,
+        )
+    except OSError as exc:
+        return {
+            "available": False,
+            "accepted": False,
+            "state": "unavailable",
+            "pid": None,
+            "mode": "one_shot",
+            "reason": type(exc).__name__,
+        }
+    return {
+        "available": True,
+        "accepted": True,
+        "state": "accepted",
+        "pid": process.pid,
+        "mode": "one_shot",
+    }
+
+
+def _create_async_dispatch_item(
+    body: TaskRun,
+    *,
+    owner_override: str | None = None,
+) -> tuple[dict, bool, list[str], list[str]]:
+    text = str(body.task or "").strip()
+    source = str(getattr(body, "source", "telegram") or "telegram").strip() or "telegram"
+    delivery_id = str(getattr(body, "delivery_id", "") or "").strip()
+    reply_to = str(getattr(body, "reply_to", "") or "").strip()
+    paths = _dispatch_source_paths(text)
+    signals = _substantial_dispatch_signals(text)
+    owner = str(owner_override or _infer_queue_owner(text)).strip().lower()
+    if _CODEX_FORBIDDEN_RE.search(text):
+        owner = "hermes"
+    elif owner == "unassigned":
+        owner = "hermes"
+    key = _dispatch_idempotency_key(text, source, delivery_id)
+    oversized_work = text.casefold().startswith("/work") and len(text) > _LONG_WORK_BODY_CHARS
+    run_prompt_path = _long_work_prompt_path(key) if oversized_work else ""
     if oversized_work:
-        target = BASE_DIR / run_prompt_path
-        target.parent.mkdir(parents=True, exist_ok=True)
-        if not target.exists():
-            durable_replace_text(target, full_text.rstrip() + "\n")
+        _write_long_work_prompt(run_prompt_path, text)
+        paths = [*paths, run_prompt_path]
+    tags = ["async_dispatch", "olmec", "deterministic_intake"]
+    if source.casefold() == "telegram":
+        tags.append("telegram")
+    if oversized_work:
+        tags.append("oversized_intake")
     args = argparse.Namespace(
-        title=text,
-        requested_by="Liam" if oversized_work else "hermes",
+        title=_cockpit_command_title(text),
+        requested_by="Liam",
         owner_type="agent",
-        owner=owner if owner != "unassigned" else ("hermes" if oversized_work else owner),
-        status="agent_todo" if oversized_work else "inbox",
-        priority=5 if oversized_work else 0,
+        owner=owner,
+        status="agent_todo",
+        priority=5,
         source=source,
-        tags="hermes,queue,oversized_intake" if oversized_work else "hermes,queue",
-        context=f"Run prompt file: {run_prompt_path}" if oversized_work else "",
-        sources=run_prompt_path,
-        allowed_actions="local_read,local_edit,local_test" if oversized_work else "",
-        stop_conditions="external_send,secrets_exposure,destructive_action_outside_scope" if oversized_work else "",
-        definition_of_done="Complete the operator instruction, run relevant validation, attach a durable receipt, and return truthful success or failure state." if oversized_work else "",
+        tags=",".join(tags),
+        context=f"Run prompt file: {run_prompt_path}" if oversized_work else text,
+        sources=",".join(paths),
+        allowed_actions="local_read,local_edit,local_test",
+        stop_conditions="external_send,secrets_exposure,destructive_action_outside_scope",
+        definition_of_done="Complete the operator instruction, run relevant validation, attach a durable receipt, and return truthful success or failure state.",
+        parent_id=None,
+        step_index=None,
+        depends_on="",
+        on_complete="human_review",
+        workbench=owner if owner in {"codex", "claude"} else "lane",
         review="none",
         run_prompt_path=run_prompt_path or None,
         needs_me=["consider decomposing"] if oversized_work else None,
-        idempotency_key=idempotency_key if oversized_work else "",
-        inbound_route=f"{source}:/api/wsl/hermes" if oversized_work else "",
+        idempotency_key=key,
+        inbound_route=f"{source}:/api/wsl/hermes",
         delivery_id=delivery_id,
         reply_to=reply_to,
         idempotency_duplicate=False,
     )
-    item = queue_tool.create_item(BASE_DIR, args)
-    return {**item, "_created": not bool(args.idempotency_duplicate)}
+    item = _load_queue_tool().create_item(BASE_DIR, args)
+    return item, not bool(args.idempotency_duplicate), paths, signals
 
 
-def _queue_create_closeout(item: dict) -> dict:
-    created = bool(item.pop("_created", True))
-    output = "\n".join((
-        "PASS",
-        f"Work item ID: {item['id']}",
-        f"Owner: {item['owner']}",
-        f"Status: {item['status']}",
-        "Next action: Review or claim the local queue item",
-    ))
+def _async_dispatch_closeout(item: dict, created: bool, paths: list[str], signals: list[str]) -> dict:
+    runner = _accept_async_queue_runner(item)
+    state = "queued"
+    action = "created" if created else "already queued"
+    runner_line = "runner accepted" if runner["accepted"] else "runner unavailable; item remains queued"
+    output = aos_orchestration.format_operator_work_item_notification(
+        item,
+        "agent_todo",
+        summary=f"The task was {action} and {runner_line}.",
+        next_action="None",
+    )
     return {
         "success": True,
         "accepted": True,
         "created": created,
         "duplicate": not created,
+        "output": output,
+        "returncode": 0,
+        "work_item_id": item["id"],
+        "owner": item.get("owner"),
+        "status": item.get("status"),
+        "state": state,
+        "runner_available": runner["available"],
+        "runner_state": runner["state"],
+        "runner_accepted": runner["accepted"],
+        "runner_mode": runner["mode"],
+        "request_returned_before_completion": True,
+        "source_paths": paths,
+        "routing_signals": signals or ["not_allowlisted_inline"],
+        "requested_target": "queue",
+        "selected_route": "async_queue",
+        "delegation_reason": "deterministic non-inline Telegram dispatch",
+        "codex_forbidden": "yes" if _CODEX_FORBIDDEN_RE.search(str(item.get("context") or "")) else "no",
+        "token_usage": {"available": False, "no_agent_invocation": True},
+        "token_usage_text": "Token usage: no agent invocation",
+    }
+
+
+def _queue_create_closeout(item: dict) -> dict:
+    output = aos_orchestration.format_operator_work_item_notification(
+        item,
+        item.get("status"),
+        summary=f"{aos_orchestration.operator_task_title(item)} was added to the local queue.",
+        next_action="Review or claim the local queue item",
+    ) + f"\nWork item ID: {item['id']}\nOwner: {item['owner']}\nStatus: {item['status']}"
+    return {
+        "success": True,
         "output": output,
         "returncode": 0,
         "work_item_id": item["id"],
@@ -7698,6 +9529,30 @@ def _select_hermes_entry_route(task: str) -> dict:
         "delegation_reason": reason,
         "codex_forbidden": "yes" if codex_forbidden else "no",
     }
+
+
+def _is_hermes_orchestration_request(task: str) -> bool:
+    """Require explicit Codex delegation plus an explicit coordinator/review instruction."""
+    return bool(
+        _EXPLICIT_TARGET_RE["codex"].search(str(task or ""))
+        and not _CODEX_FORBIDDEN_RE.search(str(task or ""))
+        and _HERMES_ORCHESTRATION_RE.search(str(task or ""))
+    )
+
+
+def _hermes_orchestration_plan_prompt(task: str) -> str:
+    return "\n".join((
+        "Act as Operating Hermes using the aos-orchestrator profile.",
+        "Plan bounded Codex implementation children for the operator request below.",
+        "Hermes coordinates and reviews only; Codex implements every child.",
+        "Return one fenced JSON object and no prose outside it:",
+        '{"title":"...","tasks":[{"title":"...","context":"...","definition_of_done":"..."}]}',
+        "Use between 1 and 6 independent, locally executable children. Do not perform the implementation.",
+        "Do not authorize external sends, destructive work, credential changes, commits, or pushes.",
+        "",
+        "Operator request:",
+        str(task or "").strip(),
+    ))
 
 
 def _artifact_back_large_child_context(context: str) -> str:
@@ -7739,6 +9594,138 @@ def _normalize_hermes_orchestration_plan(reply: str, task: str) -> dict | None:
                 "children": children,
             }
     return None
+
+
+def _hermes_orchestration_existing(key: str) -> tuple[dict, list[dict]] | None:
+    items = _read_queue_items()
+    parent = next(
+        (
+            row for row in items
+            if isinstance(row.get("dispatch"), dict)
+            and row["dispatch"].get("idempotency_key") == key
+            and "hermes_orchestration_parent" in {str(tag) for tag in row.get("tags") or []}
+        ),
+        None,
+    )
+    if not parent:
+        return None
+    children = sorted(
+        [row for row in items if row.get("parent_id") == parent.get("id")],
+        key=lambda row: (int(row.get("step_index") or 0), str(row.get("id") or "")),
+    )
+    return parent, children
+
+
+def _create_hermes_orchestration_items(body: TaskRun, plan: dict, key: str) -> tuple[dict, list[dict]]:
+    source = str(getattr(body, "source", "telegram") or "telegram").strip() or "telegram"
+    queue_tool = _load_queue_tool()
+    parent_args = argparse.Namespace(
+        title=plan["title"], requested_by="Liam", owner_type="workflow", owner="hermes",
+        status="agent_working", priority=8, source=source,
+        tags="hermes_orchestration_parent,olmec", context=str(body.task or "").strip(), sources="",
+        allowed_actions="local_read,local_edit,local_test",
+        stop_conditions="external_send,secrets_exposure,destructive_action_outside_scope,git_commit,git_push",
+        definition_of_done="Every bounded Codex child passes native Hermes review within at most three attempts.",
+        parent_id=None, step_index=None, depends_on="", on_complete=None, workbench="hermes", review="model",
+        idempotency_key=key, inbound_route=f"{source}:/api/wsl/hermes", delivery_id=str(getattr(body, "delivery_id", "") or ""),
+        reply_to=str(getattr(body, "reply_to", "") or ""), idempotency_duplicate=False,
+    )
+    parent = queue_tool.create_item(BASE_DIR, parent_args)
+    if parent_args.idempotency_duplicate:
+        existing = _hermes_orchestration_existing(key)
+        return existing if existing is not None else (parent, [])
+
+    children = []
+    for index, spec in enumerate(plan["children"], start=1):
+        child_args = argparse.Namespace(
+            title=spec["title"], requested_by="hermes", owner_type="agent", owner="codex",
+            status="agent_todo", priority=8, source="hermes_orchestration",
+            tags="async_dispatch,hermes_orchestration_child,olmec",
+            context=spec["context"], sources="", allowed_actions="local_read,local_edit,local_test",
+            stop_conditions="external_send,secrets_exposure,destructive_action_outside_scope,git_commit,git_push",
+            definition_of_done=spec["definition_of_done"], parent_id=parent["id"], step_index=index,
+            depends_on="", on_complete="done", workbench="codex", review="model",
+            idempotency_key=f"{key}:child:{index}", inbound_route="hermes:aos-orchestrator",
+            delivery_id="", reply_to="", idempotency_duplicate=False,
+        )
+        children.append(queue_tool.create_item(BASE_DIR, child_args))
+
+    with queue_write_lock(BASE_DIR):
+        items = queue_tool.load_items(BASE_DIR)
+        ids = {parent["id"], *(child["id"] for child in children)}
+        for row in items:
+            if row.get("id") not in ids:
+                continue
+            row["orchestration"] = {
+                "outer_coordinator": "hermes",
+                "coordinator_profile": "aos-orchestrator",
+                "implementer": "codex" if row.get("id") != parent["id"] else None,
+                "max_attempts": 3,
+                "liam_escalation_after_failed_attempt": 3,
+            }
+        queue_tool.save_items(BASE_DIR, items)
+    refreshed = {row["id"]: row for row in _read_queue_items() if row.get("id") in ids}
+    return refreshed[parent["id"]], [refreshed[child["id"]] for child in children]
+
+
+def _hermes_orchestration_closeout(body: TaskRun) -> dict:
+    key = _dispatch_idempotency_key(
+        body.task,
+        str(getattr(body, "source", "telegram") or "telegram"),
+        str(getattr(body, "delivery_id", "") or ""),
+    )
+    existing = _hermes_orchestration_existing(key)
+    if existing is not None:
+        parent, children = existing
+        return {
+            "success": True, "accepted": True, "created": False, "duplicate": True,
+            "work_item_id": parent.get("id"), "child_item_ids": [row.get("id") for row in children],
+            "outer_coordinator": "hermes", "implementer": "codex", "selected_route": "hermes_orchestration",
+            "requested_target": "hermes", "delegation_reason": "existing native Hermes orchestration workflow",
+            "output": f"PASS\nExisting Hermes orchestration workflow: {parent.get('id')}\nCodex children: {', '.join(str(row.get('id')) for row in children)}",
+            "token_usage": {"available": False, "no_agent_invocation": True},
+            "token_usage_text": "Token usage: no agent invocation",
+        }
+
+    coordinator = _run_hermes_message(
+        _hermes_orchestration_plan_prompt(body.task), role="coordinator", attempt=1,
+        timeout=QUEUE_HERMES_REVIEW_TIMEOUT_SECONDS,
+    )
+    if not coordinator.get("success"):
+        diagnostic = coordinator.get("stderr") or coordinator.get("output") or "Hermes did not start."
+        return {
+            "success": False, "accepted": False, "created": False,
+            "requested_target": "hermes", "selected_route": "hermes_orchestration_failed",
+            "outer_coordinator": "hermes", "codex_invoked": False,
+            "delegation_reason": "native Hermes coordinator startup failed",
+            "output": f"NEEDS ATTENTION\nHermes orchestration could not start.\nBlockers: {_bounded_hermes_answer(str(diagnostic), 700)}\nNo Codex child was started.",
+            "token_usage": coordinator.get("token_usage") or {"available": False},
+            "token_usage_text": coordinator.get("token_usage_text") or "Token usage: unavailable from current CLI output",
+        }
+    plan = _normalize_hermes_orchestration_plan(coordinator.get("reply") or coordinator.get("output") or "", body.task)
+    if plan is None:
+        return {
+            "success": False, "accepted": False, "created": False,
+            "requested_target": "hermes", "selected_route": "hermes_orchestration_failed",
+            "outer_coordinator": "hermes", "codex_invoked": False,
+            "delegation_reason": "native Hermes coordinator returned no bounded child plan",
+            "output": "NEEDS ATTENTION\nHermes started but returned no valid bounded Codex child plan.\nNo Codex child was started.",
+            "token_usage": coordinator.get("token_usage") or {"available": False},
+            "token_usage_text": coordinator.get("token_usage_text") or "Token usage: unavailable from current CLI output",
+        }
+    parent, children = _create_hermes_orchestration_items(body, plan, key)
+    runner_results = [_accept_async_queue_runner(child) for child in children]
+    return {
+        "success": True, "accepted": True, "created": True, "duplicate": False,
+        "work_item_id": parent.get("id"), "child_item_ids": [row.get("id") for row in children],
+        "outer_coordinator": "hermes", "coordinator_profile": "aos-orchestrator", "implementer": "codex",
+        "selected_route": "hermes_orchestration", "requested_target": "hermes",
+        "delegation_reason": "explicit Codex work plus coordinator/review instruction",
+        "runner_accepted": all(row.get("accepted") for row in runner_results),
+        "output": f"PASS\nHermes orchestration workflow: {parent.get('id')}\nCodex children: {', '.join(str(row.get('id')) for row in children)}\nHermes will review each child for up to three attempts; passing work closes without Liam review.",
+        "token_usage": coordinator.get("token_usage") or {"available": False},
+        "token_usage_text": coordinator.get("token_usage_text") or "Token usage: unavailable from current CLI output",
+    }
 
 
 def _run_composio_adapter(mode: str, subject: str | None = None, json_args: dict | None = None) -> dict:
@@ -7823,39 +9810,59 @@ def _try_composio_task(task: str) -> dict | None:
 
 @app.post("/api/wsl/hermes")
 def wsl_hermes(body: TaskRun):
-    """Use Hermes by default; bypass it only for explicit agent requests."""
+    """Keep bounded operator reads inline and queue all substantive agent work."""
     if not body.task.strip():
         raise HTTPException(status_code=422, detail="task must not be empty")
-    continuation = _merge_oversized_work_continuation(body)
-    if continuation is not None:
-        return continuation
-    if body.task.lstrip().casefold().startswith("/work") and len(body.task.strip()) > _LONG_WORK_BODY_CHARS:
-        work_text = re.sub(r"^\s*/work\s+(?:(?:codex|claude|hermes)\s+)?", "", body.task, count=1, flags=re.IGNORECASE).strip()
-        return _queue_create_closeout(_create_queue_item(work_text, body))
+    approval = _try_telegram_approval(body)
+    if approval is not None:
+        return approval
+    split_guard = _telegram_split_request_guard(body)
+    if split_guard is not None:
+        return split_guard
     queue_text = _queue_create_text(body.task)
     if queue_text is not None:
         if not queue_text:
             raise HTTPException(status_code=422, detail="queue item text must not be empty")
-        return _queue_create_closeout(_create_queue_item(queue_text, body))
+        return _queue_create_closeout(_create_queue_item(queue_text))
     queue_read = _try_queue_read_task(body.task)
     if queue_read is not None:
+        queue_read["timeout_contract"] = "inline_command"
+        queue_read["timeout_seconds"] = INLINE_COMMAND_TIMEOUT_SECONDS
         return queue_read
-    metadata = _select_hermes_entry_route(body.task)
-    selected_route = metadata["selected_route"]
-    if selected_route == "direct_codex":
-        result = _run_codex_local(body.task)
-        route, agent = "codex", "codex"
-    elif selected_route == "direct_claude":
-        result = _run_wsl_prompt_command('aos-hermes claude "$(<{prompt_file})"', body.task, 120)
-        route, agent = "claude", "claude"
-    else:
-        metadata = {**metadata, **_queue_resolve_route_metadata("hermes")}
-        command_template = _hermes_coordinator_command_template(metadata)
-        result = _run_wsl_prompt_command(command_template, body.task, 120)
-        route, agent = "hermes", "hermes"
-    if selected_route == "hermes_coordinator":
-        return _hermes_coordinator_closeout(result, body.task, metadata)
-    return _compact_agent_closeout(result, route, agent, body.task, metadata)
+    existing_read = _try_existing_item_read_task(body.task, body)
+    if existing_read is not None:
+        existing_read["timeout_contract"] = "inline_command"
+        existing_read["timeout_seconds"] = INLINE_COMMAND_TIMEOUT_SECONDS
+        return existing_read
+    if _is_hermes_orchestration_request(body.task):
+        return _hermes_orchestration_closeout(body)
+    entry_route = _select_hermes_entry_route(body.task)
+    if entry_route["selected_route"] in {"direct_codex", "direct_claude"}:
+        target = "codex" if entry_route["selected_route"] == "direct_codex" else "claude"
+        try:
+            item, created, paths, signals = _create_async_dispatch_item(body, owner_override=target)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "success": False,
+                    "accepted": False,
+                    "state": "queue_creation_failed",
+                    "reason": type(exc).__name__,
+                    "message": f"The explicit {target} request was not queued and Hermes was not invoked.",
+                },
+            ) from exc
+        result = _async_dispatch_closeout(item, created, paths, [f"explicit_{target}", *signals])
+        result.update(entry_route)
+        result["requested_target"] = target
+        result["selected_route"] = entry_route["selected_route"]
+        result["delegation_reason"] = f"explicit natural-language {target} delegation; Hermes not invoked"
+        return result
+    route = entry_route
+    result = _run_hermes_message(body.task)
+    if not result.get("success"):
+        return _compact_agent_closeout(result, "hermes", "hermes", body.task, route)
+    return _hermes_coordinator_closeout(result, body.task, route)
 
 
 @app.post("/api/hermes/message")
@@ -7884,7 +9891,12 @@ def wsl_claude(body: TaskRun):
     if not body.task.strip():
         raise HTTPException(status_code=422, detail="task must not be empty")
     return _compact_agent_closeout(
-        _run_wsl_prompt_command('aos-hermes claude "$(<{prompt_file})"', body.task, 120),
+        _run_wsl_prompt_command(
+            'aos-hermes claude "$(<{prompt_file})"',
+            body.task,
+            AGENT_TIMEOUT_SECONDS,
+            startup_timeout=AGENT_STARTUP_TIMEOUT_SECONDS,
+        ),
         "claude", "claude", body.task,
         {
             "requested_target": "claude",

@@ -3,6 +3,14 @@ set -euo pipefail
 
 export PATH="$HOME/.local/bin:$HOME/.local/npm/bin:$PATH"
 
+profile="aos-orchestrator"
+profile_home="${HOME}/.hermes/profiles/${profile}"
+if [[ ! -d "$profile_home" ]]; then
+  echo "NEEDS ATTENTION"
+  echo "Blockers: Required Hermes profile '${profile}' is unavailable at ${profile_home}"
+  exit 78
+fi
+
 prompt_file=""
 provider_requested=""
 model_requested=""
@@ -76,11 +84,11 @@ if [[ -n "$provider_requested" && -n "$model_requested" ]]; then
     exit 2
   fi
   if [[ -n "$usage_file" ]]; then
-    exec hermes --provider "$provider_requested" --model "$model_requested" --usage-file "$usage_file" --oneshot "$prompt"
+    exec hermes -p "$profile" --provider "$provider_requested" --model "$model_requested" --usage-file "$usage_file" --oneshot "$prompt"
   fi
-  exec hermes --provider "$provider_requested" --model "$model_requested" --oneshot "$prompt"
+  exec hermes -p "$profile" --provider "$provider_requested" --model "$model_requested" --oneshot "$prompt"
 fi
 if [[ -n "$usage_file" ]]; then
-  exec hermes --usage-file "$usage_file" --oneshot "$prompt"
+  exec hermes -p "$profile" --usage-file "$usage_file" --oneshot "$prompt"
 fi
-exec hermes --oneshot "$prompt"
+exec hermes -p "$profile" --oneshot "$prompt"

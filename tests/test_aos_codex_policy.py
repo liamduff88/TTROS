@@ -98,6 +98,7 @@ class AosCodexPolicyTest(unittest.TestCase):
 
     def test_all_active_entry_routes_converge_on_the_two_guarded_constructors(self):
         backend = (ROOT / "dashboard/backend/main.py").read_text(encoding="utf-8")
+        runner = (ROOT / "tools/aos-orchestration-runner.py").read_text(encoding="utf-8")
         queue = (ROOT / "tools/aos-queue.py").read_text(encoding="utf-8")
         workflow = (ROOT / "workflows/prompt_templates/codex_workflow_runner.md").read_text(encoding="utf-8")
         frontend = (ROOT / "dashboard/frontend/src/launcherPrompts.js").read_text(encoding="utf-8")
@@ -106,6 +107,7 @@ class AosCodexPolicyTest(unittest.TestCase):
         self.assertIn("_run_codex_local(body.task)", backend)  # direct backend API
         self.assertIn("continued = run_codex_work_item(", queue)
         self.assertIn("_handoff_depth=_handoff_depth + 1", queue)
+        self.assertIn("/api/queue/items/{item_id}/run", runner)  # scheduled/on-demand runner
         for text in (workflow, frontend):
             self.assertIn("/home/liam/.local/bin/aos-codex", text)
             self.assertNotIn("/home/liam/.local/npm/bin/codex", text)

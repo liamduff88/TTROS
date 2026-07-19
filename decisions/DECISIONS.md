@@ -1,9 +1,112 @@
 # DECISIONS.md — log of decisions that change system behavior
 > One entry per behavior-affecting change. Newest first.
 
+## 2026-07-19 — Codex work is fresh-session, artifact-backed, and cache-normalized
+
+Every guarded Codex constructor now uses ephemeral `exec`, injects the scoped
+permission plus 50% handoff contract, and requires one real `thread.started`
+identity; implicit resume, persisted transcript inheritance, and synthetic
+fallback session IDs are rejected. Hermes children and corrections therefore
+run independently. Correction prompts contain bounded original task context,
+essential repository references, a compact prior-result summary and artifact
+paths, Hermes feedback, and acceptance criteria only. Raw JSONL/stderr is kept
+in per-session artifacts and returned only as bounded tails.
+
+Codex `input_tokens` is recorded as provider-total input. Fresh input is
+derived by subtracting cached input, cache ratio uses fresh input as its
+denominator, and cached input is neither added to total input nor charged at
+the normal rate. The deterministic pricing path uses the configured cache-read
+rate, records soft cache/context warnings, and weekly rollups expose the top
+five cache-ratio sessions plus context-ceiling breaches. Legacy `input` remains
+provider-total input and missing harness fields remain explicitly unavailable.
+
+## 2026-07-18 — Telegram intent routing is deterministic only at confident boundaries
+
+Natural-language Codex and Claude Code delegation now enters the existing queue/runner directly without invoking Hermes; structured queue, receipt, blocker, worker, completion, attempt, and token questions remain local reads with no queue or model work. Every other conversational or judgment-bearing request invokes native Hermes through a per-invocation `aos-orchestrator` profile, without mutating the sticky Hermes default. Explicit Codex-plus-review requests create bounded Codex children under Hermes coordination: Hermes reviews the initial result and at most two corrections, closes passing workflows without Liam review, and creates one Liam escalation after the third failed review with no fourth attempt. Human-review cards hydrate the substantive receipt and consolidated artifact, save optional notes without state changes, and reserve `done` exclusively for a confirmed explicit Approve action. Hermes and workbench sessions are metered separately using total/cached/calculated non-cached input labels; already-metered sessions are not aggregated a second time.
+
 ## 2026-07-18 — Bounded Codex context and opt-in model review
 
 Codex launches now auto-compact at 75,000 tokens and receive standing tool-output bounds. Queue runs use deterministic proof by default; the existing Hermes reviewer runs only for `review: model` and sees only the final artifact or bounded closeout. Oversized Telegram `/work` intake persists one prompt file, merges its continuation into the same item, and adds `consider decomposing` to Needs Me metadata. Exact-or-unavailable usage counters and a configurable 75-turn Needs Me alert are additive to existing ledgers and receipts.
+
+## 2026-07-18 — Queue workers outlive restartable control-plane processes
+
+Tagged asynchronous work now launches through a detached per-item executor
+using the dashboard backend virtualenv and a durable startup log. The executor
+registers the exact worker PID plus Linux process-start identity before the
+canonical `aos-claude` run, while heartbeat recovery refuses to reclaim a
+stale-looking lease if that exact process remains live. The 7,800-second
+execution timeout and wrapper permission contract are unchanged. Queue list
+responses are compact with detail loaded only for the selected item; operator
+surfaces use `AOS-ID — title`, preserve the last valid state after refresh
+failures, and hide external handoff controls for internal work. Telegram
+continuations that resemble an oversized split `/work` command fail closed
+instead of creating a second natural-language item.
+
+## 2026-07-18 — Claude queue execution and artifacts are Linux-root canonical
+
+The installed Claude wrapper and backend worker now bind `AOS_ROOT`, process
+cwd, artifact normalization, validation, hashing, receipts, and reviewer input
+to `/home/liam/agentic-os-live`. Claude execution is capped at 7,800 seconds,
+with separate startup, parent/grace, lease/heartbeat, reviewer, and local
+finalization contracts. A claimed missing artifact still fails closed, while a
+reviewer-only path-missing contradiction against an available canonical file is
+overruled without a duplicate worker invocation. Hermes review consumes a
+bounded copy of the worker's full closeout, not the operator-compacted summary,
+so validation and artifact sections cannot disappear between worker and review.
+
+## 2026-07-17 — Agentic OS Codex execution is unconditionally full access
+
+Every active Agentic OS Codex subprocess now consumes one repository policy
+that pins Liam, `/home/liam/agentic-os-live`, the authenticated local Codex
+installation/home, `danger-full-access`, and approval policy `never`. Backend,
+queue, runner, Telegram, dashboard, workflow, Hermes-owned queue delegation,
+and local-launcher routes either converge on that constructor or show the same
+fixed operator command. Alternate roots, users, missing binaries, and policy
+defects fail closed without another installation, workspace, permission mode,
+or interactive approval fallback. Existing third-party external-action gates
+are unchanged.
+
+## 2026-07-17 — Operator queue notifications are title-first
+
+Telegram-facing queue messages and queue-list rows now present the actual task
+title before the AOS ID, while retaining the ID as audit metadata. Queued,
+running, needs-input, review, done, failed/recovered, receipt captions, and
+multi-item pending lists use the shared title-plus-ID formatter and attach an
+existing receipt document where the current Telegram bridge send path supports
+it. The old ID remains internally available for idempotency and ledgers.
+
+## 2026-07-17 — Telegram approvals bind to one correlated existing item
+
+The unprotected `/api/wsl/hermes` intake now parses a bounded deterministic
+approval family before substantive queue creation. A unique same-conversation
+`needs_input` item resumes in place and a unique `human_review` item closes
+through the existing local review contract; delivery replay reuses the durable
+item-bound effect. Missing, ambiguous, external, or destructive targets return
+bounded clarification and never become approval-shaped work items. Substantial
+non-approval requests retain the asynchronous queue/runner path.
+
+## 2026-07-17 — Gmail authority adds idempotent draft creation only
+
+Agentic OS may create Gmail drafts without per-draft approval only through the
+dedicated Composio adapter and exact live action `GMAIL_CREATE_EMAIL_DRAFT`.
+The effect key is deterministic from work-item ID + prospect/message identity;
+private recovery state is Git-ignored and search-excluded, while queue receipts
+contain safe metadata only. Generic Gmail routing is executable read-only and
+unconditionally rejects send, reply, forward, schedule-send, draft
+update/delete, and message/label mutation. The canonical prospecting workflow
+now creates at most one tailored draft per validated prospect and never falls
+back to sending.
+
+## 2026-07-17 — Telegram/Olmec substantive work uses the existing queue runner
+
+`/api/wsl/hermes` now keeps only exact bounded queue-status/list reads inline;
+all other operator work is filed once as a tagged `agent_todo` item and returns
+its real ID immediately. The existing orchestration runner dispatches only
+those tagged items through the existing queue run endpoint. Agent execution has
+an independent 1,800-second default safety ceiling, while renewable 30-second
+heartbeats and a 90-second lease distinguish healthy long work from abandoned
+claims. Completion and failure retain the normal receipt, Needs Me, and
+idempotent Telegram notification paths.
 
 ## 2026-07-13 — Graphify previews expose local graph interaction
 
@@ -28,11 +131,32 @@ available only as a clearly marked queue-item creation action and never starts a
 model from Graphify. The dashboard shell also uses local system fonts so this
 surface has no runtime CDN dependency.
 
+## 2026-07-13 — Desktop dashboard launch is authoritative
+
+The Windows desktop adapter now calls the Linux runtime's serialized
+`desktop-start` path. Each desktop launch first terminates only canonical-root
+orchestration-runner, dashboard uvicorn `:8010`, and Vite/esbuild `:3010`
+processes, logging every PID it kills, then starts one backend and one
+frontend. It preserves the desktop launcher's dashboard-only contract and
+does not restart the orchestration runner. Process matching excludes Hermes,
+North Shore, wrong-port, and outside-root processes.
+
+## 2026-07-16 — Prospecting engine uses canonical Brain knowledge and local work state
+
+The Revenue-owned `prospecting_daily_run` and `prospecting_week_review`
+workflows are registered as pre-seeded v0 skills. ICP variants, query bank,
+rotation plan, and qualitative prospect pages live only in the canonical
+Business Brain; the append-only quantitative ledger remains local at
+`queue/prospects.jsonl`. Every discovery/drafting run is no-send and every
+third-party LinkedIn/CRM action remains manually approval-gated.
+
 ## 2026-07-13 — Queue workers get a configurable exploration-safe timeout
 
 Dashboard-assigned workers now default to a 1,200-second timeout, accept the
 `AOS_QUEUE_WORKER_TIMEOUT_SECONDS` environment override, and enforce a
-900-second floor.
+900-second floor. Superseded by the independently configurable agent/lease
+contract recorded on 2026-07-17; the old variable remains a compatibility
+fallback only.
 
 ## 2026-07-13 — Verbose Cockpit commands preserve instruction context
 

@@ -1,4 +1,5 @@
 import json
+import mimetypes
 import os
 import re
 import time
@@ -8,7 +9,7 @@ import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
-WORKSPACE = Path(r"C:\Users\Admin\Documents\A-Time to revenue\Agentic OS Live")
+WORKSPACE = Path("/home/liam/agentic-os-live")
 BRIDGE_DIR = WORKSPACE / "connectors" / "telegram_bridge"
 ENV_FILE = BRIDGE_DIR / ".env"
 ALLOWED_FILE = BRIDGE_DIR / "allowed_chats.json"
@@ -80,7 +81,23 @@ _CLOSEOUT_FIELDS = ("Files touched", "Validation", "Connector access", "Token us
 _RAW_METADATA = re.compile(
     r"(?i)(?:session\s*id|prompt\s*dump|command\s*transcript|raw\s+(?:codex|claude|hermes\s+)?transcript|sandbox\s+(?:metadata|mode|permissions))"
 )
-_QUEUE_OUTPUT_MARKER = re.compile(r"(?im)^\s*Work item ID\s*:")
+_QUEUE_OUTPUT_MARKER = re.compile(r"(?im)^\s*Work item(?:\s+ID)?\s*:")
+_AOS_ID_RE = re.compile(r"\bAOS-\d{4}-\d{4}\b")
+_DOC_REF_RE = re.compile(
+    r"(?P<path>(?:queue/receipts|workflows/queue_artifacts|results|packets|logs)/[^\s`'\"<>]+?\.(?:md|txt|json|jsonl|pdf|html))"
+)
+_ALLOWED_DOC_PREFIXES = ("queue/receipts/", "workflows/queue_artifacts/", "results/", "packets/", "logs/")
+_MAX_DOCUMENT_BYTES = 10 * 1024 * 1024
+SUBMISSION_ACK_TIMEOUT_SECONDS = 20
+AGENT_RESPONSE_TIMEOUT_SECONDS = 180
+_DIRECT_ASYNC_WORK_RE = re.compile(r"^\s*/work\s+(?:codex|claude)\b", re.IGNORECASE)
+_HERMES_COORDINATION_RE = re.compile(
+    r"\b(?:coordinate|coordinator|oversee|orchestrate)\b"
+    r"|\breview\s+(?:it|the\s+(?:work|result|receipt|diff|tests?))\b"
+    r"|\bsend\s+(?:it|this|the\s+work)\s+back\b"
+    r"|\b(?:request|make|apply)\s+(?:a\s+)?corrections?\b",
+    re.IGNORECASE,
+)
 
 
 def compact_telegram_closeout(text, success=None):
@@ -102,10 +119,134 @@ def compact_telegram_closeout(text, success=None):
         "Blockers": "None" if passed else "See local logs",
         "Next action": "None" if passed else "Review local logs",
     }
+    work_item = _extract_work_item_id(raw) or "unavailable"
+    title = _extract_work_item_title(raw)
+    final_state = _extract_final_state(raw, passed)
+    if title and work_item != "unavailable":
+        status = "done" if passed else "failed"
+        summary = (
+            f"{title} completed with final state {final_state}."
+            if passed else f"{title} needs attention after final state {final_state}."
+        )
+        next_action = "None" if passed else "Review local logs"
+        return "\n".join(
+            [
+                f"[{work_item} — {title}]",
+                f"Work item: {work_item}",
+                f"Status: {status}",
+                f"Summary: {summary}",
+                f"Next action: {next_action}",
+                "Receipt: attached",
+                f"Final state: {final_state}",
+            ]
+            + [f"{field}: {values.get(field) or defaults[field]}" for field in _CLOSEOUT_FIELDS]
+        )
     return "\n".join(
-        ["PASS" if passed else "NEEDS ATTENTION"]
+        ["PASS" if passed else "NEEDS ATTENTION", f"Work item: {work_item}", f"Final state: {final_state}"]
         + [f"{field}: {values.get(field) or defaults[field]}" for field in _CLOSEOUT_FIELDS]
     )
+
+
+def _extract_work_item_id(text):
+    match = _AOS_ID_RE.search(str(text or ""))
+    return match.group(0) if match else ""
+
+
+def _extract_work_item_title(text):
+    raw = str(text or "")
+    bracket = re.search(r"(?m)^\s*\[([^\]\r\n]+)\]\s*$", raw)
+    if bracket:
+        bracket_text = bracket.group(1).strip()
+        bracket_text = re.sub(r"^AOS-\d{4}-\d{4}\s+[—-]\s+", "", bracket_text)
+        if bracket_text and not _AOS_ID_RE.fullmatch(bracket_text):
+            return bracket_text[:160]
+    for pattern in (
+        r"(?im)^\s*Work item title\s*:\s*([^\r\n]+)",
+        r"(?im)^\s*Task title\s*:\s*([^\r\n]+)",
+        r"(?im)^\s*Title\s*:\s*([^\r\n]+)",
+    ):
+        match = re.search(pattern, raw)
+        if match:
+            title = re.sub(r"\s+", " ", match.group(1).strip(" -*\t"))
+            if title and not _AOS_ID_RE.fullmatch(title):
+                return title[:160]
+    return ""
+
+
+def _extract_final_state(text, passed):
+    raw = str(text or "")
+    for pattern in (
+        r"(?im)^\s*Final state\s*:\s*([^\r\n]+)",
+        r"(?im)^\s*Final status\s*:\s*([^\r\n]+)",
+        r"(?im)^\s*Status\s*:\s*([^\r\n]+)",
+    ):
+        match = re.search(pattern, raw)
+        if match:
+            return match.group(1).strip(" -*\t")[:120]
+    return "done" if passed else "needs_attention"
+
+
+def _clean_doc_ref(path):
+    text = str(path or "").strip().strip(".,);]")
+    if not text.startswith(_ALLOWED_DOC_PREFIXES):
+        return ""
+    if ".." in Path(text).parts:
+        return ""
+    return text
+
+
+def _is_completion_closeout(text):
+    raw = str(text or "").strip()
+    if not raw.startswith(("PASS", "NEEDS ATTENTION", "[")):
+        return False
+    if raw.startswith("[") and re.search(r"(?im)^\s*Work item\s*:", raw) and re.search(r"(?im)^\s*Status\s*:", raw):
+        return True
+    if re.search(r"(?im)^\s*Status\s*:\s*-?\s*(?:agent_todo|inbox|human_review|needs_input)\s*$", raw):
+        return False
+    return bool(re.search(r"(?im)^\s*(Files touched|Artifacts|Final state|Final status|Validation)\s*:", raw))
+
+
+def document_paths_for_completion(result, text):
+    """Return small local documents to attach to completed queue notifications."""
+    raw = str(text or "")
+    if not _is_completion_closeout(raw):
+        return []
+    refs = []
+    if isinstance(result, dict):
+        for key in ("receipt_path", "receipt", "artifact_path"):
+            value = result.get(key)
+            if isinstance(value, str):
+                refs.append(value)
+        for key in ("attachments", "artifact_paths", "proof_paths"):
+            value = result.get(key)
+            if isinstance(value, list):
+                refs.extend(str(item) for item in value)
+    item_id = _extract_work_item_id(raw)
+    if item_id:
+        refs.append(f"queue/receipts/{item_id}.md")
+    refs.extend(match.group("path") for match in _DOC_REF_RE.finditer(raw))
+    docs = []
+    for ref in refs:
+        cleaned = _clean_doc_ref(ref)
+        if not cleaned:
+            continue
+        allowed_prefix = next((prefix for prefix in _ALLOWED_DOC_PREFIXES if cleaned.startswith(prefix)), "")
+        try:
+            workspace_root = WORKSPACE.resolve(strict=True)
+            allowed_root = (WORKSPACE / allowed_prefix.rstrip("/")).resolve(strict=True)
+            target = (WORKSPACE / cleaned).resolve(strict=True)
+            if not allowed_root.is_relative_to(workspace_root):
+                continue
+            if not target.is_relative_to(allowed_root):
+                continue
+            if not target.is_file() or target.stat().st_size > _MAX_DOCUMENT_BYTES:
+                continue
+        except (OSError, RuntimeError):
+            continue
+        path_text = str(target)
+        if path_text not in docs:
+            docs.append(path_text)
+    return docs
 
 
 def is_queue_specific_output(text):
@@ -123,7 +264,52 @@ def is_queue_backend_result(result):
     )
 
 
-def send(chat_id, text, preserve_format=False):
+def _multipart_api(method, fields, files, timeout=60):
+    boundary = f"----aos{int(time.time() * 1000)}"
+    chunks = []
+    for key, value in (fields or {}).items():
+        chunks.append(f"--{boundary}\r\n".encode("utf-8"))
+        chunks.append(f'Content-Disposition: form-data; name="{key}"\r\n\r\n'.encode("utf-8"))
+        chunks.append(str(value).encode("utf-8"))
+        chunks.append(b"\r\n")
+    for key, path in (files or {}).items():
+        file_path = Path(path)
+        filename = file_path.name
+        content_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+        chunks.append(f"--{boundary}\r\n".encode("utf-8"))
+        chunks.append(f'Content-Disposition: form-data; name="{key}"; filename="{filename}"\r\n'.encode("utf-8"))
+        chunks.append(f"Content-Type: {content_type}\r\n\r\n".encode("utf-8"))
+        chunks.append(file_path.read_bytes())
+        chunks.append(b"\r\n")
+    chunks.append(f"--{boundary}--\r\n".encode("utf-8"))
+    req = urllib.request.Request(
+        f"{API}/{method}",
+        data=b"".join(chunks),
+        headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as res:
+        return json.loads(res.read().decode("utf-8"))
+
+
+def send_document(chat_id, document_path, caption=""):
+    path = Path(document_path)
+    if not path.is_file():
+        log(f"send_document_missing chat={chat_id} path={path}")
+        return False
+    try:
+        _multipart_api(
+            "sendDocument",
+            {"chat_id": str(chat_id), "caption": str(caption or "")[:1024]},
+            {"document": str(path)},
+            timeout=60,
+        )
+        return True
+    except Exception as e:
+        log(f"send_document_error chat={chat_id} path={path} error={type(e).__name__}")
+        return False
+
+
+def send(chat_id, text, preserve_format=False, document_paths=None):
     text = str(text or "").strip()
     if not preserve_format and not is_queue_specific_output(text):
         text = compact_telegram_closeout(text)
@@ -131,8 +317,32 @@ def send(chat_id, text, preserve_format=False):
         text = text[:3400] + "\n\n[trimmed]"
     try:
         api("sendMessage", {"chat_id": str(chat_id), "text": text}, timeout=20)
+        message_sent = True
     except Exception as e:
         log(f"send_error chat={chat_id} error={type(e).__name__}")
+        message_sent = False
+    caption = _receipt_caption(text)
+    documents = []
+    for document_path in document_paths or []:
+        documents.append({"path": str(document_path), "sent": send_document(chat_id, document_path, caption=caption)})
+    return {"message_sent": message_sent, "documents": documents}
+
+
+def _receipt_caption(text):
+    raw = str(text or "")
+    title = _extract_work_item_title(raw)
+    id_match = _AOS_ID_RE.search(raw)
+    final_state = _extract_final_state(raw, True)
+    status_suffix = f" {final_state}" if final_state else ""
+    if title and id_match:
+        return f"{id_match.group(0)} — {title}{status_suffix} receipt"
+    if id_match:
+        return f"{id_match.group(0)}{status_suffix} receipt"
+    return "Receipt"
+
+
+def send_completion(chat_id, text, document_paths=None, preserve_format=True):
+    send(chat_id, text, preserve_format=preserve_format, document_paths=document_paths or [])
 
 
 def log(message):
@@ -193,8 +403,16 @@ def save_report(chat_id, text, source="natural_language"):
         f.write(json.dumps(row, ensure_ascii=False) + "\n")
 
 
-def post_agent(route, task, timeout=180):
-    payload = json.dumps({"task": task}).encode("utf-8")
+def _agent_request_timeout(task):
+    raw = str(task or "")
+    if _DIRECT_ASYNC_WORK_RE.search(raw) and not _HERMES_COORDINATION_RE.search(raw):
+        return SUBMISSION_ACK_TIMEOUT_SECONDS
+    return AGENT_RESPONSE_TIMEOUT_SECONDS
+
+
+def post_agent(route, task, timeout=None, source="telegram"):
+    timeout = _agent_request_timeout(task) if timeout is None else timeout
+    payload = json.dumps({"task": task, "source": source}).encode("utf-8")
     req = urllib.request.Request(
         f"{BACKEND}{route}",
         data=payload,
@@ -205,10 +423,68 @@ def post_agent(route, task, timeout=180):
         return json.loads(res.read().decode("utf-8"))
 
 
+def get_backend_status(timeout=5):
+    req = urllib.request.Request(f"{BACKEND}/api/wsl/status", method="GET")
+    with urllib.request.urlopen(req, timeout=timeout) as res:
+        payload = json.loads(res.read().decode("utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("backend status returned a non-object response")
+    return payload
+
+
+def format_operator_status(payload, mode="unregistered"):
+    """Render only bounded operational fields from the backend status contract."""
+    data = payload if isinstance(payload, dict) else {}
+    bridge = data.get("bridge") if isinstance(data.get("bridge"), dict) else {}
+    queue = data.get("queue") if isinstance(data.get("queue"), dict) else {}
+    runner = data.get("runner") if isinstance(data.get("runner"), dict) else {}
+    codex = data.get("codex") if isinstance(data.get("codex"), dict) else {}
+    hermes = data.get("hermes") if isinstance(data.get("hermes"), dict) else {}
+    local_route = data.get("local_agent_route") if isinstance(data.get("local_agent_route"), dict) else {}
+    failure = data.get("last_route_failure") if isinstance(data.get("last_route_failure"), dict) else None
+    state = "healthy" if data.get("state") == "healthy" and data.get("success") is True else "degraded"
+    failure_text = "none recorded"
+    if failure:
+        failure_class = str(failure.get("failure_class") or "unclassified")[:80]
+        stage = str(failure.get("stage") or "unknown stage")[:80]
+        failure_text = f"{failure_class} at {stage}"
+    return "\n".join((
+        "PASS" if state == "healthy" else "NEEDS ATTENTION",
+        f"Overall: {state}",
+        f"Bridge: live handler; backend_process={str(bridge.get('state') or 'unknown')[:80]}; mode={mode}",
+        "Backend: ready",
+        f"Queue: {str(queue.get('state') or 'unknown')[:80]}; items={int(queue.get('items') or 0)}; actionable={int(queue.get('actionable') or 0)}",
+        f"Runner: {str(runner.get('state') or 'unknown')[:80]}",
+        f"Codex: {str(codex.get('state') or 'unknown')[:80]}",
+        f"Hermes: {str(hermes.get('state') or 'unknown')[:80]}",
+        f"Local-agent readiness: {str(local_route.get('state') or 'unknown')[:80]}",
+        f"Last route failure: {failure_text}",
+        "Token usage: no agent invocation",
+    ))
+
+
+def backend_unavailable_status(mode="unregistered", reason="unavailable"):
+    return "\n".join((
+        "NEEDS ATTENTION",
+        "Overall: degraded",
+        f"Bridge: live handler; backend_process=unknown; mode={mode}",
+        "Backend: unavailable",
+        "Queue: unknown",
+        "Runner: unknown",
+        "Codex: unknown",
+        "Hermes: unknown",
+        "Local-agent readiness: degraded",
+        f"Last route failure: backend_status_{str(reason or 'unavailable')[:80]}",
+        "Token usage: no agent invocation",
+    ))
+
+
 def summarize_agent_result(result):
     """Keep Telegram compact unless the backend already returned a queue closeout."""
     output = str(result.get("output") or "") if isinstance(result, dict) else ""
     success = bool(isinstance(result, dict) and result.get("success"))
+    if is_queue_backend_result(result) and _is_completion_closeout(output):
+        return compact_telegram_closeout(output, success=success)
     if is_queue_backend_result(result) and output.strip():
         return output.strip()
     return compact_telegram_closeout(output, success=success)
@@ -226,7 +502,7 @@ def failed_agent_closeout(message):
     ])
 
 
-def handle_operator(chat_id, text):
+def handle_operator(chat_id, text, source="telegram"):
     if text.startswith("/work "):
         parts = text.split(" ", 2)
         if len(parts) < 3 or parts[1].lower() not in {"codex", "claude", "hermes"}:
@@ -234,10 +510,15 @@ def handle_operator(chat_id, text):
             return
         target = parts[1].lower()
         task = parts[2].strip()
-        route = {"codex": "/api/wsl/codex", "claude": "/api/wsl/claude", "hermes": "/api/wsl/hermes"}[target]
         try:
-            result = post_agent(route, task)
-            send(chat_id, summarize_agent_result(result), preserve_format=is_queue_backend_result(result))
+            result = post_agent("/api/wsl/hermes", f"/work {target} {task}", source=source)
+            summary = summarize_agent_result(result)
+            send(
+                chat_id,
+                summary,
+                preserve_format=is_queue_backend_result(result) and not _is_completion_closeout(summary),
+                document_paths=document_paths_for_completion(result, summary),
+            )
         except Exception as e:
             send(chat_id, failed_agent_closeout(f"{target} route failed: {type(e).__name__}"))
         return
@@ -260,13 +541,19 @@ def handle_operator(chat_id, text):
         return
 
     try:
-        result = post_agent("/api/wsl/hermes", text)
-        send(chat_id, summarize_agent_result(result), preserve_format=is_queue_backend_result(result))
+        result = post_agent("/api/wsl/hermes", text, source=source)
+        summary = summarize_agent_result(result)
+        send(
+            chat_id,
+            summary,
+            preserve_format=is_queue_backend_result(result) and not _is_completion_closeout(summary),
+            document_paths=document_paths_for_completion(result, summary),
+        )
     except Exception as e:
         send(chat_id, failed_agent_closeout(f"Hermes route failed: {type(e).__name__}"))
 
 
-def handle_message(msg):
+def handle_message(msg, source="telegram"):
     chat = msg.get("chat") or {}
     chat_id = int(chat.get("id"))
     text = (msg.get("text") or "").strip()
@@ -279,7 +566,11 @@ def handle_message(msg):
 
     if text.startswith("/status"):
         mode = "operator" if is_operator else ("pilot" if pilot_id else "unregistered")
-        send(chat_id, f"PASS bridge_live mode={mode} pilot={pilot_id or '-'}")
+        try:
+            status = format_operator_status(get_backend_status(), mode=mode)
+        except Exception as exc:
+            status = backend_unavailable_status(mode=mode, reason=type(exc).__name__)
+        send(chat_id, status, preserve_format=True)
         return
 
     if text.startswith("/whoami"):
@@ -287,7 +578,7 @@ def handle_message(msg):
         return
 
     if is_operator:
-        handle_operator(chat_id, text)
+        handle_operator(chat_id, text, source=source)
         return
 
     if pilot_id == PILOT_ID:
