@@ -1,0 +1,13 @@
+{
+  "idempotency_key": "eaf7ea6500a619a6e2c05220cd246f6b52547df4e8432d2ad79ac538507789b2",
+  "provider": "composio-gmail",
+  "recipient_count": 1,
+  "safe_draft_reference": "gmail-draft:d9704453d1ab1d8fc3637a4b",
+  "status": "draft-created",
+  "subject_sha256": "5f17a2be4f179ce91a4893cd7111935cd11f58a5b0519494d2515ce9a989ced9",
+  "timestamp": "2026-07-17T11:22:21Z",
+  "token_usage": {
+    "available": false
+  },
+  "work_item_id": "AOS-2026-0131"
+}

@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "generated_at": "2026-06-22T12:11:46-07:00",
   "adapter": "connectors/composio_access_adapter.py",
   "composio_cli": "/home/liam/.composio/composio",
@@ -34,8 +34,13 @@
   },
   "policy": {
     "mode": "operator-command enabled",
-    "normal": ["read", "search", "status", "draft", "prepare"],
-    "explicit_specific_command_required": ["send", "write", "book", "push", "publish", "delete", "mutate"]
+    "normal": ["read", "search", "status", "prepare"],
+    "explicit_specific_command_required": ["send", "write", "book", "push", "publish", "delete", "mutate"],
+    "gmail_draft_only": {
+      "allowed_action": "GMAIL_CREATE_EMAIL_DRAFT",
+      "adapter": "connectors/gmail_draft_adapter.py",
+      "forbidden_capabilities": ["send", "reply", "forward", "schedule_send", "delete_draft", "update_draft", "modify_sent", "change_labels"]
+    }
   },
   "toolkits": [
     {"slug":"agent_mail","aliases":["agentmail"],"action_prefixes":["AGENT_MAIL"],"connection_evidence":{"source":"live_connections_list","current":true,"accounts":{"ACTIVE":1}},"action_families":["inbox/read/search","draft/send","thread/message management"]},
@@ -55,7 +60,17 @@
     {"slug":"youtube","aliases":[],"action_prefixes":["YOUTUBE"],"connection_evidence":{"source":"live_connections_list","current":true,"accounts":{"ACTIVE":1,"EXPIRED":1}},"action_families":["video/channel/search read","upload/update video","comments/playlists/analytics"]}
   ],
   "action_catalog": {
-    "state": "pending_validation",
-    "note": "Connection state is current. Use prepare/search and execute --get-schema for exact action slugs and inputs."
+    "state": "gmail_draft_validated",
+    "observed_at": "2026-07-17",
+    "source": "live composio search and execute --get-schema",
+    "gmail_draft": {
+      "exact_action": "GMAIL_CREATE_EMAIL_DRAFT",
+      "provider_required_fields": [],
+      "adapter_required_fields": ["recipient", "subject", "body", "work_item_id", "message_identity"],
+      "optional_fields": ["cc", "bcc"],
+      "response_draft_reference": "data.id",
+      "distinct_from_message_reference": "data.message.id",
+      "connected_toolkit": true
+    }
   }
 }

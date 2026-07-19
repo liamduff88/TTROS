@@ -12,6 +12,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+try:
+    from gmail_draft_policy import GmailAuthorityError, authorize_generic_gmail_action
+except ModuleNotFoundError:  # package import in tests/IDE contexts
+    from connectors.gmail_draft_policy import GmailAuthorityError, authorize_generic_gmail_action
+
 
 COMPOSIO = Path("/home/liam/.composio/composio")
 REGISTRY = Path(__file__).with_name("composio_tool_registry.json")
@@ -197,7 +202,7 @@ def command_status(_: argparse.Namespace) -> int:
             "cli": {"path": str(COMPOSIO), "available": COMPOSIO.is_file(), "version": version.get("data")},
             "identity": identity,
             "connections": connections,
-            "policy_mode": "operator-command enabled",
+            "policy_mode": "operator-command enabled; Gmail draft-only outbound preparation",
         }
     )
     return 0
@@ -279,6 +284,11 @@ def command_tool_run(args: argparse.Namespace) -> int:
         })
         return 2
     try:
+        authorize_generic_gmail_action(tool_slug)
+    except GmailAuthorityError as exc:
+        emit({"ok": False, "tool_slug": tool_slug, "args": None, "error": str(exc)})
+        return 2
+    try:
         payload = json.loads(args.json_args)
     except json.JSONDecodeError as exc:
         emit({
@@ -335,6 +345,12 @@ def command_prepare(args: argparse.Namespace) -> int:
         return 2
     intent = " ".join(args.intent).strip()
     discovery = cli("search", intent, "--toolkits", record["slug"], "--limit", str(args.limit))
+    mutation_policy = (
+        "Gmail generic routing is read-only. Only GMAIL_CREATE_EMAIL_DRAFT may run through "
+        "gmail_draft_adapter; send/reply/forward/schedule and other mutations are forbidden."
+        if record["slug"] == "gmail"
+        else "Actual send/write/book/push/publish/delete/mutate requires the specific adapter run command with --execute --operator-command."
+    )
     emit(
         {
             "ok": discovery["ok"],
@@ -346,7 +362,7 @@ def command_prepare(args: argparse.Namespace) -> int:
             "candidates": discovery.get("data", []),
             "discovery_error": discovery.get("error"),
             "next": "Choose a specific action slug, inspect it with `composio execute ACTION --get-schema`, then use adapter run.",
-            "mutation_policy": "Actual send/write/book/push/publish/delete/mutate requires the specific adapter run command with --execute --operator-command.",
+            "mutation_policy": mutation_policy,
         }
     )
     return 0 if discovery["ok"] else 2
@@ -360,6 +376,11 @@ def command_run(args: argparse.Namespace) -> int:
     action = args.action.upper()
     if not ACTION_RE.fullmatch(action):
         emit({"ok": False, "error": "Action must be a Composio slug containing only A-Z, 0-9, and underscore."})
+        return 2
+    try:
+        authorize_generic_gmail_action(action)
+    except GmailAuthorityError as exc:
+        emit({"ok": False, "error": str(exc)})
         return 2
     prefixes = tuple(prefix.upper() + "_" for prefix in record.get("action_prefixes", []))
     if prefixes and not action.startswith(prefixes):

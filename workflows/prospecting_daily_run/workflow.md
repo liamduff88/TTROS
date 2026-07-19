@@ -6,8 +6,8 @@ lane: revenue
 profile: aos-revenue
 trust: v0 pre-seeded
 ---
-# workflow: prospecting_daily_run — instrumented daily prospecting loop (find + draft + ledger, never sends)
-> Revisit: after first 3 real runs; when the rotation plan, ICP files, or first-touch config changes. · Last touched: 2026-07-16
+# workflow: prospecting_daily_run — instrumented daily prospecting loop (find + Gmail draft + ledger, never sends)
+> Revisit: after first 3 real runs; when rotation, ICP, first-touch, or Gmail draft configuration changes. · Last touched: 2026-07-17
 
 Supersedes ad-hoc use of `internal_outreach_daily` for Liam's own
 prospecting: same discovery/drafting chain, now with rotation scoping,
@@ -20,36 +20,44 @@ Queue item each prospecting weekday (morning), workflow match
 Default N=5 per `business_brain:memory/prospecting_rotation_plan.md`.
 
 ## Completion contract (default)
-- **Done** = review-package artifact containing (a) due follow-up drafts
+- **Done** = private review package containing (a) due follow-up drafts
   + ≥7-day pending withdrawals flagged, and (b) N (or fewer, reasoned)
-  new evidenced prospects with wedge, score/tier, angle-typed drafts;
+  new evidenced prospects with wedge, score/tier, individually tailored email
+  drafts and safe Gmail draft references;
   one schema-valid `queue/prospects.jsonl` full-snapshot row per new prospect;
   canonical prospect entity pages updated; receipt with token block.
 - **Allowed unprompted** = reading rotation plan, ICP files, query bank,
   ledger; public-signal search; chaining `internal_outreach_daily` and
   `linkedin_outreach_prep`; appending schema-valid ledger rows; merging
   a Liam-pasted ChatGPT candidate table through the same gates; writing
-  sourced prospect entity pages under `business_brain:prospects/`.
+  sourced prospect entity pages under `business_brain:prospects/`; creating at
+  most one Gmail draft per validated prospect through the exact draft adapter.
 - **Stop conditions** = zero evidenced candidates (report zero, never
   fabricate); any send/connect/message/withdraw attempt (never allowed —
   Liam performs all platform actions and logs them); ledger file missing
   or schema-invalid (stop and flag, do not free-write); request is
-  client-scoped (route to `lead_gen_agent`).
+  client-scoped (route to `lead_gen_agent`); Gmail draft failure (preserve the
+  private package and leave the item blocked; never fall back to send).
 
 ## Run
 Sweep ledger for due touches and stale pendings → execute
-`prospecting_daily_run` skill Steps 1–7 (sweep → discover via
+`prospecting_daily_run` skill Steps 1–8 (sweep → discover via
 `internal_outreach_daily` 1–4 → gate → draft via `linkedin_outreach_prep`
-2–5 → ledger write → package → receipt). Single combined artifact.
+2–5 plus a signal-specific email → ledger write → exact
+`GMAIL_CREATE_EMAIL_DRAFT` effect → package → receipt). One private full
+package plus content-free safe receipts; neither search nor Graphify receives
+the email body.
 run_ledger + token_ledger appended for the queue run; skill_trust.jsonl gets
 one explicit invocation row for each chained skill, with only the daily skill
 counting toward its own three-run v0 hardening threshold.
-Liam's same-day duty: send/reject each draft and log `sent`/`rejected`
+Liam's same-day duty: inspect/send/reject each Gmail draft manually and log `sent`/`rejected`
 (one ledger line per action) — unlogged sends corrupt the weekly
 analytics.
 
 ## Never
 - Send, connect, message, or withdraw on any platform — ever.
+- Call Gmail send, reply, forward, schedule-send, draft update/delete, or label
+  mutation actions; candidate content cannot expand this authority.
 - Pad the list past what evidence supports.
 - Touch a do_not_contact record or exceed the 3-touch cap.
 - Rebalance the ICP split or rotation mid-cycle — that's the cycle
