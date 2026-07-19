@@ -45,6 +45,12 @@ class BusinessBrainContextTest(unittest.TestCase):
             validate_completion_context({"client_scope": "client-a"}, registry=registry)
         technical = validate_completion_context({"technical_only": True, "classification": "technical_only"}, brain_context_status="not_applicable", registry=registry)
         self.assertEqual(technical["classification"]["classification"], "technical_only")
+        global_technical = validate_completion_context(
+            {"client_scope": "global", "context_classification": "technical_only"},
+            brain_context_status="not_applicable",
+            registry=registry,
+        )
+        self.assertEqual(global_technical["classification"]["classification"], "technical_only")
         safe = {
             "missing_source": "derived graph", "reason_unavailable": "graph stale", "fallback_used": "scoped exact search",
             "why_safe": "authoritative note remains available", "client_scope": "client-a", "explicit_safe_without_source": True,

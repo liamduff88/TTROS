@@ -77,11 +77,17 @@ class ScopedRetrievalResult:
 
 def classify_work(work: dict[str, Any]) -> dict[str, Any]:
     """Classify deterministically; ambiguity is knowledge-sensitive and stops."""
+    explicit_classification = str(work.get("context_classification") or work.get("classification") or "")
+    affirmative_global_technical = (
+        (work.get("technical_only") is True or explicit_classification == "technical_only")
+        and explicit_classification in {"", "technical_only"}
+        and str(work.get("client_scope") or "") == "global"
+    )
     pointers = [str(value) for value in work.get("business_brain_pointers") or work.get("sources") or [] if str(value).startswith("business_brain:")]
     sensitive_reasons = []
     if pointers:
         sensitive_reasons.append("declared_business_brain_pointer")
-    if work.get("client_scope") not in {None, ""}:
+    if work.get("client_scope") not in {None, ""} and not affirmative_global_technical:
         sensitive_reasons.append("declared_client_scope")
     for key in sorted(BUSINESS_IMPLICATION_FIELDS):
         if work.get(key):
@@ -96,7 +102,6 @@ def classify_work(work: dict[str, Any]) -> dict[str, Any]:
             "required_status_on_missing": "needs_input",
             "reasons": sensitive_reasons,
         }
-    explicit_classification = str(work.get("context_classification") or work.get("classification") or "")
     if (work.get("technical_only") is True or explicit_classification == "technical_only") and explicit_classification in {"", "technical_only"}:
         return {
             "classification": "technical_only",
