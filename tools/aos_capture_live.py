@@ -6,7 +6,7 @@ existing Hermes scheduler. It delegates durable capture to ``aos_capture`` and
 provider access to the existing Composio adapter. It has no Gmail mutation,
 send, draft, label, attachment, Calendar, Drive, CRM, or whitelist operation.
 
-Revisit: after the Phase 6B observation window or a Gmail/Composio schema change. · Last touched: 2026-07-15.
+Revisit: after the Phase 6B observation window or a Gmail/Composio schema change. · Last touched: 2026-07-19.
 """
 
 from __future__ import annotations
@@ -60,7 +60,7 @@ POLL_RECEIPTS_PATH = ROOT / "capture" / "runtime" / "control" / "poll_receipts.j
 LOCK_PATH = ROOT / "capture" / "runtime" / "control" / "poll.lock"
 COMPOSIO_ADAPTER = ROOT / "connectors" / "composio_access_adapter.py"
 SEARCH_DB = ROOT / "search" / "os_index.db"
-ROLLUPS = ROOT / "queue" / "rollups"
+CAPTURE_ROLLUPS = ROOT / "capture" / "runtime" / "rollups"
 ACTIVATION_CONTRACT = {"approved": True, "contract": "gmail_history_metadata_read_only"}
 ALLOWED_ACTIONS = {
     "GMAIL_GET_PROFILE",
@@ -584,21 +584,12 @@ def _update_rollup() -> None:
     if not rows:
         return
     week = _week_key(rows[-1]["timestamp"])
-    ROLLUPS.mkdir(parents=True, exist_ok=True)
-    path = ROLLUPS / f"week-{week}.json"
-    if not path.exists():
-        subprocess.run(
-            [sys.executable, str(ROOT / "scripts" / "token_rollup.py"), "--week", week],
-            cwd=ROOT,
-            text=True,
-            capture_output=True,
-            timeout=30,
-            check=True,
-        )
-    value = json.loads(path.read_text(encoding="utf-8"))
-    value["capture"] = _capture_metrics(rows, week)
+    CAPTURE_ROLLUPS.mkdir(parents=True, exist_ok=True, mode=0o700)
+    os.chmod(CAPTURE_ROLLUPS, 0o700)
+    path = CAPTURE_ROLLUPS / f"week-{week}.json"
+    value = {"week": week, "capture": _capture_metrics(rows, week)}
     durable_replace_text(path, _json_bytes(value).decode("utf-8"))
-    index_path = ROLLUPS / "index.json"
+    index_path = CAPTURE_ROLLUPS / "index.json"
     index = json.loads(index_path.read_text(encoding="utf-8")) if index_path.exists() else {"weeks": [], "files": []}
     index["weeks"] = sorted(set(index.get("weeks") or []) | {week})
     index["files"] = [f"week-{item}.json" for item in index["weeks"]]

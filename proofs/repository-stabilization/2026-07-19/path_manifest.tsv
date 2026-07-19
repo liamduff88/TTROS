@@ -1,0 +1,116 @@
+scope	initial_status	final_state	category	path	origin_evidence	disposition
+initial	M	M	A	.gitignore	AOS-2026-0131 Gmail draft policy plus stabilization runtime boundary	commit group 1
+initial	M	M	A	connectors/CONNECTORS.md	AOS-2026-0131 Gmail draft contract	commit group 2
+initial	M	M	A	connectors/NATURAL_LANGUAGE_CONNECTOR_PROMPT.md	AOS-2026-0131 Gmail draft routing	commit group 2
+initial	M	M	A	connectors/composio_access_adapter.py	AOS-2026-0131 draft-only authority; focused tests pass	commit group 2
+initial	M	M	A	connectors/composio_access_spine.md	AOS-2026-0131 adapter documentation	commit group 2
+initial	M	M	A	connectors/composio_tool_registry.json	AOS-2026-0131 validated action catalog; JSON valid	commit group 2
+initial	M	M	I	connectors/telegram_bridge/telegram_bridge.py	AOS-2026-0147/0152/0160 plus AOS-2026-0164/0165 and 0168 accepted Telegram/routing repairs; authorized reconciliation repaired timeout and attachment containment	commit group 3
+initial	M	M	A	context/ACCESS_MODEL.md	accepted access/routing decisions	commit group 3
+initial	M	M	A	context/OPERATING_BASELINE.md	accepted orchestration/runtime baseline	commit group 3
+initial	M	M	A	context/RUNTIME_STATUS.md	accepted live runtime status documentation	commit group 3
+initial	M	M	A	dashboard/backend/main.py	AOS-2026-0164/0165 and 0168-0173 routing/review/lane work; backend suite passes	commit group 3
+initial	M	M	A	dashboard/backend/test_composio_hermes.py	acceptance coverage for routing/review/runtime	commit group 3
+initial	M	M	A	dashboard/frontend/src/App.jsx	AOS-2026-0170/0171 lane routing and shell integration	commit group 4
+initial	M	M	A	dashboard/frontend/src/api.js	AOS-2026-0168/0172 review and lane actions	commit group 4
+initial	M	M	A	dashboard/frontend/src/components/DashboardKit.jsx	AOS-2026-0164/0168 dashboard contract	commit group 4
+initial	M	M	A	dashboard/frontend/src/components/HumanReviewCard.jsx	AOS-2026-0168 review-card repair; browser proof and tests pass	commit group 4
+initial	M	M	A	dashboard/frontend/src/queueState.js	AOS-2026-0165 queue state repair	commit group 4
+initial	M	M	A	dashboard/frontend/src/reviewCardState.js	AOS-2026-0168 explicit review actions	commit group 4
+initial	M	M	A	dashboard/frontend/src/shellState.js	AOS-2026-0170/0171 route persistence	commit group 4
+initial	M	M	A	dashboard/frontend/src/views/DashboardV1.jsx	AOS-2026-0170 lane cards	commit group 4
+initial	M	M	A	dashboard/frontend/src/views/Queue.jsx	AOS-2026-0164/0165/0168 queue and review UX	commit group 4
+initial	M	M	A	dashboard/frontend/tests/queueState.test.js	AOS-2026-0165 regression coverage	commit group 4
+initial	M	M	A	dashboard/frontend/tests/reviewCard.test.js	AOS-2026-0168 review behavior coverage	commit group 4
+initial	M	M	A	dashboard/frontend/tests/shellState.test.js	AOS-2026-0170/0171 shell routing coverage	commit group 4
+initial	M	M	A	decisions/DECISIONS.md	accepted routing, launcher, Gmail, and dashboard decisions	commit group 3
+initial	M	M	I	queue/command_routes.json	AOS-2026-0168 deterministic routing contract; authorized reconciliation aligned route labels and proved no duplicates/shadows	commit group 3
+initial	M	M	I	queue/lane_profiles.json	AOS-2026-0168 scoped aos-orchestrator contract; authorized reconciliation added unassigned fallback alignment	commit group 3
+initial	M	M	I	queue/model_routes.json	AOS-2026-0168 model-route contract; authorized reconciliation added the accepted ops alias and validated caller resolution	commit group 3
+initial	M	M	D	queue/rollups/week-2026-W29.json	Phase 6B content-free capture snapshot; numeric capture metrics only	commit group 1; future live writes redirected
+initial	M	M	A	skills/prospecting_daily_run/SKILL.md	AOS-2026-0131 draft-only prospecting integration	commit group 2
+initial	M	M	A	tests/test_aos_codex_policy.py	fresh Codex route regression extension	commit group 3
+initial	M	M	A	tests/test_aos_orchestration.py	AOS-2026-0164/0165 routing and notification coverage	commit group 3
+initial	M	M	A	tests/test_aos_queue.py	queue heartbeat/lease and runner coverage	commit group 3
+initial	M	M	A	tests/test_business_brain_context.py	global technical classification regression	commit group 5
+initial	M	M	A	tests/test_telegram_bridge_formatting.py	accepted formatting tests; test file safe, bridge interior not opened	commit group 3
+initial	M	M	A	tools/aos-hermes-coordinator.sh	accepted canonical Hermes/Claude launch routing	commit group 3
+initial	M	M	A	tools/aos-linux-runtime.sh	accepted desktop cleanup plus canonical external runner discovery	commit group 3
+initial	M	M	A	tools/aos-orchestration-runner.py	accepted detached executor and lease work	commit group 3
+initial	M	M	A	tools/aos-queue.py	accepted heartbeat/runtime identity work	commit group 3
+initial	M	M	A	tools/aos_indexer.py	Gmail private runtime search exclusion	commit group 2
+initial	M	M	A	tools/aos_orchestration.py	accepted title-first notifications and attachment evidence	commit group 3
+initial	M	M	A	tools/business_brain_context.py	global technical-only classification repair	commit group 5
+initial	M	M	A	workflows/prospecting_daily_run/workflow.md	AOS-2026-0131 draft-only prospecting workflow	commit group 2
+initial	D	clean-restored	G	workflows/queue_artifacts/direct_token_repair_clean_split.md	tracked token-repair proof from accepted commit lineage	restored byte-identical to HEAD
+initial	??	??	A	connectors/gmail_draft_adapter.py	AOS-2026-0131 done; idempotent draft adapter tests pass	commit group 2
+initial	??	??	A	connectors/gmail_draft_policy.py	AOS-2026-0131 draft-only authority tests pass	commit group 2
+initial	??	??	A	dashboard/frontend/src/laneWorkspaceActions.js	AOS-2026-0172 done; action tests pass	commit group 4
+initial	??	??	A	dashboard/frontend/src/laneWorkspaceState.js	AOS-2026-0171 done; state tests pass	commit group 4
+initial	??	??	A	dashboard/frontend/src/views/LaneWorkspace.jsx	AOS-2026-0171 done; component/build pass	commit group 4
+initial	??	??	A	dashboard/frontend/tests/laneWorkspaceActions.test.js	AOS-2026-0172 regression coverage	commit group 4
+initial	??	??	A	dashboard/frontend/tests/laneWorkspaceComponent.test.js	AOS-2026-0171/0172 regression coverage	commit group 4
+initial	??	??	A	dashboard/frontend/tests/laneWorkspaceState.test.js	AOS-2026-0171 regression coverage	commit group 4
+initial	??	??	G	queue/receipts/AOS-2026-0125-phase-6b-capture-live.json	Phase 6B safe capture receipt; JSON valid	commit group 1
+initial	??	??	G	queue/receipts/gmail-draft-eaf7ea6500a619a6e2c05220.json	AOS-2026-0131 safe draft-effect receipt; JSON valid	commit group 2
+initial	??	ignored	E	queue/run_prompts/aos_prompt_k_s3ki7j.md	backend NamedTemporaryFile queue prompt writer	preserved local; now ignored
+initial	??	ignored	E	queue/run_prompts/aos_prompt_tfctpszw.md	backend NamedTemporaryFile queue prompt writer	preserved local; now ignored
+initial	??	??	G	scripts/aos_0164_browser_proof.py	accepted deterministic dashboard proof harness	commit group 4
+initial	??	??	G	scripts/aos_0168_contract_repair_browser_proof.py	accepted review-card proof harness	commit group 4
+initial	??	??	G	scripts/aos_0173_browser_proof.py	accepted lane workspace proof harness	commit group 4
+initial	??	??	A	tests/test_aos_dashboard_cleanup.py	accepted launcher cleanup coverage plus stabilization runner status case	commit group 3
+initial	??	??	A	tests/test_gmail_draft_capability.py	AOS-2026-0131 complete contract coverage	commit group 2
+initial	??	ignored	H	workflows/queue_artifacts/AOS-2026-0127_prospecting_daily_run_run_today_s_prospecting.md	routine/private work output; item remains human_review	preserved local; now ignored
+initial	??	ignored	H	workflows/queue_artifacts/AOS-2026-0128_wsl_exe_-d_AgenticOSClean_--user_liam_--_bash_-l.md	routine queue worker output; item remains human_review	preserved local; now ignored
+initial	??	ignored	H	workflows/queue_artifacts/AOS-2026-0129_I_approve.md	routine queue worker output; item remains human_review	preserved local; now ignored
+initial	??	ignored	H	workflows/queue_artifacts/AOS-2026-0130_Approve_and_resume_AOS-2026-0128.md	routine queue worker output; item remains human_review	preserved local; now ignored
+initial	??	ignored	H	workflows/queue_artifacts/AOS-2026-0132_approve_and_resume_pply_this_as_the_operator_res.md	routine approval replay output; durable state is in queue/receipts	preserved local; now ignored
+initial	??	ignored	H	workflows/queue_artifacts/AOS-2026-0134_Run_a_harmless_approval-routing_self-test_using.md	routine self-test worker output; promoted closeout kept separately	preserved local; now ignored
+initial	??	??	G	workflows/queue_artifacts/AOS-2026-0134_approval_routing_self_test_closeout.md	AOS-2026-0134 done; bounded durable closeout	commit group 3
+initial	??	ignored	H	workflows/queue_artifacts/AOS-2026-0135_Run_a_harmless_approval-routing_self-test.md	blocked routine worker output	preserved local; now ignored
+initial	??	ignored	H	workflows/queue_artifacts/AOS-2026-0136_OK_pass_on_all_the_people_necessary.md	routine worker output; item remains human_review	preserved local; now ignored
+initial	??	ignored	H	workflows/queue_artifacts/AOS-2026-0139_I_can_t_read_that_Dot_MD_file_Can_you_give_it_to.md	routine worker output; item remains human_review	preserved local; now ignored
+initial	??	ignored	H	workflows/queue_artifacts/AOS-2026-0140_For_all_completed_Agentic_OS_tasks_do_not_send_m.md	blocked routine worker output	preserved local; now ignored
+initial	??	ignored	H	workflows/queue_artifacts/AOS-2026-0141_You_re_right_An_AOS_number_without_a_title_is_us.md	needs-input routine worker output	preserved local; now ignored
+initial	??	ignored	H	workflows/queue_artifacts/AOS-2026-0142_Show_me_the_full_details_for_AOS-2026-0140_befor.md	blocked routine worker output	preserved local; now ignored
+initial	??	ignored	H	workflows/queue_artifacts/AOS-2026-0143_Why_was_it_blocked.md	routine queue response output	preserved local; now ignored
+initial	??	ignored	H	workflows/queue_artifacts/AOS-2026-0144_Do_not_create_a_new_work_item.md	blocked routine worker output	preserved local; now ignored
+initial	??	ignored	H	workflows/queue_artifacts/AOS-2026-0145_OK_just_direct_us_to_Hermes_agent_I_don_t_want_i.md	routine queue response output	preserved local; now ignored
+initial	??	ignored	H	workflows/queue_artifacts/AOS-2026-0146_I_approve_AOS-2026-0140_AOS-2026-0141_AOS-2026-0.md	routine worker output; item remains human_review	preserved local; now ignored
+initial	??	ignored	H	workflows/queue_artifacts/AOS-2026-0147_Inspect_the_current_Agentic_OS_queue_receipts_ru.md	blocked diagnostic worker output	preserved local; now ignored
+initial	??	ignored	H	workflows/queue_artifacts/AOS-2026-0148_work_hermes_Read_queue_receipts_AOS-2026-0147_md.md	blocked diagnostic worker output	preserved local; now ignored
+initial	??	??	G	workflows/queue_artifacts/AOS-2026-0152_route_repair_codex_pass.md	AOS-2026-0152 done; route repair marker	commit group 3
+initial	??	ignored	H	workflows/queue_artifacts/AOS-2026-0155_work_codex_Create_one_harmless_deterministic_loc.md	routine worker output; item remains human_review	preserved local; now ignored
+initial	??	??	G	workflows/queue_artifacts/AOS-2026-0157_work_claude_BOUNDED_CANONICAL_CLAUDE_PRODUCTION.md	canonical Claude production proof	commit group 3
+initial	??	??	G	workflows/queue_artifacts/AOS-2026-0158_work_claude_FINAL_BOUNDED_CANONICAL_CLAUDE_PRODU.md	canonical Claude production proof	commit group 3
+initial	??	??	G	workflows/queue_artifacts/AOS-2026-0159_work_claude_FINAL_GREEN_CANONICAL_CLAUDE_PROOF_W.md	canonical Claude production proof	commit group 3
+initial	??	??	G	workflows/queue_artifacts/AOS-2026-0160_work_claude_CANONICAL_CLAUDE_AND_TELEGRAM_ATTACH.md	AOS-2026-0160 done; launcher/attachment proof	commit group 3
+initial	??	??	G	workflows/queue_artifacts/AOS-2026-0164-browser-proof/browser-proof.json	AOS-2026-0164 deterministic browser results; JSON valid	commit group 4
+initial	??	??	G	workflows/queue_artifacts/AOS-2026-0164-browser-proof/dashboard-1440x1000.png	AOS-2026-0164 browser evidence	commit group 4
+initial	??	??	G	workflows/queue_artifacts/AOS-2026-0164_token_evidence.md	AOS-2026-0164 done; token investigation evidence	commit group 3
+initial	??	??	G	workflows/queue_artifacts/AOS-2026-0164_work_codex_PERMISSION_MODE_SCOPED_LOCAL_TASK_APP.md	AOS-2026-0164 done; durable receipt	commit group 3
+initial	??	??	G	workflows/queue_artifacts/AOS-2026-0165_Recover_AOS-2026-0161_dashboard_and_Telegram_UX.md	AOS-2026-0165 done; recovery proof	commit group 3
+initial	??	ignored	H	workflows/queue_artifacts/AOS-2026-0166_Token_efficiency_normal_queue-path_live_smoke.md	cancelled smoke output; queue reference retained	preserved local; now ignored
+initial	??	ignored	H	workflows/queue_artifacts/AOS-2026-0167_Normal_queue_path_observability_smoke.md	routine smoke output; queue reference retained	preserved local; now ignored
+initial	??	??	G	workflows/queue_artifacts/AOS-2026-0168_contract_repair_browser_proof/browser-proof.json	AOS-2026-0168 review-card proof; JSON valid	commit group 4
+initial	??	??	G	workflows/queue_artifacts/AOS-2026-0168_contract_repair_browser_proof/review-card-actual-receipt.png	AOS-2026-0168 actual receipt visual proof	commit group 4
+initial	??	??	G	workflows/queue_artifacts/AOS-2026-0168_contract_repair_browser_proof/review-card-after-explicit-approve.png	AOS-2026-0168 explicit approval visual proof	commit group 4
+initial	??	??	G	workflows/queue_artifacts/AOS-2026-0168_work_hermes_PERMISSION_MODE_SCOPED_LOCAL_TASK_AP.md	AOS-2026-0168/0169 done; consolidated receipt	commit group 4
+initial	??	??	G	workflows/queue_artifacts/AOS-2026-0170_lane_route_receipt.md	AOS-2026-0170 done; lane route receipt	commit group 4
+initial	??	??	G	workflows/queue_artifacts/AOS-2026-0171_lane_workspace_receipt.md	AOS-2026-0171 done; lane workspace receipt	commit group 4
+initial	??	??	G	workflows/queue_artifacts/AOS-2026-0172_correction_1.md	AOS-2026-0172 done; correction evidence	commit group 4
+initial	??	??	G	workflows/queue_artifacts/AOS-2026-0172_lane_actions_receipt.md	AOS-2026-0172 done; lane action receipt	commit group 4
+initial	??	??	G	workflows/queue_artifacts/AOS-2026-0173_browser_proof/browser-proof.json	AOS-2026-0173 browser results; JSON valid	commit group 4
+initial	??	??	G	workflows/queue_artifacts/AOS-2026-0173_browser_proof/desktop-cockpit-1440x1000.png	AOS-2026-0173 desktop cockpit evidence	commit group 4
+initial	??	??	G	workflows/queue_artifacts/AOS-2026-0173_browser_proof/desktop-lane-blocked-1440x1000.png	AOS-2026-0173 blocked-lane evidence	commit group 4
+initial	??	??	G	workflows/queue_artifacts/AOS-2026-0173_browser_proof/desktop-lane-needs-me-1440x1000.png	AOS-2026-0173 needs-me evidence	commit group 4
+initial	??	??	G	workflows/queue_artifacts/AOS-2026-0173_browser_proof/desktop-lane-ready-1440x1000.png	AOS-2026-0173 ready-lane evidence	commit group 4
+initial	??	??	G	workflows/queue_artifacts/AOS-2026-0173_browser_proof/narrow-lane-needs-me-390x844.png	AOS-2026-0173 narrow viewport evidence	commit group 4
+initial	??	??	G	workflows/queue_artifacts/AOS-2026-0173_validation_browser_receipt.md	AOS-2026-0173 done; validation receipt	commit group 4
+initial	??	removed	F	.vite/deps_temp_0750b9e8/package.json	23-byte Vite cache manifest; unreferenced and reproducible	removed; .vite now ignored
+initial	??	removed	F	.vite/deps_temp_0d9459d1/package.json	23-byte Vite cache manifest; unreferenced and reproducible	removed; .vite now ignored
+stabilization	--	M	A	queue/README.md	runtime receipt/artifact and versioned-rollup contract	commit group 1
+stabilization	--	M	A	tests/test_aos_capture_live.py	live capture rollup boundary regression	commit group 1
+stabilization	--	M	A	tools/aos_capture_live.py	ordinary capture metrics redirected to existing ignored capture runtime	commit group 1
+stabilization	--	??	G	proofs/repository-stabilization/2026-07-19/path_manifest.tsv	complete machine-readable classification; zero unknown current paths; exact disjoint commit groups	commit group 1
+stabilization	--	??	G	proofs/repository-stabilization/2026-07-19/STABILIZATION_PROOF.md	human-readable stabilization and authorized protected reconciliation proof	commit group 1

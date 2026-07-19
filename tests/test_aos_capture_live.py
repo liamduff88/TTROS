@@ -1,14 +1,16 @@
 """Focused Phase 6B live-capture safety tests.
 
-Revisit: when the Gmail metadata schema, scheduler entry, or rollup contract changes. · Last touched: 2026-07-16.
+Revisit: when the Gmail metadata schema, scheduler entry, or rollup contract changes. · Last touched: 2026-07-19.
 """
 
 from __future__ import annotations
 
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
+from tools import aos_capture_live
 from tools.aos_capture import CaptureError
 from tools.aos_capture_live import (
     ComposioReadOnlyExecutor,
@@ -123,6 +125,28 @@ class LiveRuntimeContractTests(unittest.TestCase):
         self.assertEqual(0, value["whitelist_entries"])
         forbidden = {"body", "subject", "sender", "message_id", "thread_id", "attachment"}
         self.assertTrue(forbidden.isdisjoint(value))
+
+    def test_live_poll_rollup_stays_in_ignored_capture_runtime(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            receipts = root / "capture" / "runtime" / "control" / "poll_receipts.jsonl"
+            receipts.parent.mkdir(parents=True)
+            receipts.write_text(
+                '{"timestamp":"2026-07-19T12:00:00Z","status":"success"}\n',
+                encoding="utf-8",
+            )
+            runtime_rollups = root / "capture" / "runtime" / "rollups"
+            with (
+                patch.object(aos_capture_live, "POLL_RECEIPTS_PATH", receipts),
+                patch.object(aos_capture_live, "CAPTURE_ROLLUPS", runtime_rollups),
+            ):
+                aos_capture_live._update_rollup()
+
+            week = runtime_rollups / "week-2026-W29.json"
+            self.assertTrue(week.is_file())
+            self.assertTrue((runtime_rollups / "index.json").is_file())
+            self.assertFalse((root / "queue" / "rollups").exists())
+            self.assertNotIn("contains_message_content\": true", week.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

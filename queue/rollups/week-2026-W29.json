@@ -72,26 +72,26 @@
   "capture": {
     "ambiguous_classifier_calls": 0,
     "contains_message_content": false,
-    "cursor_replays": 4,
+    "cursor_replays": 6,
     "deterministic_triage": {
       "discard": 3,
-      "unresolved_identity": 73
+      "unresolved_identity": 74
     },
     "false_negative_findings": 0,
     "false_positive_findings": 0,
-    "history_entries_received": 102,
+    "history_entries_received": 103,
     "human_review_proposals": 0,
     "isolation_incidents": 0,
     "kill_switch_events": 1,
-    "needs_input_proposals": 31,
-    "polls_attempted": 18,
-    "polls_completed": 12,
+    "needs_input_proposals": 32,
+    "polls_attempted": 24,
+    "polls_completed": 18,
     "processing_failures": 1,
     "provider_action_counts": {
       "GMAIL_FETCH_EMAILS": 4,
-      "GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID": 14,
-      "GMAIL_GET_PROFILE": 17,
-      "GMAIL_LIST_HISTORY": 11
+      "GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID": 15,
+      "GMAIL_GET_PROFILE": 23,
+      "GMAIL_LIST_HISTORY": 17
     },
     "records_deduplicated": 44,
     "stage2_exact_tokens": {

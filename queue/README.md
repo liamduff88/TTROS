@@ -1,4 +1,5 @@
 # Agentic OS Work Queue v0
+> Revisit: when queue storage, receipt promotion, or rollup ownership changes. · Last touched: 2026-07-19.
 
 Minimal local work movement layer for Agentic OS.
 
@@ -28,7 +29,10 @@ Access behavior should reference `context/ACCESS_MODEL.md` instead of repeating 
 - `queue/profiles/` documents the manual `aos-*` Hermes profile status without storing secrets or mutating Hermes config.
 - `queue/run_ledger.jsonl` is the master per-run record (`run_ledger_schema.json`); one line appended per item at done-transition.
 - `queue/token_ledger.jsonl` is the append-only token-usage ledger (`token_ledger_schema.json`); one line per completed receipt's `token_usage` block. Numbers come from harness/API usage only — unreportable components are listed under `unavailable`, never estimated.
-- `queue/rollups/` holds weekly rollups produced by `scripts/token_rollup.py` (dashboard-ready JSON, no front end).
+- `queue/rollups/` holds intentionally versioned weekly snapshots produced only
+  by an explicit `scripts/token_rollup.py` run (dashboard-ready JSON, no front
+  end). Ordinary capture polling writes its live metrics under ignored
+  `capture/runtime/rollups/` and must not rewrite these snapshots.
 - `queue/receipts/` stores optional receipt artifacts; the coordinator writes a `<id>.token_usage.json` sidecar and, when a markdown receipt exists, a fenced `token_usage` block.
 - `queue/locks/` is reserved for future local lock files.
 - `queue/schemas/` documents the JSON shapes.
@@ -40,11 +44,19 @@ Access behavior should reference `context/ACCESS_MODEL.md` instead of repeating 
 
 ## Receipt artifact policy
 
-- `queue/receipts/*.md` files are local runtime proof trail by default.
+- `queue/receipts/*.md` and `queue/receipts/*.json` files are local runtime
+  proof trail by default.
 - Smoke-test receipts should not be committed.
 - Real receipts may be committed only when intentionally promoted as durable project proof or handoff.
 - `queue/receipts/.gitkeep` remains tracked so the folder exists.
 - Do not include secrets, tokens, customer private data, raw OAuth values, Telegram IDs, or connector credentials in receipts.
+
+`queue/run_prompts/` and routine `workflows/queue_artifacts/AOS-2026-*.md`
+worker output are likewise ignored local runtime state. A reviewed artifact is
+promoted deliberately with a narrow `.gitignore` negation (or a path-limited
+forced add); tracked historical artifacts remain tracked. Browser proof
+directories and the repository-level `proofs/` tree remain available for
+durable, bounded evidence.
 
 ## CLI
 

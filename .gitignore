@@ -7,6 +7,7 @@ __pycache__/
 node_modules/
 dist/
 build/
+.vite/
 
 # Local environment and secrets
 .env
@@ -41,7 +42,10 @@ logs/*.jsonl
 logs/*token*
 dashboard/backend/*.log
 queue/receipts/*.md
+queue/receipts/*.json
 !queue/receipts/.gitkeep
+!queue/receipts/AOS-2026-0125-phase-6b-capture-live.json
+!queue/receipts/gmail-draft-eaf7ea6500a619a6e2c05220.json
 
 # Generated handoff/output archives
 archive/
@@ -92,3 +96,26 @@ capture/runtime/
 
 # Runtime orchestration locks
 queue/locks/*.lock
+
+# Queue prompts and routine worker output stay local by default. Durable proof
+# is promoted explicitly through a narrow negation or `git add -f`.
+queue/run_prompts/
+workflows/queue_artifacts/AOS-2026-*.md
+!workflows/queue_artifacts/AOS-2026-0134_approval_routing_self_test_closeout.md
+!workflows/queue_artifacts/AOS-2026-0152_route_repair_codex_pass.md
+!workflows/queue_artifacts/AOS-2026-0157_work_claude_BOUNDED_CANONICAL_CLAUDE_PRODUCTION.md
+!workflows/queue_artifacts/AOS-2026-0158_work_claude_FINAL_BOUNDED_CANONICAL_CLAUDE_PRODU.md
+!workflows/queue_artifacts/AOS-2026-0159_work_claude_FINAL_GREEN_CANONICAL_CLAUDE_PROOF_W.md
+!workflows/queue_artifacts/AOS-2026-0160_work_claude_CANONICAL_CLAUDE_AND_TELEGRAM_ATTACH.md
+!workflows/queue_artifacts/AOS-2026-0164_token_evidence.md
+!workflows/queue_artifacts/AOS-2026-0164_work_codex_PERMISSION_MODE_SCOPED_LOCAL_TASK_APP.md
+!workflows/queue_artifacts/AOS-2026-0165_Recover_AOS-2026-0161_dashboard_and_Telegram_UX.md
+!workflows/queue_artifacts/AOS-2026-0168_work_hermes_PERMISSION_MODE_SCOPED_LOCAL_TASK_AP.md
+!workflows/queue_artifacts/AOS-2026-0170_lane_route_receipt.md
+!workflows/queue_artifacts/AOS-2026-0171_lane_workspace_receipt.md
+!workflows/queue_artifacts/AOS-2026-0172_correction_1.md
+!workflows/queue_artifacts/AOS-2026-0172_lane_actions_receipt.md
+!workflows/queue_artifacts/AOS-2026-0173_validation_browser_receipt.md
+
+# Private Gmail draft recovery/review state; never Git/search/preview content.
+queue/draft_runtime/
