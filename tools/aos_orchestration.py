@@ -675,6 +675,130 @@ def next_steps(items: list[dict], completed: dict[str, dict]) -> list[dict]:
     return sorted(ready, key=_step_sort_key)
 
 
+def _advance_queue_locked(
+    root: Path,
+    current_time: datetime,
+    *,
+    allow_telegram_escalation: bool,
+) -> tuple[list[dict], list[dict], list[dict]]:
+    """Advance queue state under the write lock, collecting sends to run unlocked."""
+    items = load_items(root)
+    initial_items_text = _items_text(items)
+    by_id = {str(item.get("id")): item for item in items}
+    completed = {item_id: item for item_id, item in by_id.items() if is_step_complete(item)}
+    events = read_jsonl(root / EVENTS_PATH)
+    actions: list[dict] = []
+
+    for item in next_steps(items, completed):
+        item_id = str(item.get("id"))
+        deps = [str(dep) for dep in item.get("depends_on") or [] if str(dep).strip()]
+        if not deps:
+            previous = [
+                other for other in items
+                if other.get("parent_id") == item.get("parent_id")
+                and isinstance(other.get("step_index"), int)
+                and isinstance(item.get("step_index"), int)
+                and other.get("step_index") < item.get("step_index")
+            ]
+            deps = [str(other.get("id")) for other in previous[-1:]]
+        key = ",".join(deps)
+        prior = latest_event(events, "step_advanced", item_id, key)
+        if prior:
+            append_source_refs(item, list(prior.get("source_refs_added") or []))
+            _attach_effect_receipt(item, prior["receipt_path"], prior["status"], prior["created_at"])
+            item["status"] = prior["status"]
+            item["updated_at"] = prior["created_at"]
+            continue
+        refs: list[str] = []
+        for dep in deps:
+            if dep in completed:
+                refs.extend(artifact_refs_for(root, completed[dep]))
+        added_refs = append_source_refs(item, refs)
+        # Unlocking makes implementation executable. on_complete is a
+        # post-work destination, never permission to skip assigned work.
+        # The immutable acceptance fixture retains its tagged step-2 gate.
+        target_status = (
+            str(item.get("on_complete") or "").strip().lower()
+            if _historical_acceptance_gate(item, by_id)
+            else READY_STATUS
+        )
+        stable_effect = effect_identity("step_advanced", item_id, key)
+        intent = _prepare_tick_intent(
+            root, items, item, stable_effect,
+            {"event": "step_advanced", "key": key, "target_status": target_status},
+        )
+        receipt_path = write_receipt(root, item_id, "runner", [
+            "PASS",
+            "",
+            "Runner action:",
+            f"- Event: step_advanced",
+            f"- Work item ID: {item_id}",
+            f"- Parent ID: {item.get('parent_id')}",
+            f"- Step index: {item.get('step_index')}",
+            f"- Depends on: {', '.join(deps) if deps else 'none'}",
+            f"- Routed owner: {item.get('owner') or 'unassigned'}",
+            f"- Workbench: {item.get('workbench') or 'lane'}",
+            f"- Status: {target_status}",
+            f"- Source refs added: {', '.join(added_refs) if added_refs else 'none'}",
+            "- Token usage: no agent invocation",
+        ], effect_id=stable_effect)
+        _attach_effect_receipt(item, receipt_path, target_status, intent["created_at"])
+        item["status"] = target_status
+        item["updated_at"] = intent["created_at"]
+        record = {
+            "event": "step_advanced",
+            "item_id": item_id,
+            "key": key,
+            "parent_id": item.get("parent_id"),
+            "status": target_status,
+            "source_refs_added": added_refs,
+            "receipt_path": receipt_path,
+            "token_usage_text": "Token usage: no agent invocation",
+            "created_at": intent["created_at"],
+            "effect_id": stable_effect,
+        }
+        append_jsonl(root / EVENTS_PATH, record)
+        events.append(record)
+        append_no_agent_token_line(root, item, "step_advanced", effect_id=stable_effect)
+        intent["status"] = "applied"
+        actions.append(record)
+
+    local_actions = complete_acceptance_delivery_steps(root, items, events)
+    actions.extend(local_actions)
+    actions.extend(finalize_workflow_parents(root, items, events))
+
+    notification_actions, pending_sends = process_notifications(
+        root,
+        items,
+        events,
+        now=current_time,
+        allow_telegram_escalation=allow_telegram_escalation,
+    )
+    if _items_text(items) != initial_items_text:
+        save_items(root, items)
+    return actions, notification_actions, pending_sends
+
+
+def _record_send_outcomes_locked(root: Path, outcomes: list[tuple]) -> list[dict]:
+    """Record delivered/failed sends against freshly loaded queue state."""
+    items = load_items(root)
+    initial_items_text = _items_text(items)
+    by_id = {str(row.get("id")): row for row in items}
+    records: list[dict] = []
+    for pending, delivery_result, send_error in outcomes:
+        target = by_id.get(pending["item_id"]) or pending["item"]
+        record = record_telegram_send_result(root, target, pending, delivery_result, send_error=send_error)
+        append_jsonl(root / EVENTS_PATH, record)
+        append_no_agent_token_line(
+            root, target, "telegram_escalation",
+            effect_id=str(record.get("effect_id") or effect_identity("telegram_escalation", pending["item_id"], pending["key"])),
+        )
+        records.append(record)
+    if _items_text(items) != initial_items_text:
+        save_items(root, items)
+    return records
+
+
 def tick(
     root: Path | None = None,
     *,
@@ -683,103 +807,31 @@ def tick(
     allow_telegram_escalation: bool = True,
 ) -> dict:
     root = Path(root or aos_root()).resolve()
-    with tick_lock(root), queue_write_lock(root):
+    with tick_lock(root):
         current_time = now or datetime.now(timezone.utc)
-        items = load_items(root)
-        initial_items_text = _items_text(items)
-        by_id = {str(item.get("id")): item for item in items}
-        completed = {item_id: item for item_id, item in by_id.items() if is_step_complete(item)}
-        events = read_jsonl(root / EVENTS_PATH)
-        actions: list[dict] = []
-
-        for item in next_steps(items, completed):
-            item_id = str(item.get("id"))
-            deps = [str(dep) for dep in item.get("depends_on") or [] if str(dep).strip()]
-            if not deps:
-                previous = [
-                    other for other in items
-                    if other.get("parent_id") == item.get("parent_id")
-                    and isinstance(other.get("step_index"), int)
-                    and isinstance(item.get("step_index"), int)
-                    and other.get("step_index") < item.get("step_index")
-                ]
-                deps = [str(other.get("id")) for other in previous[-1:]]
-            key = ",".join(deps)
-            prior = latest_event(events, "step_advanced", item_id, key)
-            if prior:
-                append_source_refs(item, list(prior.get("source_refs_added") or []))
-                _attach_effect_receipt(item, prior["receipt_path"], prior["status"], prior["created_at"])
-                item["status"] = prior["status"]
-                item["updated_at"] = prior["created_at"]
-                continue
-            refs: list[str] = []
-            for dep in deps:
-                if dep in completed:
-                    refs.extend(artifact_refs_for(root, completed[dep]))
-            added_refs = append_source_refs(item, refs)
-            # Unlocking makes implementation executable. on_complete is a
-            # post-work destination, never permission to skip assigned work.
-            # The immutable acceptance fixture retains its tagged step-2 gate.
-            target_status = (
-                str(item.get("on_complete") or "").strip().lower()
-                if _historical_acceptance_gate(item, by_id)
-                else READY_STATUS
+        with queue_write_lock(root):
+            actions, notification_actions, pending_sends = _advance_queue_locked(
+                root, current_time, allow_telegram_escalation=allow_telegram_escalation
             )
-            stable_effect = effect_identity("step_advanced", item_id, key)
-            intent = _prepare_tick_intent(
-                root, items, item, stable_effect,
-                {"event": "step_advanced", "key": key, "target_status": target_status},
-            )
-            receipt_path = write_receipt(root, item_id, "runner", [
-                "PASS",
-                "",
-                "Runner action:",
-                f"- Event: step_advanced",
-                f"- Work item ID: {item_id}",
-                f"- Parent ID: {item.get('parent_id')}",
-                f"- Step index: {item.get('step_index')}",
-                f"- Depends on: {', '.join(deps) if deps else 'none'}",
-                f"- Routed owner: {item.get('owner') or 'unassigned'}",
-                f"- Workbench: {item.get('workbench') or 'lane'}",
-                f"- Status: {target_status}",
-                f"- Source refs added: {', '.join(added_refs) if added_refs else 'none'}",
-                "- Token usage: no agent invocation",
-            ], effect_id=stable_effect)
-            _attach_effect_receipt(item, receipt_path, target_status, intent["created_at"])
-            item["status"] = target_status
-            item["updated_at"] = intent["created_at"]
-            record = {
-                "event": "step_advanced",
-                "item_id": item_id,
-                "key": key,
-                "parent_id": item.get("parent_id"),
-                "status": target_status,
-                "source_refs_added": added_refs,
-                "receipt_path": receipt_path,
-                "token_usage_text": "Token usage: no agent invocation",
-                "created_at": intent["created_at"],
-                "effect_id": stable_effect,
-            }
-            append_jsonl(root / EVENTS_PATH, record)
-            events.append(record)
-            append_no_agent_token_line(root, item, "step_advanced", effect_id=stable_effect)
-            intent["status"] = "applied"
-            actions.append(record)
-
-        local_actions = complete_acceptance_delivery_steps(root, items, events)
-        actions.extend(local_actions)
-        actions.extend(finalize_workflow_parents(root, items, events))
-
-        notification_actions = process_notifications(
-            root,
-            items,
-            events,
-            send_telegram=send_telegram,
-            now=current_time,
-            allow_telegram_escalation=allow_telegram_escalation,
-        )
-        if _items_text(items) != initial_items_text:
-            save_items(root, items)
+        # Bridge sends can stall for the full HTTP timeout while every other
+        # queue mutation waits at most 5s for the write lock, so deliver
+        # outside the lock and re-acquire it only to record results. The tick
+        # lock stays held, keeping ticks serialized end to end.
+        outcomes: list[tuple] = []
+        sender = send_telegram or default_bridge_send
+        for pending in pending_sends:
+            delivery_result = None
+            send_error: Exception | None = None
+            try:
+                delivery_result = _invoke_telegram_sender(
+                    sender, pending["recipient"], pending["message"], pending["document_paths"]
+                )
+            except Exception as exc:
+                send_error = exc
+            outcomes.append((pending, delivery_result, send_error))
+        if outcomes:
+            with queue_write_lock(root):
+                notification_actions.extend(_record_send_outcomes_locked(root, outcomes))
         return {
             "success": True,
             "advanced": actions,
@@ -827,12 +879,18 @@ def process_notifications(
     items: list[dict],
     events: list[dict],
     *,
-    send_telegram: Callable[[str, str], Any] | None,
     now: datetime,
     allow_telegram_escalation: bool = True,
-) -> list[dict]:
+) -> tuple[list[dict], list[dict]]:
+    """Log attention notifications; return (actions, pending Telegram sends).
+
+    Pending sends carry a durably recorded intent but no delivery — the
+    caller must perform delivery outside the queue write lock and record the
+    outcome with record_telegram_send_result.
+    """
     config = load_notifications(root)
     actions = []
+    pending_sends: list[dict] = []
     for item in items:
         item_id = str(item.get("id") or "")
         status = str(item.get("status") or "")
@@ -887,7 +945,11 @@ def process_notifications(
             status,
             summary=f"{operator_task_title(item)} is waiting in {operator_status_label(status)}.",
         )
-        record = attempt_telegram_send(root, item, recipient, message, send_telegram=send_telegram, key=key)
+        prepared = prepare_telegram_send(root, item, recipient, message, key=key)
+        if prepared.get("ready"):
+            pending_sends.append(prepared)
+            continue
+        record = prepared["record"]
         append_jsonl(root / EVENTS_PATH, record)
         events.append(record)
         append_no_agent_token_line(
@@ -895,7 +957,7 @@ def process_notifications(
             effect_id=str(record.get("effect_id") or effect_identity("telegram_escalation", item_id, key)),
         )
         actions.append(record)
-    return actions
+    return actions, pending_sends
 
 
 def default_bridge_send(chat_id: str, text: str, document_paths: list[str] | None = None) -> None:
@@ -939,27 +1001,35 @@ def default_bridge_send(chat_id: str, text: str, document_paths: list[str] | Non
     return delivery
 
 
-def attempt_telegram_send(
+def prepare_telegram_send(
     root: Path,
     item: dict,
     recipient: str,
     message: str,
     *,
-    send_telegram: Callable[..., Any] | None = None,
     key: str = "",
     document_paths: list[str] | None = None,
 ) -> dict:
+    """Run allowlist/duplicate checks and durably record the send intent.
+
+    Performs local queue writes only — never the network delivery — so it is
+    safe under the queue write lock. Returns {"ready": False, "record": ...}
+    when the outcome is already decided (blocked, already_sent, or an
+    ambiguous prior intent that must never be auto-retried), else a ready
+    descriptor for record_telegram_send_result after the unlocked delivery.
+    """
     config = load_notifications(root)
     item_id = str(item.get("id") or "")
     recipient = str(recipient)
+    status = str(item.get("status") or "")
     stable_key = telegram_idempotency_key(item_id, "telegram_escalation", key, recipient)
     stable_effect = effect_identity("telegram_escalation", item_id, f"{key}|{recipient}")
-    if str(recipient) not in set(config["telegram"]):
+    if recipient not in set(config["telegram"]):
         receipt_path = log_notification_receipt(
-            root, item, "telegram-escalation", str(item.get("status") or ""), "blocked",
+            root, item, "telegram-escalation", status, "blocked",
             f"recipient_not_allowlisted:{recipient}", effect_id=stable_effect,
         )
-        return {
+        return {"ready": False, "record": {
             "event": "telegram_escalation",
             "item_id": item_id,
             "key": key,
@@ -971,14 +1041,14 @@ def attempt_telegram_send(
             "receipt_path": receipt_path,
             "created_at": now_iso(),
             "effect_id": f"{stable_effect}:result",
-        }
+        }}
     prior = _telegram_prior_send_event(read_jsonl(root / EVENTS_PATH), item_id, key, recipient)
     if prior:
         prior_receipt = prior.get("receipt_path")
         prior_created = prior.get("created_at")
         if isinstance(prior_receipt, str) and prior_receipt and isinstance(prior_created, str) and prior_created:
-            _attach_effect_receipt(item, prior_receipt, str(item.get("status") or ""), prior_created)
-        return {
+            _attach_effect_receipt(item, prior_receipt, status, prior_created)
+        return {"ready": False, "record": {
             "event": "telegram_escalation",
             "item_id": item_id,
             "key": key,
@@ -991,7 +1061,7 @@ def attempt_telegram_send(
             "prior_created_at": prior_created,
             "created_at": now_iso(),
             "effect_id": f"{stable_effect}:result",
-        }
+        }}
     intent_record = {
         "event": "telegram_send_intent",
         "item_id": item_id,
@@ -1002,7 +1072,7 @@ def attempt_telegram_send(
         "created_at": now_iso(),
     }
     if not append_jsonl(root / EVENTS_PATH, intent_record):
-        return {
+        return {"ready": False, "record": {
             "event": "telegram_escalation",
             "item_id": item_id,
             "key": key,
@@ -1014,18 +1084,49 @@ def attempt_telegram_send(
             "reason": "durable send intent exists without acknowledged result; operator reconciliation required",
             "effect_id": f"{stable_effect}:result",
             "created_at": now_iso(),
-        }
-    sender = send_telegram or default_bridge_send
-    delivery_result = None
+        }}
+    return {
+        "ready": True,
+        "item": item,
+        "item_id": item_id,
+        "key": key,
+        "recipient": recipient,
+        "message": message,
+        "document_paths": list(document_paths or []),
+        "status": status,
+        "idempotency_key": stable_key,
+        "effect_id": stable_effect,
+    }
+
+
+def _invoke_telegram_sender(
+    sender: Callable[..., Any], recipient: str, message: str, document_paths: list[str],
+) -> Any:
     try:
-        try:
-            delivery_result = sender(recipient, message, document_paths=document_paths or [])
-        except TypeError:
-            delivery_result = sender(recipient, message)
-    except Exception as exc:
+        return sender(recipient, message, document_paths=document_paths or [])
+    except TypeError:
+        return sender(recipient, message)
+
+
+def record_telegram_send_result(
+    root: Path,
+    item: dict,
+    prepared: dict,
+    delivery_result: Any,
+    *,
+    send_error: BaseException | None = None,
+) -> dict:
+    """Record the outcome of a prepared send. Local queue writes only."""
+    item_id = str(prepared["item_id"])
+    key = str(prepared["key"])
+    recipient = str(prepared["recipient"])
+    stable_key = str(prepared["idempotency_key"])
+    stable_effect = str(prepared["effect_id"])
+    status = str(prepared["status"])
+    if send_error is not None:
         receipt_path = log_notification_receipt(
-            root, item, "telegram-escalation", str(item.get("status") or ""), "send_failed",
-            type(exc).__name__, effect_id=stable_effect,
+            root, item, "telegram-escalation", status, "send_failed",
+            type(send_error).__name__, effect_id=stable_effect,
         )
         return {
             "event": "telegram_escalation",
@@ -1035,17 +1136,17 @@ def attempt_telegram_send(
             "idempotency_key": stable_key,
             "result": "send_failed",
             "sent": False,
-            "error": type(exc).__name__,
+            "error": type(send_error).__name__,
             "receipt_path": receipt_path,
             "created_at": now_iso(),
             "effect_id": f"{stable_effect}:result",
         }
     receipt_path = log_notification_receipt(
-        root, item, "telegram-escalation", str(item.get("status") or ""), "sent",
+        root, item, "telegram-escalation", status, "sent",
         f"recipient:{recipient}", effect_id=stable_effect,
     )
     attachment_refs = []
-    for document_path in document_paths or []:
+    for document_path in prepared["document_paths"]:
         try:
             attachment_refs.append(Path(document_path).resolve().relative_to(root.resolve()).as_posix())
         except ValueError:
@@ -1076,3 +1177,26 @@ def attempt_telegram_send(
         "created_at": now_iso(),
         "effect_id": f"{stable_effect}:result",
     }
+
+
+def attempt_telegram_send(
+    root: Path,
+    item: dict,
+    recipient: str,
+    message: str,
+    *,
+    send_telegram: Callable[..., Any] | None = None,
+    key: str = "",
+    document_paths: list[str] | None = None,
+) -> dict:
+    prepared = prepare_telegram_send(root, item, recipient, message, key=key, document_paths=document_paths)
+    if not prepared.get("ready"):
+        return prepared["record"]
+    sender = send_telegram or default_bridge_send
+    try:
+        delivery_result = _invoke_telegram_sender(
+            sender, prepared["recipient"], prepared["message"], prepared["document_paths"]
+        )
+    except Exception as exc:
+        return record_telegram_send_result(root, item, prepared, None, send_error=exc)
+    return record_telegram_send_result(root, item, prepared, delivery_result)

@@ -3,12 +3,14 @@ import json
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
 from tools import aos_orchestration as runner
+from tools import aos_queue_storage as storage
 
 
 def write_json(path, data):
@@ -664,6 +666,178 @@ class AosOrchestrationTests(unittest.TestCase):
             events = [json.loads(line) for line in events_path.read_text(encoding="utf-8").splitlines()]
             sent_events = [row for row in events if row.get("event") == "telegram_escalation" and row.get("result") == "sent"]
             self.assertEqual(len(sent_events), 1)
+
+
+def prime_escalation_due(root):
+    """Create a needs_input item whose Telegram escalation is due on next tick."""
+    write_json(root / "queue" / "notifications.json", {
+        "escalation": {"unanswered_minutes": 1},
+        "allowlist": {"telegram": ["1320777128"], "agentmail_internal": []},
+    })
+    stale = (datetime.now(timezone.utc) - timedelta(minutes=3)).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    write_items(root, [item("AOS-2026-0001", "needs_input", updated_at=stale)])
+    runner.tick(root, allow_telegram_escalation=False)
+    events = runner.read_jsonl(root / runner.EVENTS_PATH)
+    for event in events:
+        if event.get("event") == "notification_logged":
+            event["created_at"] = stale
+    (root / runner.EVENTS_PATH).write_text(
+        "".join(json.dumps(row, sort_keys=True) + "\n" for row in events), encoding="utf-8"
+    )
+
+
+class TickLockScopeTests(unittest.TestCase):
+    """Review M2: Telegram delivery must run outside the queue write lock."""
+
+    def test_queue_mutation_succeeds_while_telegram_send_is_in_flight(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            prime_escalation_due(root)
+            send_started = threading.Event()
+            mutation_done = threading.Event()
+            mutation_errors = []
+
+            def mutate():
+                try:
+                    if not send_started.wait(10):
+                        raise TimeoutError("telegram send never started")
+                    with storage.queue_write_lock(root, wait_seconds=1):
+                        rows = runner.load_items(root)
+                        rows.append(item("AOS-2026-0002", "inbox"))
+                        runner.durable_replace_text(root / runner.WORK_ITEMS_PATH, runner._items_text(rows))
+                except Exception as exc:
+                    mutation_errors.append(exc)
+                finally:
+                    mutation_done.set()
+
+            def sender(chat, text, document_paths=None):
+                send_started.set()
+                if not mutation_done.wait(10):
+                    raise TimeoutError("concurrent queue mutation never finished")
+                return {"message_sent": True, "documents": []}
+
+            worker = threading.Thread(target=mutate)
+            worker.start()
+            try:
+                result = runner.tick(root, send_telegram=sender)
+            finally:
+                send_started.set()
+                worker.join(15)
+            self.assertEqual([], mutation_errors)
+            self.assertTrue(any(row.get("result") == "sent" for row in result["notifications"]))
+            rows = {row["id"] for row in read_items(root)}
+            self.assertIn("AOS-2026-0002", rows)
+            self.assertIn("AOS-2026-0001", rows)
+
+    def test_send_intent_is_durably_recorded_before_send_fires(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            prime_escalation_due(root)
+            events_at_send_time = []
+
+            def sender(chat, text, document_paths=None):
+                events_at_send_time.extend(runner.read_jsonl(root / runner.EVENTS_PATH))
+                return {"message_sent": True, "documents": []}
+
+            runner.tick(root, send_telegram=sender)
+            intents = [row for row in events_at_send_time if row.get("event") == "telegram_send_intent"]
+            self.assertEqual(1, len(intents))
+            self.assertFalse(any(
+                row.get("event") == "telegram_escalation" and row.get("result") == "sent"
+                for row in events_at_send_time
+            ))
+            events = runner.read_jsonl(root / runner.EVENTS_PATH)
+            self.assertEqual(1, sum(row.get("event") == "telegram_send_intent" for row in events))
+            self.assertEqual(1, sum(
+                row.get("event") == "telegram_escalation" and row.get("result") == "sent" for row in events
+            ))
+
+    def test_failed_send_is_recorded_and_never_auto_retried(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            prime_escalation_due(root)
+
+            def failing(chat, text, document_paths=None):
+                raise RuntimeError("bridge down")
+
+            second = runner.tick(root, send_telegram=failing)
+            failed = [row for row in second["notifications"] if row.get("event") == "telegram_escalation"]
+            self.assertEqual(["send_failed"], [row.get("result") for row in failed])
+            calls = []
+
+            def counting(chat, text, document_paths=None):
+                calls.append((chat, text))
+                return {"message_sent": True, "documents": []}
+
+            third = runner.tick(root, send_telegram=counting)
+            self.assertEqual([], calls)
+            ambiguous = [row for row in third["notifications"] if row.get("event") == "telegram_escalation"]
+            self.assertEqual(["ambiguous_not_retried"], [row.get("result") for row in ambiguous])
+            self.assertTrue(all(row.get("duplicate_blocked") for row in ambiguous))
+
+    def test_crash_between_intent_and_result_is_ambiguous_not_retried(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            prime_escalation_due(root)
+
+            def crashing(chat, text, document_paths=None):
+                raise KeyboardInterrupt()
+
+            with self.assertRaises(KeyboardInterrupt):
+                runner.tick(root, send_telegram=crashing)
+            events = runner.read_jsonl(root / runner.EVENTS_PATH)
+            self.assertEqual(1, sum(row.get("event") == "telegram_send_intent" for row in events))
+            self.assertEqual(0, sum(row.get("event") == "telegram_escalation" for row in events))
+            calls = []
+
+            def counting(chat, text, document_paths=None):
+                calls.append((chat, text))
+                return {"message_sent": True, "documents": []}
+
+            resumed = runner.tick(root, send_telegram=counting)
+            self.assertEqual([], calls)
+            escalations = [row for row in resumed["notifications"] if row.get("event") == "telegram_escalation"]
+            self.assertEqual(["ambiguous_not_retried"], [row.get("result") for row in escalations])
+
+    def test_repeated_tick_after_completed_send_is_duplicate_free(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            prime_escalation_due(root)
+            calls = []
+
+            def counting(chat, text, document_paths=None):
+                calls.append((chat, text))
+                return {"message_sent": True, "documents": []}
+
+            runner.tick(root, send_telegram=counting)
+            runner.tick(root, send_telegram=counting)
+            self.assertEqual(1, len(calls))
+            events = runner.read_jsonl(root / runner.EVENTS_PATH)
+            self.assertEqual(1, sum(row.get("event") == "telegram_send_intent" for row in events))
+            self.assertEqual(1, sum(
+                row.get("event") == "telegram_escalation" and row.get("result") == "sent" for row in events
+            ))
+            receipts = list((root / "queue" / "receipts").glob("AOS-2026-0001-telegram-escalation-*.md"))
+            self.assertEqual(1, len(receipts))
+            sent = next(row for row in events if row.get("event") == "telegram_escalation" and row.get("result") == "sent")
+            reconciled = {row["id"]: row for row in read_items(root)}["AOS-2026-0001"]
+            self.assertEqual(1, sum(row.get("path") == sent["receipt_path"] for row in reconciled["receipts"]))
+
+    def test_review_close_tick_with_escalation_disabled_never_touches_sender(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            prime_escalation_due(root)
+            calls = []
+
+            def counting(chat, text, document_paths=None):
+                calls.append((chat, text))
+                return {"message_sent": True, "documents": []}
+
+            result = runner.tick(root, send_telegram=counting, allow_telegram_escalation=False)
+            self.assertEqual([], calls)
+            self.assertFalse(any(row.get("event") == "telegram_escalation" for row in result["notifications"]))
+            events = runner.read_jsonl(root / runner.EVENTS_PATH)
+            self.assertEqual(0, sum(row.get("event") == "telegram_send_intent" for row in events))
 
 
 if __name__ == "__main__":
