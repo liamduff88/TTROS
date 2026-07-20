@@ -24,7 +24,17 @@ if str(TOOLS_DIR) not in sys.path:
     sys.path.insert(0, str(TOOLS_DIR))
 
 from aos_paths import aos_root
-from aos_orchestration import EVENTS_PATH, append_jsonl, attempt_telegram_send, load_items, save_items, tick
+from aos_orchestration import (
+    EVENTS_PATH,
+    _invoke_telegram_sender,
+    append_jsonl,
+    default_bridge_send,
+    load_items,
+    prepare_telegram_send,
+    record_telegram_send_result,
+    save_items,
+    tick,
+)
 from aos_queue_storage import queue_write_lock
 
 ASYNC_DISPATCH_TAG = "async_dispatch"
@@ -215,15 +225,35 @@ def dispatch_item(root: Path, item_id: str, dispatch: Callable[[str], dict] | No
 
 
 def run_manual_attempt(root: Path, item_id: str, recipient: str, message: str) -> dict:
-    """Lock-owned manual notification mutation; never saves a stale snapshot."""
-    from aos_orchestration import load_items
+    """Lock-owned manual notification mutation; never saves a stale snapshot.
 
+    Same shape as aos_orchestration.tick: prepare under the queue write lock,
+    release it for the network delivery, then re-acquire it only to record the
+    outcome — a stalled bridge send must never hold the 5s-bounded lock.
+    """
     with queue_write_lock(root):
         items = load_items(root)
         item = next((row for row in items if row.get("id") == item_id), None)
         if not item:
             raise SystemExit(f"item not found: {item_id}")
-        result = attempt_telegram_send(root, item, recipient, message, key="manual_validation")
+        prepared = prepare_telegram_send(root, item, recipient, message, key="manual_validation")
+        if not prepared.get("ready"):
+            result = prepared["record"]
+            append_jsonl(root / EVENTS_PATH, result)
+            save_items(root, items)
+            return result
+    delivery_result = None
+    send_error = None
+    try:
+        delivery_result = _invoke_telegram_sender(
+            default_bridge_send, prepared["recipient"], prepared["message"], prepared["document_paths"]
+        )
+    except Exception as exc:
+        send_error = exc
+    with queue_write_lock(root):
+        items = load_items(root)
+        target = next((row for row in items if row.get("id") == item_id), None) or prepared["item"]
+        result = record_telegram_send_result(root, target, prepared, delivery_result, send_error=send_error)
         append_jsonl(root / EVENTS_PATH, result)
         save_items(root, items)
         return result

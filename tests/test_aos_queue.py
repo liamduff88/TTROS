@@ -742,35 +742,90 @@ class AosQueueTest(unittest.TestCase):
                     lines = (root / "queue" / name).read_text(encoding="utf-8").splitlines()
                     self.assertEqual(1, len(lines), (mode, name))
 
+    def write_manual_attempt_allowlist(self, root):
+        (root / "queue").mkdir(parents=True, exist_ok=True)
+        (root / "queue" / "notifications.json").write_text(json.dumps({
+            "escalation": {"unanswered_minutes": 10},
+            "allowlist": {"telegram": ["1320777128"], "agentmail_internal": []},
+        }), encoding="utf-8")
+
     def test_standalone_runner_and_concurrent_creator_both_survive(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
+            self.write_manual_attempt_allowlist(root)
             first = parse_json(run_cli(root, "create", "--title", "Runner target").stdout)
             runner_module = load_runner_module()
-            loaded = threading.Event()
-            release = threading.Event()
+            send_started = threading.Event()
+            creator_done = threading.Event()
 
-            def paused_attempt(_root, item, recipient, message, **_kwargs):
-                loaded.set()
-                release.wait(3)
-                return {
-                    "event": "telegram_escalation", "item_id": item["id"], "key": "manual_validation",
-                    "recipient": recipient, "result": "blocked", "sent": False,
-                    "effect_id": "runner-concurrency-result", "created_at": "2026-07-10T00:00:00Z",
-                }
+            def paused_send(chat, text, document_paths=None):
+                send_started.set()
+                if not creator_done.wait(10):
+                    raise TimeoutError("concurrent creator never finished while send was in flight")
+                return {"message_sent": True, "documents": []}
 
-            with patch.object(runner_module, "attempt_telegram_send", side_effect=paused_attempt):
-                with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
-                    manual = pool.submit(runner_module.run_manual_attempt, root, first["id"], "", "test")
-                    self.assertTrue(loaded.wait(2))
-                    creator = pool.submit(run_cli, root, "create", "--title", "Concurrent creator")
-                    release.set()
-                    manual.result(timeout=5)
-                    created = creator.result(timeout=5)
+            with patch.object(runner_module, "default_bridge_send", side_effect=paused_send):
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                    manual = pool.submit(runner_module.run_manual_attempt, root, first["id"], "1320777128", "test")
+                    self.assertTrue(send_started.wait(5))
+                    created = run_cli(root, "create", "--title", "Concurrent creator")
+                    creator_done.set()
+                    result = manual.result(timeout=10)
             self.assertEqual(0, created.returncode, created.stderr)
+            self.assertEqual("sent", result["result"])
             rows = [json.loads(line) for line in (root / "queue/work_items.jsonl").read_text().splitlines()]
             self.assertEqual(2, len(rows))
             self.assertEqual({first["id"], parse_json(created.stdout)["id"]}, {row["id"] for row in rows})
+
+    def test_manual_attempt_second_call_is_duplicate_free(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_manual_attempt_allowlist(root)
+            first = parse_json(run_cli(root, "create", "--title", "Manual target").stdout)
+            runner_module = load_runner_module()
+            sends = []
+
+            def sender(chat, text, document_paths=None):
+                sends.append((chat, text))
+                return {"message_sent": True, "documents": []}
+
+            with patch.object(runner_module, "default_bridge_send", side_effect=sender):
+                first_result = runner_module.run_manual_attempt(root, first["id"], "1320777128", "hello")
+                second_result = runner_module.run_manual_attempt(root, first["id"], "1320777128", "hello")
+            self.assertEqual("sent", first_result["result"])
+            self.assertEqual("already_sent", second_result["result"])
+            self.assertTrue(second_result["duplicate_blocked"])
+            self.assertEqual(1, len(sends))
+            events = [json.loads(line) for line in (root / "queue/orchestration_events.jsonl").read_text().splitlines()]
+            self.assertEqual(1, sum(
+                row.get("event") == "telegram_escalation" and row.get("result") == "sent" for row in events
+            ))
+
+    def test_manual_attempt_failed_send_is_recorded_and_never_auto_retried(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_manual_attempt_allowlist(root)
+            first = parse_json(run_cli(root, "create", "--title", "Manual failure target").stdout)
+            runner_module = load_runner_module()
+
+            def failing(chat, text, document_paths=None):
+                raise RuntimeError("bridge down")
+
+            with patch.object(runner_module, "default_bridge_send", side_effect=failing):
+                first_result = runner_module.run_manual_attempt(root, first["id"], "1320777128", "hello")
+            self.assertEqual("send_failed", first_result["result"])
+            self.assertFalse(first_result["sent"])
+            calls = []
+
+            def counting(chat, text, document_paths=None):
+                calls.append((chat, text))
+                return {"message_sent": True, "documents": []}
+
+            with patch.object(runner_module, "default_bridge_send", side_effect=counting):
+                second_result = runner_module.run_manual_attempt(root, first["id"], "1320777128", "hello")
+            self.assertEqual([], calls)
+            self.assertEqual("ambiguous_not_retried", second_result["result"])
+            self.assertTrue(second_result["duplicate_blocked"])
     def test_two_simultaneous_creates_are_unique_and_survive(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
