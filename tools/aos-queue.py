@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Local Agentic OS work queue and explicit workbench launch boundary.
 
+Revisit: when queue lifecycle, Codex supervision, or token reconciliation changes. · Last touched: 2026-07-20.
+
 Queue mutations stay local. The ``codex-run`` command is the one bounded
 exception: it launches the installed Codex CLI for an explicit work-item ID,
 waits for exit, then reconciles the CLI's final token summary into the existing
@@ -13,7 +15,9 @@ import argparse
 import functools
 import hashlib
 import json
+import os
 import re
+import signal
 import shutil
 import subprocess
 import sys
@@ -65,6 +69,9 @@ HERMES_PROBE_TIMEOUT_S = 20
 # Mirrors the orchestration runner's DEFAULT_EXECUTION_TIMEOUT_SECONDS contract
 # (tools/aos-orchestration-runner.py) so a hung Codex process is bounded here too.
 CODEX_EXECUTION_TIMEOUT_SECONDS = 7800
+CODEX_TERMINATE_GRACE_SECONDS = 1.0
+CODEX_KILL_GRACE_SECONDS = 1.0
+CODEX_OUTPUT_COLLECTION_SECONDS = 0.5
 DONE_STATUS = "done"
 CODEX_TOKEN_SUMMARY_RE = re.compile(
     r"^Token usage:\s*total=(?P<total>[\d,]+)\s+"
@@ -1207,15 +1214,65 @@ def run_codex_work_item(
         start_new_session=True,
         close_fds=True,
     )
+    timed_out = False
+
+    def partial_text(value) -> str:
+        if isinstance(value, bytes):
+            return value.decode("utf-8", errors="replace")
+        return value or ""
+
+    def keep_more(current: str, candidate) -> str:
+        rendered = partial_text(candidate)
+        return rendered if len(rendered) >= len(current) else current
+
+    def signal_process_group(sig: int) -> None:
+        try:
+            os.killpg(proc.pid, sig)
+        except ProcessLookupError:
+            pass
+
+    stdout = ""
+    stderr = ""
     try:
         stdout, stderr = proc.communicate(prepared_prompt, timeout=execution_timeout_seconds)
-    except subprocess.TimeoutExpired:
-        # Popen accumulates partial output across communicate() calls, so the
-        # post-kill call below returns the complete captured stdout/stderr
-        # (the documented pattern for handling TimeoutExpired) rather than
-        # only what arrived after the timeout.
-        proc.kill()
-        stdout, stderr = proc.communicate()
+    except subprocess.TimeoutExpired as timeout_exc:
+        timed_out = True
+        stdout = keep_more(stdout, timeout_exc.output)
+        stderr = keep_more(stderr, timeout_exc.stderr)
+        signal_process_group(signal.SIGTERM)
+        graceful_complete = False
+        try:
+            collected_stdout, collected_stderr = proc.communicate(timeout=CODEX_TERMINATE_GRACE_SECONDS)
+            stdout = keep_more(stdout, collected_stdout)
+            stderr = keep_more(stderr, collected_stderr)
+            graceful_complete = True
+        except subprocess.TimeoutExpired as graceful_exc:
+            stdout = keep_more(stdout, graceful_exc.output)
+            stderr = keep_more(stderr, graceful_exc.stderr)
+
+        # A descendant can ignore SIGTERM even after the direct process exits,
+        # so force the entire original session group, not only proc.pid.
+        signal_process_group(signal.SIGKILL)
+        if not graceful_complete:
+            try:
+                collected_stdout, collected_stderr = proc.communicate(timeout=CODEX_KILL_GRACE_SECONDS)
+                stdout = keep_more(stdout, collected_stdout)
+                stderr = keep_more(stderr, collected_stderr)
+            except subprocess.TimeoutExpired as forced_exc:
+                stdout = keep_more(stdout, forced_exc.output)
+                stderr = keep_more(stderr, forced_exc.stderr)
+                for stream in (proc.stdin, proc.stdout, proc.stderr):
+                    try:
+                        if stream is not None:
+                            stream.close()
+                    except OSError:
+                        pass
+                try:
+                    proc.wait(timeout=CODEX_OUTPUT_COLLECTION_SECONDS)
+                except subprocess.TimeoutExpired:
+                    # Return remains bounded even if the local Popen state is
+                    # pathological after the process-group SIGKILL.
+                    pass
     combined = "\n".join(part for part in (stdout, stderr) if part)
     try:
         session_id = require_clean_session_id(combined or "")
@@ -1242,6 +1299,10 @@ def run_codex_work_item(
         result = reconcile_codex_usage(
             root, item_id, summary, cli_version, session_id,
             source=source, invocation=invocation,
+        )
+    if timed_out:
+        raise QueueError(
+            f"Codex execution timed out after {execution_timeout_seconds:g}s; process-exit usage was reconciled"
         )
     if proc.returncode != 0:
         raise QueueError(f"Codex exited with status {proc.returncode}; process-exit usage was reconciled")

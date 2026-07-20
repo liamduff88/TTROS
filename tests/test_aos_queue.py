@@ -449,6 +449,62 @@ class AosQueueTest(unittest.TestCase):
                 hung["capture_evidence"]["source"],
             )
 
+    @unittest.skipUnless(sys.platform.startswith("linux") and Path("/proc").is_dir(), "Linux process-tree regression")
+    def test_codex_timeout_kills_stdout_holding_descendant_and_returns_bounded(self):
+        module = load_tool_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._write_codex_reconcile_fixture(root)
+            child_pid_path = root / "child.pid"
+            fake = root / "fake-codex"
+            child_code = (
+                "import os,pathlib,signal,time;"
+                f"pathlib.Path({str(child_pid_path)!r}).write_text(str(os.getpid()));"
+                "signal.signal(signal.SIGTERM, signal.SIG_IGN);"
+                "print('child holds inherited streams', flush=True);"
+                "time.sleep(3600)"
+            )
+            fake.write_text(
+                "#!/usr/bin/env python3\n"
+                "import signal, subprocess, sys, time\n"
+                "if '--version' in sys.argv:\n"
+                "    print('codex-cli test')\n"
+                "else:\n"
+                "    sys.stdin.read()\n"
+                f"    subprocess.Popen([sys.executable, '-c', {child_code!r}])\n"
+                "    print('{\"type\":\"thread.started\",\"thread_id\":\"session-process-tree\"}', flush=True)\n"
+                "    print('{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":9,\"output_tokens\":2}}', flush=True)\n"
+                "    signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
+                "    time.sleep(3600)\n",
+                encoding="utf-8",
+            )
+            fake.chmod(0o755)
+            target = replace(module.CODEX_TARGET, root=root, executable=fake, codex_home=root / ".codex")
+            started = time.monotonic()
+            with patch.object(module, "CODEX_TARGET", target), self.assertRaisesRegex(
+                module.QueueError, "execution timed out.*usage was reconciled"
+            ):
+                module.run_codex_work_item(
+                    root, "AOS-2026-0001", "process tree fixture", execution_timeout_seconds=0.5,
+                )
+            elapsed = time.monotonic() - started
+            self.assertLess(elapsed, 5, "timeout cleanup and output collection must stay bounded")
+
+            child_pid = int(child_pid_path.read_text(encoding="utf-8"))
+            deadline = time.monotonic() + 2
+            while time.monotonic() < deadline:
+                stat_path = Path(f"/proc/{child_pid}/stat")
+                if not stat_path.exists() or stat_path.read_text(encoding="utf-8").split()[2] == "Z":
+                    break
+                time.sleep(0.02)
+            stat_path = Path(f"/proc/{child_pid}/stat")
+            child_live = stat_path.exists() and stat_path.read_text(encoding="utf-8").split()[2] != "Z"
+            self.assertFalse(child_live, "stdout/stderr-holding descendant survived process-group timeout cleanup")
+
+            rows = [json.loads(line) for line in (root / "queue/token_ledger.jsonl").read_text().splitlines()]
+            timed_out = next(row for row in rows if row.get("session_id") == "session-process-tree")
+            self.assertEqual({"input": 9, "output": 2}, timed_out["token_usage"]["totals"])
+
     def test_codex_version_probe_timeout_surfaces_as_needs_attention_not_traceback(self):
         module = load_tool_module()
         with tempfile.TemporaryDirectory() as tmp:
