@@ -1,6 +1,6 @@
 """Agentic OS dashboard backend.
 
-Revisit: when operator routing, local-agent CLI contracts, or runtime health changes. · Last touched: 2026-07-19.
+Revisit: when operator routing, local-agent CLI contracts, or runtime health changes. · Last touched: 2026-07-20.
 """
 
 from fastapi import FastAPI, HTTPException, Request
@@ -2648,8 +2648,7 @@ def _sort_token_records_newest(records: list[dict]) -> list[dict]:
 
 
 def _coerce_int(value) -> int:
-    """Best-effort int for aggregate accumulation; non-numeric values (e.g. the
-    UNAVAILABLE_CLI_VALUE sentinel string) contribute 0 rather than raising."""
+    """Best-effort int for aggregate accumulation."""
     if isinstance(value, bool):
         return 0
     if isinstance(value, int):
@@ -2659,10 +2658,34 @@ def _coerce_int(value) -> int:
     return 0
 
 
+def _available_token_component(value) -> int | None:
+    """Return an honest non-negative component value, else unavailable."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int) and value >= 0:
+        return value
+    if isinstance(value, str) and value.isdigit():
+        return int(value)
+    return None
+
+
 def _token_source_summary(records: list[dict]) -> list[dict]:
     order = ["Codex", "Claude Code", "Hermes", "Unattributed", "No agent invocation", "Unavailable"]
     def blank(name: str) -> dict:
-        return {"source": name, "exact_rows": 0, "estimate_rows": 0, "unavailable_rows": 0, "no_agent_invocation_rows": 0, "input": 0, "output": 0, "total": 0, "cached_input": 0, "reasoning_output": 0}
+        return {
+            "source": name,
+            "exact_rows": 0,
+            "estimate_rows": 0,
+            "unavailable_rows": 0,
+            "no_agent_invocation_rows": 0,
+            "input": 0,
+            "output": 0,
+            "total": 0,
+            "cached_input": 0,
+            "cached_input_unavailable_rows": 0,
+            "reasoning_output": 0,
+            "reasoning_output_unavailable_rows": 0,
+        }
     groups = {name: blank(name) for name in order}
     for original in records:
         row = _token_record_view(original)
@@ -2679,8 +2702,16 @@ def _token_source_summary(records: list[dict]) -> list[dict]:
             group["input"] += int(row["input_tokens"] or 0)
             group["output"] += int(row["output_tokens"] or 0)
             group["total"] += int(row["total_tokens"])
-            group["cached_input"] += _coerce_int(row["cached_input_tokens"])
-            group["reasoning_output"] += _coerce_int(row["reasoning_output_tokens"])
+            cached = _available_token_component(row["cached_input_tokens"])
+            reasoning = _available_token_component(row["reasoning_output_tokens"])
+            if cached is None:
+                group["cached_input_unavailable_rows"] += 1
+            else:
+                group["cached_input"] += cached
+            if reasoning is None:
+                group["reasoning_output_unavailable_rows"] += 1
+            else:
+                group["reasoning_output"] += reasoning
     return [groups[name] for name in order if name in groups] + [groups[name] for name in sorted(set(groups) - set(order))]
 
 

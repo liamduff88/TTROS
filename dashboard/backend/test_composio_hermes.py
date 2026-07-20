@@ -3518,7 +3518,9 @@ class HermesComposioTests(unittest.TestCase):
         }
         codex = next(group for group in backend._token_source_summary([row]) if group["source"] == "Codex")
         self.assertEqual(0, codex["cached_input"])
+        self.assertEqual(1, codex["cached_input_unavailable_rows"])
         self.assertEqual(4, codex["reasoning_output"])
+        self.assertEqual(0, codex["reasoning_output_unavailable_rows"])
         self.assertEqual(1, codex["exact_rows"])
 
     def test_token_source_summary_tolerates_unavailable_reasoning_output_component(self):
@@ -3529,7 +3531,9 @@ class HermesComposioTests(unittest.TestCase):
         }
         codex = next(group for group in backend._token_source_summary([row]) if group["source"] == "Codex")
         self.assertEqual(100, codex["cached_input"])
+        self.assertEqual(0, codex["cached_input_unavailable_rows"])
         self.assertEqual(0, codex["reasoning_output"])
+        self.assertEqual(1, codex["reasoning_output_unavailable_rows"])
         self.assertEqual(1, codex["exact_rows"])
 
     def test_token_source_summary_aggregates_mixed_exact_and_unavailable_rows(self):
@@ -3546,7 +3550,9 @@ class HermesComposioTests(unittest.TestCase):
         codex = next(group for group in backend._token_source_summary([exact_row, gap_row]) if group["source"] == "Codex")
         self.assertEqual(2, codex["exact_rows"])
         self.assertEqual(50, codex["cached_input"])
+        self.assertEqual(1, codex["cached_input_unavailable_rows"])
         self.assertEqual(6, codex["reasoning_output"])
+        self.assertEqual(1, codex["reasoning_output_unavailable_rows"])
         self.assertEqual(50, codex["input"])
         self.assertEqual(25, codex["output"])
         self.assertEqual(75, codex["total"])
@@ -3562,9 +3568,32 @@ class HermesComposioTests(unittest.TestCase):
         codex = next(group for group in result["source_summary"] if group["source"] == "Codex")
         self.assertEqual(0, codex["cached_input"])
         self.assertEqual(0, codex["reasoning_output"])
+        self.assertEqual(1, codex["cached_input_unavailable_rows"])
+        self.assertEqual(1, codex["reasoning_output_unavailable_rows"])
         record = next(item for item in result["records"] if item["item_id"] == "AOS-2026-0083")
         self.assertEqual(backend.UNAVAILABLE_CLI_VALUE, record["cached_input_tokens"])
         self.assertEqual(backend.UNAVAILABLE_CLI_VALUE, record["reasoning_output_tokens"])
+
+    def test_token_source_summary_distinguishes_complete_zero_from_partial_totals(self):
+        complete_zero = {
+            "item_id": "AOS-2026-0084", "timestamp": "2026-07-19T21:47:32Z",
+            "capture_evidence": {"cached_input_tokens": 0, "reasoning_output_tokens": 0},
+            "token_usage": {"totals": {"input": 2, "output": 1}, "workbenches": [{"tool": "codex", "source": "reported", "input": 2, "output": 1}], "unavailable": []},
+        }
+        known = {
+            "item_id": "AOS-2026-0085", "timestamp": "2026-07-19T21:48:32Z",
+            "capture_evidence": {"cached_input_tokens": 7, "reasoning_output_tokens": 1},
+            "token_usage": {"totals": {"input": 8, "output": 2}, "workbenches": [{"tool": "codex", "source": "reported", "input": 8, "output": 2}], "unavailable": []},
+        }
+        gap = {
+            "item_id": "AOS-2026-0086", "timestamp": "2026-07-19T21:49:32Z",
+            "capture_evidence": {"cached_input_tokens": backend.UNAVAILABLE_CLI_VALUE, "reasoning_output_tokens": backend.UNAVAILABLE_CLI_VALUE},
+            "token_usage": {"totals": {"input": 5, "output": 1}, "workbenches": [{"tool": "codex", "source": "reported", "input": 5, "output": 1}], "unavailable": []},
+        }
+        zero = next(group for group in backend._token_source_summary([complete_zero]) if group["source"] == "Codex")
+        partial = next(group for group in backend._token_source_summary([known, gap]) if group["source"] == "Codex")
+        self.assertEqual((0, 0, 0, 0), (zero["cached_input"], zero["cached_input_unavailable_rows"], zero["reasoning_output"], zero["reasoning_output_unavailable_rows"]))
+        self.assertEqual((7, 1, 1, 1), (partial["cached_input"], partial["cached_input_unavailable_rows"], partial["reasoning_output"], partial["reasoning_output_unavailable_rows"]))
 
     def test_workflow_name_fallback_chain_ignores_frontmatter_delimiters(self):
         path = Path("workflows/unit/workflow.md")
