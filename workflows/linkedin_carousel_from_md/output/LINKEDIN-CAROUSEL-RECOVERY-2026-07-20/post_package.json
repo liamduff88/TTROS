@@ -1,0 +1,59 @@
+{
+  "artifacts": {
+    "carousel": "workflows/linkedin_carousel_from_md/output/LINKEDIN-CAROUSEL-RECOVERY-2026-07-20/carousel.pdf",
+    "carousel_draft": "workflows/linkedin_carousel_from_md/output/LINKEDIN-CAROUSEL-RECOVERY-2026-07-20/carousel_draft.md",
+    "linkedin_caption": "workflows/linkedin_carousel_from_md/output/LINKEDIN-CAROUSEL-RECOVERY-2026-07-20/linkedin_caption.md",
+    "post_package": "workflows/linkedin_carousel_from_md/output/LINKEDIN-CAROUSEL-RECOVERY-2026-07-20/post_package.json",
+    "review_receipt": "workflows/linkedin_carousel_from_md/output/LINKEDIN-CAROUSEL-RECOVERY-2026-07-20/review_receipt.md",
+    "source": "workflows/linkedin_carousel_from_md/output/LINKEDIN-CAROUSEL-RECOVERY-2026-07-20/source.md"
+  },
+  "caption": "# LinkedIn caption\n\nWe rebuilt our internal AI system, and the part that actually mattered was not more tools or more agents.\n\nIt was one visible flow: capture the work, route it clearly, act in the right place, and return a receipt someone can check.\n\nThe carousel breaks down the four jobs a working system needs to do before extra architecture earns its place.\n\nTake the full assessment here:\n[ADD RESOURCE LINK BEFORE POSTING]",
+  "external_action_confirmation": "No LinkedIn post, upload, message, connection, schedule, or external action occurred.",
+  "external_transmission": false,
+  "item_id": "LINKEDIN-CAROUSEL-RECOVERY-2026-07-20",
+  "manual_handoff_only": true,
+  "render": {
+    "engine": "playwright-chromium",
+    "overflow_problems": [],
+    "page_count": 7,
+    "page_size_points": [
+      576,
+      720
+    ],
+    "pdf_sha256": "f3db9055e03f39934d2ad9b48112912e31a93d777ddfe50b6a420326a583a020",
+    "renderer": "workflows/pdf_branding/scripts/render_pdf.py --layout carousel",
+    "slide_count": 7
+  },
+  "resource_cta": {
+    "action": "take",
+    "caption_cta": "Take the full assessment here:",
+    "caption_link": "[ADD RESOURCE LINK BEFORE POSTING]",
+    "caption_link_status": "review_placeholder",
+    "evidence": [
+      "source.content:questions-and-scoring"
+    ],
+    "fallback": false,
+    "final_slide_cta": "Take the full assessment using the link in the LinkedIn post below.",
+    "inference_source": "deterministic_content_inference",
+    "resource_type": "assessment",
+    "title": null
+  },
+  "review_gate": "human_review before manual LinkedIn upload",
+  "source_association": {
+    "carousel_draft_sha256": "2695cc45919549160197f7d17105d433259eb43d129d895f7dcb5a1e83f7a5fb",
+    "linkedin_caption_sha256": "700a7b75ce644ba665d8c8c0621b86e40b1110335c7df115934249aad93e3460",
+    "opening_hook": "We rebuilt our AI system. Here is what actually mattered.",
+    "original_source_path": "workflows/linkedin_carousel_from_md/fixtures/agentic_os_not_bureaucracy/source.md",
+    "source_sha256": "2ca730f996b140f49f745d047e875693f80a1f67bce4f77daa2226a6b0c27bb5"
+  },
+  "status": "ready_for_review",
+  "token_usage": {
+    "cached_input": "unavailable",
+    "fresh_input": "unavailable",
+    "model_invocation": "none",
+    "output": "unavailable",
+    "provider_total_input": "unavailable",
+    "reasoning": "unavailable"
+  },
+  "workflow": "linkedin_carousel_from_md"
+}
