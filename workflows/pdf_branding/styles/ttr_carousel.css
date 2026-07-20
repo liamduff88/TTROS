@@ -1,0 +1,186 @@
+/* Revisit: when carousel typography, page geometry, or brand tokens change. · Last touched: 2026-07-20. */
+
+:root {
+  color-scheme: light;
+  --ink: var(--ttr-executive-graphite);
+  --deep: var(--ttr-deep-ink);
+  --soft: var(--ttr-soft-graphite);
+  --paper: var(--ttr-ivory);
+  --stone: var(--ttr-warm-stone);
+  --mist: var(--ttr-mist-grey);
+  --gold: var(--ttr-champagne);
+  --heading: var(--ttr-font-heading);
+  --body: var(--ttr-font-body);
+}
+
+* { box-sizing: border-box; }
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--body);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+.carousel { margin: 0; padding: 0; }
+
+.slide {
+  position: relative;
+  width: 8in;
+  height: 10in;
+  padding: 0.62in 0.66in 0.58in;
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 0.34in;
+  background:
+    radial-gradient(circle at 92% 8%, rgb(184 155 99 / 13%), transparent 28%),
+    var(--paper);
+  break-after: page;
+  page-break-after: always;
+}
+
+.slide:last-child { break-after: auto; page-break-after: auto; }
+
+.slide::before {
+  position: absolute;
+  top: 1.18in;
+  left: 0.66in;
+  width: 0.58in;
+  height: 0.045in;
+  background: var(--gold);
+  content: "";
+}
+
+.slide-header,
+.slide-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: #817a6e;
+  font-family: var(--heading);
+  font-size: 0.105in;
+  font-weight: 600;
+  letter-spacing: 0.15em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.slide-header {
+  padding-bottom: 0.16in;
+  border-bottom: 1px solid var(--stone);
+}
+
+.slide-footer {
+  padding-top: 0.16in;
+  border-top: 1px solid var(--stone);
+}
+
+.slide-content {
+  min-height: 0;
+  align-self: center;
+  overflow: hidden;
+}
+
+.slide-content h1,
+.slide-content h2 {
+  max-width: 6.55in;
+  margin: 0 0 0.34in;
+  color: var(--deep);
+  font-family: var(--heading);
+  font-size: 0.58in;
+  font-weight: 330;
+  letter-spacing: -0.035em;
+  line-height: 1.04;
+}
+
+.slide-content p,
+.slide-content li {
+  color: var(--soft);
+  font-size: 0.255in;
+  font-weight: 420;
+  line-height: 1.38;
+}
+
+.slide-content p { max-width: 6.25in; margin: 0 0 0.22in; }
+
+.slide-content strong { color: var(--deep); font-weight: 700; }
+
+.slide-content ul,
+.slide-content ol {
+  max-width: 6.28in;
+  margin: 0.05in 0 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: carousel-item;
+}
+
+.slide-content li {
+  position: relative;
+  margin: 0 0 0.17in;
+  padding-left: 0.42in;
+}
+
+.slide-content ul li::before {
+  position: absolute;
+  top: 0.15in;
+  left: 0;
+  width: 0.22in;
+  height: 0.035in;
+  background: var(--gold);
+  content: "";
+}
+
+.slide-content ol li { counter-increment: carousel-item; }
+
+.slide-content ol li::before {
+  position: absolute;
+  left: 0;
+  color: var(--gold);
+  font-family: var(--heading);
+  font-size: 0.17in;
+  font-weight: 700;
+  content: counter(carousel-item, decimal-leading-zero);
+}
+
+.slide-cover,
+.slide-cta {
+  background:
+    linear-gradient(140deg, rgb(184 155 99 / 16%), transparent 42%),
+    var(--deep);
+  color: #f4efe3;
+}
+
+.slide-cover::before,
+.slide-cta::before { width: 0.9in; }
+
+.slide-cover .slide-header,
+.slide-cover .slide-footer,
+.slide-cta .slide-header,
+.slide-cta .slide-footer {
+  border-color: rgb(244 239 227 / 24%);
+  color: rgb(244 239 227 / 62%);
+}
+
+.slide-cover .slide-content h1,
+.slide-cover .slide-content h2,
+.slide-cta .slide-content h1,
+.slide-cta .slide-content h2 { color: #f4efe3; font-size: 0.67in; }
+
+.slide-cover .slide-content p,
+.slide-cover .slide-content li,
+.slide-cta .slide-content p,
+.slide-cta .slide-content li { color: rgb(244 239 227 / 78%); }
+
+.slide-cta .slide-content strong { color: var(--gold); }
+
+@page { size: 8in 10in; margin: 0; }
+
+@media print {
+  html, body { background: var(--paper); }
+  .slide { margin: 0; box-shadow: none; }
+}

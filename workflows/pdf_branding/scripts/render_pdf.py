@@ -1,13 +1,18 @@
 #!/usr/bin/env python3
-"""Render a Time to Revenue branded report from Markdown."""
+"""Render Time to Revenue branded reports and LinkedIn carousels from Markdown.
+
+Revisit: when the PDF page contract, Playwright, or brand tokens change. · Last touched: 2026-07-20.
+"""
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import html
 import json
 import re
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -16,7 +21,15 @@ WORKFLOW_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_TEMPLATE = WORKFLOW_ROOT / "templates" / "ttr_report_template.html"
 DEFAULT_CSS = WORKFLOW_ROOT / "styles" / "ttr_print.css"
 DEFAULT_TOKENS = WORKFLOW_ROOT / "brand" / "time-to-revenue.tokens.json"
+DEFAULT_CAROUSEL_TEMPLATE = WORKFLOW_ROOT / "templates" / "ttr_carousel_template.html"
+DEFAULT_CAROUSEL_CSS = WORKFLOW_ROOT / "styles" / "ttr_carousel.css"
 PAGE_BREAK_RE = re.compile(r"^\s*<!--\s*pagebreak\s*-->\s*$", re.IGNORECASE | re.MULTILINE)
+SLIDE_BREAK_RE = re.compile(r"^\s*<!--\s*slide\s*-->\s*$", re.IGNORECASE | re.MULTILINE)
+HEADING_RE = re.compile(r"^#{1,2}\s+(.+?)\s*$", re.MULTILINE)
+CAROUSEL_MIN_SLIDES = 6
+CAROUSEL_MAX_SLIDES = 10
+CAROUSEL_WIDTH_POINTS = 576.0
+CAROUSEL_HEIGHT_POINTS = 720.0
 
 
 def read_text(path: Path) -> str:
@@ -161,6 +174,91 @@ def build_html(input_path: Path, template_path: Path, css_path: Path, tokens_pat
     )
 
 
+def parse_carousel_slides(markdown_text: str) -> list[str]:
+    """Validate and split the canonical carousel Markdown format."""
+    slides = [part.strip() for part in SLIDE_BREAK_RE.split(markdown_text)]
+    if any(not slide for slide in slides):
+        raise ValueError("carousel contains an empty slide around a <!-- slide --> separator")
+    if not CAROUSEL_MIN_SLIDES <= len(slides) <= CAROUSEL_MAX_SLIDES:
+        raise ValueError(
+            f"carousel must contain {CAROUSEL_MIN_SLIDES}-{CAROUSEL_MAX_SLIDES} slides; found {len(slides)}"
+        )
+    for index, slide in enumerate(slides, start=1):
+        headings = HEADING_RE.findall(slide)
+        first_line = next((line.strip() for line in slide.splitlines() if line.strip()), "")
+        if not re.match(r"^#{1,2}\s+\S", first_line):
+            raise ValueError(f"slide {index} must start with one level-1 or level-2 heading")
+        if len(headings) != 1:
+            raise ValueError(f"slide {index} must contain exactly one level-1 or level-2 heading")
+        if len(headings[0].split()) > 16:
+            raise ValueError(f"slide {index} heading is too long; maximum is 16 words")
+        word_count = len(re.findall(r"\b[\w'-]+\b", slide))
+        if word_count < 3:
+            raise ValueError(f"slide {index} is incomplete; include a heading and useful copy")
+        if word_count > 85:
+            raise ValueError(f"slide {index} is too dense; maximum is 85 words")
+    return slides
+
+
+def carousel_heading(slide: str) -> str:
+    match = HEADING_RE.search(slide)
+    return match.group(1).strip() if match else "Untitled slide"
+
+
+def markdown_fragment_to_html(markdown_text: str) -> str:
+    try:
+        from markdown_it import MarkdownIt
+    except ImportError as exc:
+        raise RuntimeError(
+            "markdown-it-py is required for carousel rendering; install workflows/pdf_branding/requirements.txt"
+        ) from exc
+    return MarkdownIt("commonmark", {"html": False, "typographer": True}).render(markdown_text)
+
+
+def build_carousel_html(
+    input_path: Path,
+    template_path: Path = DEFAULT_CAROUSEL_TEMPLATE,
+    css_path: Path = DEFAULT_CAROUSEL_CSS,
+    tokens_path: Path = DEFAULT_TOKENS,
+) -> tuple[str, list[str]]:
+    slides = parse_carousel_slides(read_text(input_path))
+    rendered: list[str] = []
+    total = len(slides)
+    for index, slide in enumerate(slides, start=1):
+        classes = ["slide"]
+        if index == 1:
+            classes.append("slide-cover")
+        elif index == total:
+            classes.append("slide-cta")
+        else:
+            classes.append("slide-body")
+        rendered.append(
+            "\n".join(
+                [
+                    f'<section class="{" ".join(classes)}" data-slide="{index}">',
+                    '  <header class="slide-header">',
+                    '    <span class="brand-wordmark">Time to Revenue</span>',
+                    f'    <span class="slide-number">{index:02d} / {total:02d}</span>',
+                    "  </header>",
+                    '  <article class="slide-content">',
+                    markdown_fragment_to_html(slide).rstrip(),
+                    "  </article>",
+                    '  <footer class="slide-footer"><span>Practical AI operations</span><span aria-hidden="true">TTR</span></footer>',
+                    "</section>",
+                ]
+            )
+        )
+    template = read_text(template_path)
+    title = carousel_heading(slides[0])
+    document = (
+        template.replace("{{ title }}", html.escape(title))
+        .replace("{{ token_css }}", token_css(load_tokens(tokens_path)))
+        .replace("{{ carousel_css }}", read_text(css_path))
+        .replace("{{ slides }}", "\n".join(rendered))
+    )
+    return document, slides
+
+
 def write_pdf_with_playwright(html_path: Path, output_path: Path) -> bool:
     try:
         from playwright.sync_api import sync_playwright
@@ -187,6 +285,146 @@ def write_pdf_with_playwright(html_path: Path, output_path: Path) -> bool:
     except Exception as exc:
         print(f"INFO: Playwright PDF render unavailable: {exc}", file=sys.stderr)
         return False
+
+
+def write_carousel_pdf_with_playwright(
+    html_path: Path, output_path: Path, expected_slide_count: int
+) -> dict[str, Any]:
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError as exc:
+        raise RuntimeError(
+            "Playwright is required for carousel rendering; install workflows/pdf_branding/requirements.txt "
+            "and run python -m playwright install chromium"
+        ) from exc
+
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(
+                args=["--disable-setuid-sandbox", "--no-zygote", "--single-process"]
+            )
+            try:
+                page = browser.new_page(viewport={"width": 768, "height": 960})
+                page.goto(html_path.resolve().as_uri(), wait_until="networkidle")
+                page.emulate_media(media="print")
+                layout = page.evaluate(
+                    """() => {
+                      const slides = [...document.querySelectorAll('.slide')];
+                      const problems = slides.flatMap((slide, index) => {
+                        const content = slide.querySelector('.slide-content');
+                        const slideOverflow = Math.max(
+                          slide.scrollHeight - slide.clientHeight,
+                          slide.scrollWidth - slide.clientWidth
+                        );
+                        const contentOverflow = content ? Math.max(
+                          content.scrollHeight - content.clientHeight,
+                          content.scrollWidth - content.clientWidth
+                        ) : 0;
+                        return slideOverflow > 2 || contentOverflow > 2
+                          ? [{slide: index + 1, slideOverflow, contentOverflow}]
+                          : [];
+                      });
+                      return {pageCount: slides.length, problems};
+                    }"""
+                )
+                if layout["pageCount"] != expected_slide_count:
+                    raise RuntimeError(
+                        f"HTML slide count mismatch: expected {expected_slide_count}, found {layout['pageCount']}"
+                    )
+                if layout["problems"]:
+                    details = ", ".join(
+                        f"slide {item['slide']} (slide={item['slideOverflow']}, content={item['contentOverflow']})"
+                        for item in layout["problems"]
+                    )
+                    raise RuntimeError(f"carousel layout overflow detected: {details}")
+                page.pdf(
+                    path=str(output_path),
+                    width="8in",
+                    height="10in",
+                    print_background=True,
+                    prefer_css_page_size=True,
+                    margin={"top": "0", "right": "0", "bottom": "0", "left": "0"},
+                )
+            finally:
+                browser.close()
+    except RuntimeError:
+        raise
+    except Exception as exc:
+        raise RuntimeError(f"Playwright carousel render failed: {exc}") from exc
+    if not output_path.exists() or output_path.stat().st_size == 0:
+        raise RuntimeError("Playwright reported success but did not create a non-empty PDF")
+    return {"slide_count": expected_slide_count, "overflow_problems": []}
+
+
+def normalize_pdf_metadata(output_path: Path) -> None:
+    """Remove volatile Chromium timestamps so identical reruns are deterministic."""
+    try:
+        from pypdf import PdfReader, PdfWriter
+    except ImportError as exc:
+        raise RuntimeError(
+            "pypdf is required for carousel validation; install workflows/pdf_branding/requirements.txt"
+        ) from exc
+    reader = PdfReader(str(output_path), strict=True)
+    writer = PdfWriter()
+    writer.append_pages_from_reader(reader)
+    writer.add_metadata(
+        {
+            "/Title": "Time to Revenue LinkedIn Carousel",
+            "/Author": "Time to Revenue",
+            "/Creator": "Canonical linkedin_carousel_from_md workflow",
+            "/Producer": "Time to Revenue Chromium carousel renderer",
+        }
+    )
+    with tempfile.NamedTemporaryFile(
+        mode="wb", dir=output_path.parent, prefix=f".{output_path.name}.", suffix=".tmp", delete=False
+    ) as handle:
+        temporary = Path(handle.name)
+        writer.write(handle)
+    temporary.replace(output_path)
+
+
+def validate_carousel_pdf(output_path: Path, slides: list[str]) -> dict[str, Any]:
+    try:
+        from pypdf import PdfReader
+    except ImportError as exc:
+        raise RuntimeError(
+            "pypdf is required for carousel validation; install workflows/pdf_branding/requirements.txt"
+        ) from exc
+    if not output_path.is_file() or output_path.stat().st_size < 10_000:
+        raise RuntimeError("carousel PDF is missing or too small to be a genuine rendered document")
+    if not output_path.read_bytes().startswith(b"%PDF-"):
+        raise RuntimeError("carousel output does not have a PDF header")
+    try:
+        reader = PdfReader(str(output_path), strict=True)
+    except Exception as exc:
+        raise RuntimeError(f"carousel PDF is not structurally readable: {exc}") from exc
+    if len(reader.pages) != len(slides):
+        raise RuntimeError(f"PDF page count mismatch: expected {len(slides)}, found {len(reader.pages)}")
+    page_texts: list[str] = []
+    for index, (page, slide) in enumerate(zip(reader.pages, slides), start=1):
+        width = float(page.mediabox.width)
+        height = float(page.mediabox.height)
+        if abs(width - CAROUSEL_WIDTH_POINTS) > 1 or abs(height - CAROUSEL_HEIGHT_POINTS) > 1:
+            raise RuntimeError(
+                f"PDF page {index} has wrong dimensions: {width:.1f} x {height:.1f} points"
+            )
+        extracted = " ".join((page.extract_text() or "").split())
+        if not extracted:
+            raise RuntimeError(f"PDF page {index} is blank or has no readable text")
+        heading = carousel_heading(slide)
+        heading_words = [word.lower() for word in re.findall(r"[A-Za-z0-9']+", heading) if len(word) > 2]
+        lowered = extracted.lower()
+        if heading_words and sum(word in lowered for word in heading_words) < max(1, len(heading_words) // 2):
+            raise RuntimeError(f"PDF page {index} is not associated with its slide heading")
+        page_texts.append(extracted)
+    if len(set(page_texts)) != len(page_texts):
+        raise RuntimeError("carousel PDF contains duplicated pages")
+    return {
+        "page_count": len(reader.pages),
+        "width_points": CAROUSEL_WIDTH_POINTS,
+        "height_points": CAROUSEL_HEIGHT_POINTS,
+        "sha256": hashlib.sha256(output_path.read_bytes()).hexdigest(),
+    }
 
 
 def write_pdf_with_weasyprint(html_path: Path, output_path: Path) -> bool:
@@ -457,16 +695,51 @@ def render(input_path: Path, output_path: Path) -> int:
     return 0
 
 
+def render_carousel(input_path: Path, output_path: Path) -> dict[str, Any]:
+    if not input_path.is_file():
+        raise ValueError(f"input file not found: {input_path}")
+    if input_path.suffix.lower() != ".md":
+        raise ValueError("carousel input must be a Markdown (.md) file")
+    if output_path.suffix.lower() != ".pdf":
+        raise ValueError("carousel output must use a .pdf filename")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fallback_html = output_path.with_suffix(".html")
+    document, slides = build_carousel_html(input_path)
+    fallback_html.write_text(document, encoding="utf-8")
+    layout = write_carousel_pdf_with_playwright(fallback_html, output_path, len(slides))
+    normalize_pdf_metadata(output_path)
+    validation = validate_carousel_pdf(output_path, slides)
+    result = {**layout, **validation, "html_path": str(fallback_html), "pdf_path": str(output_path)}
+    return result
+
+
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Render a branded Time to Revenue PDF from Markdown.")
     parser.add_argument("--input", required=True, type=Path, help="Markdown input path.")
     parser.add_argument("--output", required=True, type=Path, help="PDF output path.")
+    parser.add_argument(
+        "--layout",
+        choices=("report", "carousel"),
+        default="report",
+        help="A4 report (default) or strict 8x10-inch LinkedIn carousel.",
+    )
     return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv or sys.argv[1:])
-    return render(args.input, args.output)
+    try:
+        if args.layout == "carousel":
+            result = render_carousel(args.input, args.output)
+            print(
+                f"PASS: carousel PDF created at {args.output} "
+                f"({result['page_count']} pages, {int(result['width_points'])}x{int(result['height_points'])} pt)"
+            )
+            return 0
+        return render(args.input, args.output)
+    except (OSError, ValueError, RuntimeError, json.JSONDecodeError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

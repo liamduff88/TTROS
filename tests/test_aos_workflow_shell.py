@@ -15,6 +15,7 @@ EXPECTED_WORKFLOWS = {
     "linkedin_content",
     "pdf_branding",
     "marketing_pdf_package",
+    "linkedin_carousel_from_md",
     "revenue_linkedin_outreach",
     "delivery_ops_documents",
     "revenue_sales_prep",

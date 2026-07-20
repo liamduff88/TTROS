@@ -29,6 +29,15 @@
       "intake_reference_path": "workflows/marketing_pdf_package/input"
     },
     {
+      "id": "linkedin_carousel_from_md",
+      "name": "LinkedIn Carousel from Markdown",
+      "owner_agent": "Marketing",
+      "summary": "Builds a sourced, branded LinkedIn carousel PDF and local review package without publishing or uploading.",
+      "source_path": "workflows/linkedin_carousel_from_md/workflow.md",
+      "intake_template_path": null,
+      "intake_reference_path": "workflows/linkedin_carousel_from_md/fixtures"
+    },
+    {
       "id": "revenue_linkedin_outreach",
       "name": "Revenue LinkedIn Relationship Outreach Workflow",
       "owner_agent": "Revenue",

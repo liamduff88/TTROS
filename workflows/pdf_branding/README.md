@@ -1,6 +1,8 @@
 # Time to Revenue PDF Branding Workflow
 
-Local Markdown-to-PDF workflow for polished Time to Revenue reports and lead magnets.
+> Revisit: when the renderer, supported layouts, or local dependency contract changes. · Last touched: 2026-07-20.
+
+Local Markdown-to-PDF workflow for polished Time to Revenue reports, lead magnets, and LinkedIn carousel pages.
 
 ## Render the sample
 
@@ -69,3 +71,30 @@ python3 -m pip install weasyprint
 
 The HTML fallback is still useful for review and browser-based printing while the local PDF
 dependency is being installed.
+
+## Render a LinkedIn carousel
+
+Carousel rendering is a strict profile of this same PDF subsystem. It preserves the A4 report
+default while adding an 8×10-inch portrait page per slide. Separate 6–10 slides with a
+`<!-- slide -->` line and start every slide with exactly one `#` or `##` heading.
+
+```bash
+.venv-pdf/bin/python workflows/pdf_branding/scripts/render_pdf.py \
+  --layout carousel \
+  --input workflows/linkedin_carousel_from_md/fixtures/agentic_os_not_bureaucracy/carousel_draft.md \
+  --output workflows/linkedin_carousel_from_md/output/example/carousel.pdf
+```
+
+The carousel profile requires Playwright/Chromium and `pypdf`, performs in-browser overflow
+checks, normalizes volatile PDF metadata, and then validates structure, dimensions, page count,
+readable slide text, and page uniqueness. It fails instead of accepting the lower-fidelity
+built-in report fallback. The canonical end-to-end entry point is the carousel workflow's
+`scripts/build_package.py`, which also associates the source, caption, receipt, and manifest.
+
+Install the declared local dependencies into the ignored renderer environment:
+
+```bash
+python3 -m venv .venv-pdf
+.venv-pdf/bin/python -m pip install -r workflows/pdf_branding/requirements.txt
+.venv-pdf/bin/python -m playwright install chromium
+```

@@ -1,0 +1,2 @@
+# Revisit: when the local PDF visual-inspection tool changes. · Last touched: 2026-07-20.
+PyMuPDF>=1.24,<2

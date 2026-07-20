@@ -11,6 +11,7 @@ The workflow shell does not execute workflow logic, call models, publish content
 | `linkedin_content` | LinkedIn / Content Workflow | Marketing | `workflows/linkedin_content/workflow.md` | `workflows/linkedin_content/inbox` |
 | `pdf_branding` | Time to Revenue PDF Branding Workflow | Marketing | `workflows/pdf_branding/README.md` | `workflows/pdf_branding/input` |
 | `marketing_pdf_package` | Marketing PDF Package Workflow | Marketing | `workflows/marketing_pdf_package/workflow.md` | `workflows/marketing_pdf_package/templates/package_brief.md` |
+| `linkedin_carousel_from_md` | LinkedIn Carousel from Markdown | Marketing | `workflows/linkedin_carousel_from_md/workflow.md` | sourced `.md`, CTA-marker draft/caption, optional resource metadata JSON |
 | `revenue_linkedin_outreach` | Revenue LinkedIn Relationship Outreach Workflow | Revenue | `workflows/revenue_linkedin_outreach/workflow.md` | `workflows/revenue_linkedin_outreach/templates/prospect_brief.md` |
 | `prospecting_daily_run` | LinkedIn Prospecting Daily Run | Revenue | `workflows/prospecting_daily_run/workflow.md` | canonical Business Brain ICP/query/rotation notes |
 | `prospecting_week_review` | Prospecting Week Review | Revenue | `workflows/prospecting_week_review/workflow.md` | `queue/prospects.jsonl` |
