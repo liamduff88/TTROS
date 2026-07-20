@@ -1,6 +1,8 @@
 import builtins
 import concurrent.futures
+import contextlib
 import importlib.util
+import io
 import json
 import os
 import shutil
@@ -409,6 +411,69 @@ class AosQueueTest(unittest.TestCase):
             ):
                 module.run_codex_work_item(root, "AOS-2026-0001", "bounded fixture prompt")
             self.assertEqual(before, (root / "queue/token_ledger.jsonl").read_text(encoding="utf-8"))
+
+    def test_codex_runner_bounds_hung_execution_kills_process_and_reconciles_unavailable(self):
+        module = load_tool_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._write_codex_reconcile_fixture(root)
+            fake = root / "fake-codex"
+            fake.write_text(
+                "#!/usr/bin/env python3\n"
+                "import sys, time\n"
+                "if '--version' in sys.argv:\n"
+                "    print('codex-cli test')\n"
+                "else:\n"
+                "    sys.stdin.read()\n"
+                "    print('{\"type\":\"thread.started\",\"thread_id\":\"session-hung\"}')\n"
+                "    sys.stdout.flush()\n"
+                "    time.sleep(3600)\n",
+                encoding="utf-8",
+            )
+            fake.chmod(0o755)
+            target = replace(module.CODEX_TARGET, root=root, executable=fake, codex_home=root / ".codex")
+            started = time.monotonic()
+            with patch.object(module, "CODEX_TARGET", target), self.assertRaisesRegex(
+                module.QueueError, "usage was reconciled"
+            ):
+                module.run_codex_work_item(
+                    root, "AOS-2026-0001", "bounded fixture prompt", execution_timeout_seconds=0.5,
+                )
+            elapsed = time.monotonic() - started
+            self.assertLess(elapsed, 10, "hung Codex process must be bounded, not left to run indefinitely")
+            rows = [json.loads(line) for line in (root / "queue/token_ledger.jsonl").read_text().splitlines()]
+            hung = next(row for row in rows if row.get("session_id") == "session-hung")
+            self.assertEqual("unavailable", hung["model_confirmed"])
+            self.assertEqual(
+                "Codex supervisor process exit; usage unavailable",
+                hung["capture_evidence"]["source"],
+            )
+
+    def test_codex_version_probe_timeout_surfaces_as_needs_attention_not_traceback(self):
+        module = load_tool_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._write_codex_reconcile_fixture(root)
+            prompt_path = root / "prompt.txt"
+            prompt_path.write_text("bounded fixture prompt", encoding="utf-8")
+            fake = root / "fake-codex"
+            fake.write_text("#!/usr/bin/env python3\nimport sys\nsys.exit(0)\n", encoding="utf-8")
+            fake.chmod(0o755)
+            target = replace(module.CODEX_TARGET, root=root, executable=fake, codex_home=root / ".codex")
+
+            def fake_run(command, *args, **kwargs):
+                raise subprocess.TimeoutExpired(cmd=command, timeout=kwargs.get("timeout", 20))
+
+            stderr = io.StringIO()
+            with patch.object(module, "CODEX_TARGET", target), \
+                 patch.object(module.subprocess, "run", side_effect=fake_run), \
+                 contextlib.redirect_stderr(stderr):
+                exit_code = module.main([
+                    "--root", str(root), "codex-run",
+                    "AOS-2026-0001", "--prompt-file", str(prompt_path),
+                ])
+            self.assertEqual(exit_code, 1)
+            self.assertIn("NEEDS ATTENTION", stderr.getvalue())
 
     def test_queue_release_requires_exact_complete_acquired_owner(self):
         changes = {

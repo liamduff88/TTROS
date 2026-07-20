@@ -62,6 +62,9 @@ TOKEN_LEDGER_SCHEMA_PATH = QUEUE_DIR / "token_ledger_schema.json"
 # so a temporary --root (tests/sandboxes) still finds the canonical files.
 MODEL_PRICES_PATH = REPO_DIR / "scripts" / "model_prices.json"
 HERMES_PROBE_TIMEOUT_S = 20
+# Mirrors the orchestration runner's DEFAULT_EXECUTION_TIMEOUT_SECONDS contract
+# (tools/aos-orchestration-runner.py) so a hung Codex process is bounded here too.
+CODEX_EXECUTION_TIMEOUT_SECONDS = 7800
 DONE_STATUS = "done"
 CODEX_TOKEN_SUMMARY_RE = re.compile(
     r"^Token usage:\s*total=(?P<total>[\d,]+)\s+"
@@ -1168,7 +1171,14 @@ def reconcile_codex_usage(
     }
 
 
-def run_codex_work_item(root: Path, item_id: str, prompt: str, *, _handoff_depth: int = 0) -> dict:
+def run_codex_work_item(
+    root: Path,
+    item_id: str,
+    prompt: str,
+    *,
+    _handoff_depth: int = 0,
+    execution_timeout_seconds: float = CODEX_EXECUTION_TIMEOUT_SECONDS,
+) -> dict:
     """Run Codex noninteractively, capture both streams, wait, and reconcile."""
     find_item(load_items(root), item_id)  # explicit association must exist before launch
     try:
@@ -1197,7 +1207,15 @@ def run_codex_work_item(root: Path, item_id: str, prompt: str, *, _handoff_depth
         start_new_session=True,
         close_fds=True,
     )
-    stdout, stderr = proc.communicate(prepared_prompt)
+    try:
+        stdout, stderr = proc.communicate(prepared_prompt, timeout=execution_timeout_seconds)
+    except subprocess.TimeoutExpired:
+        # Popen accumulates partial output across communicate() calls, so the
+        # post-kill call below returns the complete captured stdout/stderr
+        # (the documented pattern for handling TimeoutExpired) rather than
+        # only what arrived after the timeout.
+        proc.kill()
+        stdout, stderr = proc.communicate()
     combined = "\n".join(part for part in (stdout, stderr) if part)
     try:
         session_id = require_clean_session_id(combined or "")
@@ -1244,7 +1262,9 @@ def run_codex_work_item(root: Path, item_id: str, prompt: str, *, _handoff_depth
             "Complete the remaining task, validate it, and return the required compact receipt.",
         ))
         continued = run_codex_work_item(
-            root, item_id, continuation_prompt, _handoff_depth=_handoff_depth + 1,
+            root, item_id, continuation_prompt,
+            _handoff_depth=_handoff_depth + 1,
+            execution_timeout_seconds=execution_timeout_seconds,
         )
         return {
             **continued,
@@ -1884,7 +1904,7 @@ def main(argv: list[str] | None = None) -> int:
             ))
         else:
             parser.error(f"Unknown command: {args.command}")
-    except (AuthorityError, QueueError, QueueStorageError, json.JSONDecodeError, OSError) as exc:
+    except (AuthorityError, QueueError, QueueStorageError, json.JSONDecodeError, OSError, subprocess.TimeoutExpired) as exc:
         print(f"NEEDS ATTENTION: {exc}", file=sys.stderr)
         return 1
     return 0
