@@ -3314,6 +3314,62 @@ class HermesComposioTests(unittest.TestCase):
         self.assertEqual(100, codex["cached_input"])
         self.assertEqual(4, codex["reasoning_output"])
 
+    def test_token_source_summary_tolerates_unavailable_cached_input_component(self):
+        row = {
+            "item_id": "AOS-2026-0079", "session_id": "session-cached-gap", "timestamp": "2026-07-19T21:42:32Z",
+            "capture_evidence": {"cached_input_tokens": backend.UNAVAILABLE_CLI_VALUE, "reasoning_output_tokens": 4},
+            "token_usage": {"totals": {"input": 20, "output": 10}, "workbenches": [{"tool": "codex", "source": "reported", "input": 20, "output": 10}], "unavailable": []},
+        }
+        codex = next(group for group in backend._token_source_summary([row]) if group["source"] == "Codex")
+        self.assertEqual(0, codex["cached_input"])
+        self.assertEqual(4, codex["reasoning_output"])
+        self.assertEqual(1, codex["exact_rows"])
+
+    def test_token_source_summary_tolerates_unavailable_reasoning_output_component(self):
+        row = {
+            "item_id": "AOS-2026-0080", "session_id": "session-reasoning-gap", "timestamp": "2026-07-19T21:43:32Z",
+            "capture_evidence": {"cached_input_tokens": 100, "reasoning_output_tokens": backend.UNAVAILABLE_CLI_VALUE},
+            "token_usage": {"totals": {"input": 20, "output": 10}, "workbenches": [{"tool": "codex", "source": "reported", "input": 20, "output": 10}], "unavailable": []},
+        }
+        codex = next(group for group in backend._token_source_summary([row]) if group["source"] == "Codex")
+        self.assertEqual(100, codex["cached_input"])
+        self.assertEqual(0, codex["reasoning_output"])
+        self.assertEqual(1, codex["exact_rows"])
+
+    def test_token_source_summary_aggregates_mixed_exact_and_unavailable_rows(self):
+        exact_row = {
+            "item_id": "AOS-2026-0081", "session_id": "session-exact", "timestamp": "2026-07-19T21:44:32Z",
+            "capture_evidence": {"cached_input_tokens": 50, "reasoning_output_tokens": 6},
+            "token_usage": {"totals": {"input": 20, "output": 10}, "workbenches": [{"tool": "codex", "source": "reported", "input": 20, "output": 10}], "unavailable": []},
+        }
+        gap_row = {
+            "item_id": "AOS-2026-0082", "session_id": "session-gap", "timestamp": "2026-07-19T21:45:32Z",
+            "capture_evidence": {"cached_input_tokens": backend.UNAVAILABLE_CLI_VALUE, "reasoning_output_tokens": backend.UNAVAILABLE_CLI_VALUE},
+            "token_usage": {"totals": {"input": 30, "output": 15}, "workbenches": [{"tool": "codex", "source": "reported", "input": 30, "output": 15}], "unavailable": []},
+        }
+        codex = next(group for group in backend._token_source_summary([exact_row, gap_row]) if group["source"] == "Codex")
+        self.assertEqual(2, codex["exact_rows"])
+        self.assertEqual(50, codex["cached_input"])
+        self.assertEqual(6, codex["reasoning_output"])
+        self.assertEqual(50, codex["input"])
+        self.assertEqual(25, codex["output"])
+        self.assertEqual(75, codex["total"])
+
+    def test_dashboard_tokens_endpoint_returns_200_with_unavailable_cached_component_row(self):
+        gap_row = {
+            "item_id": "AOS-2026-0083", "session_id": "session-endpoint-gap", "timestamp": "2026-07-19T21:46:32Z",
+            "capture_evidence": {"cached_input_tokens": backend.UNAVAILABLE_CLI_VALUE, "reasoning_output_tokens": backend.UNAVAILABLE_CLI_VALUE},
+            "token_usage": {"totals": {"input": 20, "output": 10}, "workbenches": [{"tool": "codex", "source": "reported", "input": 20, "output": 10}], "unavailable": []},
+        }
+        with patch.object(backend, "_read_token_ledger_records", return_value=[gap_row]):
+            result = backend.dashboard_tokens()
+        codex = next(group for group in result["source_summary"] if group["source"] == "Codex")
+        self.assertEqual(0, codex["cached_input"])
+        self.assertEqual(0, codex["reasoning_output"])
+        record = next(item for item in result["records"] if item["item_id"] == "AOS-2026-0083")
+        self.assertEqual(backend.UNAVAILABLE_CLI_VALUE, record["cached_input_tokens"])
+        self.assertEqual(backend.UNAVAILABLE_CLI_VALUE, record["reasoning_output_tokens"])
+
     def test_workflow_name_fallback_chain_ignores_frontmatter_delimiters(self):
         path = Path("workflows/unit/workflow.md")
         cases = [

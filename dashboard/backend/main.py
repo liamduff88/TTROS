@@ -2647,6 +2647,18 @@ def _sort_token_records_newest(records: list[dict]) -> list[dict]:
     return sorted(records, key=key)
 
 
+def _coerce_int(value) -> int:
+    """Best-effort int for aggregate accumulation; non-numeric values (e.g. the
+    UNAVAILABLE_CLI_VALUE sentinel string) contribute 0 rather than raising."""
+    if isinstance(value, bool):
+        return 0
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.lstrip("-").isdigit():
+        return int(value)
+    return 0
+
+
 def _token_source_summary(records: list[dict]) -> list[dict]:
     order = ["Codex", "Claude Code", "Hermes", "Unattributed", "No agent invocation", "Unavailable"]
     def blank(name: str) -> dict:
@@ -2667,8 +2679,8 @@ def _token_source_summary(records: list[dict]) -> list[dict]:
             group["input"] += int(row["input_tokens"] or 0)
             group["output"] += int(row["output_tokens"] or 0)
             group["total"] += int(row["total_tokens"])
-            group["cached_input"] += int(row["cached_input_tokens"] or 0)
-            group["reasoning_output"] += int(row["reasoning_output_tokens"] or 0)
+            group["cached_input"] += _coerce_int(row["cached_input_tokens"])
+            group["reasoning_output"] += _coerce_int(row["reasoning_output_tokens"])
     return [groups[name] for name in order if name in groups] + [groups[name] for name in sorted(set(groups) - set(order))]
 
 
