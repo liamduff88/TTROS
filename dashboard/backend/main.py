@@ -8327,7 +8327,14 @@ def run_queue_item(item_id: str):
             }
 
         claim_owner = owner if owner != "unassigned" else "hermes"
-        started = _load_queue_tool().claim_item(BASE_DIR, item_id, claim_owner)
+        try:
+            started = _load_queue_tool().claim_item(BASE_DIR, item_id, claim_owner)
+        except Exception as claim_exc:
+            # Matched by code attribute, not class identity: _load_queue_tool()
+            # re-executes the module, so exception classes differ per load.
+            if getattr(claim_exc, "code", None) == "claim_conflict":
+                raise HTTPException(status_code=409, detail=str(claim_exc))
+            raise
         heartbeat_stop = threading.Event()
         heartbeat_thread = threading.Thread(
             target=_queue_heartbeat_loop,

@@ -1041,6 +1041,88 @@ class AosQueueTest(unittest.TestCase):
             self.assertEqual(receipt_item["status"], "done")
             self.assertEqual(receipt_item["receipts"][0]["path"], "queue/receipts/unit.md")
 
+    def test_claim_is_exclusive_against_reentry(self):
+        tool = load_tool_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            item = parse_json(run_cli(root, "create", "--title", "Exclusive work", "--owner", "codex").stdout)
+            self.assertEqual(run_cli(root, "claim", item["id"], "codex").returncode, 0)
+
+            same_agent = run_cli(root, "claim", item["id"], "codex")
+            self.assertNotEqual(0, same_agent.returncode)
+            self.assertIn("already claimed by codex", same_agent.stderr)
+
+            other_agent = run_cli(root, "claim", item["id"], "claude")
+            self.assertNotEqual(0, other_agent.returncode)
+            self.assertIn("already claimed by codex", other_agent.stderr)
+
+            with self.assertRaises(tool.ClaimConflictError) as ctx:
+                tool.claim_item(root, item["id"], "codex")
+            self.assertEqual(ctx.exception.code, "claim_conflict")
+            self.assertIsInstance(ctx.exception, tool.QueueError)
+
+    def test_claim_refused_on_agent_working_even_without_claim_record(self):
+        tool = load_tool_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            item = parse_json(run_cli(root, "create", "--title", "Orphaned working", "--owner", "codex").stdout)
+            items = tool.load_items(root)
+            items[0]["status"] = "agent_working"
+            tool.save_items(root, items)
+            with self.assertRaises(tool.ClaimConflictError):
+                tool.claim_item(root, item["id"], "codex")
+
+    def test_claim_refused_when_claim_record_exists_regardless_of_status(self):
+        tool = load_tool_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            item = parse_json(run_cli(root, "create", "--title", "Sticky claim", "--owner", "codex").stdout)
+            self.assertEqual(run_cli(root, "claim", item["id"], "codex").returncode, 0)
+            # update_status intentionally leaves the claim record in place.
+            self.assertEqual(run_cli(root, "status", item["id"], "agent_todo").returncode, 0)
+            for agent in ("codex", "claude"):
+                with self.assertRaises(tool.ClaimConflictError):
+                    tool.claim_item(root, item["id"], agent)
+
+    def test_release_to_done_runs_finalize_and_writes_both_ledgers(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            item = parse_json(run_cli(root, "create", "--title", "Release close", "--owner", "codex").stdout)
+            self.assertEqual(run_cli(root, "claim", item["id"], "codex").returncode, 0)
+
+            released = run_cli(root, "release", item["id"], "--status", "done")
+            self.assertEqual(released.returncode, 0, released.stderr)
+            released_item = parse_json(released.stdout)
+            self.assertEqual(released_item["status"], "done")
+            self.assertEqual(released_item["claim"], {"claimed_by": None, "claimed_at": None})
+
+            run_lines = (root / "queue/run_ledger.jsonl").read_text(encoding="utf-8").splitlines()
+            token_lines = (root / "queue/token_ledger.jsonl").read_text(encoding="utf-8").splitlines()
+            self.assertEqual(len(run_lines), 1)
+            self.assertEqual(len(token_lines), 1)
+            self.assertEqual(json.loads(run_lines[0])["item_id"], item["id"])
+            self.assertEqual(json.loads(token_lines[0])["item_id"], item["id"])
+
+    def test_release_to_done_on_already_done_item_only_clears_claim(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            item = parse_json(run_cli(root, "create", "--title", "Backend close", "--owner", "codex").stdout)
+            self.assertEqual(run_cli(root, "claim", item["id"], "codex").returncode, 0)
+            # Mirror the run endpoint: attach_receipt finalizes done first,
+            # then release-to-done only clears the claim (main.py:8451).
+            receipt = run_cli(root, "receipt", item["id"], "queue/receipts/close.md", "--status", "done")
+            self.assertEqual(receipt.returncode, 0, receipt.stderr)
+            run_before = (root / "queue/run_ledger.jsonl").read_text(encoding="utf-8")
+            token_before = (root / "queue/token_ledger.jsonl").read_text(encoding="utf-8")
+
+            released = run_cli(root, "release", item["id"], "--status", "done")
+            self.assertEqual(released.returncode, 0, released.stderr)
+            released_item = parse_json(released.stdout)
+            self.assertEqual(released_item["status"], "done")
+            self.assertEqual(released_item["claim"], {"claimed_by": None, "claimed_at": None})
+            self.assertEqual((root / "queue/run_ledger.jsonl").read_text(encoding="utf-8"), run_before)
+            self.assertEqual((root / "queue/token_ledger.jsonl").read_text(encoding="utf-8"), token_before)
+
     def test_worker_claim_heartbeat_renews_only_the_active_owner(self):
         tool = load_tool_module()
         with tempfile.TemporaryDirectory() as tmp:

@@ -107,6 +107,15 @@ class QueueError(Exception):
     """Raised when a local queue operation cannot continue."""
 
 
+class ClaimConflictError(QueueError):
+    """Raised when a claim is refused because the item is already claimed or
+    already agent_working. The `code` attribute survives dynamic module loads
+    (importlib gives each load distinct class objects), so callers such as the
+    dashboard run endpoint match on it rather than on class identity."""
+
+    code = "claim_conflict"
+
+
 def now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
@@ -1516,9 +1525,13 @@ def claim_item(root: Path, item_id: str, agent_id: str) -> dict:
     item = find_item(items, item_id)
     if item.get("owner_type") == "workflow":
         raise QueueError(f"{item_id} is a workflow aggregate and cannot be claimed")
-    claimed_by = item.get("claim", {}).get("claimed_by")
-    if claimed_by and claimed_by != agent_id:
-        raise QueueError(f"Work item already claimed by {claimed_by}")
+    claimed_by = (item.get("claim") or {}).get("claimed_by")
+    if claimed_by:
+        raise ClaimConflictError(
+            f"Work item already claimed by {claimed_by}; claims are exclusive even for the same agent: {item_id}"
+        )
+    if item.get("status") == "agent_working":
+        raise ClaimConflictError(f"Work item is already agent_working and cannot be claimed: {item_id}")
     timestamp = now_iso()
     item["claim"] = {"claimed_by": agent_id, "claimed_at": timestamp}
     item["worker_heartbeat_at"] = timestamp
@@ -1580,9 +1593,23 @@ def register_worker_runtime(
 
 @locked_queue_mutation
 def release_item(root: Path, item_id: str, status: str) -> dict:
+    """Release a claim, setting the requested status. A transition into `done`
+    runs finalize_done first (see update_status): the claim is cleared only
+    after finalize_done succeeds, so a refusal leaves the item — including its
+    claim — unmodified. Releasing an already-done item just clears the claim."""
     validate_status(status)
     items = load_items(root)
     item = find_item(items, item_id)
+    previous_status = item.get("status")
+    if status == DONE_STATUS and previous_status != DONE_STATUS:
+        effect_id = _done_effect_id(item, None, "release")
+        intent = _prepare_done_intent(root, items, item, effect_id, None)
+        finalize_done(root, item, effect_id=effect_id, effect_timestamp=intent["created_at"])
+        item["claim"] = {"claimed_by": None, "claimed_at": None}
+        item["worker_heartbeat_at"] = None
+        item.pop("worker_runtime", None)
+        _finish_done(root, items, item, effect_id, intent, None)
+        return item
     timestamp = now_iso()
     item["claim"] = {"claimed_by": None, "claimed_at": None}
     item["worker_heartbeat_at"] = None
