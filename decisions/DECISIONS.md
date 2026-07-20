@@ -1,6 +1,27 @@
 # DECISIONS.md — log of decisions that change system behavior
 > One entry per behavior-affecting change. Newest first.
 
+## 2026-07-20 — Carousel resource CTAs resolve deterministically to post links
+
+`linkedin_carousel_from_md` now resolves controlled final-slide/caption
+markers from optional structured resource metadata first, then from weighted
+source/title/heading, carousel, caption, and link context. A confidence and
+margin gate prevents unsupported specificity; ambiguous content uses the
+neutral full-resource wording. The PDF points to the LinkedIn post without a
+raw URL, while the caption carries the configured URL or an unmistakable
+pre-post review placeholder. Resource type, action, copy, evidence, and
+fallback state are stored in `post_package.json`; message-based CTAs are not an
+active mode.
+
+## 2026-07-20 — LinkedIn carousel packages use the existing PDF renderer
+
+`linkedin_carousel_from_md` now calls a strict Playwright/Chromium carousel
+profile in `workflows/pdf_branding`, producing one validated 8×10-inch PDF page
+per Markdown slide plus the existing six-file review package. A4 report behavior
+is preserved; carousel runs reject fallback/placeholder PDFs, overflow, blank or
+duplicate pages, page-count drift, and source/caption mismatch. All LinkedIn
+posting, upload, scheduling, messaging, and connection actions remain manual.
+
 ## 2026-07-20 — Timed-out Codex launches terminate as bounded process groups
 
 Timed-out Codex launches terminate their full Linux process group with bounded
