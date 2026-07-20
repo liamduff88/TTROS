@@ -183,7 +183,7 @@ class AosOrchestrationTests(unittest.TestCase):
             root = Path(tmp)
             write_json(root / "queue/notifications.json", {
                 "escalation": {"unanswered_minutes": 1},
-                "allowlist": {"telegram": ["1320777128"], "agentmail_internal": []},
+                "allowlist": {"telegram": ["telegram-test-recipient-0001"], "agentmail_internal": []},
             })
             stale = (datetime.now(timezone.utc) - timedelta(minutes=3)).replace(microsecond=0).isoformat().replace("+00:00", "Z")
             write_items(root, [item("AOS-2026-0139", "needs_input", title="Receipt delivery improvement", updated_at=stale)])
@@ -316,7 +316,7 @@ class AosOrchestrationTests(unittest.TestCase):
             root = Path(tmp)
             write_json(root / "queue/notifications.json", {
                 "escalation": {"unanswered_minutes": 1},
-                "allowlist": {"telegram": ["1320777128"], "agentmail_internal": []},
+                "allowlist": {"telegram": ["telegram-test-recipient-0001"], "agentmail_internal": []},
             })
             stale = (datetime.now(timezone.utc) - timedelta(minutes=3)).replace(microsecond=0).isoformat().replace("+00:00", "Z")
             write_items(root, [item("AOS-2026-0001", "needs_input", updated_at=stale)])
@@ -520,7 +520,7 @@ class AosOrchestrationTests(unittest.TestCase):
             (root / "results" / "step1-output.md").write_text("artifact", encoding="utf-8")
             write_json(root / "queue" / "notifications.json", {
                 "escalation": {"unanswered_minutes": 10},
-                "allowlist": {"telegram": ["1320777128"], "agentmail_internal": []},
+                "allowlist": {"telegram": ["telegram-test-recipient-0001"], "agentmail_internal": []},
             })
             write_items(root, [
                 item("AOS-2026-0001", "done", parent_id="AOS-2026-0000", step_index=1, receipts=[{"path": "queue/receipts/step1.md", "created_at": "2026-07-09T00:00:00Z", "status": "done"}]),
@@ -548,7 +548,7 @@ class AosOrchestrationTests(unittest.TestCase):
             root = Path(tmp)
             (root / "queue" / "receipts").mkdir(parents=True)
             (root / "queue" / "receipts" / "step1.md").write_text("PASS\n", encoding="utf-8")
-            write_json(root / "queue" / "notifications.json", {"escalation": {"unanswered_minutes": 10}, "allowlist": {"telegram": ["1320777128"]}})
+            write_json(root / "queue" / "notifications.json", {"escalation": {"unanswered_minutes": 10}, "allowlist": {"telegram": ["telegram-test-recipient-0001"]}})
             write_items(root, [
                 item("AOS-2026-0001", "done", parent_id="AOS-2026-0000", step_index=1, receipts=[{"path": "queue/receipts/step1.md", "created_at": "2026-07-09T00:00:00Z", "status": "done"}]),
                 item("AOS-2026-0002", "inbox", parent_id="AOS-2026-0000", step_index=2, depends_on=["AOS-2026-0001"]),
@@ -565,7 +565,7 @@ class AosOrchestrationTests(unittest.TestCase):
             root = Path(tmp)
             write_json(root / "queue" / "notifications.json", {
                 "escalation": {"unanswered_minutes": 1},
-                "allowlist": {"telegram": ["1320777128"], "agentmail_internal": []},
+                "allowlist": {"telegram": ["telegram-test-recipient-0001"], "agentmail_internal": []},
             })
             stale = (datetime.now(timezone.utc) - timedelta(minutes=2)).replace(microsecond=0).isoformat().replace("+00:00", "Z")
             write_items(root, [item("AOS-2026-0001", "needs_input", updated_at=stale)])
@@ -583,7 +583,7 @@ class AosOrchestrationTests(unittest.TestCase):
             second = runner.tick(root, send_telegram=lambda chat, text: sends.append((chat, text)))
             third = runner.tick(root, send_telegram=lambda chat, text: sends.append((chat, text)))
             self.assertEqual(len(sends), 1)
-            self.assertEqual(sends[0][0], "1320777128")
+            self.assertEqual(sends[0][0], "telegram-test-recipient-0001")
             self.assertFalse(any(row.get("event") == "telegram_escalation" for row in first["notifications"]))
             self.assertTrue(any(row.get("result") == "sent" for row in second["notifications"]))
             self.assertFalse(any(row.get("event") == "telegram_escalation" for row in third["notifications"]))
@@ -599,7 +599,7 @@ class AosOrchestrationTests(unittest.TestCase):
             root = Path(tmp)
             write_json(root / "queue" / "notifications.json", {
                 "escalation": {"unanswered_minutes": 1},
-                "allowlist": {"telegram": ["1320777128"], "agentmail_internal": []},
+                "allowlist": {"telegram": ["telegram-test-recipient-0001"], "agentmail_internal": []},
             })
             write_items(root, [item("AOS-2026-0001", "needs_input")])
             queue_item = read_items(root)[0]
@@ -608,7 +608,7 @@ class AosOrchestrationTests(unittest.TestCase):
             first = runner.attempt_telegram_send(
                 root,
                 queue_item,
-                "1320777128",
+                "telegram-test-recipient-0001",
                 "Agentic OS validation send",
                 send_telegram=lambda chat, text: sends.append((chat, text)),
                 key="api_validation",
@@ -617,7 +617,7 @@ class AosOrchestrationTests(unittest.TestCase):
             second = runner.attempt_telegram_send(
                 root,
                 queue_item,
-                "1320777128",
+                "telegram-test-recipient-0001",
                 "Agentic OS validation send",
                 send_telegram=lambda chat, text: sends.append((chat, text)),
                 key="api_validation",
@@ -633,7 +633,7 @@ class AosOrchestrationTests(unittest.TestCase):
             self.assertEqual(second["prior_receipt_path"], first["receipt_path"])
             self.assertEqual(
                 first["idempotency_key"],
-                "AOS-2026-0001|telegram_escalation|api_validation|1320777128",
+                "AOS-2026-0001|telegram_escalation|api_validation|telegram-test-recipient-0001",
             )
             self.assertEqual(first["idempotency_key"], second["idempotency_key"])
             self.assertFalse("receipt_path" in second)
@@ -643,7 +643,7 @@ class AosOrchestrationTests(unittest.TestCase):
             root = Path(tmp)
             write_json(root / "queue" / "notifications.json", {
                 "escalation": {"unanswered_minutes": 1},
-                "allowlist": {"telegram": ["1320777128"], "agentmail_internal": []},
+                "allowlist": {"telegram": ["telegram-test-recipient-0001"], "agentmail_internal": []},
             })
             stale = (datetime.now(timezone.utc) - timedelta(minutes=2)).replace(microsecond=0).isoformat().replace("+00:00", "Z")
             write_items(root, [item("AOS-2026-0001", "needs_input", updated_at=stale)])
@@ -672,7 +672,7 @@ def prime_escalation_due(root):
     """Create a needs_input item whose Telegram escalation is due on next tick."""
     write_json(root / "queue" / "notifications.json", {
         "escalation": {"unanswered_minutes": 1},
-        "allowlist": {"telegram": ["1320777128"], "agentmail_internal": []},
+        "allowlist": {"telegram": ["telegram-test-recipient-0001"], "agentmail_internal": []},
     })
     stale = (datetime.now(timezone.utc) - timedelta(minutes=3)).replace(microsecond=0).isoformat().replace("+00:00", "Z")
     write_items(root, [item("AOS-2026-0001", "needs_input", updated_at=stale)])

@@ -2472,7 +2472,7 @@ class HermesComposioTests(unittest.TestCase):
             (root / "queue" / "notifications.json").write_text(
                 json.dumps({
                     "escalation": {"unanswered_minutes": 1},
-                    "allowlist": {"telegram": ["1320777128"], "agentmail_internal": []},
+                    "allowlist": {"telegram": ["telegram-test-recipient-0001"], "agentmail_internal": []},
                 }),
                 encoding="utf-8",
             )
@@ -2491,7 +2491,7 @@ class HermesComposioTests(unittest.TestCase):
 
             with patch.object(backend, "BASE_DIR", root), \
                  patch.object(backend.aos_orchestration, "default_bridge_send", side_effect=lambda chat, text: sends.append((chat, text))):
-                body = backend.TelegramSendValidation(item_id="AOS-2026-0001", recipient="1320777128")
+                body = backend.TelegramSendValidation(item_id="AOS-2026-0001", recipient="telegram-test-recipient-0001")
                 first = backend.orchestration_telegram_send_test(body)
                 second = backend.orchestration_telegram_send_test(body)
 
@@ -2503,14 +2503,14 @@ class HermesComposioTests(unittest.TestCase):
             self.assertFalse(second["sent"])
             self.assertTrue(second["duplicate_blocked"])
             self.assertEqual(len(sends), 1)
-            self.assertEqual(sends[0], ("1320777128", "Agentic OS validation send"))
+            self.assertEqual(sends[0], ("telegram-test-recipient-0001", "Agentic OS validation send"))
 
     def write_telegram_send_fixture(self, root, **overrides):
         (root / "queue").mkdir(parents=True, exist_ok=True)
         (root / "queue" / "notifications.json").write_text(
             json.dumps({
                 "escalation": {"unanswered_minutes": 1},
-                "allowlist": {"telegram": ["1320777128", "fixture-chat"], "agentmail_internal": []},
+                "allowlist": {"telegram": ["telegram-test-recipient-0001", "fixture-chat"], "agentmail_internal": []},
             }),
             encoding="utf-8",
         )
@@ -2581,7 +2581,7 @@ class HermesComposioTests(unittest.TestCase):
                 def invoke(sender):
                     with patch.object(backend.aos_orchestration, "default_bridge_send", side_effect=sender):
                         return backend.orchestration_telegram_send_test(
-                            backend.TelegramSendValidation(item_id="AOS-2026-0001", recipient="1320777128")
+                            backend.TelegramSendValidation(item_id="AOS-2026-0001", recipient="telegram-test-recipient-0001")
                         )
                 result = self.assert_queue_mutates_while_send_in_flight(root, invoke)
             self.assertTrue(result["success"])
@@ -2591,7 +2591,7 @@ class HermesComposioTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.write_telegram_send_fixture(root)
-            body = backend.TelegramSendValidation(item_id="AOS-2026-0001", recipient="1320777128")
+            body = backend.TelegramSendValidation(item_id="AOS-2026-0001", recipient="telegram-test-recipient-0001")
             with patch.object(backend, "BASE_DIR", root), \
                  patch.object(backend.aos_orchestration, "default_bridge_send", side_effect=RuntimeError("bridge down")):
                 first = backend.orchestration_telegram_send_test(body)

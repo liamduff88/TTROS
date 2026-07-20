@@ -802,7 +802,7 @@ class AosQueueTest(unittest.TestCase):
         (root / "queue").mkdir(parents=True, exist_ok=True)
         (root / "queue" / "notifications.json").write_text(json.dumps({
             "escalation": {"unanswered_minutes": 10},
-            "allowlist": {"telegram": ["1320777128"], "agentmail_internal": []},
+            "allowlist": {"telegram": ["telegram-test-recipient-0001"], "agentmail_internal": []},
         }), encoding="utf-8")
 
     def test_standalone_runner_and_concurrent_creator_both_survive(self):
@@ -822,7 +822,7 @@ class AosQueueTest(unittest.TestCase):
 
             with patch.object(runner_module, "default_bridge_send", side_effect=paused_send):
                 with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                    manual = pool.submit(runner_module.run_manual_attempt, root, first["id"], "1320777128", "test")
+                    manual = pool.submit(runner_module.run_manual_attempt, root, first["id"], "telegram-test-recipient-0001", "test")
                     self.assertTrue(send_started.wait(5))
                     created = run_cli(root, "create", "--title", "Concurrent creator")
                     creator_done.set()
@@ -846,8 +846,8 @@ class AosQueueTest(unittest.TestCase):
                 return {"message_sent": True, "documents": []}
 
             with patch.object(runner_module, "default_bridge_send", side_effect=sender):
-                first_result = runner_module.run_manual_attempt(root, first["id"], "1320777128", "hello")
-                second_result = runner_module.run_manual_attempt(root, first["id"], "1320777128", "hello")
+                first_result = runner_module.run_manual_attempt(root, first["id"], "telegram-test-recipient-0001", "hello")
+                second_result = runner_module.run_manual_attempt(root, first["id"], "telegram-test-recipient-0001", "hello")
             self.assertEqual("sent", first_result["result"])
             self.assertEqual("already_sent", second_result["result"])
             self.assertTrue(second_result["duplicate_blocked"])
@@ -868,7 +868,7 @@ class AosQueueTest(unittest.TestCase):
                 raise RuntimeError("bridge down")
 
             with patch.object(runner_module, "default_bridge_send", side_effect=failing):
-                first_result = runner_module.run_manual_attempt(root, first["id"], "1320777128", "hello")
+                first_result = runner_module.run_manual_attempt(root, first["id"], "telegram-test-recipient-0001", "hello")
             self.assertEqual("send_failed", first_result["result"])
             self.assertFalse(first_result["sent"])
             calls = []
@@ -878,7 +878,7 @@ class AosQueueTest(unittest.TestCase):
                 return {"message_sent": True, "documents": []}
 
             with patch.object(runner_module, "default_bridge_send", side_effect=counting):
-                second_result = runner_module.run_manual_attempt(root, first["id"], "1320777128", "hello")
+                second_result = runner_module.run_manual_attempt(root, first["id"], "telegram-test-recipient-0001", "hello")
             self.assertEqual([], calls)
             self.assertEqual("ambiguous_not_retried", second_result["result"])
             self.assertTrue(second_result["duplicate_blocked"])
