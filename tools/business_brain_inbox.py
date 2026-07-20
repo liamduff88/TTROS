@@ -1,6 +1,6 @@
 """Safe append-only intake for the canonical Business Brain inbox.
 
-Revisit: when the canonical inbox, capture metadata, or vault write contract changes. · Last touched: 2026-07-19.
+Revisit: when the canonical inbox, capture metadata, or vault write contract changes. · Last touched: 2026-07-20.
 """
 
 from __future__ import annotations
@@ -168,14 +168,21 @@ def _existing_capture(inbox: Path, prefix: str, token: str) -> Path | None:
 
 def _existing_attachment(attachments: Path, token: str) -> Path | None:
     matches = []
-    for path in attachments.glob(f"tg_*_{token}_*"):
-        try:
-            resolved = path.resolve(strict=True)
-            resolved.relative_to(attachments.resolve())
-        except (OSError, ValueError):
-            continue
-        if resolved.is_file():
-            matches.append(resolved)
+    seen: set[Path] = set()
+    # Current captures use token-only identity before the sanitized display
+    # name. Older captures included a wall-clock stamp before the token.
+    for pattern in (f"tg_{token}_*", f"tg_*_{token}_*"):
+        for path in attachments.glob(pattern):
+            if path in seen:
+                continue
+            seen.add(path)
+            try:
+                resolved = path.resolve(strict=True)
+                resolved.relative_to(attachments.resolve())
+            except (OSError, ValueError):
+                continue
+            if resolved.is_file():
+                matches.append(resolved)
     if len(matches) > 1:
         raise InboxCaptureError("attachment replay identity is ambiguous")
     return matches[0] if matches else None
@@ -304,6 +311,13 @@ def capture_attachment(
     identity = str(capture_id or "")
     if not identity:
         raise InboxCaptureError("attachment capture ID is required")
+    if len(identity) > 256 or any(ord(char) < 32 for char in identity):
+        raise InboxCaptureError("capture ID is invalid")
+    raw_body = str(body)
+    if not raw_body.strip():
+        raise InboxCaptureError("capture text must not be empty")
+    if len(raw_body) > MAX_TEXT_CHARS:
+        raise InboxCaptureError(f"capture text must be {MAX_TEXT_CHARS} characters or fewer")
     stamp = _utc_timestamp(captured_at)
     inbox = resolve_canonical_inbox(root=root)
     attachments = (inbox / ATTACHMENTS_DIRECTORY).resolve()
@@ -323,6 +337,8 @@ def capture_attachment(
         existing_attachment = _existing_attachment(attachments, token)
         if existing_attachment is None:
             raise InboxCaptureError("capture note exists without a companion attachment")
+        if existing_attachment.read_bytes() != data:
+            raise InboxCaptureError("attachment capture ID already exists with different content")
         attachment_pointer = business_brain.business_brain_pointer_for_path(existing_attachment, root=root)
         note = capture_text(
             body,
@@ -348,7 +364,10 @@ def capture_attachment(
             attachment_pointer=attachment_pointer,
         )
 
-    attachment_name = f"tg_{stamp.strftime('%Y-%m-%d_%H%M%S%f')}_{token}_{safe_original}"
+    # The storage identity is independent of wall-clock time. Concurrent first
+    # captures therefore contend on one atomic publication target instead of
+    # creating separately stamped files before racing on the companion note.
+    attachment_name = f"tg_{token}_attachment"
     attachment = _safe_child(attachments, attachment_name)
     created = _publish_once(attachment, data)
     digest = hashlib.sha256(data).hexdigest()
@@ -372,14 +391,23 @@ def capture_attachment(
         )
     except Exception:
         if created:
-            attachment.unlink(missing_ok=True)
-            _fsync_directory(attachments)
+            # A same-identity caller can publish the companion note after this
+            # caller won the attachment target but before its conflicting note
+            # is rejected. Preserve that complete pair instead of rolling back
+            # the attachment out from under the concurrent winner.
+            try:
+                companion_exists = _existing_capture(inbox, SOURCE_PREFIXES["telegram_bot"], token) is not None
+            except InboxCaptureError:
+                companion_exists = True
+            if not companion_exists:
+                attachment.unlink(missing_ok=True)
+                _fsync_directory(attachments)
         raise
     return CaptureResult(
         path=note.path,
         pointer=note.pointer,
         capture_id=note.capture_id,
-        duplicate=note.duplicate and not created,
+        duplicate=not created,
         attachment_path=attachment,
         attachment_pointer=attachment_pointer,
     )

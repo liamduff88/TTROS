@@ -4,9 +4,10 @@ import threading
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 from tools import aos_indexer
-from tools.business_brain import BUSINESS_BRAIN_ROOT
+from tools import business_brain_inbox as inbox_module
 from tools.business_brain_inbox import (
     InboxCaptureError,
     capture_attachment,
@@ -25,7 +26,12 @@ def make_vault(root: Path) -> Path:
     notes = {
         "README.md": "---\nid: root\ntype: navigation\n---\n# Root\n\n[[index/MEMORY_INDEX|Index]]\n",
         "index/MEMORY_INDEX.md": "---\nid: index\ntype: index\n---\n# Index\n\n[[README|Root]] · [[inbox/README|Inbox]]\n",
-        "inbox/README.md": "---\nid: ttros-brain-inbox\ntype: intake\n---\n# Inbox\n\n[[README|Root]] · [[index/MEMORY_INDEX|Index]]\n",
+        "inbox/README.md": (
+            "---\nid: ttros-brain-inbox\ntype: intake\n---\n# Inbox\n\n"
+            "[[README|Vault Root]] · [[index/MEMORY_INDEX|Memory Index]]\n\n"
+            "Raw captures enter `source_notes/`; reviewed packets use `distilled_packets/`.\n"
+            "Use `/inbox` for capture and `memory_promotion` for durable knowledge.\n"
+        ),
     }
     for relative, text in notes.items():
         path = root / relative
@@ -111,6 +117,163 @@ class BusinessBrainInboxTests(unittest.TestCase):
             attachments = (vault / "inbox/source_notes/attachments")
             self.assertEqual(list(attachments.glob("tg_*")), [first.attachment_path])
 
+    def test_attachment_replay_conflicts_when_identity_bytes_change(self):
+        with tempfile.TemporaryDirectory() as temp:
+            vault = make_vault(Path(temp))
+            first = capture_attachment(
+                b"first bytes",
+                original_filename="brief.txt",
+                mime_type="text/plain",
+                capture_id="attachment-byte-conflict",
+                root=vault,
+            )
+
+            with self.assertRaisesRegex(InboxCaptureError, "different content"):
+                capture_attachment(
+                    b"different bytes",
+                    original_filename="brief.txt",
+                    mime_type="text/plain",
+                    capture_id="attachment-byte-conflict",
+                    root=vault,
+                )
+
+            self.assertEqual(first.attachment_path.read_bytes(), b"first bytes")
+            self.assertEqual(len(list((vault / "inbox/source_notes").glob("tg_*.md"))), 1)
+            self.assertEqual(len(list((vault / "inbox/source_notes/attachments").glob("tg_*"))), 1)
+
+    def test_concurrent_first_attachment_capture_publishes_one_complete_pair(self):
+        with tempfile.TemporaryDirectory() as temp:
+            vault = make_vault(Path(temp))
+            worker_count = 12
+            barrier = threading.Barrier(worker_count)
+            results: list = []
+            errors: list = []
+
+            def worker(worker_index: int):
+                barrier.wait()
+                try:
+                    results.append(
+                        capture_attachment(
+                            b"shared concurrent attachment",
+                            original_filename=f"concurrency-proof-{worker_index}.txt",
+                            mime_type="text/plain",
+                            capture_id="concurrent-attachment",
+                            root=vault,
+                        )
+                    )
+                except Exception as exc:  # pragma: no cover - surfaced below
+                    errors.append(exc)
+
+            threads = [threading.Thread(target=worker, args=(index,)) for index in range(worker_count)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(timeout=10)
+
+            self.assertFalse(any(thread.is_alive() for thread in threads))
+            self.assertEqual(errors, [])
+            self.assertEqual(len(results), worker_count)
+            self.assertEqual(sum(not result.duplicate for result in results), 1)
+            self.assertEqual(len({result.path for result in results}), 1)
+            self.assertEqual(len({result.attachment_path for result in results}), 1)
+
+            inbox = vault / "inbox/source_notes"
+            notes = list(inbox.glob("tg_*.md"))
+            attachments = list((inbox / "attachments").glob("tg_*"))
+            self.assertEqual(notes, [results[0].path])
+            self.assertEqual(attachments, [results[0].attachment_path])
+            self.assertEqual(attachments[0].read_bytes(), b"shared concurrent attachment")
+            self.assertIn(results[0].attachment_pointer, notes[0].read_text(encoding="utf-8"))
+            self.assertEqual(list(inbox.rglob("*.tmp")), [])
+
+    def test_concurrent_conflicting_note_does_not_remove_winning_attachment(self):
+        with tempfile.TemporaryDirectory() as temp:
+            vault = make_vault(Path(temp))
+            owner_at_note = threading.Event()
+            contender_done = threading.Event()
+            original_capture_text = inbox_module.capture_text
+            results: list = []
+            errors: list = []
+
+            def ordered_capture_text(text, **kwargs):
+                if text == "attachment owner note":
+                    owner_at_note.set()
+                    self.assertTrue(contender_done.wait(5))
+                try:
+                    return original_capture_text(text, **kwargs)
+                finally:
+                    if text == "concurrent winner note":
+                        contender_done.set()
+
+            def capture(body: str):
+                try:
+                    results.append(
+                        capture_attachment(
+                            b"shared attachment bytes",
+                            original_filename="race.txt",
+                            mime_type="text/plain",
+                            capture_id="concurrent-note-conflict",
+                            body=body,
+                            root=vault,
+                        )
+                    )
+                except Exception as exc:  # pragma: no cover - surfaced below
+                    errors.append(exc)
+
+            with patch.object(inbox_module, "capture_text", side_effect=ordered_capture_text):
+                owner = threading.Thread(target=capture, args=("attachment owner note",))
+                owner.start()
+                self.assertTrue(owner_at_note.wait(5))
+                contender = threading.Thread(target=capture, args=("concurrent winner note",))
+                contender.start()
+                contender.join(timeout=5)
+                owner.join(timeout=5)
+
+            self.assertFalse(owner.is_alive())
+            self.assertFalse(contender.is_alive())
+            self.assertEqual(len(results), 1)
+            self.assertEqual(len(errors), 1)
+            self.assertIsInstance(errors[0], InboxCaptureError)
+            self.assertIn("different content", str(errors[0]))
+            self.assertTrue(results[0].path.is_file())
+            self.assertTrue(results[0].attachment_path.is_file())
+            self.assertIn(results[0].attachment_pointer, results[0].path.read_text(encoding="utf-8"))
+            self.assertEqual(results[0].attachment_path.read_bytes(), b"shared attachment bytes")
+
+    def test_legacy_timestamped_note_and_attachment_remain_replay_discoverable(self):
+        with tempfile.TemporaryDirectory() as temp:
+            vault = make_vault(Path(temp))
+            first = capture_attachment(
+                b"legacy attachment",
+                original_filename="legacy.txt",
+                mime_type="text/plain",
+                capture_id="legacy-attachment-replay",
+                root=vault,
+            )
+            legacy_note = first.path.with_name(first.path.name.replace("tg_", "tg_2026-07-19_203000_", 1))
+            legacy_attachment = first.attachment_path.with_name(
+                first.attachment_path.name.replace("tg_", "tg_2026-07-19_203000000000_", 1)
+            )
+            first.path.rename(legacy_note)
+            first.attachment_path.rename(legacy_attachment)
+            legacy_pointer = f"business_brain:{legacy_attachment.relative_to(vault).as_posix()}"
+            legacy_note.write_text(
+                legacy_note.read_text(encoding="utf-8").replace(first.attachment_pointer, legacy_pointer),
+                encoding="utf-8",
+            )
+
+            replay = capture_attachment(
+                b"legacy attachment",
+                original_filename="legacy.txt",
+                mime_type="text/plain",
+                capture_id="legacy-attachment-replay",
+                root=vault,
+            )
+
+            self.assertTrue(replay.duplicate)
+            self.assertEqual(replay.path, legacy_note.resolve())
+            self.assertEqual(replay.attachment_path, legacy_attachment.resolve())
+
     def test_concurrent_same_capture_id_text_captures_share_one_file(self):
         with tempfile.TemporaryDirectory() as temp:
             vault = make_vault(Path(temp))
@@ -156,9 +319,10 @@ class BusinessBrainInboxTests(unittest.TestCase):
             self.assertEqual(result["intake_capture_paths"], ["inbox/source_notes/raw.md"])
             self.assertEqual(result["broken_links"], [])
 
-    def test_live_readme_preserves_stable_contract_and_documents_capture(self):
-        readme = BUSINESS_BRAIN_ROOT / "inbox/README.md"
-        text = readme.read_text(encoding="utf-8")
+    def test_fixture_readme_preserves_stable_contract_and_documents_capture(self):
+        with tempfile.TemporaryDirectory() as temp:
+            vault = make_vault(Path(temp))
+            text = (vault / "inbox/README.md").read_text(encoding="utf-8")
         self.assertIn("id: ttros-brain-inbox", text)
         self.assertIn("type: intake", text)
         self.assertIn("[[README|Vault Root]]", text)
