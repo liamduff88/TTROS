@@ -2505,6 +2505,202 @@ class HermesComposioTests(unittest.TestCase):
             self.assertEqual(len(sends), 1)
             self.assertEqual(sends[0], ("1320777128", "Agentic OS validation send"))
 
+    def write_telegram_send_fixture(self, root, **overrides):
+        (root / "queue").mkdir(parents=True, exist_ok=True)
+        (root / "queue" / "notifications.json").write_text(
+            json.dumps({
+                "escalation": {"unanswered_minutes": 1},
+                "allowlist": {"telegram": ["1320777128", "fixture-chat"], "agentmail_internal": []},
+            }),
+            encoding="utf-8",
+        )
+        item = {
+            "id": "AOS-2026-0001",
+            "title": "Validation send",
+            "status": "needs_input",
+            "owner": "operations",
+            "priority": 1,
+            "created_at": "2026-07-09T00:00:00Z",
+            "updated_at": "2026-07-09T00:00:00Z",
+            "claim": {"claimed_by": None, "claimed_at": None},
+            "receipts": [],
+        }
+        item.update(overrides)
+        self.write_queue_items(root, [item])
+        return item
+
+    def assert_queue_mutates_while_send_in_flight(self, root, invoke):
+        """The delivery passed to invoke must run outside the queue write lock."""
+        send_started = threading.Event()
+        mutation_done = threading.Event()
+        mutation_errors = []
+
+        def mutate():
+            try:
+                if not send_started.wait(10):
+                    raise TimeoutError("telegram send never started")
+                with backend.queue_write_lock(root, wait_seconds=1):
+                    items = backend._read_queue_items()
+                    items.append({
+                        "id": "AOS-2026-7777",
+                        "title": "Concurrent mutation",
+                        "status": "inbox",
+                        "owner": "unassigned",
+                        "priority": 1,
+                        "created_at": "2026-07-19T00:00:00Z",
+                    })
+                    backend._load_queue_tool().save_items(root, items)
+            except Exception as exc:
+                mutation_errors.append(exc)
+            finally:
+                mutation_done.set()
+
+        def sender(chat, text, document_paths=None):
+            send_started.set()
+            if not mutation_done.wait(10):
+                raise TimeoutError("concurrent queue mutation never finished")
+            return {"message_sent": True, "documents": []}
+
+        worker = threading.Thread(target=mutate)
+        worker.start()
+        try:
+            result = invoke(sender)
+        finally:
+            send_started.set()
+            worker.join(15)
+        self.assertEqual([], mutation_errors)
+        self.assertEqual("sent", result.get("result"))
+        self.assertIn("AOS-2026-7777", {row.get("id") for row in backend._read_queue_items()})
+        return result
+
+    def test_telegram_send_test_endpoint_releases_lock_during_delivery(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_telegram_send_fixture(root)
+            with patch.object(backend, "BASE_DIR", root):
+                def invoke(sender):
+                    with patch.object(backend.aos_orchestration, "default_bridge_send", side_effect=sender):
+                        return backend.orchestration_telegram_send_test(
+                            backend.TelegramSendValidation(item_id="AOS-2026-0001", recipient="1320777128")
+                        )
+                result = self.assert_queue_mutates_while_send_in_flight(root, invoke)
+            self.assertTrue(result["success"])
+            self.assertTrue(result["sent"])
+
+    def test_telegram_send_test_endpoint_failed_send_is_not_auto_retried(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_telegram_send_fixture(root)
+            body = backend.TelegramSendValidation(item_id="AOS-2026-0001", recipient="1320777128")
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend.aos_orchestration, "default_bridge_send", side_effect=RuntimeError("bridge down")):
+                first = backend.orchestration_telegram_send_test(body)
+            self.assertEqual("send_failed", first["result"])
+            self.assertFalse(first["sent"])
+            calls = []
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend.aos_orchestration, "default_bridge_send",
+                              side_effect=lambda chat, text: calls.append((chat, text))):
+                second = backend.orchestration_telegram_send_test(body)
+            self.assertEqual([], calls)
+            self.assertEqual("ambiguous_not_retried", second["result"])
+            self.assertTrue(second["duplicate_blocked"])
+            self.assertFalse(second["success"])
+
+    def test_async_running_notification_releases_lock_during_delivery(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_telegram_send_fixture(
+                root, source="telegram", status="agent_working",
+                dispatch={"reply_to": "fixture-chat", "idempotency_key": "fixture-key"},
+            )
+            with patch.object(backend, "BASE_DIR", root):
+                self.assert_queue_mutates_while_send_in_flight(
+                    root, lambda sender: backend._notify_queue_running("AOS-2026-0001", send_telegram=sender)
+                )
+
+    def test_async_running_notification_repeat_is_duplicate_free(self):
+        sends = []
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_telegram_send_fixture(
+                root, source="telegram", status="agent_working",
+                dispatch={"reply_to": "fixture-chat", "idempotency_key": "fixture-key"},
+            )
+            with patch.object(backend, "BASE_DIR", root):
+                first = backend._notify_queue_running(
+                    "AOS-2026-0001", send_telegram=lambda recipient, message: sends.append((recipient, message))
+                )
+                second = backend._notify_queue_running(
+                    "AOS-2026-0001", send_telegram=lambda recipient, message: sends.append((recipient, message))
+                )
+        self.assertEqual("sent", first["result"])
+        self.assertEqual("already_sent", second["result"])
+        self.assertTrue(second["duplicate_blocked"])
+        self.assertEqual(1, len(sends))
+
+    def test_async_running_failed_send_is_not_auto_retried(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_telegram_send_fixture(
+                root, source="telegram", status="agent_working",
+                dispatch={"reply_to": "fixture-chat", "idempotency_key": "fixture-key"},
+            )
+
+            def failing(recipient, message):
+                raise RuntimeError("bridge down")
+
+            calls = []
+            with patch.object(backend, "BASE_DIR", root):
+                first = backend._notify_queue_running("AOS-2026-0001", send_telegram=failing)
+                second = backend._notify_queue_running(
+                    "AOS-2026-0001", send_telegram=lambda recipient, message: calls.append((recipient, message))
+                )
+        self.assertEqual("send_failed", first["result"])
+        self.assertEqual([], calls)
+        self.assertEqual("ambiguous_not_retried", second["result"])
+        self.assertTrue(second["duplicate_blocked"])
+
+    def test_async_completion_notification_releases_lock_during_delivery(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_telegram_send_fixture(
+                root, source="telegram", status="human_review",
+                dispatch={"reply_to": "fixture-chat", "idempotency_key": "fixture-key"},
+            )
+            with patch.object(backend, "BASE_DIR", root):
+                self.assert_queue_mutates_while_send_in_flight(
+                    root,
+                    lambda sender: backend._notify_queue_completion(
+                        "AOS-2026-0001", "human_review", "queue/receipts/fixture.md", send_telegram=sender
+                    ),
+                )
+
+    def test_async_completion_failed_send_is_not_auto_retried(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_telegram_send_fixture(
+                root, source="telegram", status="human_review",
+                dispatch={"reply_to": "fixture-chat", "idempotency_key": "fixture-key"},
+            )
+
+            def failing(recipient, message):
+                raise RuntimeError("bridge down")
+
+            calls = []
+            with patch.object(backend, "BASE_DIR", root):
+                first = backend._notify_queue_completion(
+                    "AOS-2026-0001", "human_review", "queue/receipts/fixture.md", send_telegram=failing
+                )
+                second = backend._notify_queue_completion(
+                    "AOS-2026-0001", "human_review", "queue/receipts/fixture.md",
+                    send_telegram=lambda recipient, message: calls.append((recipient, message)),
+                )
+        self.assertEqual("send_failed", first["result"])
+        self.assertEqual([], calls)
+        self.assertEqual("ambiguous_not_retried", second["result"])
+        self.assertTrue(second["duplicate_blocked"])
+
     def test_system_watch_labels_stalled_runs_separately_from_needs_me(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

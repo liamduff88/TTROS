@@ -5905,15 +5905,24 @@ def orchestration_telegram_send_test(body: TelegramSendValidation):
             item = _queue_find_item(body.item_id)
         except KeyError:
             raise HTTPException(status_code=404, detail="queue item not found")
-        result = aos_orchestration.attempt_telegram_send(BASE_DIR, item, body.recipient, body.message, key="api_validation")
-        aos_orchestration.append_jsonl(BASE_DIR / aos_orchestration.EVENTS_PATH, result)
-        items = _read_queue_items()
-        for index, existing in enumerate(items):
-            if existing.get("id") == item.get("id"):
-                items[index] = item
-                break
-        _load_queue_tool().save_items(BASE_DIR, items)
-        return {"success": result.get("result") in {"sent", "already_sent", "blocked", "send_failed"}, **result}
+        prepared = aos_orchestration.prepare_telegram_send(
+            BASE_DIR, item, body.recipient, body.message, key="api_validation"
+        )
+        if not prepared.get("ready"):
+            result = prepared["record"]
+            aos_orchestration.append_jsonl(BASE_DIR / aos_orchestration.EVENTS_PATH, result)
+            items = _read_queue_items()
+            for index, existing in enumerate(items):
+                if existing.get("id") == item.get("id"):
+                    items[index] = item
+                    break
+            _load_queue_tool().save_items(BASE_DIR, items)
+            return {"success": result.get("result") in {"sent", "already_sent", "blocked", "send_failed"}, **result}
+    # Bridge delivery can stall for the full HTTP timeout while every other
+    # queue mutation waits at most 5s for the write lock, so send outside the
+    # lock and re-acquire it only to record the outcome.
+    result = _deliver_prepared_telegram_send(prepared)
+    return {"success": result.get("result") in {"sent", "already_sent", "blocked", "send_failed"}, **result}
 
 
 @app.post("/api/queue/items/{item_id}/status")
@@ -8096,6 +8105,33 @@ def _queue_run_receipt_text(
     return "\n".join(lines)
 
 
+def _deliver_prepared_telegram_send(prepared: dict, *, send_telegram=None) -> dict:
+    """Deliver a prepared Telegram send outside the queue write lock.
+
+    Same shape as aos_orchestration.tick: the caller runs prepare under the
+    lock and releases it; this performs the network delivery, then re-acquires
+    the lock only to record the outcome against fresh queue state.
+    """
+    sender = send_telegram or aos_orchestration.default_bridge_send
+    delivery_result = None
+    send_error = None
+    try:
+        delivery_result = aos_orchestration._invoke_telegram_sender(
+            sender, prepared["recipient"], prepared["message"], prepared["document_paths"]
+        )
+    except Exception as exc:
+        send_error = exc
+    with queue_write_lock(BASE_DIR):
+        items = _read_queue_items()
+        target = next((row for row in items if row.get("id") == prepared["item_id"]), None) or prepared["item"]
+        result = aos_orchestration.record_telegram_send_result(
+            BASE_DIR, target, prepared, delivery_result, send_error=send_error
+        )
+        aos_orchestration.append_jsonl(BASE_DIR / aos_orchestration.EVENTS_PATH, result)
+        _load_queue_tool().save_items(BASE_DIR, items)
+    return result
+
+
 def _notify_queue_running(
     item_id: str,
     *,
@@ -8118,18 +8154,15 @@ def _notify_queue_running(
                 next_action="None",
                 receipt_attached=False,
             )
-            result = aos_orchestration.attempt_telegram_send(
-                BASE_DIR,
-                item,
-                recipient,
-                message,
-                send_telegram=send_telegram,
-                key="async_running",
-                document_paths=[],
+            prepared = aos_orchestration.prepare_telegram_send(
+                BASE_DIR, item, recipient, message, key="async_running", document_paths=[]
             )
-            aos_orchestration.append_jsonl(BASE_DIR / aos_orchestration.EVENTS_PATH, result)
-            _load_queue_tool().save_items(BASE_DIR, items)
-            return result
+            if not prepared.get("ready"):
+                result = prepared["record"]
+                aos_orchestration.append_jsonl(BASE_DIR / aos_orchestration.EVENTS_PATH, result)
+                _load_queue_tool().save_items(BASE_DIR, items)
+                return result
+        return _deliver_prepared_telegram_send(prepared, send_telegram=send_telegram)
     except Exception as exc:
         _dashboard_backend_log({
             "event": "telegram_async_running",
@@ -8171,18 +8204,15 @@ def _notify_queue_completion(
                 receipt_attached=bool(receipt_path),
             )
             docs = [str(BASE_DIR / receipt_path)] if receipt_path and (BASE_DIR / receipt_path).is_file() else []
-            result = aos_orchestration.attempt_telegram_send(
-                BASE_DIR,
-                item,
-                recipient,
-                message,
-                send_telegram=send_telegram,
-                key=f"async_completion:{status}",
-                document_paths=docs,
+            prepared = aos_orchestration.prepare_telegram_send(
+                BASE_DIR, item, recipient, message, key=f"async_completion:{status}", document_paths=docs
             )
-            aos_orchestration.append_jsonl(BASE_DIR / aos_orchestration.EVENTS_PATH, result)
-            _load_queue_tool().save_items(BASE_DIR, items)
-            return result
+            if not prepared.get("ready"):
+                result = prepared["record"]
+                aos_orchestration.append_jsonl(BASE_DIR / aos_orchestration.EVENTS_PATH, result)
+                _load_queue_tool().save_items(BASE_DIR, items)
+                return result
+        return _deliver_prepared_telegram_send(prepared, send_telegram=send_telegram)
     except Exception as exc:
         _dashboard_backend_log({
             "event": "telegram_async_completion",
