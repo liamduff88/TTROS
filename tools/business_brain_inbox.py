@@ -143,17 +143,41 @@ def _capture_token(source: str, capture_id: str) -> str:
 
 
 def _existing_capture(inbox: Path, prefix: str, token: str) -> Path | None:
+    # Current captures are named "{prefix}_{token}.md" (token-only identity, see
+    # capture_text). Older captures embedded a wall-clock stamp between the
+    # prefix and the token; both forms must remain discoverable for replay.
+    patterns = (f"{prefix}_{token}.md", f"{prefix}_*_{token}.md")
+    seen: set[Path] = set()
     matches = []
-    for path in inbox.glob(f"{prefix}_*_{token}.md"):
+    for pattern in patterns:
+        for path in inbox.glob(pattern):
+            if path in seen:
+                continue
+            seen.add(path)
+            try:
+                resolved = path.resolve(strict=True)
+                resolved.relative_to(inbox.resolve())
+            except (OSError, ValueError):
+                continue
+            if resolved.is_file():
+                matches.append(resolved)
+    if len(matches) > 1:
+        raise InboxCaptureError("capture replay identity is ambiguous")
+    return matches[0] if matches else None
+
+
+def _existing_attachment(attachments: Path, token: str) -> Path | None:
+    matches = []
+    for path in attachments.glob(f"tg_*_{token}_*"):
         try:
             resolved = path.resolve(strict=True)
-            resolved.relative_to(inbox.resolve())
+            resolved.relative_to(attachments.resolve())
         except (OSError, ValueError):
             continue
         if resolved.is_file():
             matches.append(resolved)
     if len(matches) > 1:
-        raise InboxCaptureError("capture replay identity is ambiguous")
+        raise InboxCaptureError("attachment replay identity is ambiguous")
     return matches[0] if matches else None
 
 
@@ -223,9 +247,16 @@ def capture_text(
         metadata=metadata,
     ) + raw + ("" if raw.endswith("\n") else "\n")
     data = note.encode("utf-8")
+
+    def _same_identity(candidate: Path) -> bool:
+        candidate_text = candidate.read_text(encoding="utf-8", errors="strict")
+        return (
+            f"payload_sha256: {digest}\n" in candidate_text
+            and f"source: {source}\n" in candidate_text
+        )
+
     if existing is not None:
-        existing_text = existing.read_text(encoding="utf-8", errors="strict")
-        if f"payload_sha256: {digest}\n" not in existing_text or f"source: {source}\n" not in existing_text:
+        if not _same_identity(existing):
             raise InboxCaptureError("capture ID already exists with different content")
         return CaptureResult(
             path=existing,
@@ -233,9 +264,19 @@ def capture_text(
             capture_id=identity,
             duplicate=True,
         )
-    filename = f"{SOURCE_PREFIXES[source]}_{stamp.strftime('%Y-%m-%d_%H%M%S%f')}_{token}.md"
+    filename = f"{SOURCE_PREFIXES[source]}_{token}.md"
     target = _safe_child(inbox, filename)
-    created = _publish_once(target, data)
+    try:
+        created = _publish_once(target, data)
+    except InboxCaptureError:
+        # A concurrent capture with the same identity (token-named filename)
+        # can win the race with a different wall-clock `captured` stamp, so
+        # _publish_once's raw byte comparison misses the match. Fall back to
+        # the same identity check used above before treating it as a
+        # genuine collision.
+        if not target.is_file() or not _same_identity(target):
+            raise
+        created = False
     return CaptureResult(
         path=target,
         pointer=business_brain.business_brain_pointer_for_path(target, root=root),
@@ -272,6 +313,41 @@ def capture_attachment(
         raise InboxCaptureError("attachment directory escaped the canonical inbox") from exc
     safe_original = sanitize_filename(original_filename, fallback="attachment.bin")
     token = _capture_token("telegram_bot", identity)
+
+    # A companion note already existing means this is a replay: publishing a
+    # fresh, differently-stamped attachment file here would orphan it, since
+    # the note (found by token, independent of this call's stamp) already
+    # points at the original attachment. Skip publication and reuse it.
+    existing_note = _existing_capture(inbox, SOURCE_PREFIXES["telegram_bot"], token)
+    if existing_note is not None:
+        existing_attachment = _existing_attachment(attachments, token)
+        if existing_attachment is None:
+            raise InboxCaptureError("capture note exists without a companion attachment")
+        attachment_pointer = business_brain.business_brain_pointer_for_path(existing_attachment, root=root)
+        note = capture_text(
+            body,
+            source="telegram_bot",
+            capture_id=identity,
+            captured_at=stamp,
+            content_type=content_type,
+            metadata={
+                **(metadata or {}),
+                "attachment": attachment_pointer,
+                "attachment_filename": safe_original,
+                "attachment_mime_type": mime_type or "application/octet-stream",
+                "attachment_sha256": hashlib.sha256(data).hexdigest(),
+            },
+            root=root,
+        )
+        return CaptureResult(
+            path=note.path,
+            pointer=note.pointer,
+            capture_id=note.capture_id,
+            duplicate=True,
+            attachment_path=existing_attachment,
+            attachment_pointer=attachment_pointer,
+        )
+
     attachment_name = f"tg_{stamp.strftime('%Y-%m-%d_%H%M%S%f')}_{token}_{safe_original}"
     attachment = _safe_child(attachments, attachment_name)
     created = _publish_once(attachment, data)

@@ -1,5 +1,6 @@
 import json
 import tempfile
+import threading
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
@@ -57,7 +58,7 @@ class BusinessBrainInboxTests(unittest.TestCase):
             self.assertFalse(first.duplicate)
             self.assertTrue(replay.duplicate)
             self.assertEqual(first.path, replay.path)
-            self.assertTrue(first.path.name.startswith("capture_2026-07-19_203000"))
+            self.assertRegex(first.path.name, r"^capture_[0-9a-f]{16}\.md$")
             self.assertTrue(first.path.read_text(encoding="utf-8").endswith(text))
             self.assertEqual(list((vault / "inbox/source_notes").glob("capture_*.md")), [first.path])
             with self.assertRaises(InboxCaptureError):
@@ -78,6 +79,70 @@ class BusinessBrainInboxTests(unittest.TestCase):
             self.assertTrue(result.attachment_path.resolve().is_relative_to(inbox))
             self.assertNotIn("..", result.attachment_path.name)
             self.assertEqual(result.attachment_path.read_bytes(), b"raw attachment")
+
+    def test_attachment_replay_with_missing_captured_at_does_not_orphan_file(self):
+        with tempfile.TemporaryDirectory() as temp:
+            vault = make_vault(Path(temp))
+            stamp = datetime(2026, 7, 19, 20, 30, tzinfo=timezone.utc)
+            first = capture_attachment(
+                b"raw attachment",
+                original_filename="brief.txt",
+                mime_type="text/plain",
+                capture_id="dup-attach",
+                captured_at=stamp,
+                root=vault,
+            )
+            self.assertFalse(first.duplicate)
+            original_note_text = first.path.read_text(encoding="utf-8")
+
+            replay = capture_attachment(
+                b"raw attachment",
+                original_filename="brief.txt",
+                mime_type="text/plain",
+                capture_id="dup-attach",
+                captured_at=None,
+                root=vault,
+            )
+            self.assertTrue(replay.duplicate)
+            self.assertEqual(replay.path, first.path)
+            self.assertEqual(replay.attachment_path, first.attachment_path)
+            self.assertEqual(first.path.read_text(encoding="utf-8"), original_note_text)
+
+            attachments = (vault / "inbox/source_notes/attachments")
+            self.assertEqual(list(attachments.glob("tg_*")), [first.attachment_path])
+
+    def test_concurrent_same_capture_id_text_captures_share_one_file(self):
+        with tempfile.TemporaryDirectory() as temp:
+            vault = make_vault(Path(temp))
+            barrier = threading.Barrier(2)
+            results: list = []
+            errors: list = []
+
+            def worker():
+                barrier.wait()
+                try:
+                    results.append(
+                        capture_text("shared race body", source="cockpit_capture", capture_id="race-id", root=vault)
+                    )
+                except Exception as exc:  # pragma: no cover - failure path surfaced via assertion
+                    errors.append(exc)
+
+            threads = [threading.Thread(target=worker) for _ in range(2)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+
+            self.assertEqual(errors, [])
+            self.assertEqual(len(results), 2)
+            self.assertEqual({result.path for result in results}, {results[0].path})
+
+            files = list((vault / "inbox/source_notes").glob("capture_*.md"))
+            self.assertEqual(len(files), 1)
+
+            replay = capture_text("shared race body", source="cockpit_capture", capture_id="race-id", root=vault)
+            self.assertTrue(replay.duplicate)
+            self.assertEqual(replay.path, files[0])
 
     def test_raw_intake_is_not_indexed_or_part_of_durable_vault_graph(self):
         with tempfile.TemporaryDirectory() as temp:
