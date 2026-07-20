@@ -1,6 +1,24 @@
 # DECISIONS.md — log of decisions that change system behavior
 > One entry per behavior-affecting change. Newest first.
 
+## 2026-07-20 — Timed-out Codex launches terminate as bounded process groups
+
+Timed-out Codex launches terminate their full Linux process group with bounded
+TERM, KILL, and output-collection phases, retain available usage reconciliation,
+and surface an explicit timeout result.
+
+## 2026-07-20 — Token component availability survives aggregation
+
+Token source summaries retain known cached and reasoning totals while counting
+unavailable components separately, allowing the dashboard to distinguish
+complete zero, complete totals, partial totals, and unavailable values.
+
+## 2026-07-20 — Telegram attachment identity is atomic and conflict-safe
+
+Telegram attachment storage derives one atomic target from capture identity,
+rejects byte-mismatched replays, preserves a concurrently completed companion
+pair during rollback, and keeps legacy stamped captures discoverable.
+
 ## 2026-07-19 — Dashboard and Olmec share one raw Business Brain inbox
 
 The persistent dashboard capture box and the existing Telegram bridge now use
