@@ -1,6 +1,52 @@
 # DECISIONS.md — log of decisions that change system behavior
 > One entry per behavior-affecting change. Newest first.
 
+## 2026-07-23 — Reconciled 3 tests with the already-decided supervised/async-ack behavior
+
+Running the suite after the small-task fast-path work surfaced 3 failures that
+predated it. Investigated each rather than leaving them ambient:
+
+1. **`test_queue_run_uses_prompt_files_and_redacted_token_task` and
+   `test_explicit_model_provider_route_builds_hermes_flags`** (both in
+   `test_composio_hermes.py`) patched `_run_wsl` and asserted on commands
+   captured through it. `_run_wsl_prompt_command` and `_run_hermes_message`
+   had already been changed (uncommitted, predating this session) to always
+   call `_run_wsl_supervised` instead of falling back to unsupervised
+   `_run_wsl` when no `startup_timeout` is given. That change is intentional:
+   it matches this same day's "Olmec Telegram work is asynchronous and
+   delivery-idempotent" entry ("Hermes work is a fresh supervised one-shot
+   with a 600-second ceiling"), and it fixes a real latent bug — the
+   department/Hermes worker path passes `on_process_start=register_runtime`
+   into `_run_wsl_prompt_command`, but the old unsupervised `_run_wsl` branch
+   doesn't accept that argument, so worker-runtime registration for
+   stuck-job recovery was silently never firing on that path. **Fix-forward,
+   not revert**: updated both tests to patch `_run_wsl_supervised` (with a
+   matching `on_process_start=None` kwarg on the fake) instead of `_run_wsl`.
+2. **`test_dashboard_notification_and_approval_paths_use_title_first_helpers`**
+   (`test_aos_orchestration.py`) asserted the literal call site
+   `running_notification = _notify_queue_running(item_id)` exists. That call
+   site had already been deliberately removed (uncommitted, predating this
+   session) and replaced with `running_notification = None` plus a comment,
+   because — per the same Telegram entry — "the intake closeout is the sole
+   acknowledgement and the existing idempotent completion notification
+   remains the sole final message/receipt path"; a second running-notice
+   would violate that. **Fix-forward, not revert**: updated the assertion to
+   check for the new `running_notification = None` line and its explanatory
+   comment instead of the removed call site. `_notify_queue_running` itself
+   is left defined (used by other recovery paths) — only its call site here
+   changed.
+
+All three were deliberate, already-reasoned changes with no corresponding
+test update yet, not accidental regressions or code to revert.
+
+Files touched: `dashboard/backend/test_composio_hermes.py`,
+`tests/test_aos_orchestration.py`.
+
+Tests: full targeted suite (`tests.test_aos_queue`, `tests.test_aos_paths`,
+`tests/test_outreach_handoff.py`, `dashboard.backend.test_composio_hermes`,
+`tests.test_workflow_prompt_templates`, `tests.test_aos_orchestration`,
+`tests.test_aos_codex_policy`) — 337 passed, 0 failed.
+
 ## 2026-07-23 — Opt-in small-task fast path for the Claude queue worker
 
 Diagnosed why a trivial one-file `claude`-owned queue item was costing ~165k

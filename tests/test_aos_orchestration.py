@@ -173,7 +173,12 @@ class AosOrchestrationTests(unittest.TestCase):
     def test_dashboard_notification_and_approval_paths_use_title_first_helpers(self):
         source = (Path(__file__).resolve().parents[1] / "dashboard" / "backend" / "main.py").read_text(encoding="utf-8")
         self.assertIn("def _notify_queue_running", source)
-        self.assertIn("running_notification = _notify_queue_running(item_id)", source)
+        # Telegram intake now sends the sole accepted-work acknowledgement, so
+        # the runner intentionally no longer calls _notify_queue_running here
+        # (2026-07-23, "Olmec Telegram work is asynchronous and
+        # delivery-idempotent" in decisions/DECISIONS.md).
+        self.assertIn("running_notification = None", source)
+        self.assertIn("Telegram intake already sends the single accepted-work acknowledgement.", source)
         self.assertIn("aos_orchestration.format_operator_work_item_notification(\n            refreshed", source)
         self.assertIn("candidate_ids = sorted(aos_orchestration.operator_item_label(row) for row in candidates)", source)
         self.assertIn("Work item title: {aos_orchestration.operator_task_title(item)}", source)

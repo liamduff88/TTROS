@@ -719,6 +719,9 @@ _LEGACY_AGENT_TIMEOUT_SECONDS = _timeout_seconds_from_env(
 AGENT_TIMEOUT_SECONDS = _timeout_seconds_from_env(
     "AOS_AGENT_TIMEOUT_SECONDS", default=_LEGACY_AGENT_TIMEOUT_SECONDS, minimum=1,
 )
+HERMES_EXECUTION_TIMEOUT_SECONDS = _timeout_seconds_from_env(
+    "AOS_HERMES_TIMEOUT_SECONDS", default=600, minimum=1,
+)
 AGENT_STARTUP_TIMEOUT_SECONDS = _timeout_seconds_from_env(
     "AOS_AGENT_STARTUP_TIMEOUT_SECONDS", default=60, minimum=1,
 )
@@ -1525,10 +1528,10 @@ def _run_wsl_prompt_command(
                     "parent_timeout_seconds": startup_timeout + timeout + AGENT_GRACEFUL_TERMINATION_SECONDS,
                 }
         command = command_template.format(prompt_file=shlex.quote(prompt_wsl_path))
-        result = (
-            _run_wsl_supervised(command, timeout=timeout, on_process_start=on_process_start)
-            if startup_timeout is not None
-            else _run_wsl(command, timeout=timeout)
+        result = _run_wsl_supervised(
+            command,
+            timeout=timeout,
+            on_process_start=on_process_start,
         )
         return {
             **result,
@@ -3772,6 +3775,7 @@ def _run_hermes_message(
     attempt: int | None = None,
     item_id: str = "",
     timeout: int | None = None,
+    on_process_start=None,
 ) -> dict:
     invocation_id = f"hermes-{uuid.uuid4().hex}"
     prompt_path, prompt_wsl_path = _write_agent_prompt_file(text, prefix="hermes_message_")
@@ -3792,7 +3796,11 @@ def _run_hermes_message(
         f"--prompt-file {_quoted_linux_path(prompt_wsl_path)}"
     )
     try:
-        result = _run_agentic_os_clean_bash(command, timeout=timeout or AGENT_TIMEOUT_SECONDS)
+        result = _run_wsl_supervised(
+            command,
+            timeout=timeout or HERMES_EXECUTION_TIMEOUT_SECONDS,
+            on_process_start=on_process_start,
+        )
         usage_report = _read_hermes_usage_report(usage_path)
     finally:
         for path in (prompt_path, usage_path):
@@ -3825,6 +3833,9 @@ def _run_hermes_message(
         "token_usage": token_usage,
         "token_usage_text": token_usage_text,
         "returncode": result.get("returncode", -1),
+        "timed_out": bool(result.get("timed_out")),
+        "timeout_seconds": result.get("timeout_seconds", timeout or HERMES_EXECUTION_TIMEOUT_SECONDS),
+        "elapsed_seconds": result.get("elapsed_seconds"),
         "stderr": _clean_hermes_stream(result.get("stderr")),
         "raw_output_tail": "\n".join((str(result.get("stdout") or result.get("output") or "")).splitlines()[-20:]),
         "invocation_id": invocation_id,
@@ -8489,7 +8500,9 @@ def run_queue_item(item_id: str):
             daemon=True,
         )
         heartbeat_thread.start()
-        running_notification = _notify_queue_running(item_id)
+        # Telegram intake already sends the single accepted-work acknowledgement.
+        # Completion remains on the existing idempotent notification path.
+        running_notification = None
         attempts = []
         revision_instructions = None
         prior_worker_result: dict | None = None

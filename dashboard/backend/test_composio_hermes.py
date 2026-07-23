@@ -1787,7 +1787,7 @@ class HermesComposioTests(unittest.TestCase):
                     "token_usage": {"available": False},
                 }
 
-            def run_capture(command, timeout=60):
+            def run_capture(command, timeout=60, on_process_start=None):
                 commands.append(command)
                 match = re.search(r"(?:--prompt-file\s+|<)(?P<quote>['\"]?)(?P<path>[^'\")]+)(?P=quote)", command)
                 if match:
@@ -1800,7 +1800,7 @@ class HermesComposioTests(unittest.TestCase):
 
             with patch.object(backend, "BASE_DIR", root), \
                  patch.object(backend, "_run_codex_local", side_effect=codex_capture), \
-                 patch.object(backend, "_run_wsl", side_effect=run_capture), \
+                 patch.object(backend, "_run_wsl_supervised", side_effect=run_capture), \
                  patch.object(backend, "_log_token_usage", side_effect=log_capture):
                 result = backend.run_queue_item("AOS-2026-0099")
 
@@ -1952,7 +1952,7 @@ class HermesComposioTests(unittest.TestCase):
             self.write_queue_templates(root)
             commands = []
 
-            def run_capture(command, timeout=60):
+            def run_capture(command, timeout=60, on_process_start=None):
                 commands.append(command)
                 return {
                     "success": True,
@@ -1963,7 +1963,7 @@ class HermesComposioTests(unittest.TestCase):
                 }
 
             with patch.object(backend, "BASE_DIR", root), \
-                 patch.object(backend, "_run_wsl", side_effect=run_capture), \
+                 patch.object(backend, "_run_wsl_supervised", side_effect=run_capture), \
                  patch.object(backend, "_queue_run_hermes_review", return_value={"success": True, "output": "PASS", "token_usage": {"available": False}, "token_usage_text": "Token usage: unavailable from current CLI output"}):
                 result = backend.run_queue_item("AOS-2026-0101")
 
