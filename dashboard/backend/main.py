@@ -1,6 +1,6 @@
 """Agentic OS dashboard backend.
 
-Revisit: when operator routing, local-agent CLI contracts, or runtime health changes. · Last touched: 2026-07-20.
+Revisit: when operator routing, local-agent CLI contracts, or runtime health changes. · Last touched: 2026-07-23.
 """
 
 from fastapi import FastAPI, HTTPException, Request
@@ -7359,7 +7359,9 @@ def _queue_render_prompt(item: dict, target: str) -> str:
         return _queue_render_hermes_department_prompt(item, target)
     if target not in {"codex", "claude"}:
         raise ValueError("invalid target")
-    template_path = _queue_templates_dir() / f"{target}_task.prompt.md"
+    small_task = target == "claude" and _queue_item_size(item) == "small"
+    template_filename = "claude_task_small.prompt.md" if small_task else f"{target}_task.prompt.md"
+    template_path = _queue_templates_dir() / template_filename
     template = template_path.read_text(encoding="utf-8")
     launch = (
         f'export AOS_ROOT="${{AOS_ROOT:-$PWD}}"; cd "$AOS_ROOT"; command -v codex; codex --version; python3 tools/aos-queue.py codex-run {item.get("id", "")} --prompt-file -'
@@ -7378,6 +7380,10 @@ def _queue_render_prompt(item: dict, target: str) -> str:
         "<DEFINITION_OF_DONE>": item.get("definition_of_done") or "Complete the scoped queue item and return the required closeout.",
         "<VALIDATION_COMMANDS_OR_CHECKS>": "Run relevant local validation for the scoped change. Do not call external systems.",
     }
+    if small_task:
+        # Live read, never a pasted copy — the small template must never drift
+        # from the authoritative rules/never.md as that file is amended.
+        replacements["<NEVER_RULES>"] = _queue_read_text("rules/never.md").strip()
     prompt = template
     for placeholder, value in replacements.items():
         prompt = prompt.replace(placeholder, str(value))
@@ -7751,6 +7757,68 @@ def _queue_model_review_requested(item: dict) -> bool:
     return str(item.get("review") or "none").strip().casefold() == "model"
 
 
+def _queue_item_size(item: dict) -> str:
+    return str(item.get("size") or "").strip().casefold()
+
+
+_QUEUE_REFERENCED_TEST_PATH_RE = re.compile(r"\btests?/[\w./-]+\.py\b|\bdashboard/backend/test_[\w.]+\.py\b")
+_QUEUE_TEST_PASS_MARKER_RE = re.compile(r"\b\d+\s+passed\b|\bOK\b|\bran\s+\d+\s+tests?\b", re.IGNORECASE)
+_QUEUE_TEST_FAIL_MARKER_RE = re.compile(
+    r"\bfailed\b|\berror(?:s)?\b|traceback \(most recent call last\)", re.IGNORECASE,
+)
+
+
+def _queue_referenced_test_paths(item: dict) -> list[str]:
+    text = " ".join(str(item.get(field) or "") for field in ("definition_of_done", "context"))
+    return sorted(set(_QUEUE_REFERENCED_TEST_PATH_RE.findall(text)))
+
+
+def _queue_small_task_test_verified(item: dict, worker_result: dict) -> bool:
+    """True only when a test referenced by this item's DoD/context actually ran and
+    passed in the worker's own reported output — a bare reference is not enough."""
+    test_paths = _queue_referenced_test_paths(item)
+    if not test_paths:
+        return False
+    evidence = "\n".join(
+        str(worker_result.get(field) or "")
+        for field in ("review_output", "output", "captured_stdout_tail", "captured_stderr_tail")
+    )
+    if _QUEUE_TEST_FAIL_MARKER_RE.search(evidence):
+        return False
+    if not _QUEUE_TEST_PASS_MARKER_RE.search(evidence):
+        return False
+    return any(path in evidence for path in test_paths)
+
+
+def _queue_review_required(item: dict, worker_result: dict) -> bool:
+    """Whether the Hermes/aos-orchestrator review pass must run for this attempt.
+
+    An explicit `review: model` always wins. Otherwise, a `size: small` item may
+    skip the review pass, but only once the worker's own output shows a
+    referenced test genuinely ran and passed — never on a bare reference.
+    """
+    if _queue_model_review_requested(item):
+        return True
+    if _queue_item_size(item) != "small":
+        return False
+    return not _queue_small_task_test_verified(item, worker_result)
+
+
+def _queue_fast_path_hint_line(item: dict, worker_result: dict) -> str | None:
+    """Deterministic hint for items not flagged size=small that would have qualified.
+
+    Surfaced in the receipt only — never changes behavior on its own."""
+    if _queue_item_size(item) == "small":
+        return None
+    if not _queue_small_task_test_verified(item, worker_result):
+        return None
+    return (
+        "This item was not flagged `size: small`, but its worker output shows a "
+        "referenced test genuinely passed; setting `size: small` next time would "
+        "skip the mandated context reads and the reviewer pass."
+    )
+
+
 def _queue_deterministic_review_result() -> dict:
     return {
         "success": True,
@@ -8097,6 +8165,11 @@ def _queue_run_receipt_text(
         f"Attempts used: {len(attempts)}",
         f"Review mode: {'model' if _queue_model_review_requested(item) else 'none (deterministic proof)'}",
         f"Review result: {final_review.get('decision', 'REVISE')}",
+    ]
+    fast_path_hint = _queue_fast_path_hint_line(item, last_worker)
+    if fast_path_hint:
+        lines.append(f"Fast-path hint: {fast_path_hint}")
+    lines += [
         "",
         "Worker result summary:",
         _queue_result_summary(last_worker),
@@ -8437,7 +8510,7 @@ def run_queue_item(item_id: str):
             if worker_result.get("success"):
                 review_result = (
                     _queue_run_hermes_review(run_item, owner, attempt_number, worker_result)
-                    if _queue_model_review_requested(run_item)
+                    if _queue_review_required(run_item, worker_result)
                     else _queue_deterministic_review_result()
                 )
             else:

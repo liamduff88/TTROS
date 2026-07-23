@@ -4264,6 +4264,62 @@ class HermesComposioTests(unittest.TestCase):
         self.assertEqual(completed["attempts_used"], 1)
         self.assertEqual(rows[0]["status"], "human_review")
 
+    def test_small_task_test_verified_true_when_pass_marker_present(self):
+        item = {
+            "size": "small",
+            "definition_of_done": "Run tests/test_outreach_handoff.py and confirm it passes.",
+            "context": "",
+        }
+        worker_result = {
+            "output": "PASS\nValidation: ran tests/test_outreach_handoff.py — 3 passed in 1.2s",
+        }
+        self.assertTrue(backend._queue_small_task_test_verified(item, worker_result))
+
+    def test_small_task_test_verified_false_when_fail_marker_present(self):
+        item = {
+            "size": "small",
+            "definition_of_done": "Run tests/test_outreach_handoff.py and confirm it passes.",
+            "context": "",
+        }
+        worker_result = {
+            "output": "NEEDS ATTENTION\nValidation: tests/test_outreach_handoff.py — Traceback (most recent call last): 1 error",
+        }
+        self.assertFalse(backend._queue_small_task_test_verified(item, worker_result))
+
+    def test_small_task_test_verified_false_when_both_pass_and_fail_markers_present(self):
+        item = {
+            "size": "small",
+            "definition_of_done": "Run tests/test_outreach_handoff.py and confirm it passes.",
+            "context": "",
+        }
+        worker_result = {
+            "output": "NEEDS ATTENTION\nValidation: tests/test_outreach_handoff.py — 2 passed, 1 failed",
+        }
+        self.assertFalse(backend._queue_small_task_test_verified(item, worker_result))
+
+    def test_small_task_test_verified_false_when_test_path_mentioned_but_not_run(self):
+        item = {
+            "size": "small",
+            "definition_of_done": "Run tests/test_outreach_handoff.py and confirm it passes.",
+            "context": "",
+        }
+        worker_result = {
+            "output": "PASS\nValidation: reviewed the change; did not execute the suite. 3 passed for an unrelated check.",
+        }
+        self.assertFalse(backend._queue_small_task_test_verified(item, worker_result))
+
+    def test_review_required_model_flag_overrides_size_small(self):
+        item = {
+            "size": "small",
+            "review": "model",
+            "definition_of_done": "Run tests/test_outreach_handoff.py and confirm it passes.",
+            "context": "",
+        }
+        worker_result = {
+            "output": "PASS\nValidation: ran tests/test_outreach_handoff.py — 3 passed in 1.2s",
+        }
+        self.assertTrue(backend._queue_review_required(item, worker_result))
+
     def test_explicit_model_review_uses_existing_path_with_final_artifact_only(self):
         item = {
             "id": "AOS-2026-0201",

@@ -1,6 +1,76 @@
 # DECISIONS.md — log of decisions that change system behavior
 > One entry per behavior-affecting change. Newest first.
 
+## 2026-07-23 — Opt-in small-task fast path for the Claude queue worker
+
+Diagnosed why a trivial one-file `claude`-owned queue item was costing ~165k
+fresh input tokens and ~34 API calls: every item, regardless of size, ran
+through a fresh `claude -p --dangerously-skip-permissions` session that
+CLAUDE.md's "before writing code" section forces to re-read README.md,
+context/PATHS.md, ROT.md, rules/never.md, and the Business Brain index before
+touching anything, then (when `review: model`) paid for a second, independent
+full agent session to review the first one's output — with no continuation
+between attempts.
+
+Added an opt-in `size: small` queue-item field (default off; existing items
+unaffected):
+- `_queue_render_prompt` now selects `queue/templates/claude_task_small.prompt.md`
+  for `owner=claude` items flagged `size: small`. The template tells the
+  worker to skip the mandated repo-orientation reads and inlines
+  `rules/never.md` via a live `<NEVER_RULES>` substitution at render time
+  (never a pasted static copy, so it can't drift from the source file).
+- `_queue_review_required()` lets a `size: small` item skip the Hermes/
+  `aos-orchestrator` review pass, but only when the worker's own reported
+  output shows a test referenced in its `definition_of_done`/`context`
+  genuinely ran and passed (test path present, a pass marker present, no
+  fail/error/traceback marker) — a bare reference is not enough, and an
+  explicit `review: model` always still forces the review pass regardless of
+  size.
+- `_queue_fast_path_hint_line()` adds a `Fast-path hint:` line to the run
+  receipt for items that were *not* flagged `size: small` but whose worker
+  output would have qualified — visibility only, no behavior change.
+- Removed the duplicate "PERMISSION MODE — SCOPED LOCAL TASK APPROVED" wrap
+  in `/home/liam/agentic-os/hermes/hermes.py` (outside this repo, backed up
+  alongside as `hermes.py.bak-2026-07-23`): it now passes an already-wrapped
+  queue prompt through verbatim instead of nesting a second copy of the same
+  header inside it. Bare ad-hoc tasks (e.g. `/api/wsl/claude`) still get
+  wrapped as before.
+
+Files touched: `dashboard/backend/main.py`, `queue/templates/claude_task_small.prompt.md`
+(new), `/home/liam/agentic-os/hermes/hermes.py` (external, backed up).
+
+Tests: `tests.test_aos_queue`, `tests.test_aos_paths`,
+`tests/test_outreach_handoff.py`, `dashboard.backend.test_composio_hermes`,
+`tests.test_workflow_prompt_templates`, `tests.test_aos_orchestration`,
+`tests.test_aos_codex_policy` — 329 passed. Three pre-existing failures
+(2 in `test_composio_hermes.py` expecting `_run_wsl_prompt_command` to call
+`_run_wsl`, 1 in `test_aos_orchestration.py` expecting a `_notify_queue_running`
+call site) predate this change — confirmed by their locations sitting outside
+every function this change touched — and were not introduced or fixed here.
+
+## 2026-07-23 — Olmec Telegram work is asynchronous and delivery-idempotent
+
+The canonical Telegram bridge keeps polling while agent intake runs on a
+background thread. Each Telegram update supplies a durable delivery ID to the
+existing queue, and only the first queue creation may start an on-demand
+runner; replays reuse the item without launching another process. The intake
+closeout is the sole acknowledgement and the existing idempotent completion
+notification remains the sole final message/receipt path. Hermes work is a
+fresh supervised one-shot with a 600-second ceiling, and lightweight status,
+capture, identity, and help commands remain deterministic and token-free.
+
+## 2026-07-23 — Outreach handoffs reuse the prospect ledger and review queue
+
+V3.1 outreach handoffs validate and reconcile before activation, append typed
+full snapshots to `queue/prospects.jsonl`, and create one typed
+`human_review` work item per eligible prospect. Actual Liam-recorded events
+alone advance `outreach_stage`; each send/action calculates at most one
+business-day reminder, and every configured stop event cancels future copy.
+Gmail remains draft-only, LinkedIn remains manual, and GoHighLevel is exposed
+only as an idempotent dry-run projection embedded in the same prospect
+snapshot. No second CRM, queue, scheduler, review system, receipt store, or
+connector framework was added.
+
 ## 2026-07-20 — Carousel resource CTAs resolve deterministically to post links
 
 `linkedin_carousel_from_md` now resolves controlled final-slide/caption
