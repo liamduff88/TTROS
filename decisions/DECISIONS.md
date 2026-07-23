@@ -1,6 +1,23 @@
 # DECISIONS.md — log of decisions that change system behavior
 > One entry per behavior-affecting change. Newest first.
 
+## 2026-07-23 — Fourth _run_wsl_supervised test gap found during verification
+
+Post-commit verification of the previous entry's 3-test fix ran the full
+`test_composio_hermes.py` file standalone (not just the 3 named tests) and
+found `test_queue_run_receipt_and_token_ledger_include_route_metadata_without_prompt`
+newly failing — same root cause (patched `_run_wsl`, code now calls
+`_run_wsl_supervised` unconditionally for the department/Hermes path), just
+missed in the original grep. Left unmocked, it fell through to a real
+`subprocess.Popen` invoking the real `aos-hermes-coordinator.sh`, which is
+why it ran 65s instead of milliseconds and returned a non-deterministic
+result. Fixed the same way as the other 3: patch `_run_wsl_supervised`
+instead of `_run_wsl`, with a matching `on_process_start=None` kwarg on the
+fake. Confirmed deterministic with 3 back-to-back full-file runs (207/207
+passed each, ~34s each, down from the earlier 60s+ real-subprocess runs).
+
+Files touched: `dashboard/backend/test_composio_hermes.py`.
+
 ## 2026-07-23 — Reconciled 3 tests with the already-decided supervised/async-ack behavior
 
 Running the suite after the small-task fast-path work surfaced 3 failures that

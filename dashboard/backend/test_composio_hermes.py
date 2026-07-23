@@ -2059,7 +2059,7 @@ class HermesComposioTests(unittest.TestCase):
             self.write_queue_references(root)
             token_file = root / "logs" / "token_usage.jsonl"
 
-            def run_capture(command, timeout=60):
+            def run_capture(command, timeout=60, on_process_start=None):
                 if "aos-hermes-coordinator.sh" in command and "--prompt-file" in command:
                     if not hasattr(run_capture, "calls"):
                         run_capture.calls = 0
@@ -2080,7 +2080,7 @@ class HermesComposioTests(unittest.TestCase):
 
             with patch.object(backend, "BASE_DIR", root), \
                  patch.object(backend, "TOKEN_USAGE_FILE", token_file), \
-                 patch.object(backend, "_run_wsl", side_effect=run_capture):
+                 patch.object(backend, "_run_wsl_supervised", side_effect=run_capture):
                 result = backend.run_queue_item("AOS-2026-0100")
 
             self.assertTrue(result["success"])
