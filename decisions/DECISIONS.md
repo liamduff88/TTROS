@@ -1,6 +1,48 @@
 # DECISIONS.md — log of decisions that change system behavior
 > One entry per behavior-affecting change. Newest first.
 
+## 2026-07-28 — Olmec falls through to Hermes operator-lean
+
+Olmec is the interface. Slash commands and one frozen literal table remain
+deterministic zero-token paths; natural-language variants are intentionally not
+added as semantic router rules. Every other inbound message uses one bounded
+Hermes `operator-lean` turn. That profile has no skills, memory, Business Brain,
+delegation, orchestration, or built-in toolsets and exposes only five local
+read tools plus `create_task`; the mutation tool is single-call per inbound.
+
+Conversation and reads never queue. Clear execution creates at most one tracked
+item, with Codex reserved for repository/code-file changes. `/work` overrides
+remain deterministic. `size: small` Codex work uses a dedicated prompt that
+contains the stripped operator instruction once, preserves a fresh ephemeral
+session, and omits full supervisor/artifact/reviewer boilerplate. The full
+Codex template remains unchanged for substantive work.
+
+The literal `What tasks are open?` now uses the existing local open-task reader
+with one canonical ID/title/state/owner row, removing duplicate metadata.
+Existing item-bound approval/rejection/clarification protocols, queue/receipt
+integrity, delivery idempotency, and specialist workers remain unchanged.
+
+The TTROS oneshot wrapper now calls Hermes' own MCP discovery synchronously in
+the same process and validates the exact six-name snapshot before importing the
+Hermes oneshot runner. Missing or extra tools return `TOOL_UNAVAILABLE` before
+agent construction or any model call. Backend closeout also replaces an
+unverified positive queue claim with an explicit no-task-created error.
+
+The `operator-lean` profile alone disables Hermes' generic tool-completion,
+parallel-call, GPT enforcement, and environment-probe prompt blocks and replaces
+the verbose CLI hint with one short plain-text instruction. Its SOUL retains the
+complete queue contract. The live post-discovery prompt is 719 exact
+`o200k_base` system tokens plus 441 for all six schemas: 1,160 total.
+Global/default Hermes configuration is unchanged.
+
+Files touched: `connectors/telegram_bridge/README.md`,
+`dashboard/backend/main.py`, `queue/command_routes.json`,
+`queue/lane_profiles.json`, `queue/model_routes.json`, `queue/profiles/`,
+`queue/templates/`, `tools/aos-hermes-operator-lean.sh`,
+`tools/operator_lean_mcp.py`, `tools/operator_lean_oneshot.py`, focused routing
+tests, `requirements.txt`, `decisions/DECISIONS.md`, and the local
+`operator-lean` profile config only.
+
 ## 2026-07-23 — Fourth _run_wsl_supervised test gap found during verification
 
 Post-commit verification of the previous entry's 3-test fix ran the full

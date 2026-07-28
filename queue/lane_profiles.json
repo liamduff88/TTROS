@@ -3,6 +3,15 @@
   "description": "Thin Agentic OS lane to Hermes profile map. Coordinator/reviewer calls bind aos-orchestrator per invocation; this file never creates installs, switches the sticky global default, or stores secrets.",
   "fallback_profile": "default",
   "lanes": {
+    "operator": {
+      "lane": "operator",
+      "profile_requested": "operator-lean",
+      "fallback_profile": "none",
+      "fail_if_unavailable": true,
+      "enabled_only_when_model_configured": true,
+      "purpose": "Bounded Olmec conversation, local queue reads, and at most one tracked task creation.",
+      "escalation_note": "Never fall back to aos-orchestrator; fail clearly if operator-lean cannot start."
+    },
     "orchestrator": {
       "lane": "orchestrator",
       "profile_requested": "aos-orchestrator",

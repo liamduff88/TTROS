@@ -1,6 +1,6 @@
 """Agentic OS dashboard backend.
 
-Revisit: when operator routing, local-agent CLI contracts, or runtime health changes. · Last touched: 2026-07-23.
+Revisit: when operator routing, local-agent CLI contracts, or runtime health changes. · Last touched: 2026-07-28.
 """
 
 from fastapi import FastAPI, HTTPException, Request
@@ -89,6 +89,7 @@ CONNECTORS_DIR = BASE_DIR / "connectors"
 CONNECTORS_FILE = CONNECTORS_DIR / "CONNECTORS.md"
 DATA_DIR = BASE_DIR / "dashboard" / "data"
 QUEUE_TOOL = BASE_DIR / "tools" / "aos-queue.py"
+OUTREACH_HANDOFF_TOOL = BASE_DIR / "workflows" / "prospecting_daily_run" / "outreach_handoff.py"
 
 TRACKER_FILE = DATA_DIR / "tracker.json"
 TOKEN_USAGE_FILE = LOGS_DIR / "token_usage.jsonl"
@@ -568,6 +569,13 @@ class QueueReviewNote(BaseModel):
     review_note: str = ""
 
 
+class OutreachEventRecord(BaseModel):
+    event: str
+    occurred_on: str | None = None
+    note: str = ""
+    event_id: str | None = None
+
+
 class QueueArtifactFolderOpen(BaseModel):
     path: str
 
@@ -695,6 +703,7 @@ WSL_DISTRO = "AgenticOSClean"
 WSL_USER = os.environ.get("USER", "linux")
 COMPOSIO_PATH = "/home/liam/.composio:/home/liam/.local/bin:/home/liam/.composio:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/usr/lib/wsl/lib"
 HERMES_COORDINATOR = BASE_DIR / "tools" / "aos-hermes-coordinator.sh"
+HERMES_OPERATOR_LEAN = BASE_DIR / "tools" / "aos-hermes-operator-lean.sh"
 HERMES_DASHBOARD_LAUNCHER = BASE_DIR / "tools" / "aos-hermes-dashboard.sh"
 HERMES_DASHBOARD_HOST = "127.0.0.1"
 HERMES_DASHBOARD_PORT = 8081
@@ -722,6 +731,19 @@ AGENT_TIMEOUT_SECONDS = _timeout_seconds_from_env(
 HERMES_EXECUTION_TIMEOUT_SECONDS = _timeout_seconds_from_env(
     "AOS_HERMES_TIMEOUT_SECONDS", default=600, minimum=1,
 )
+OPERATOR_LEAN_TIMEOUT_SECONDS = _timeout_seconds_from_env(
+    "AOS_OPERATOR_LEAN_TIMEOUT_SECONDS", default=90, minimum=1,
+)
+OPERATOR_RECENT_TURNS_MAX = 4
+OPERATOR_RECENT_TURNS_MAX_BYTES = 2_400
+OPERATOR_ITEM_REFS_MAX = 8
+OPERATOR_ITEM_REFS_MAX_BYTES = 2_000
+_OPERATOR_CONTEXT_LOCK = threading.Lock()
+_OPERATOR_RECENT_TURNS: dict[str, list[str]] = {}
+TELEGRAM_BINDING_TTL_SECONDS = 2 * 60 * 60
+TELEGRAM_BINDINGS_PER_CHAT = 8
+TELEGRAM_BINDINGS_GLOBAL_MAX = 64
+_TELEGRAM_BINDING_LOCK = threading.Lock()
 AGENT_STARTUP_TIMEOUT_SECONDS = _timeout_seconds_from_env(
     "AOS_AGENT_STARTUP_TIMEOUT_SECONDS", default=60, minimum=1,
 )
@@ -1056,7 +1078,8 @@ def _run_codex_local(prompt: str, item: dict | None = None, *, _handoff_depth: i
                     partial = b"".join(stdout_chunks).decode("utf-8", errors="replace")
                     snapshot = cumulative_usage_snapshot(partial)
                     if (
-                        snapshot.get("available")
+                        _queue_item_size(item or {}) != "small"
+                        and snapshot.get("available")
                         and int(snapshot["cumulative_tokens"]) >= CONTEXT_HANDOFF_THRESHOLD_TOKENS
                         and process.poll() is None
                     ):
@@ -3776,6 +3799,8 @@ def _run_hermes_message(
     item_id: str = "",
     timeout: int | None = None,
     on_process_start=None,
+    launcher: Path | None = None,
+    profile: str = "aos-orchestrator",
 ) -> dict:
     invocation_id = f"hermes-{uuid.uuid4().hex}"
     prompt_path, prompt_wsl_path = _write_agent_prompt_file(text, prefix="hermes_message_")
@@ -3790,8 +3815,9 @@ def _run_hermes_message(
     usage_path = Path(usage_handle.name)
     usage_handle.close()
     usage_wsl_path = _quoted_linux_path(usage_path)
+    selected_launcher = launcher or HERMES_COORDINATOR
     command = (
-        f"{_quoted_linux_path(HERMES_COORDINATOR)} "
+        f"{_quoted_linux_path(selected_launcher)} "
         f"--usage-file {usage_wsl_path} "
         f"--prompt-file {_quoted_linux_path(prompt_wsl_path)}"
     )
@@ -3817,8 +3843,8 @@ def _run_hermes_message(
         "selected_route": "hermes_message",
         "delegation_reason": "direct Hermes one-shot API route",
         "codex_forbidden": "no",
-        "profile_requested": "aos-orchestrator",
-        "profile_used": "aos-orchestrator",
+        "profile_requested": profile,
+        "profile_used": profile,
         "role": role,
         "attempt": attempt,
         "item_id": item_id,
@@ -3840,8 +3866,8 @@ def _run_hermes_message(
         "raw_output_tail": "\n".join((str(result.get("stdout") or result.get("output") or "")).splitlines()[-20:]),
         "invocation_id": invocation_id,
         "session_id": token_usage.get("session_id"),
-        "profile_requested": "aos-orchestrator",
-        "profile_used": "aos-orchestrator",
+        "profile_requested": profile,
+        "profile_used": profile,
         "role": role,
         "attempt": attempt,
         "token_usage_logged": True,
@@ -4005,6 +4031,7 @@ _EXPLICIT_TARGET_RE = {
         rf"\b(?:get|tell|use|ask|have)\s+{target}\b"
         rf"|\b(?:give|send|delegate|route|assign|hand)\b[^.!?\n]{{0,80}}\bto\s+{target}\b"
         rf"|(?:^|\n)\s*{target}(?:\s+code)?\s*:"
+        rf"|^\s*{target}\s*[,—-]\s*(?:run|execute|fix|repair|build|create|update|edit|inspect|assess|check)\b"
         rf"|(?:^|[/\s])work\s+{target}\b",
         re.IGNORECASE,
     )
@@ -4021,11 +4048,18 @@ _QUEUE_CREATE_PREFIX = "Add this to the queue:"
 _QUEUE_CREATE_RE = re.compile(rf"^{re.escape(_QUEUE_CREATE_PREFIX)}", re.IGNORECASE)
 _QUEUE_LIST_PREFIX = "List queue:"
 _QUEUE_LIST_RE = re.compile(rf"^{re.escape(_QUEUE_LIST_PREFIX)}", re.IGNORECASE)
-_QUEUE_STATUS_INTENTS = {"queue status", "show queue status", "show queue summary"}
-_SYSTEM_STATUS_INTENTS = {"/status", "status", "show status", "system status", "operator status", "show system status"}
-_QUEUE_FILTERED_READ_INTENTS = {
-    "what is currently blocked?": ("blocked", "Blocked queue items"),
-    "show queue items needing review": ("human_review", "Queue items needing review"),
+_FROZEN_LITERAL_FAST_PATHS = {
+    "status": ("system_status", None),
+    "show status": ("system_status", None),
+    "system status": ("system_status", None),
+    "operator status": ("system_status", None),
+    "show system status": ("system_status", None),
+    "queue status": ("queue_status", None),
+    "show queue status": ("queue_status", None),
+    "show queue summary": ("queue_status", None),
+    "what is currently blocked?": ("filtered", ("blocked", "Blocked queue items")),
+    "show queue items needing review": ("filtered", ("human_review", "Queue items needing review")),
+    "what tasks are open?": ("open_tasks", None),
 }
 _QUEUE_STATUSES = (
     "inbox",
@@ -4057,6 +4091,15 @@ def _load_queue_tool():
         if exc.name != "jsonschema":
             raise
         return _QueueToolFallback()
+    return module
+
+
+def _load_outreach_handoff_tool():
+    spec = importlib.util.spec_from_file_location("aos_outreach_handoff", OUTREACH_HANDOFF_TOOL)
+    if spec is None or spec.loader is None:
+        raise RuntimeError("Outreach handoff tool could not be loaded")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
     return module
 
 
@@ -4154,9 +4197,11 @@ class _QueueToolFallback:
                     "accepted_at": now,
                 }
                 setattr(args, "idempotency_duplicate", False)
-            for key in ("run_prompt_path", "needs_me"):
+            for key in ("run_prompt_path", "needs_me", "size", "source_binding"):
                 value = getattr(args, key, None)
                 if value:
+                    if key == "source_binding" and isinstance(value, str):
+                        value = json.loads(value)
                     item[key] = value
             items.append(item)
             self.save_items(root, items)
@@ -5317,6 +5362,7 @@ def _queue_detail_item(item: dict, invocation_attributions: dict[str, dict] | No
         "capture_proposal": item.get("capture_proposal"),
         "pipeline": _queue_pipeline(item),
         "stuck_recovery": _queue_stuck_recovery(item),
+        "outreach_review": item.get("outreach_review"),
     })
     return public
 
@@ -5630,6 +5676,7 @@ def _queue_public_item(item: dict, invocation_attributions: dict[str, dict] | No
         "invocation_source_timestamp": attribution.get("invocation_source_timestamp"),
         "model_turns": attribution.get("model_turns"),
         "needs_me": needs_me,
+        "review_card_kind": "outreach" if isinstance(item.get("outreach_review"), dict) else "standard",
     }
 
 
@@ -6043,6 +6090,43 @@ def save_queue_item_review_note(item_id: str, body: QueueReviewNote):
         "item_id": item_id,
         "status": refreshed.get("status"),
         "state_changed": False,
+        "token_usage": {"available": False, "no_agent_invocation": True},
+        "token_usage_text": "Token usage: no agent invocation",
+        "item": _queue_detail_item(refreshed),
+    }
+
+
+@app.post("/api/queue/items/{item_id}/outreach-event")
+def record_queue_item_outreach_event(item_id: str, body: OutreachEventRecord):
+    """Record one actual operator event; stored copy never advances state."""
+    try:
+        result = _load_outreach_handoff_tool().record_event(
+            item_id,
+            body.event,
+            occurred_on=body.occurred_on,
+            note=body.note,
+            event_id=body.event_id,
+            root=BASE_DIR,
+        )
+    except ValueError as exc:
+        detail = str(exc)
+        status_code = 404 if "not found" in detail else 400
+        raise HTTPException(status_code=status_code, detail=detail)
+    refreshed = _queue_find_item(item_id)
+    latitude_telemetry.trace(
+        "queue.outreach_event",
+        "queue",
+        result.get("status", "recorded"),
+        item_id=item_id,
+        queue_status=refreshed.get("status"),
+    )
+    return {
+        "ok": True,
+        "success": True,
+        "item_id": item_id,
+        "status": result.get("status"),
+        "event_id": result.get("event_id"),
+        "prospect_id": result.get("prospect_id"),
         "token_usage": {"available": False, "no_agent_invocation": True},
         "token_usage_text": "Token usage: no agent invocation",
         "item": _queue_detail_item(refreshed),
@@ -7370,8 +7454,8 @@ def _queue_render_prompt(item: dict, target: str) -> str:
         return _queue_render_hermes_department_prompt(item, target)
     if target not in {"codex", "claude"}:
         raise ValueError("invalid target")
-    small_task = target == "claude" and _queue_item_size(item) == "small"
-    template_filename = "claude_task_small.prompt.md" if small_task else f"{target}_task.prompt.md"
+    small_task = _queue_item_size(item) == "small" and target in {"codex", "claude"}
+    template_filename = f"{target}_task_small.prompt.md" if small_task else f"{target}_task.prompt.md"
     template_path = _queue_templates_dir() / template_filename
     template = template_path.read_text(encoding="utf-8")
     launch = (
@@ -7391,7 +7475,7 @@ def _queue_render_prompt(item: dict, target: str) -> str:
         "<DEFINITION_OF_DONE>": item.get("definition_of_done") or "Complete the scoped queue item and return the required closeout.",
         "<VALIDATION_COMMANDS_OR_CHECKS>": "Run relevant local validation for the scoped change. Do not call external systems.",
     }
-    if small_task:
+    if small_task and target == "claude":
         # Live read, never a pasted copy — the small template must never drift
         # from the authoritative rules/never.md as that file is amended.
         replacements["<NEVER_RULES>"] = _queue_read_text("rules/never.md").strip()
@@ -7546,6 +7630,12 @@ def _queue_actual_run_prompt(
         item = {**item, "context": (BASE_DIR / run_prompt_path).read_text(encoding="utf-8")}
     if owner in DEPARTMENT_PROMPT_TARGETS:
         return _queue_actual_department_run_prompt(item, owner, attempt, revision_instructions)
+    if owner == "codex" and _queue_item_size(item) == "small":
+        template = (_queue_templates_dir() / "codex_task_small.prompt.md").read_text(encoding="utf-8")
+        return template.replace(
+            "<CONTEXT>",
+            str(item.get("context") or item.get("title") or "No instruction provided.").strip(),
+        ).rstrip() + "\n"
     prompt = _queue_render_prompt(item, owner)
     for marker in ("## Launch from Linux", "## Manual Launch", "## Manual launch"):
         if marker in prompt:
@@ -7553,6 +7643,12 @@ def _queue_actual_run_prompt(
     prompt = "\n\n".join((
         prompt.rstrip(),
         f"Current attempt: {attempt}/{max_attempts}",
+        (
+            "Hermes execution boundary: this is a fresh one-shot run. Do not resume or search prior "
+            "sessions, and finish within 8 model/tool turns. Delegate only when the operator explicitly "
+            "requested Hermes coordination."
+            if owner == "hermes" else ""
+        ),
         "Required artifact/receipt shape:",
         _queue_required_receipt_shape(),
         f"Required local artifact path: {_queue_default_artifact_path(item)}",
@@ -7646,12 +7742,17 @@ def _hermes_coordinator_command_template(route_metadata: dict | None = None) -> 
 
 def _queue_run_worker(owner: str, prompt: str, item: dict, attempt: int = 1) -> dict:
     route_metadata = _queue_resolve_route_metadata(owner)
+    worker_timeout = (
+        min(QUEUE_WORKER_TIMEOUT_SECONDS, HERMES_EXECUTION_TIMEOUT_SECONDS)
+        if owner not in {"codex", "claude"}
+        else QUEUE_WORKER_TIMEOUT_SECONDS
+    )
     metadata = {
         "requested_target": owner,
         "selected_route": "queue_worker",
         "delegation_reason": "assigned queue worker",
         "codex_forbidden": "no",
-        "timeout_seconds": QUEUE_WORKER_TIMEOUT_SECONDS,
+        "timeout_seconds": worker_timeout,
         "queue_item_id": item.get("id", ""),
         "item_id": item.get("id", ""),
         "role": "implementer",
@@ -7704,8 +7805,45 @@ def _queue_run_worker(owner: str, prompt: str, item: dict, attempt: int = 1) -> 
         })
         result = {**result, "invocation": invocation, "log_path": log_path}
         return _compact_agent_closeout(result, "claude", "claude", _queue_token_task_label(item, owner), metadata)
+    item_id = str(item.get("id") or "")
+
+    def register_runtime(process: subprocess.Popen) -> None:
+        start_id = _linux_process_start_id(process.pid)
+        if not start_id:
+            raise RuntimeError("Hermes worker process identity could not be established")
+        _load_queue_tool().register_worker_runtime(
+            BASE_DIR,
+            item_id,
+            owner if owner != "unassigned" else "hermes",
+            process.pid,
+            start_id,
+            "aos-hermes-coordinator",
+        )
+
+    if owner == "hermes":
+        result = _run_hermes_message(
+            prompt,
+            role="implementer",
+            attempt=attempt,
+            item_id=item_id,
+            timeout=worker_timeout,
+            on_process_start=register_runtime,
+        )
+        return _compact_agent_closeout(
+            result,
+            "hermes",
+            "hermes",
+            _queue_token_task_label(item, owner),
+            metadata,
+        )
+
     command_template = _hermes_coordinator_command_template(route_metadata)
-    result = _run_wsl_prompt_command(command_template, prompt, QUEUE_WORKER_TIMEOUT_SECONDS)
+    result = _run_wsl_prompt_command(
+        command_template,
+        prompt,
+        worker_timeout,
+        on_process_start=register_runtime,
+    )
     agent = owner if owner in DEPARTMENT_PROMPT_TARGETS else "hermes"
     return _compact_agent_closeout(result, agent, agent, _queue_token_task_label(item, owner), metadata)
 
@@ -7804,15 +7942,13 @@ def _queue_small_task_test_verified(item: dict, worker_result: dict) -> bool:
 def _queue_review_required(item: dict, worker_result: dict) -> bool:
     """Whether the Hermes/aos-orchestrator review pass must run for this attempt.
 
-    An explicit `review: model` always wins. Otherwise, a `size: small` item may
-    skip the review pass, but only once the worker's own output shows a
-    referenced test genuinely ran and passed — never on a bare reference.
+    Only an explicit `review: model` invokes Hermes. Small operator tasks do not
+    add an aos-orchestrator review pass; the deterministic runner still writes
+    and attaches the normal receipt.
     """
     if _queue_model_review_requested(item):
         return True
-    if _queue_item_size(item) != "small":
-        return False
-    return not _queue_small_task_test_verified(item, worker_result)
+    return False
 
 
 def _queue_fast_path_hint_line(item: dict, worker_result: dict) -> str | None:
@@ -8327,7 +8463,21 @@ def _notify_queue_completion(
                 aos_orchestration.append_jsonl(BASE_DIR / aos_orchestration.EVENTS_PATH, result)
                 _load_queue_tool().save_items(BASE_DIR, items)
                 return result
-        return _deliver_prepared_telegram_send(prepared, send_telegram=send_telegram)
+        delivered = _deliver_prepared_telegram_send(prepared, send_telegram=send_telegram)
+        if delivered.get("sent"):
+            dispatch = item.get("dispatch") if isinstance(item.get("dispatch"), dict) else {}
+            _record_telegram_binding(
+                TaskRun(
+                    task="completion binding",
+                    source="telegram",
+                    delivery_id=str(dispatch.get("delivery_id") or ""),
+                    reply_to=str(recipient),
+                ),
+                _queue_find_item(item_id),
+                "result",
+                result_ref=receipt_path,
+            )
+        return delivered
     except Exception as exc:
         _dashboard_backend_log({
             "event": "telegram_async_completion",
@@ -8685,11 +8835,7 @@ def _queue_list_closeout(status: str | None = None) -> dict:
         item for item in items
         if (item.get("status") == status if status else item.get("status") in _ACTIVE_QUEUE_STATUSES)
     ]
-    rows = [
-        f"  - {aos_orchestration.operator_item_label(item)} | {item.get('status', '')} | {item.get('owner', 'unassigned')} | "
-        f"{item.get('id', '')} | {item.get('status', '')} | {item.get('owner', 'unassigned')} | {item.get('title', '')}"
-        for item in sorted(filtered, key=_queue_item_sort_key)[:10]
-    ] or ["  - None"]
+    rows = [_queue_compact_item_row(item) for item in sorted(filtered, key=_queue_item_sort_key)[:10]] or ["  - None"]
     output = "\n".join((
         "PASS",
         "Queue items:",
@@ -8705,18 +8851,17 @@ def _queue_list_closeout(status: str | None = None) -> dict:
         "selected_route": "local_queue_list",
         "delegation_reason": "exact queue-list intent" if status is None else "exact queue-list status intent",
         "codex_forbidden": "no",
+        "token_usage": {"available": False, "no_agent_invocation": True},
+        "token_usage_text": "Token usage: no agent invocation",
     }
 
 
 def _queue_compact_item_row(item: dict) -> str:
     fields = [
-        aos_orchestration.operator_item_label(item),
-        str(item.get("owner", "unassigned")),
-        str(item.get("status", "")),
         str(item.get("id", "")),
         str(item.get("title", "")),
-        str(item.get("owner", "unassigned")),
         str(item.get("status", "")),
+        str(item.get("owner", "unassigned")),
     ]
     next_action = item.get("next_action") or item.get("nextAction")
     if next_action:
@@ -8826,32 +8971,62 @@ def _queue_token_state_closeout() -> dict:
     }
 
 
+def _queue_keyword_read_closeout(terms: tuple[str, ...], heading: str) -> dict:
+    items = _read_queue_items()
+    matches = []
+    for item in items:
+        haystack = " ".join((
+            str(item.get("title") or ""),
+            str(item.get("context") or ""),
+            " ".join(str(tag) for tag in item.get("tags") or []),
+        )).casefold()
+        if all(term.casefold() in haystack for term in terms):
+            matches.append(item)
+    matches.sort(key=_queue_item_sort_key)
+    rows = [_queue_compact_item_row(item) for item in matches[:5]] or ["  - None"]
+    return {
+        "success": True,
+        "created": False,
+        "direct_reply": True,
+        "output": "\n".join((
+            heading,
+            *rows,
+            "Lookup token usage: no agent invocation",
+        )),
+        "returncode": 0,
+        "requested_target": "queue",
+        "selected_route": "local_queue_read",
+        "delegation_reason": "deterministic queue keyword read",
+        "token_usage": {"available": False, "no_agent_invocation": True},
+        "token_usage_text": "Token usage: no agent invocation",
+    }
+
+
 def _try_queue_read_task(task: str) -> dict | None:
-    normalized = " ".join(task.strip().lower().split())
-    normalized_without_punctuation = normalized.rstrip("?.!")
-    if normalized in _SYSTEM_STATUS_INTENTS:
+    normalized = " ".join(task.strip().casefold().split())
+    literal = _FROZEN_LITERAL_FAST_PATHS.get(normalized)
+    if literal is None:
+        is_queue_list, status, invalid = _queue_status_filter(task)
+        if invalid is not None:
+            return invalid
+        if is_queue_list:
+            return _queue_list_closeout(status)
+        return None
+    route, payload = literal
+    if route == "system_status":
         return _operator_system_status_closeout()
-    if normalized in _QUEUE_STATUS_INTENTS or normalized_without_punctuation in _QUEUE_STATUS_INTENTS:
+    if route == "queue_status":
         return _queue_status_closeout()
-    filtered_intent = _QUEUE_FILTERED_READ_INTENTS.get(normalized)
-    if filtered_intent is not None:
-        return _queue_filtered_read_closeout(*filtered_intent)
-    if re.search(r"\b(?:active|current|running|pending)\s+(?:queue\s+)?(?:tasks?|work|items?)\b|\bwhat\s+(?:is|are)\s+(?:currently\s+)?(?:active|running)\b", normalized):
+    if route == "open_tasks":
         return _queue_list_closeout(None)
-    if re.search(r"\b(?:show|list|read|what(?:'s| is)?|where(?:'s| is)?)\b[^.!?\n]{0,60}\b(?:latest\s+)?receipts?\b", normalized):
-        return _queue_recent_receipts_closeout()
-    if re.search(r"\b(?:how\s+many\s+tokens|token\s+usage|tokens?\s+(?:used|spent|reported))\b", normalized):
-        return _queue_token_state_closeout()
-    is_queue_list, status, invalid = _queue_status_filter(task)
-    if invalid is not None:
-        return invalid
-    if is_queue_list:
-        return _queue_list_closeout(status)
+    if route == "filtered" and isinstance(payload, tuple):
+        return _queue_filtered_read_closeout(*payload)
     return None
 
 
 _EXISTING_ITEM_READ_RE = re.compile(
-    r"\b(?:read|show|explain|report|retrieve|surface|attach|status|details?|why|what\s+happened|failed|blocked|receipt|artifact|worker|owner|complete|completed|done|tokens?|attempts?)\b",
+    r"\b(?:read|show|explain|report|retrieve|surface|attach|status|details?|why|what\s+happened|"
+    r"what\s+did|change|changed|result|failed|blocked|receipt|artifact|worker|owner|complete|completed|done|tokens?|attempts?)\b",
     re.IGNORECASE,
 )
 _SUBSTANTIVE_CHANGE_RE = re.compile(
@@ -9059,6 +9234,371 @@ _NEGATED_EXTERNAL_ACTION_RE = re.compile(
     r"\b(?:do\s+not|don't|never|without|prohibit(?:s|ed|ing)?|block(?:s|ed|ing)?)\b[^.;\n]{0,48}$",
     re.IGNORECASE,
 )
+_TELEGRAM_REJECTION_RE = re.compile(
+    r"^\s*(?:no\s*,?\s*)?(?:reject|decline|cancel)\s+(?:it|that|this|the\s+(?:item|result|draft|task))?[.!]?\s*$",
+    re.IGNORECASE,
+)
+_TELEGRAM_CLARIFICATION_RE = re.compile(
+    r"^\s*(?:"
+    r"(?:here\s+(?:is|are)|this\s+is)\b[\s\S]{0,900}\b(?:you\s+asked\s+for|you\s+requested)"
+    r"|the\s+(?:information|detail|answer)\s+you\s+asked\s+for\b"
+    r"|(?:yes\s*,?\s*)?use\s+the\s+(?:first|second|third|last)\s+(?:option|one)"
+    r")",
+    re.IGNORECASE,
+)
+_TELEGRAM_DISCUSSION_RE = re.compile(
+    r"\b(?:discuss|talk\s+(?:about|through)|brainstorm|before\s+(?:running|changing|editing)|"
+    r"not\s+sure|what\s+other\s+wording|could\s+work|would\s+work)\b",
+    re.IGNORECASE,
+)
+_TELEGRAM_CORRECTION_RE = re.compile(
+    r"(?:"
+    r"^\s*(?:please\s+)?(?:revise|correct|apply|add|change|edit|modify|fix|update)\b"
+    r"|^\s*(?:that|this|the\s+(?:draft|result|file|email|artifact))\b[\s\S]{0,900}\bneeds?\b"
+    r")",
+    re.IGNORECASE,
+)
+_TELEGRAM_CORRECTION_TARGET_RE = re.compile(
+    r"\b(?:that|this|it|the)\s+(?:generated\s+)?(?:draft|result|file|artifact|email|copy|output|closing|sentence|signature)\b"
+    r"|\b(?:draft|result|artifact|email|closing\s+sentence|signature)\s+(?:you\s+just|just\s+produced|above)\b",
+    re.IGNORECASE,
+)
+_EXPLICIT_TASK_CREATE_RE = re.compile(
+    r"^\s*(?:please\s+)?(?:create|add|open)\s+(?:a\s+)?(?:new\s+)?task\s+(?:to|for)\b",
+    re.IGNORECASE,
+)
+_EXPLICIT_WORKFLOW_RUN_RE = re.compile(
+    r"^\s*(?:please\s+)?(?:run|execute|start)\s+(?:the\s+)?[\w -]{1,100}\bworkflow\b",
+    re.IGNORECASE,
+)
+_EXPLICIT_ARTIFACT_ACTION_RE = re.compile(
+    r"^\s*(?:please\s+)?(?:update|edit|modify|fix|repair|create|build|run|execute)\b[\s\S]{0,900}"
+    r"\b(?:named\s+file|[\w./-]+\.(?:py|md|json|jsonl|yaml|yml|js|jsx|ts|tsx|html|css)|"
+    r"repository|repo|code|workflow|script|test|dashboard|backend|connector)\b",
+    re.IGNORECASE,
+)
+_EXPLICIT_SERVICE_ACTION_RE = re.compile(
+    r"^\s*(?:please\s+)?(?:"
+    r"quick\s+search\b"
+    r"|(?:search|scrape|check|query|use)\b[\s\S]{0,900}"
+    r"\b(?:web|internet|page|site|firecrawl|composio|mail|email|calendar|crm|linkedin)\b"
+    r")",
+    re.IGNORECASE,
+)
+_WORK_OVERRIDE_RE = re.compile(r"^\s*/work\s+(codex|claude|hermes)\s+([\s\S]+?)\s*$", re.IGNORECASE)
+
+
+def _telegram_bindings_path() -> Path:
+    return BASE_DIR / "logs" / "runtime" / "telegram_chat_bindings.json"
+
+
+def _telegram_binding_timestamp(value: object) -> datetime.datetime | None:
+    parsed = _parse_record_timestamp(value)
+    if parsed is None:
+        return None
+    return parsed.astimezone(datetime.timezone.utc)
+
+
+def _load_telegram_bindings(now: datetime.datetime | None = None) -> list[dict]:
+    current = now or datetime.datetime.now(datetime.timezone.utc)
+    try:
+        payload = json.loads(_telegram_bindings_path().read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    rows = payload.get("bindings") if isinstance(payload, dict) else []
+    if not isinstance(rows, list):
+        return []
+    kept = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        timestamp = _telegram_binding_timestamp(row.get("timestamp"))
+        if timestamp is None:
+            continue
+        age = (current - timestamp).total_seconds()
+        if age < 0 or age > TELEGRAM_BINDING_TTL_SECONDS:
+            continue
+        cleaned = {
+            "chat_id": str(row.get("chat_id") or "")[:80],
+            "update_id": str(row.get("update_id") or "")[:120],
+            "item_id": str(row.get("item_id") or "")[:32],
+            "item_state": str(row.get("item_state") or "")[:40],
+            "result_ref": str(row.get("result_ref") or "")[:500],
+            "timestamp": timestamp.replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+            "binding_type": str(row.get("binding_type") or "")[:80],
+        }
+        if cleaned["chat_id"] and re.fullmatch(r"AOS-\d{4}-\d{4}", cleaned["item_id"]):
+            kept.append(cleaned)
+    kept.sort(key=lambda row: row["timestamp"])
+    return kept[-TELEGRAM_BINDINGS_GLOBAL_MAX:]
+
+
+def _save_telegram_binding(row: dict) -> None:
+    """Persist bounded routing metadata only; never retain operator text or artifact bodies."""
+    with _TELEGRAM_BINDING_LOCK:
+        rows = _load_telegram_bindings()
+        rows = [
+            existing for existing in rows
+            if not (
+                existing.get("chat_id") == row.get("chat_id")
+                and existing.get("item_id") == row.get("item_id")
+            )
+        ]
+        rows.append(row)
+        per_chat: dict[str, list[dict]] = {}
+        for existing in sorted(rows, key=lambda value: value["timestamp"]):
+            per_chat.setdefault(existing["chat_id"], []).append(existing)
+        bounded = []
+        for values in per_chat.values():
+            bounded.extend(values[-TELEGRAM_BINDINGS_PER_CHAT:])
+        bounded.sort(key=lambda value: value["timestamp"])
+        target = _telegram_bindings_path()
+        durable_replace_text(
+            target,
+            json.dumps({"bindings": bounded[-TELEGRAM_BINDINGS_GLOBAL_MAX:]}, separators=(",", ":")) + "\n",
+        )
+
+
+def _record_telegram_binding(
+    body: TaskRun,
+    item: dict,
+    binding_type: str,
+    *,
+    result_ref: str = "",
+) -> None:
+    if str(getattr(body, "source", "telegram") or "telegram").strip().casefold() != "telegram":
+        return
+    chat_id = str(getattr(body, "reply_to", "") or "").strip()
+    item_id = str(item.get("id") or "").strip()
+    if not chat_id or not re.fullmatch(r"AOS-\d{4}-\d{4}", item_id):
+        return
+    if not result_ref:
+        latest = _queue_latest_receipt(item)
+        result_ref = str((latest or {}).get("path") or "")
+    _save_telegram_binding({
+        "chat_id": chat_id,
+        "update_id": str(getattr(body, "delivery_id", "") or "")[:120],
+        "item_id": item_id,
+        "item_state": str(item.get("status") or "")[:40],
+        "result_ref": str(result_ref or "")[:500],
+        "timestamp": datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+        "binding_type": str(binding_type or "")[:80],
+    })
+
+
+def _telegram_bound_items(
+    body: TaskRun,
+    *,
+    statuses: set[str] | None = None,
+    require_result: bool = False,
+) -> list[tuple[dict, dict]]:
+    chat_id = str(getattr(body, "reply_to", "") or "").strip()
+    if not chat_id:
+        return []
+    items = {str(row.get("id") or ""): row for row in _read_queue_items()}
+    candidates = []
+    for binding in reversed(_load_telegram_bindings()):
+        if binding.get("chat_id") != chat_id:
+            continue
+        if require_result and not binding.get("result_ref"):
+            continue
+        item = items.get(str(binding.get("item_id") or ""))
+        if not item or (statuses is not None and item.get("status") not in statuses):
+            continue
+        if not _telegram_item_matches_operator(item, body, explicit_id=False):
+            continue
+        candidates.append((item, binding))
+    return candidates
+
+
+def _binding_clarification(candidates: list[tuple[dict, dict]], noun: str) -> dict:
+    labels = [aos_orchestration.operator_item_label(item) for item, _ in candidates]
+    return {
+        "success": False,
+        "accepted": False,
+        "created": False,
+        "clarification_required": True,
+        "direct_reply": True,
+        "candidate_ids": [str(item.get("id") or "") for item, _ in candidates],
+        "selected_route": "local_conversation_clarification",
+        "output": (
+            f"Which {noun} do you mean: {', '.join(labels)}?"
+            if labels else f"Which {noun} do you mean? Include its AOS item ID."
+        ),
+        "token_usage": {"available": False, "no_agent_invocation": True},
+        "token_usage_text": "Token usage: no agent invocation",
+    }
+
+
+def _bounded_utf8(value: object, maximum: int) -> str:
+    raw = str(value or "").encode("utf-8")
+    if len(raw) <= maximum:
+        return raw.decode("utf-8")
+    return raw[:maximum].decode("utf-8", errors="ignore").rstrip()
+
+
+def _operator_recent_turns(chat_id: str) -> list[str]:
+    with _OPERATOR_CONTEXT_LOCK:
+        return list(_OPERATOR_RECENT_TURNS.get(str(chat_id or ""), ()))
+
+
+def _remember_operator_turn(chat_id: str, message: str) -> None:
+    key = str(chat_id or "").strip()
+    if not key:
+        return
+    turn = _bounded_utf8(" ".join(str(message or "").split()), OPERATOR_RECENT_TURNS_MAX_BYTES)
+    if not turn:
+        return
+    with _OPERATOR_CONTEXT_LOCK:
+        turns = [*_OPERATOR_RECENT_TURNS.get(key, ()), turn][-OPERATOR_RECENT_TURNS_MAX:]
+        while turns and len("\n".join(turns).encode("utf-8")) > OPERATOR_RECENT_TURNS_MAX_BYTES:
+            turns.pop(0)
+        _OPERATOR_RECENT_TURNS[key] = turns
+
+
+def _operator_item_references(current: str, recent: list[str]) -> list[dict]:
+    referenced_ids = {
+        match.group(0).upper()
+        for match in re.finditer(r"\bAOS-\d{4}-\d{4}\b", "\n".join([*recent, current]), re.IGNORECASE)
+    }
+    items = _read_queue_items()
+    selected = [
+        row for row in reversed(items)
+        if str(row.get("id") or "").upper() in referenced_ids
+    ]
+    selected.extend(
+        row for row in reversed(items)
+        if row.get("status") in {"agent_todo", "agent_working", "needs_input", "human_review", "blocked"}
+        and row not in selected
+    )
+    refs = []
+    used = 0
+    for item in selected:
+        row = {
+            "id": str(item.get("id") or ""),
+            "title": _bounded_utf8(item.get("title") or "", 240),
+            "state": str(item.get("status") or ""),
+        }
+        encoded = len(json.dumps(row, separators=(",", ":")).encode("utf-8"))
+        if refs and used + encoded > OPERATOR_ITEM_REFS_MAX_BYTES:
+            break
+        refs.append(row)
+        used += encoded
+        if len(refs) >= OPERATOR_ITEM_REFS_MAX:
+            break
+    return refs
+
+
+def _operator_lean_prompt(body: TaskRun) -> tuple[str, dict]:
+    current = _bounded_utf8(" ".join(str(body.task or "").split()), 4_000)
+    recent = _operator_recent_turns(str(body.reply_to or ""))
+    refs = _operator_item_references(current, recent)
+    recent_lines = [f"- {turn}" for turn in recent] or ["- None"]
+    prompt = "\n".join((
+        "Current operator message:",
+        current,
+        "",
+        "Recent operator turns, oldest first:",
+        *recent_lines,
+        "",
+        "Recent or pending item references (metadata only):",
+        json.dumps(refs, separators=(",", ":")),
+        "",
+        "Request metadata for create_task only:",
+        f"- delivery_id: {_bounded_utf8(body.delivery_id, 160)}",
+        f"- reply_to: {_bounded_utf8(body.reply_to, 80)}",
+        "Pass those two values unchanged if, and only if, you call create_task.",
+    ))
+    return prompt, {
+        "current_message_bytes": len(current.encode("utf-8")),
+        "recent_turn_count": len(recent),
+        "recent_turn_bytes": len("\n".join(recent).encode("utf-8")),
+        "item_reference_count": len(refs),
+        "item_reference_bytes": len(json.dumps(refs, separators=(",", ":")).encode("utf-8")),
+    }
+
+
+def _operator_delivery_item(delivery_id: str, new_ids: set[str]) -> dict | None:
+    items = _read_queue_items()
+    if len(new_ids) == 1:
+        return next((row for row in items if row.get("id") in new_ids), None)
+    target = str(delivery_id or "").strip()
+    if not target:
+        return None
+    return next(
+        (
+            row for row in reversed(items)
+            if isinstance(row.get("dispatch"), dict)
+            and str(row["dispatch"].get("delivery_id") or "") == target
+        ),
+        None,
+    )
+
+
+_OPERATOR_QUEUE_CLAIM_RE = re.compile(
+    r"\b(?:created|queued|submitted|dispatched)\b[\s\S]{0,100}"
+    r"(?:\bAOS-\d{4}-\d{4}\b|\b(?:task|work|item)\b)",
+    re.IGNORECASE,
+)
+
+
+def _operator_lean_closeout(body: TaskRun) -> dict:
+    before = {str(row.get("id") or "") for row in _read_queue_items()}
+    prompt, bounds = _operator_lean_prompt(body)
+    result = _run_hermes_message(
+        prompt,
+        role="operator",
+        timeout=OPERATOR_LEAN_TIMEOUT_SECONDS,
+        launcher=HERMES_OPERATOR_LEAN,
+        profile="operator-lean",
+    )
+    after = {str(row.get("id") or "") for row in _read_queue_items()}
+    new_ids = after - before
+    if len(new_ids) > 1:
+        raise HTTPException(status_code=500, detail="operator-lean created more than one queue item")
+    item = _operator_delivery_item(body.delivery_id, new_ids)
+    created = bool(item and str(item.get("id") or "") in new_ids)
+    runner = None
+    if created and item is not None:
+        runner = _accept_async_queue_runner(item)
+        _record_telegram_binding(body, item, "operator_lean_task")
+    _remember_operator_turn(str(body.reply_to or ""), body.task)
+    output = result.get("output") or result.get("reply") or result.get("stderr") or "Hermes operator-lean returned no response."
+    success = bool(result.get("success"))
+    if created and item is not None:
+        output = f"Created {item.get('id')}: {item.get('title')}"
+    elif _OPERATOR_QUEUE_CLAIM_RE.search(output):
+        success = False
+        output = "TOOL_UNAVAILABLE: create_task did not create a tracked item. No task was queued."
+    closeout = {
+        "success": success,
+        "accepted": created,
+        "created": created,
+        "direct_reply": not created,
+        "requested_target": "operator",
+        "selected_route": "hermes_operator_lean",
+        "delegation_reason": "natural-language fall-through to bounded Hermes operator-lean",
+        "profile_requested": "operator-lean",
+        "profile_used": "operator-lean",
+        "hermes_orchestrator_invoked": False,
+        "output": output,
+        "token_usage": result.get("token_usage") or {"available": False},
+        "token_usage_text": result.get("token_usage_text") or "Token usage: unavailable from current CLI output",
+        "elapsed_seconds": result.get("elapsed_seconds"),
+        "queue_delta": len(new_ids),
+        "model_process_count": 1,
+        "worker_process_count": 1 if runner and runner.get("mode") == "one_shot" else 0,
+        "context_bounds": bounds,
+    }
+    if item is not None:
+        closeout.update({
+            "work_item_id": item.get("id"),
+            "owner": item.get("owner"),
+            "status": item.get("status"),
+            "size": item.get("size"),
+            "runner_accepted": bool(runner and runner.get("accepted")) if created else False,
+        })
+    return closeout
 
 
 def _telegram_approval_intent(text: str) -> dict | None:
@@ -9092,7 +9632,8 @@ def _telegram_split_request_guard(body: TaskRun) -> dict | None:
             stored = prompt_path.read_text(encoding="utf-8").strip()
         except OSError:
             continue
-        if len(stored) <= _LONG_WORK_BODY_CHARS or not stored.casefold().startswith("/work") or not stored.endswith(":"):
+        tags = {str(value) for value in item.get("tags") or []}
+        if len(stored) <= _LONG_WORK_BODY_CHARS or "oversized_intake" not in tags or not stored.endswith(":"):
             continue
         if not _telegram_item_matches_operator(item, body, explicit_id=False):
             continue
@@ -9287,14 +9828,31 @@ def _approval_resume_receipt_path(item_id: str, event_key: str) -> str:
     return f"queue/receipts/{item_id}-telegram-approval-{digest}.md"
 
 
-def _resume_needs_input_from_telegram(item: dict, event_key: str) -> dict:
+def _resume_needs_input_from_telegram(
+    item: dict,
+    event_key: str,
+    *,
+    operator_input: str = "",
+    event_kind: str = "approval",
+) -> dict:
+    bounded_input = " ".join(str(operator_input or "").split())[:1000]
+    if bounded_input:
+        with queue_write_lock(BASE_DIR):
+            queue_tool = _load_queue_tool()
+            items = queue_tool.load_items(BASE_DIR)
+            stored = queue_tool.find_item(items, str(item.get("id") or ""))
+            current = str(stored.get("context") or "").rstrip()
+            timestamp = datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+            stored["context"] = f"{current}\n\nOperator clarification ({timestamp}): {bounded_input}".strip()
+            stored["updated_at"] = queue_tool.now_iso()
+            queue_tool.save_items(BASE_DIR, items)
     receipt_path = _approval_resume_receipt_path(str(item.get("id") or ""), event_key)
     target = BASE_DIR / receipt_path
     if not target.exists():
         durable_replace_text(target, "\n".join((
             "PASS",
             "",
-            "Telegram approval routing:",
+            f"Telegram {event_kind} routing:",
             f"- Work item ID: {item.get('id')}",
             "- Transition: needs_input -> agent_todo",
             "- Result: existing item resumed; no new work item created",
@@ -9315,7 +9873,7 @@ def _resume_needs_input_from_telegram(item: dict, event_key: str) -> dict:
     runner = _accept_async_queue_runner(refreshed)
     refreshed = _queue_find_item(refreshed["id"])
     _save_approval_effect(
-        refreshed["id"], event_key, status="applied", action="resume",
+        refreshed["id"], event_key, status="applied", action="resume", event_kind=event_kind,
         target_status=refreshed.get("status"), receipt_path=receipt_path,
         runner_state=runner.get("state"), runner_mode=runner.get("mode"),
     )
@@ -9336,7 +9894,7 @@ def _resume_needs_input_from_telegram(item: dict, event_key: str) -> dict:
         "output": aos_orchestration.format_operator_work_item_notification(
             refreshed,
             refreshed.get("status"),
-            summary="Existing needs_input item resumed; no new work item created.",
+            summary=f"Existing needs_input item resumed from Telegram {event_kind}; no new work item created.",
             next_action="None",
             receipt_path=receipt_path,
             receipt_attached=bool(receipt_path),
@@ -9399,6 +9957,13 @@ def _try_telegram_approval(body: TaskRun) -> dict | None:
             "approval-too-long", [],
             "Approval replies must be bounded; send the approval and any new substantive request separately.",
         )
+    bound_ids = {
+        str(item.get("id") or "")
+        for item, _ in _telegram_bound_items(
+            body,
+            statuses={"needs_input", "human_review"},
+        )
+    }
     event_key = _telegram_approval_event_key(body, intent)
     pending_replay = _approval_effect_replay(_read_queue_items(), event_key)
     if pending_replay is not None and pending_replay[1].get("status") == "pending":
@@ -9419,6 +9984,13 @@ def _try_telegram_approval(body: TaskRun) -> dict | None:
                 if str(row.get("id") or "").upper() in explicit_ids
                 and row.get("status") in {"needs_input", "human_review", "done"}
                 and _telegram_item_matches_operator(row, body, explicit_id=True)
+            ]
+        elif bound_ids:
+            candidates = [
+                row for row in items
+                if str(row.get("id") or "") in bound_ids
+                and row.get("status") in {"needs_input", "human_review"}
+                and _telegram_item_matches_operator(row, body, explicit_id=False)
             ]
         else:
             candidates = [
@@ -9459,8 +10031,260 @@ def _try_telegram_approval(body: TaskRun) -> dict | None:
         })
         queue_tool.save_items(BASE_DIR, items)
     if item.get("status") == "needs_input":
-        return _resume_needs_input_from_telegram(item, event_key)
-    return _accept_human_review_from_telegram(item, event_key)
+        result = _resume_needs_input_from_telegram(item, event_key)
+    else:
+        result = _accept_human_review_from_telegram(item, event_key)
+    _record_telegram_binding(body, _queue_find_item(str(item.get("id") or "")), "approval")
+    result["direct_reply"] = True
+    return result
+
+
+def _telegram_followup_event_key(body: TaskRun, kind: str) -> str:
+    source = str(getattr(body, "source", "telegram") or "telegram").strip().casefold()
+    reply_to = str(getattr(body, "reply_to", "") or "").strip()
+    delivery_id = str(getattr(body, "delivery_id", "") or "").strip()
+    stable = delivery_id or " ".join(str(body.task or "").split()).casefold()
+    digest = hashlib.sha256(f"{source}\0{reply_to}\0{kind}\0{stable}".encode("utf-8")).hexdigest()
+    return f"telegram-{kind}:{digest}"
+
+
+def _pending_operator_candidates(body: TaskRun, statuses: set[str]) -> list[dict]:
+    bound = _telegram_bound_items(body, statuses=statuses)
+    if bound:
+        return [item for item, _ in bound]
+    return [
+        row for row in _read_queue_items()
+        if row.get("status") in statuses
+        and _telegram_item_matches_operator(row, body, explicit_id=False)
+    ]
+
+
+def _try_telegram_clarification(body: TaskRun) -> dict | None:
+    if str(getattr(body, "source", "telegram") or "telegram").strip().casefold() != "telegram":
+        return None
+    text = str(body.task or "").strip()
+    if not _TELEGRAM_CLARIFICATION_RE.search(text):
+        return None
+    candidates = _pending_operator_candidates(body, {"needs_input"})
+    if len(candidates) != 1:
+        return _binding_clarification(
+            [(item, {}) for item in candidates],
+            "needs-input item",
+        )
+    item = candidates[0]
+    boundaries = _approval_external_boundaries(item, text)
+    if boundaries:
+        result = _binding_clarification([(item, {})], "item")
+        result["output"] = (
+            "That clarification could authorize an external or destructive action. "
+            f"Name the exact action and target for {item.get('id')} instead."
+        )
+        result["blocked_actions"] = boundaries
+        return result
+    event_key = _telegram_followup_event_key(body, "clarification")
+    replay = _approval_effect_replay(_read_queue_items(), event_key)
+    if replay is not None and replay[1].get("status") == "applied":
+        result = _approval_replay_closeout(*replay)
+        result["direct_reply"] = True
+        return result
+    result = _resume_needs_input_from_telegram(
+        item,
+        event_key,
+        operator_input=text,
+        event_kind="clarification",
+    )
+    _record_telegram_binding(body, _queue_find_item(str(item.get("id") or "")), "clarification")
+    result["direct_reply"] = True
+    return result
+
+
+def _try_telegram_rejection(body: TaskRun) -> dict | None:
+    if str(getattr(body, "source", "telegram") or "telegram").strip().casefold() != "telegram":
+        return None
+    text = str(body.task or "").strip()
+    if not _TELEGRAM_REJECTION_RE.fullmatch(text):
+        return None
+    candidates = _pending_operator_candidates(body, {"needs_input", "human_review"})
+    if len(candidates) != 1:
+        return _binding_clarification([(item, {}) for item in candidates], "pending item")
+    item = candidates[0]
+    event_key = _telegram_followup_event_key(body, "rejection")
+    replay = _approval_effect_replay(_read_queue_items(), event_key)
+    if replay is not None and replay[1].get("status") == "applied":
+        result = _approval_replay_closeout(*replay)
+        result["direct_reply"] = True
+        return result
+    if item.get("status") == "human_review":
+        closed = _close_queue_item_review(
+            str(item.get("id") or ""),
+            QueueReviewClose(
+                status="blocked",
+                review_note="Rejected through item-bound Telegram routing.",
+                action="reject",
+            ),
+            notify_telegram=False,
+        )
+        receipt_path = str(closed.get("receipt_path") or "")
+    else:
+        receipt_path = _approval_resume_receipt_path(str(item.get("id") or ""), event_key)
+        target = BASE_DIR / receipt_path
+        if not target.exists():
+            durable_replace_text(target, "\n".join((
+                "PASS",
+                "",
+                "Telegram rejection routing:",
+                f"- Work item ID: {item.get('id')}",
+                "- Transition: needs_input -> blocked",
+                "- Result: existing item rejected; no new work item created",
+                "- Token usage: no agent invocation",
+                "",
+            )))
+        _load_queue_tool().attach_receipt(
+            BASE_DIR,
+            str(item.get("id") or ""),
+            receipt_path,
+            "blocked",
+        )
+    refreshed = _queue_find_item(str(item.get("id") or ""))
+    _save_approval_effect(
+        refreshed["id"],
+        event_key,
+        status="applied",
+        action="reject",
+        target_status=refreshed.get("status"),
+        receipt_path=receipt_path,
+    )
+    _record_telegram_binding(body, refreshed, "rejection", result_ref=receipt_path)
+    return {
+        "success": True,
+        "accepted": True,
+        "created": False,
+        "direct_reply": True,
+        "work_item_id": refreshed["id"],
+        "status": refreshed.get("status"),
+        "receipt_path": receipt_path,
+        "selected_route": "local_existing_item_rejection",
+        "output": f"Rejected {aos_orchestration.operator_item_label(refreshed)}. No new task was created.",
+        "token_usage": {"available": False, "no_agent_invocation": True},
+        "token_usage_text": "Token usage: no agent invocation",
+    }
+
+
+def _try_bound_existing_item_read(body: TaskRun) -> dict | None:
+    text = str(body.task or "").strip()
+    if _TELEGRAM_APPROVAL_ITEM_RE.search(text):
+        return None
+    if not _EXISTING_ITEM_READ_RE.search(text):
+        return None
+    if not re.search(r"\b(?:that|it|its|this|the\s+(?:item|task|result|receipt|draft))\b", text, re.IGNORECASE):
+        return None
+    candidates = _telegram_bound_items(body)
+    if len(candidates) != 1:
+        return _binding_clarification(candidates, "item")
+    item, _ = candidates[0]
+    result = _try_existing_item_read_task(f"{text} {item.get('id')}", body)
+    if result is None:
+        return None
+    result["direct_reply"] = True
+    _record_telegram_binding(
+        body,
+        item,
+        "existing_item_read",
+        result_ref=str(result.get("receipt_path") or ""),
+    )
+    return result
+
+
+def _create_bound_artifact_correction(
+    body: TaskRun,
+    source_item: dict,
+    binding: dict,
+) -> tuple[dict, bool, list[str], list[str]]:
+    text = str(body.task or "").strip()
+    source_id = str(source_item.get("id") or "")
+    result_ref = str(binding.get("result_ref") or "")
+    source_binding = {
+        "source_item_id": source_id,
+        "source_state": str(source_item.get("status") or ""),
+        "result_ref": result_ref,
+        "binding_type": "artifact_correction",
+    }
+    key = _dispatch_idempotency_key(
+        text,
+        str(getattr(body, "source", "telegram") or "telegram"),
+        str(getattr(body, "delivery_id", "") or ""),
+    )
+    validation_path = "tests/test_telegram_conversational_routing.py"
+    args = argparse.Namespace(
+        title=f"Correct result from {source_id}: {_cockpit_command_title(text)}",
+        requested_by="Liam",
+        owner_type="agent",
+        owner="claude",
+        status="agent_todo",
+        priority=5,
+        source=str(getattr(body, "source", "telegram") or "telegram"),
+        tags="async_dispatch,olmec,deterministic_intake,artifact_correction,small_task",
+        context="\n".join((
+            f"Operator correction: {text}",
+            f"Source work item: {source_id}",
+            f"Source result/receipt: {result_ref}",
+            f"Referenced routing regression: {validation_path}",
+            "Modify only the unambiguous existing result or artifact. Do not send or publish it.",
+        )),
+        sources=result_ref,
+        allowed_actions="local_read,local_edit,local_test",
+        stop_conditions="external_send,secrets_exposure,destructive_action_outside_scope",
+        definition_of_done=(
+            "Apply the requested correction to the bound result, keep all external actions disabled, "
+            f"and report a passing focused check for {validation_path}."
+        ),
+        parent_id=source_id,
+        step_index=None,
+        depends_on="",
+        on_complete="human_review",
+        workbench="claude",
+        review="none",
+        size="small",
+        source_binding=json.dumps(source_binding, separators=(",", ":")),
+        run_prompt_path=None,
+        needs_me=None,
+        idempotency_key=key,
+        inbound_route="telegram:/api/wsl/hermes:artifact_correction",
+        delivery_id=str(getattr(body, "delivery_id", "") or ""),
+        reply_to=str(getattr(body, "reply_to", "") or ""),
+        idempotency_duplicate=False,
+    )
+    item = _load_queue_tool().create_item(BASE_DIR, args)
+    return item, not bool(args.idempotency_duplicate), [result_ref], ["bound_artifact_correction", "size_small"]
+
+
+def _try_bound_artifact_correction(body: TaskRun) -> dict | None:
+    text = str(body.task or "").strip()
+    if _TELEGRAM_DISCUSSION_RE.search(text):
+        return None
+    if not (_TELEGRAM_CORRECTION_RE.search(text) and _TELEGRAM_CORRECTION_TARGET_RE.search(text)):
+        return None
+    candidates = _telegram_bound_items(
+        body,
+        statuses={"human_review", "done", "blocked", "needs_input"},
+        require_result=True,
+    )
+    if len(candidates) != 1:
+        return _binding_clarification(candidates, "result or artifact")
+    source_item, binding = candidates[0]
+    item, created, paths, signals = _create_bound_artifact_correction(body, source_item, binding)
+    result = _async_dispatch_closeout(item, created, paths, signals)
+    result.update({
+        "requested_target": "claude",
+        "selected_route": "direct_claude",
+        "delegation_reason": "explicit correction bound to one recent result; smallest-capable-worker route",
+        "source_item_id": source_item.get("id"),
+        "source_result_ref": binding.get("result_ref"),
+        "size": "small",
+        "hermes_orchestrator_invoked": False,
+    })
+    _record_telegram_binding(body, item, "artifact_correction")
+    return result
 
 
 def _dispatch_source_paths(text: str) -> list[str]:
@@ -9580,10 +10404,25 @@ def _accept_async_queue_runner(item: dict) -> dict:
     }
 
 
+def _existing_async_queue_runner(item: dict) -> dict:
+    """Report a replayed intake without starting a second one-shot runner."""
+    status = str(item.get("status") or "agent_todo")
+    recurring = _queue_runner_status(BASE_DIR)
+    return {
+        "available": bool(recurring.get("available")) or status != "agent_todo",
+        "accepted": status in {"agent_todo", "agent_working", "human_review", "needs_input", "blocked", "done"},
+        "state": "already_dispatched" if status == "agent_todo" else status,
+        "pid": recurring.get("pid") if recurring.get("available") else None,
+        "mode": "recurring" if recurring.get("available") else "existing_item",
+    }
+
+
 def _create_async_dispatch_item(
     body: TaskRun,
     *,
     owner_override: str | None = None,
+    size_override: str | None = None,
+    explicit_work: bool = False,
 ) -> tuple[dict, bool, list[str], list[str]]:
     text = str(body.task or "").strip()
     source = str(getattr(body, "source", "telegram") or "telegram").strip() or "telegram"
@@ -9597,12 +10436,14 @@ def _create_async_dispatch_item(
     elif owner == "unassigned":
         owner = "hermes"
     key = _dispatch_idempotency_key(text, source, delivery_id)
-    oversized_work = text.casefold().startswith("/work") and len(text) > _LONG_WORK_BODY_CHARS
+    oversized_work = (explicit_work or text.casefold().startswith("/work")) and len(text) > _LONG_WORK_BODY_CHARS
     run_prompt_path = _long_work_prompt_path(key) if oversized_work else ""
     if oversized_work:
         _write_long_work_prompt(run_prompt_path, text)
         paths = [*paths, run_prompt_path]
     tags = ["async_dispatch", "olmec", "deterministic_intake"]
+    if _is_hermes_orchestration_request(text):
+        tags.append("hermes_orchestration_request")
     if source.casefold() == "telegram":
         tags.append("telegram")
     if oversized_work:
@@ -9627,6 +10468,8 @@ def _create_async_dispatch_item(
         on_complete="human_review",
         workbench=owner if owner in {"codex", "claude"} else "lane",
         review="none",
+        size=size_override,
+        source_binding=None,
         run_prompt_path=run_prompt_path or None,
         needs_me=["consider decomposing"] if oversized_work else None,
         idempotency_key=key,
@@ -9640,7 +10483,7 @@ def _create_async_dispatch_item(
 
 
 def _async_dispatch_closeout(item: dict, created: bool, paths: list[str], signals: list[str]) -> dict:
-    runner = _accept_async_queue_runner(item)
+    runner = _accept_async_queue_runner(item) if created else _existing_async_queue_runner(item)
     state = "queued"
     action = "created" if created else "already queued"
     runner_line = "runner accepted" if runner["accepted"] else "runner unavailable; item remains queued"
@@ -10005,37 +10848,26 @@ def _try_composio_task(task: str) -> dict | None:
 
 @app.post("/api/wsl/hermes")
 def wsl_hermes(body: TaskRun):
-    """Keep bounded operator reads inline and queue all substantive agent work."""
+    """Resolve slash/literal fast paths, then use Hermes operator-lean."""
     if not body.task.strip():
         raise HTTPException(status_code=422, detail="task must not be empty")
-    approval = _try_telegram_approval(body)
-    if approval is not None:
-        return approval
-    split_guard = _telegram_split_request_guard(body)
-    if split_guard is not None:
-        return split_guard
-    queue_text = _queue_create_text(body.task)
-    if queue_text is not None:
-        if not queue_text:
-            raise HTTPException(status_code=422, detail="queue item text must not be empty")
-        return _queue_create_closeout(_create_queue_item(queue_text))
-    queue_read = _try_queue_read_task(body.task)
-    if queue_read is not None:
-        queue_read["timeout_contract"] = "inline_command"
-        queue_read["timeout_seconds"] = INLINE_COMMAND_TIMEOUT_SECONDS
-        return queue_read
-    existing_read = _try_existing_item_read_task(body.task, body)
-    if existing_read is not None:
-        existing_read["timeout_contract"] = "inline_command"
-        existing_read["timeout_seconds"] = INLINE_COMMAND_TIMEOUT_SECONDS
-        return existing_read
-    if _is_hermes_orchestration_request(body.task):
-        return _hermes_orchestration_closeout(body)
-    entry_route = _select_hermes_entry_route(body.task)
-    if entry_route["selected_route"] in {"direct_codex", "direct_claude"}:
-        target = "codex" if entry_route["selected_route"] == "direct_codex" else "claude"
+    override = _WORK_OVERRIDE_RE.fullmatch(body.task)
+    if override is not None:
+        target = override.group(1).casefold()
+        instruction = override.group(2).strip()
+        stripped = TaskRun(
+            task=instruction,
+            source=body.source,
+            delivery_id=body.delivery_id,
+            reply_to=body.reply_to,
+        )
         try:
-            item, created, paths, signals = _create_async_dispatch_item(body, owner_override=target)
+            item, created, paths, signals = _create_async_dispatch_item(
+                stripped,
+                owner_override=target,
+                size_override="small" if target == "codex" and len(instruction) <= 800 else None,
+                explicit_work=True,
+            )
         except Exception as exc:
             raise HTTPException(
                 status_code=503,
@@ -10044,20 +10876,72 @@ def wsl_hermes(body: TaskRun):
                     "accepted": False,
                     "state": "queue_creation_failed",
                     "reason": type(exc).__name__,
-                    "message": f"The explicit {target} request was not queued and Hermes was not invoked.",
+                    "message": f"The explicit {target} request was not queued.",
                 },
             ) from exc
         result = _async_dispatch_closeout(item, created, paths, [f"explicit_{target}", *signals])
-        result.update(entry_route)
-        result["requested_target"] = target
-        result["selected_route"] = entry_route["selected_route"]
-        result["delegation_reason"] = f"explicit natural-language {target} delegation; Hermes not invoked"
+        result.update({
+            "requested_target": target,
+            "selected_route": f"direct_{target}",
+            "delegation_reason": f"explicit /work {target} override",
+            "hermes_orchestrator_invoked": target == "hermes",
+        })
+        _record_telegram_binding(body, item, "explicit_work")
         return result
-    route = entry_route
-    result = _run_hermes_message(body.task)
-    if not result.get("success"):
-        return _compact_agent_closeout(result, "hermes", "hermes", body.task, route)
-    return _hermes_coordinator_closeout(result, body.task, route)
+    # Existing item-bound protocols remain deterministic so review gates,
+    # clarification resumptions, rejection, and delivery idempotency retain
+    # their established semantics. They do not classify new work.
+    approval = _try_telegram_approval(body)
+    if approval is not None:
+        return approval
+    rejection = _try_telegram_rejection(body)
+    if rejection is not None:
+        return rejection
+    clarification = _try_telegram_clarification(body)
+    if clarification is not None:
+        return clarification
+    split_guard = _telegram_split_request_guard(body)
+    if split_guard is not None:
+        return split_guard
+    queue_text = _queue_create_text(body.task)
+    if queue_text is not None:
+        if not queue_text:
+            raise HTTPException(status_code=422, detail="queue item text must not be empty")
+        return _queue_create_closeout(_create_queue_item(queue_text))
+    bound_read = _try_bound_existing_item_read(body)
+    if bound_read is not None:
+        bound_read["timeout_contract"] = "inline_command"
+        bound_read["timeout_seconds"] = INLINE_COMMAND_TIMEOUT_SECONDS
+        return bound_read
+    queue_read = _try_queue_read_task(body.task)
+    if queue_read is not None:
+        queue_read["timeout_contract"] = "inline_command"
+        queue_read["timeout_seconds"] = INLINE_COMMAND_TIMEOUT_SECONDS
+        queue_read.setdefault("direct_reply", True)
+        queue_read.setdefault("queue_delta", 0)
+        queue_read.setdefault("model_process_count", 0)
+        queue_read.setdefault("worker_process_count", 0)
+        return queue_read
+    token_explanation = bool(
+        re.search(r"\bwhy\b[\s\S]{0,200}\b(?:tokens?|token\s+usage)\b", body.task, re.IGNORECASE)
+    )
+    existing_read = None if token_explanation else _try_existing_item_read_task(body.task, body)
+    if existing_read is not None:
+        existing_read["timeout_contract"] = "inline_command"
+        existing_read["timeout_seconds"] = INLINE_COMMAND_TIMEOUT_SECONDS
+        existing_read["direct_reply"] = True
+        if existing_read.get("work_item_id"):
+            _record_telegram_binding(
+                body,
+                _queue_find_item(str(existing_read["work_item_id"])),
+                "existing_item_read",
+                result_ref=str(existing_read.get("receipt_path") or ""),
+            )
+        return existing_read
+    correction = _try_bound_artifact_correction(body)
+    if correction is not None:
+        return correction
+    return _operator_lean_closeout(body)
 
 
 @app.post("/api/hermes/message")

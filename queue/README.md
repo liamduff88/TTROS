@@ -1,5 +1,5 @@
 # Agentic OS Work Queue v0
-> Revisit: when queue storage, receipt promotion, or rollup ownership changes. · Last touched: 2026-07-19.
+> Revisit: when queue storage, receipt promotion, or rollup ownership changes. · Last touched: 2026-07-28.
 
 Minimal local work movement layer for Agentic OS.
 
@@ -27,6 +27,10 @@ Access behavior should reference `context/ACCESS_MODEL.md` instead of repeating 
 - `queue/model_routes.json` stores lane/profile/provider/model route metadata for queue runs, receipts, and token ledgers. Hermes receives explicit `--provider` and `--model` flags only when both values are real configured values; placeholders such as `configured externally`, `inherit_default`, `default`, `unavailable`, `TBD`, `—`, empty string, or `null` keep the default Hermes route.
 - `queue/lane_profiles.json` maps a lane to its requested/fallback Hermes profile. On the done-transition the coordinator resolves lane→profile from this file and performs a read-only `hermes profile show` probe to record whether native switching is possible. It never calls `hermes profile use` (that is prohibited for queue routing) — when a profile has no configured model, the coordinator records the reason and falls back to the default route.
 - `queue/profiles/` documents the manual `aos-*` Hermes profile status without storing secrets or mutating Hermes config.
+- `queue/profiles/operator-lean.md` is the tracked source for the lean Olmec
+  profile identity. Its live profile has no skills, memory, delegation, or
+  built-in toolsets and exposes only the six bounded local queue tools in
+  `tools/operator_lean_mcp.py`.
 - `queue/run_ledger.jsonl` is the master per-run record (`run_ledger_schema.json`); one line appended per item at done-transition.
 - `queue/token_ledger.jsonl` is the append-only token-usage ledger (`token_ledger_schema.json`); one line per completed receipt's `token_usage` block. Numbers come from harness/API usage only — unreportable components are listed under `unavailable`, never estimated.
 - `queue/rollups/` holds intentionally versioned weekly snapshots produced only

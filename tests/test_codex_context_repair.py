@@ -177,6 +177,23 @@ class CodexContextRepairTest(unittest.TestCase):
             self.assertNotIn("resume", " ".join(result["invocation"].get("command", [])))
             self.assertNotIn("model_auto_compact", first_prompt + second_prompt)
 
+    def test_small_queue_task_never_recursively_handoffs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            executable = self._fake_queue_threshold_codex(root)
+            target = replace(policy.CODEX_TARGET, root=root, executable=executable, codex_home=root / ".codex")
+            item = {"id": "AOS-2026-9008", "title": "Small route", "owner": "codex", "size": "small"}
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "CODEX_TARGET", target), \
+                 patch.object(backend, "CONTEXT_HANDOFF_THRESHOLD_TOKENS", 50), \
+                 patch.object(backend, "MAX_CONTEXT_HANDOFFS", 2):
+                result = backend._run_codex_local("SMALL_SINGLE_SESSION_SENTINEL", item)
+
+            self.assertTrue(result["success"])
+            self.assertEqual(result["session_id"], "queue-threshold-fresh-1")
+            self.assertNotIn("handoff_sessions", result)
+            self.assertEqual((root / "queue-threshold-counter.txt").read_text(encoding="utf-8"), "1")
+
     def test_queue_cli_threshold_reconciles_each_fresh_session(self):
         queue = load_module("aos_queue_threshold_context_repair", ROOT / "tools" / "aos-queue.py")
         with tempfile.TemporaryDirectory() as tmp:

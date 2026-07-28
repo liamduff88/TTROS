@@ -11,6 +11,15 @@
     "policy": "Fallback to the single Operating Hermes runtime through a per-invocation aos-orchestrator binding; fail instead of substituting a workbench."
   },
   "routes": {
+    "operator": {
+      "lane": "operator",
+      "profile_requested": "operator-lean",
+      "provider": "configured externally",
+      "model": "configured externally",
+      "escalation_profile": "",
+      "escalation_rule": "No escalation or orchestration capability.",
+      "policy": "Olmec natural-language fall-through uses one bounded operator-lean Hermes invocation with six queue tools and no Business Brain, memory, delegation, or aos-orchestrator fallback."
+    },
     "orchestrator": {
       "lane": "orchestrator",
       "profile_requested": "aos-orchestrator",
