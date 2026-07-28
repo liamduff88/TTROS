@@ -13,7 +13,7 @@ import json
 import os
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from mcp.server.fastmcp import FastMCP
 
@@ -28,6 +28,7 @@ TOKEN_FILES = (
 ACTIVE_STATES = {"inbox", "agent_todo", "agent_working", "needs_input", "human_review", "blocked"}
 REVIEW_STATES = {"needs_input", "human_review", "blocked"}
 ALLOWED_WORKERS = {"codex", "claude", "revenue", "marketing", "delivery", "operations"}
+OperatorWorker = Literal["revenue", "marketing", "delivery", "operations", "codex", "claude"]
 CODE_TASK_RE = re.compile(
     r"(?:^|[/\\])[\w.-]+\.(?:py|js|jsx|ts|tsx|json|yaml|yml|md|html|css|sh)\b"
     r"|\b(?:repo(?:sitory)?|code|file|script|test|backend|frontend|connector|routing|template)\b"
@@ -194,7 +195,7 @@ def get_token_ledger(item_id: str = "", limit: int = 5) -> dict[str, Any]:
 @mcp.tool()
 def create_task(
     instruction: str,
-    worker: str,
+    worker: OperatorWorker,
     delivery_id: str = "",
     reply_to: str = "",
 ) -> dict[str, Any]:

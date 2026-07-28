@@ -1,6 +1,27 @@
 # DECISIONS.md — log of decisions that change system behavior
 > One entry per behavior-affecting change. Newest first.
 
+## 2026-07-28 — Operator-lean retrieves scoped Business Brain notes on demand
+
+Olmec still sends generic conversation through one lean Hermes call without
+loading the Business Brain. Two narrow conversational question gates now use
+the existing default-deny `ScopedBrainLoader` pointer route: TTR/company
+questions receive company, offers, and positioning notes; client-acquisition
+focus questions receive current priorities, sales/revenue, and the prospecting
+rotation plan. At most 6,000 bytes of those scoped notes enter the dynamic user
+prompt, with exact retrieval provenance returned in the closeout. Execution,
+deterministic reads, queue behavior, recent-turn bounds, and the six-tool fixed
+preamble are unchanged. The existing `create_task.worker` schema now advertises
+the same six worker names already enforced at runtime, removing model ambiguity
+without changing the accepted worker set.
+
+Files touched: `dashboard/backend/main.py`,
+`queue/profiles/operator-lean.md`,
+`tools/operator_lean_mcp.py`,
+`tests/test_telegram_conversational_routing.py`,
+`proofs/operator-lean-brain-context/2026-07-28/FOCUSED_PROOF.md`,
+`decisions/DECISIONS.md`.
+
 ## 2026-07-28 — Telegram preserves Hermes operator-lean direct replies
 
 The Telegram bridge now treats the backend's explicit `direct_reply` flag as a

@@ -738,6 +738,7 @@ OPERATOR_RECENT_TURNS_MAX = 4
 OPERATOR_RECENT_TURNS_MAX_BYTES = 2_400
 OPERATOR_ITEM_REFS_MAX = 8
 OPERATOR_ITEM_REFS_MAX_BYTES = 2_000
+OPERATOR_BRAIN_CONTEXT_MAX_BYTES = 6_000
 _OPERATOR_CONTEXT_LOCK = threading.Lock()
 _OPERATOR_RECENT_TURNS: dict[str, list[str]] = {}
 TELEGRAM_BINDING_TTL_SECONDS = 2 * 60 * 60
@@ -9489,12 +9490,97 @@ def _operator_item_references(current: str, recent: list[str]) -> list[dict]:
     return refs
 
 
-def _operator_lean_prompt(body: TaskRun) -> tuple[str, dict]:
+_OPERATOR_EXECUTION_PREFIX_RE = re.compile(
+    r"^\s*(?:please\s+)?(?:create|make|queue|add|research|draft|write|build|fix|run|send)\b",
+    re.IGNORECASE,
+)
+_OPERATOR_DURABLE_QUESTION_RE = re.compile(
+    r"\?|^\s*(?:how|what|where|which|why|should|do|does|can\s+you\s+tell|tell\s+me)\b",
+    re.IGNORECASE,
+)
+_OPERATOR_TTR_CONTEXT_RE = re.compile(
+    r"\b(?:time\s+to\s+revenue|ttros|my\s+business)\b",
+    re.IGNORECASE,
+)
+_OPERATOR_CLIENT_CONTEXT_RE = re.compile(
+    r"\b(?:(?:get|get(?:ting)?|find|win|start\s+getting)\s+(?:more\s+)?clients?"
+    r"|client\s+acquisition|prospecting|prospects?|sales\s+pipeline)\b",
+    re.IGNORECASE,
+)
+_OPERATOR_TTR_POINTERS = (
+    "business_brain:memory/company.md",
+    "business_brain:memory/offers.md",
+    "business_brain:memory/positioning.md",
+)
+_OPERATOR_CLIENT_POINTERS = (
+    "business_brain:operating_context/current_priorities.md",
+    "business_brain:memory/sales_and_revenue.md",
+    "business_brain:memory/prospecting_rotation_plan.md",
+)
+
+
+def _operator_brain_pointers(message: str) -> tuple[str, ...]:
+    """Select only the existing durable notes needed by a business question."""
+    text = str(message or "").strip()
+    if _OPERATOR_EXECUTION_PREFIX_RE.search(text) or not _OPERATOR_DURABLE_QUESTION_RE.search(text):
+        return ()
+    if _OPERATOR_TTR_CONTEXT_RE.search(text):
+        return _OPERATOR_TTR_POINTERS
+    if _OPERATOR_CLIENT_CONTEXT_RE.search(text):
+        return _OPERATOR_CLIENT_POINTERS
+    return ()
+
+
+def _operator_brain_context(message: str) -> tuple[list[str], list[dict]]:
+    pointers = _operator_brain_pointers(message)
+    if not pointers:
+        return [], []
+    try:
+        retrieved = business_brain_context.ScopedBrainLoader().retrieve(
+            work={"client_scope": "global"},
+            pointers=pointers,
+            limit=len(pointers),
+        )
+    except (
+        OSError,
+        business_brain.BusinessBrainPointerError,
+        business_brain_scope.ClientScopeError,
+        business_brain_context.BrainContextError,
+    ):
+        return [], []
+
+    sections = []
+    used = 0
+    context_used = []
+    for read in retrieved.reads:
+        _fields, body = aos_indexer.parse_frontmatter(read.content)
+        source = read.provenance.path
+        section = f"Source: {source}\n{body.strip()}"
+        remaining = OPERATOR_BRAIN_CONTEXT_MAX_BYTES - used
+        if remaining <= 0:
+            break
+        bounded = _bounded_utf8(section, remaining)
+        if not bounded:
+            break
+        sections.append(bounded)
+        context_used.append({
+            "note_id": read.provenance.note_id,
+            "path": source,
+            "client_scope": read.provenance.client_scope,
+            "retrieval_route": read.provenance.retrieval_route,
+            "content_sha256": read.provenance.content_sha256,
+        })
+        used += len(bounded.encode("utf-8"))
+    return sections, context_used
+
+
+def _operator_lean_prompt(body: TaskRun) -> tuple[str, dict, list[dict]]:
     current = _bounded_utf8(" ".join(str(body.task or "").split()), 4_000)
     recent = _operator_recent_turns(str(body.reply_to or ""))
     refs = _operator_item_references(current, recent)
+    brain_sections, brain_context_used = _operator_brain_context(current)
     recent_lines = [f"- {turn}" for turn in recent] or ["- None"]
-    prompt = "\n".join((
+    prompt_lines = [
         "Current operator message:",
         current,
         "",
@@ -9503,19 +9589,30 @@ def _operator_lean_prompt(body: TaskRun) -> tuple[str, dict]:
         "",
         "Recent or pending item references (metadata only):",
         json.dumps(refs, separators=(",", ":")),
+    ]
+    if brain_sections:
+        prompt_lines.extend([
+            "",
+            "Relevant scoped Business Brain notes for this question only:",
+            *brain_sections,
+        ])
+    prompt_lines.extend([
         "",
         "Request metadata for create_task only:",
         f"- delivery_id: {_bounded_utf8(body.delivery_id, 160)}",
         f"- reply_to: {_bounded_utf8(body.reply_to, 80)}",
         "Pass those two values unchanged if, and only if, you call create_task.",
-    ))
+    ])
+    prompt = "\n".join(prompt_lines)
     return prompt, {
         "current_message_bytes": len(current.encode("utf-8")),
         "recent_turn_count": len(recent),
         "recent_turn_bytes": len("\n".join(recent).encode("utf-8")),
         "item_reference_count": len(refs),
         "item_reference_bytes": len(json.dumps(refs, separators=(",", ":")).encode("utf-8")),
-    }
+        "brain_context_count": len(brain_context_used),
+        "brain_context_bytes": len("\n".join(brain_sections).encode("utf-8")),
+    }, brain_context_used
 
 
 def _operator_delivery_item(delivery_id: str, new_ids: set[str]) -> dict | None:
@@ -9544,7 +9641,7 @@ _OPERATOR_QUEUE_CLAIM_RE = re.compile(
 
 def _operator_lean_closeout(body: TaskRun) -> dict:
     before = {str(row.get("id") or "") for row in _read_queue_items()}
-    prompt, bounds = _operator_lean_prompt(body)
+    prompt, bounds, brain_context_used = _operator_lean_prompt(body)
     result = _run_hermes_message(
         prompt,
         role="operator",
@@ -9589,6 +9686,7 @@ def _operator_lean_closeout(body: TaskRun) -> dict:
         "model_process_count": 1,
         "worker_process_count": 1 if runner and runner.get("mode") == "one_shot" else 0,
         "context_bounds": bounds,
+        "brain_context_used": brain_context_used,
     }
     if item is not None:
         closeout.update({

@@ -264,19 +264,31 @@ class TelegramConversationalRoutingTests(unittest.TestCase):
     def test_required_conversations_return_substantive_direct_replies_without_queue(self):
         cases = (
             (
-                "How much do you know about Time to Revenue?",
-                "Time to Revenue was created as Liam's business to make client acquisition work "
-                "better through a practical offer and workflow system. I can use the supplied "
-                "queue context, but I should not invent company facts that are not present there.",
+                "How much insight do you have on Time to Revenue which is my business?",
+                "I have substantive current context: Time to Revenue is Liam's practical AI "
+                "operations and workflow consultancy, focused on systems that move revenue and "
+                "improve operator leverage. Its systems-led offers include speed-to-lead, voice "
+                "agents, lead generation, client memory, workflow agents, and ongoing AI ops.",
+                {
+                    "business_brain:memory/company.md",
+                    "business_brain:memory/offers.md",
+                    "business_brain:memory/positioning.md",
+                },
             ),
             (
-                "What should I focus on next to get clients?",
-                "Focus next on client acquisition using the prospecting daily run already in the "
-                "queue: choose one narrow offer, research a small qualified list, prepare useful "
-                "draft outreach, and review the replies before spending more time on system polish.",
+                "What should I focus on next to start getting clients?",
+                "Focus on the live draft-first prospecting engine: work the five-prospect weekday "
+                "cadence, prioritize warm and semi-warm relationships plus the current ICP lane, "
+                "and turn qualified research into approval-gated outreach drafts. Keep sends "
+                "manual while the first three no-send runs harden the workflow.",
+                {
+                    "business_brain:operating_context/current_priorities.md",
+                    "business_brain:memory/sales_and_revenue.md",
+                    "business_brain:memory/prospecting_rotation_plan.md",
+                },
             ),
         )
-        for index, (message, answer) in enumerate(cases, start=1):
+        for index, (message, answer, expected_sources) in enumerate(cases, start=1):
             with self.subTest(message=message), tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
                 self.write_items(root, [])
@@ -300,6 +312,13 @@ class TelegramConversationalRoutingTests(unittest.TestCase):
             self.assertTrue(result["direct_reply"])
             self.assertEqual(result["output"], answer)
             self.assertNotIn("did not create a task", result["output"].casefold())
+            retrieved_sources = {
+                row["path"] for row in result["brain_context_used"]
+            }
+            self.assertEqual(retrieved_sources, expected_sources)
+            supplied_prompt = hermes.call_args.args[0]
+            for source in expected_sources:
+                self.assertIn(f"Source: {source}", supplied_prompt)
             summary = telegram_bridge.summarize_agent_result(result)
             self.assertEqual(summary, answer)
             self.assertTrue(telegram_bridge.preserve_agent_result_format(result, summary))
@@ -313,6 +332,32 @@ class TelegramConversationalRoutingTests(unittest.TestCase):
             )
             hermes.assert_called_once()
             worker.assert_not_called()
+
+    def test_generic_conversation_does_not_retrieve_business_brain(self):
+        message = "What makes a conversation feel genuinely useful?"
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_items(root, [])
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend.business_brain_context, "ScopedBrainLoader") as loader, \
+                 patch.object(
+                     backend,
+                     "_run_hermes_message",
+                     return_value=self.hermes_result("Specificity, candour, and a useful next thought."),
+                 ) as hermes:
+                result = backend.wsl_hermes(
+                    backend.TaskRun(
+                        task=message,
+                        delivery_id="required-generic",
+                        reply_to="required-chat-generic",
+                    )
+                )
+
+        self.assertEqual(result["queue_delta"], 0)
+        self.assertEqual(result["brain_context_used"], [])
+        self.assertEqual(result["context_bounds"]["brain_context_count"], 0)
+        self.assertNotIn("Business Brain", hermes.call_args.args[0])
+        loader.assert_not_called()
 
     def test_required_execution_creates_exactly_one_task(self):
         instruction = "Create a task to research 5 prospects."
@@ -336,6 +381,7 @@ class TelegramConversationalRoutingTests(unittest.TestCase):
 
             runner = {"available": True, "accepted": True, "state": "accepted", "mode": "one_shot"}
             with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend.business_brain_context, "ScopedBrainLoader") as loader, \
                  patch.object(backend, "_run_hermes_message", side_effect=create_once), \
                  patch.object(backend, "_accept_async_queue_runner", return_value=runner) as worker:
                 result = backend.wsl_hermes(
@@ -347,6 +393,8 @@ class TelegramConversationalRoutingTests(unittest.TestCase):
         self.assertEqual(result["queue_delta"], 1)
         self.assertTrue(result["created"])
         self.assertEqual(result["work_item_id"], "AOS-2026-0401")
+        self.assertEqual(result["brain_context_used"], [])
+        loader.assert_not_called()
         worker.assert_called_once()
 
     def test_operator_lean_failure_returns_direct_error_without_queue(self):
@@ -462,6 +510,14 @@ class TelegramConversationalRoutingTests(unittest.TestCase):
         }
         self.assertEqual(tool_names, operator_lean_oneshot.EXPECTED_TOOLS)
         self.assertEqual(len(preamble["tools"]), 6)
+        create_task = next(
+            row for row in preamble["tools"]
+            if row["function"]["name"] == "mcp__operator__create_task"
+        )
+        self.assertEqual(
+            set(create_task["function"]["parameters"]["properties"]["worker"]["enum"]),
+            {"revenue", "marketing", "delivery", "operations", "codex", "claude"},
+        )
         encoding = tiktoken.get_encoding("o200k_base")
         system_tokens = len(encoding.encode(preamble["system_prompt"]))
         tool_tokens = len(
