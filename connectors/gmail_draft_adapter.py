@@ -27,6 +27,7 @@ from datetime import datetime, timezone
 from email.utils import parseaddr
 from pathlib import Path
 from typing import Any, Callable, Iterator, Sequence
+from urllib.parse import quote
 
 try:
     from gmail_draft_policy import GMAIL_CREATE_DRAFT_ACTION, authorize_draft_action
@@ -37,6 +38,8 @@ except ModuleNotFoundError:  # package import in tests/IDE contexts
 ROOT = Path(__file__).resolve().parents[1]
 COMPOSIO = Path("/home/liam/.composio/composio")
 PROVIDER = "composio-gmail"
+REVENUE_GMAIL_USER_ID_ENV = "TTR_REVENUE_GMAIL_USER_ID"
+DEFAULT_REVENUE_GMAIL_USER_ID = "liam@timetorevenue.com"
 PRIVATE_RUNTIME = Path("queue/draft_runtime")
 RECEIPTS = Path("queue/receipts")
 LOCKS = Path("queue/locks")
@@ -63,6 +66,23 @@ def idempotency_key(work_item_id: str, message_identity: str) -> str:
     if not work or not identity:
         raise DraftValidationError("work_item_id and message_identity are required")
     return sha256_text(f"gmail-draft-v1\0{work}\0{identity}")
+
+
+def revenue_gmail_user_id() -> str:
+    """Return the exact Gmail mailbox where revenue drafts must be created."""
+    value = os.environ.get(REVENUE_GMAIL_USER_ID_ENV, DEFAULT_REVENUE_GMAIL_USER_ID).strip()
+    if not value or "\r" in value or "\n" in value:
+        raise DraftValidationError("revenue Gmail user_id is invalid")
+    return value
+
+
+def gmail_draft_url(provider_draft_id: str, *, user_id: str | None = None) -> str | None:
+    """Build a mailbox-specific Gmail draft URL for the revenue Gmail account."""
+    draft_id = str(provider_draft_id or "").strip()
+    if not draft_id:
+        return None
+    mailbox = quote(user_id or revenue_gmail_user_id(), safe="")
+    return f"https://mail.google.com/mail/u/{mailbox}/#drafts?compose={quote(draft_id, safe='')}"
 
 
 def _validate_address(value: str, field: str) -> str:
@@ -142,7 +162,7 @@ class DraftRequest:
             "cc": list(self.cc),
             "bcc": list(self.bcc),
             "is_html": False,
-            "user_id": "me",
+            "user_id": revenue_gmail_user_id(),
         }
 
 

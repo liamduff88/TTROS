@@ -215,6 +215,43 @@
       "type": "array",
       "items": {"type": "string"}
     },
+    "outreach_review": {
+      "type": "object",
+      "description": "Typed projection for one event-driven prospect review card; lifecycle remains the normal queue status.",
+      "required": ["version", "idempotency_key", "prospect", "channel", "stage", "source_handoff", "score", "readiness", "primary_signal", "main_caution", "exact_action", "copy", "stop_conditions", "allowed_events"],
+      "properties": {
+        "version": {"const": "1"},
+        "idempotency_key": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "prospect": {
+          "type": "object",
+          "required": ["prospect_id", "person_name", "company_name", "company_domain", "linkedin_url", "related_entities"],
+          "properties": {
+            "prospect_id": {"type": "string"},
+            "person_name": {"type": "string"},
+            "company_name": {"type": "string"},
+            "company_domain": {"type": "string"},
+            "email": {"type": "string"},
+            "phone": {"type": "string"},
+            "linkedin_url": {"type": "string"},
+            "related_entities": {"type": "array", "items": {"type": "string"}}
+          },
+          "additionalProperties": false
+        },
+        "channel": {"enum": ["email", "linkedin"]},
+        "stage": {"type": "string"},
+        "due_date": {"type": ["string", "null"], "format": "date"},
+        "source_handoff": {"type": "string"},
+        "score": {"type": "integer", "minimum": 0, "maximum": 100},
+        "readiness": {"type": "string"},
+        "primary_signal": {"type": "string"},
+        "main_caution": {"type": "string"},
+        "exact_action": {"type": "string"},
+        "copy": {"type": "object"},
+        "stop_conditions": {"type": "array", "items": {"type": "string"}},
+        "allowed_events": {"type": "array", "items": {"type": "string"}}
+      },
+      "additionalProperties": true
+    },
     "claim": {
       "type": "object",
       "required": [

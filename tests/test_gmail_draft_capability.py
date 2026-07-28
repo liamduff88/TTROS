@@ -14,10 +14,12 @@ from unittest.mock import patch
 
 from connectors import composio_access_adapter
 from connectors.gmail_draft_adapter import (
+    DEFAULT_REVENUE_GMAIL_USER_ID,
     DraftValidationError,
     GmailDraftAdapter,
     ProviderResult,
     create_prospecting_drafts,
+    gmail_draft_url,
 )
 from connectors.gmail_draft_policy import (
     EXPLICITLY_FORBIDDEN_GMAIL_ACTIONS,
@@ -133,7 +135,14 @@ class GmailDraftAdapterTests(unittest.TestCase):
         self.assertEqual(3, receipt["recipient_count"])
         self.assertRegex(receipt["safe_draft_reference"], r"^gmail-draft:[0-9a-f]{24}$")
         self.assertEqual([GMAIL_CREATE_DRAFT_ACTION], [row[0] for row in self.executor.calls])
-        self.assertEqual("me", self.executor.calls[0][1]["user_id"])
+        self.assertEqual(DEFAULT_REVENUE_GMAIL_USER_ID, self.executor.calls[0][1]["user_id"])
+
+    def test_draft_url_opens_the_revenue_gmail_account_not_default_gmail_slot(self):
+        url = gmail_draft_url("provider-draft-1")
+        self.assertIsNotNone(url)
+        assert url is not None
+        self.assertIn("/mail/u/liam%40timetorevenue.com/", url)
+        self.assertNotIn("/mail/u/0/", url)
 
     def test_invalid_or_missing_recipient_fails_before_provider_call(self):
         for recipient in ("", "plain name", "bad@example", "good@example.invalid\nBcc: other@example.invalid"):

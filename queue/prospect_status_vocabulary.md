@@ -1,5 +1,5 @@
 # Prospect Status Vocabulary
-> Revisit: if the touch cadence or funnel stages change. · Last touched: 2026-07-16
+> Revisit: if the touch cadence or funnel stages change. · Last touched: 2026-07-23
 > Governs the `status` field in `queue/prospects.jsonl` (schema: `queue/prospects_schema.json`).
 
 ## Lifecycle
@@ -39,3 +39,20 @@ and drafts a candidate, so its initial line is `drafted`; `identified` is
 reserved for discovery-only imports. Append one new snapshot per later state
 change on the same day as the event. Never rewrite history. The weekly review
 flags stale statuses; analytics are only as honest as the log.
+
+## Outreach Pilot v1 event overlay
+
+Records with `record_type: outreach_pilot_v1` use the same append-only ledger
+and retain the legacy `status` roll-up for analytics, while
+`outreach_stage`, `latest_event`, and `outreach_history` hold the exact
+event-driven state. Stored copy and Gmail draft creation never count as sent.
+
+- `invitation_sent` waits for `connection_accepted`; it does not activate a
+  LinkedIn message by itself.
+- `connection_accepted` activates only the prepared first LinkedIn message.
+- `email_1_sent` and `linkedin_message_sent` calculate one next conditional
+  reminder using the handoff's deterministic business-day delay.
+- Stop events cancel the reminder and all inactive copy. `opt_out` and
+  `do_not_contact` are preserved as authoritative true values in every later
+  projection, including the GoHighLevel dry run.
+- A repeated `event_id` is an idempotent replay, not a second history row.

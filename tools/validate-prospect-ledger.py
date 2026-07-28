@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Validate the append-only TTROS prospect ledger and entity-page pointers.
+"""Validate the append-only TTROS prospect ledger and outreach snapshots.
 
-Revisit: when the prospect schema, status vocabulary, or transition cadence changes. · Last touched: 2026-07-16.
+Revisit: when the prospect schema, status vocabulary, or transition cadence changes. · Last touched: 2026-07-23.
 """
 
 from __future__ import annotations
@@ -45,6 +45,83 @@ IMMUTABLE_FIELDS = {
     "readiness", "wedge", "angle_type", "first_touch_style", "outreach_basis",
     "entity_page_path",
 }
+PILOT_RECORD_TYPE = "outreach_pilot_v1"
+PILOT_IMMUTABLE_FIELDS = {
+    "record_type", "pilot_version", "prospect_id", "name", "person_name",
+    "company", "company_name", "company_domain", "related_entities", "role",
+    "lane", "icp_variant", "source_handoff", "source_hash", "handoff_version",
+    "signal_date", "signal_source_url", "score", "tier", "readiness",
+    "qualification", "primary_signal", "main_caution", "review_item_id",
+}
+PILOT_CONTACT_EVENTS = {
+    "email_1_sent", "email_2_sent", "invitation_sent", "linkedin_message_sent",
+}
+PILOT_STOP_EVENTS = {
+    "reply_received", "not_interested", "opt_out", "do_not_contact",
+    "invalid_contact", "wrong_person", "wrong_company", "declined_connection",
+    "prior_contact_discovered", "duplicate_detected", "active_sequence_found",
+    "closed_or_disqualified", "cancelled",
+}
+
+
+def _validate_pilot_row(
+    row: dict,
+    prior: dict | None,
+    line_number: int,
+    errors: list[str],
+    event_ids: set[str],
+) -> None:
+    prospect_id = row["prospect_id"]
+    event_id = row["event_id"]
+    if event_id in event_ids:
+        errors.append(f"line {line_number}: duplicate pilot event_id {event_id}")
+    event_ids.add(event_id)
+    event = str((row.get("latest_event") or {}).get("type") or "")
+    if prior:
+        changed = sorted(field for field in PILOT_IMMUTABLE_FIELDS if prior[field] != row[field])
+        if changed:
+            errors.append(f"line {line_number}: immutable fields changed for {prospect_id}: {', '.join(changed)}")
+        prior_history = prior.get("outreach_history") or []
+        history = row.get("outreach_history") or []
+        if len(history) != len(prior_history) + 1 or history[:-1] != prior_history:
+            errors.append(f"line {line_number}: outreach history is not an append-only extension for {prospect_id}")
+        if row["status_date"] < prior["status_date"]:
+            errors.append(f"line {line_number}: status_date moved backwards for {prospect_id}")
+        if prior.get("opt_out") and not row.get("opt_out"):
+            errors.append(f"line {line_number}: opt_out was not preserved for {prospect_id}")
+        if prior.get("do_not_contact") and not row.get("do_not_contact"):
+            errors.append(f"line {line_number}: do_not_contact was not preserved for {prospect_id}")
+        if prior.get("future_activity_cancelled") and event not in PILOT_STOP_EVENTS:
+            errors.append(f"line {line_number}: non-stop event appended after future activity was cancelled for {prospect_id}")
+    elif event != "handoff_imported" or len(row.get("outreach_history") or []) != 1:
+        errors.append(f"line {line_number}: first pilot snapshot must be handoff_imported")
+
+    reminder = row.get("next_reminder")
+    if reminder is not None:
+        if reminder.get("due_date") != row.get("next_touch_due"):
+            errors.append(f"line {line_number}: next reminder and next_touch_due disagree")
+        if reminder.get("condition") != "only if no stop event is recorded":
+            errors.append(f"line {line_number}: next reminder is not conditional")
+    if row.get("future_activity_cancelled"):
+        if row.get("next_touch_due") is not None or row.get("next_reminder") is not None:
+            errors.append(f"line {line_number}: stopped prospect retains future activity")
+        if event not in PILOT_STOP_EVENTS:
+            errors.append(f"line {line_number}: future activity cancelled without a stop event")
+    if event in PILOT_CONTACT_EVENTS and row.get("last_contact_date") != row.get("status_date"):
+        errors.append(f"line {line_number}: contact event must set last_contact_date")
+    if event == "reply_received" and row.get("reply_status") != "received":
+        errors.append(f"line {line_number}: reply_received must set reply_status=received")
+    if event == "opt_out" and not (row.get("opt_out") and row.get("do_not_contact")):
+        errors.append(f"line {line_number}: opt_out must preserve opt_out and do_not_contact")
+
+    crm = row.get("crm_dry_run") or {}
+    if crm.get("mode") != "dry_run" or crm.get("mutation_performed") is not False:
+        errors.append(f"line {line_number}: CRM record is not a non-mutating dry run")
+    record = crm.get("record") or {}
+    if record.get("agentic_os_prospect_id") != prospect_id:
+        errors.append(f"line {line_number}: CRM prospect identity mismatch")
+    if bool(record.get("opt_out")) != bool(row.get("opt_out")) or bool(record.get("do_not_contact")) != bool(row.get("do_not_contact")):
+        errors.append(f"line {line_number}: CRM opt-out authority mismatch")
 
 
 def validate_ledger(ledger: Path = DEFAULT_LEDGER, schema_path: Path = DEFAULT_SCHEMA) -> dict:
@@ -54,6 +131,7 @@ def validate_ledger(ledger: Path = DEFAULT_LEDGER, schema_path: Path = DEFAULT_S
     errors: list[str] = []
     previous: dict[str, dict] = {}
     signal_owners: dict[str, str] = {}
+    event_ids: set[str] = set()
 
     for line_number, raw in enumerate(ledger.read_text(encoding="utf-8").splitlines(), start=1):
         if not raw.strip():
@@ -72,6 +150,16 @@ def validate_ledger(ledger: Path = DEFAULT_LEDGER, schema_path: Path = DEFAULT_S
 
         prospect_id = row["prospect_id"]
         prior = previous.get(prospect_id)
+        if row.get("record_type") == PILOT_RECORD_TYPE:
+            _validate_pilot_row(row, prior, line_number, errors, event_ids)
+            previous[prospect_id] = row
+            expected_tier = "A" if row["score"] >= 80 else "B" if row["score"] >= 65 else "C_monitor" if row["score"] >= 50 else "D_reject"
+            if row["tier"] != expected_tier:
+                errors.append(f"line {line_number}: score {row['score']} requires tier {expected_tier}")
+            owner = signal_owners.setdefault(row["signal_source_url"], prospect_id)
+            if owner != prospect_id:
+                errors.append(f"line {line_number}: signal URL is already owned by {owner}")
+            continue
         if prior:
             changed = sorted(field for field in IMMUTABLE_FIELDS if prior[field] != row[field])
             if changed:

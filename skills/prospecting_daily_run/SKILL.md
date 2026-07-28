@@ -4,7 +4,7 @@ description: The daily prospecting loop — discover 5 evidenced ICP-fit prospec
 when-to-use: Every prospecting weekday, morning. Owner: aos-revenue. Trust: v0 (pre-seeded — hardened by first 3 runs; approval to be logged in decisions/DECISIONS.md).
 ---
 # /prospecting-daily-run
-> Revisit: after first 3 runs, at each cycle review, or when the Gmail draft action changes. · Last touched: 2026-07-17
+> Revisit: after first 3 runs, at each cycle review, or when the handoff/Gmail draft action changes. · Last touched: 2026-07-23
 
 ## Purpose
 Turn the existing find + draft skills into an instrumented daily ritual
@@ -52,7 +52,9 @@ positioning.
 6. **Gmail drafts** — call only `connectors/gmail_draft_adapter.py` with the
    work-item ID + prospect ID idempotency identity. After validation and email
    drafting pass, create at most one `GMAIL_CREATE_EMAIL_DRAFT` effect per
-   prospect automatically. Never call send/reply/forward/schedule-send,
+   prospect automatically in the Time to Revenue revenue Gmail mailbox
+   (`liam@timetorevenue.com` by default; override only with
+   `TTR_REVENUE_GMAIL_USER_ID`). Never call send/reply/forward/schedule-send,
    update/delete, or label actions; never use fallback send.
 7. **Review package** — keep the full package only in private
    `queue/draft_runtime/`; return safe draft references and content-free
@@ -60,6 +62,11 @@ positioning.
    blocked for review. Liam sends manually and logs `sent` / `rejected`.
 8. **Receipt** — standard receipt with token block; run_ledger +
    skill_trust updated for the chained skills.
+
+For an explicit V3.1 outreach handoff, use the workflow importer before these
+effects. It validates and reconciles first, creates only the selected initial
+route, keeps fallback/later copy inactive, and accepts state changes only from
+recorded operator events.
 
 ## Never
 - Send, connect, message, or withdraw anything — Liam does all
