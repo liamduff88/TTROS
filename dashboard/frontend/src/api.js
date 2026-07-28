@@ -31,6 +31,7 @@ export const createQueueChain = (data) => apiQueue.post('/queue/chains', data).t
 export const getQueuePrompt = (id, target) => apiQueue.get(`/queue/items/${id}/prompt`, { params: { target } }).then(r => r.data)
 export const attachQueueReceipt = (id, data) => apiQueue.post(`/queue/items/${id}/receipt`, data).then(r => r.data)
 export const saveQueueReviewNote = (id, data) => apiQueue.post(`/queue/items/${id}/review-note`, data).then(r => r.data)
+export const recordQueueOutreachEvent = (id, data) => apiQueue.post(`/queue/items/${id}/outreach-event`, data).then(r => r.data)
 export const closeQueueItemReview = (id, data) => apiQueue.post(`/queue/items/${id}/review-close`, data).then(r => r.data)
 export const updateQueueItemStatus = (id, status) => apiQueue.post(`/queue/items/${id}/status`, { status }).then(r => r.data)
 export const runQueueItem = (id) => apiQueue.post(`/queue/items/${id}/run`, {}, { timeout: 620000 }).then(r => r.data)
