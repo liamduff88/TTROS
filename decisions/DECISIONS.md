@@ -7,10 +7,13 @@ The Telegram bridge now treats the backend's explicit `direct_reply` flag as a
 delivery contract. Substantive operator-lean conversation is sent unchanged
 instead of being compacted into the queue closeout format. Queue intake and
 completion formatting are unchanged, and a Hermes failure remains a direct
-failure reply with no inferred task creation.
+failure reply with no inferred task creation. The unverified-creation guard is
+anchored to affirmative creation closeouts, so ordinary discussion containing
+words such as "created" and "work" cannot be mistaken for a queue claim.
 
 Files touched: `connectors/telegram_bridge/telegram_bridge.py`,
-`tests/test_telegram_conversational_routing.py`, `decisions/DECISIONS.md`.
+`dashboard/backend/main.py`, `tests/test_telegram_conversational_routing.py`,
+`decisions/DECISIONS.md`.
 
 ## 2026-07-28 — Olmec falls through to Hermes operator-lean
 

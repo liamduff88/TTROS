@@ -265,10 +265,9 @@ class TelegramConversationalRoutingTests(unittest.TestCase):
         cases = (
             (
                 "How much do you know about Time to Revenue?",
-                "I have bounded operational insight into Time to Revenue: it is Liam's business, "
-                "with an offer and workflow system aimed at turning practical AI operations into "
-                "client revenue. I can use the supplied queue context, but I should not invent "
-                "company facts that are not present there.",
+                "Time to Revenue was created as Liam's business to make client acquisition work "
+                "better through a practical offer and workflow system. I can use the supplied "
+                "queue context, but I should not invent company facts that are not present there.",
             ),
             (
                 "What should I focus on next to get clients?",

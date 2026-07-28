@@ -9536,9 +9536,9 @@ def _operator_delivery_item(delivery_id: str, new_ids: set[str]) -> dict | None:
 
 
 _OPERATOR_QUEUE_CLAIM_RE = re.compile(
-    r"\b(?:created|queued|submitted|dispatched)\b[\s\S]{0,100}"
-    r"(?:\bAOS-\d{4}-\d{4}\b|\b(?:task|work|item)\b)",
-    re.IGNORECASE,
+    r"^\s*(?:I\s+)?(?:created|queued|submitted|dispatched)\b[^\r\n]{0,120}"
+    r"(?:\bAOS-\d{4}-\d{4}\b|\b(?:a|the)\s+(?:task|work\s+item)\b)",
+    re.IGNORECASE | re.MULTILINE,
 )
 
 
