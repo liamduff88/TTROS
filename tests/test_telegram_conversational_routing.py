@@ -16,6 +16,7 @@ from unittest.mock import patch
 
 import dashboard.backend.test_composio_hermes as backend_harness
 import tiktoken
+from connectors.telegram_bridge import telegram_bridge
 from tools import operator_lean_oneshot
 
 
@@ -258,6 +259,129 @@ class TelegramConversationalRoutingTests(unittest.TestCase):
         self.assertTrue(result["direct_reply"])
         self.assertEqual(result["queue_delta"], 0)
         self.assertEqual(result["worker_process_count"], 0)
+        worker.assert_not_called()
+
+    def test_required_conversations_return_substantive_direct_replies_without_queue(self):
+        cases = (
+            (
+                "How much do you know about Time to Revenue?",
+                "I have bounded operational insight into Time to Revenue: it is Liam's business, "
+                "with an offer and workflow system aimed at turning practical AI operations into "
+                "client revenue. I can use the supplied queue context, but I should not invent "
+                "company facts that are not present there.",
+            ),
+            (
+                "What should I focus on next to get clients?",
+                "Focus next on client acquisition using the prospecting daily run already in the "
+                "queue: choose one narrow offer, research a small qualified list, prepare useful "
+                "draft outreach, and review the replies before spending more time on system polish.",
+            ),
+        )
+        for index, (message, answer) in enumerate(cases, start=1):
+            with self.subTest(message=message), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                self.write_items(root, [])
+                before = (root / "queue" / "work_items.jsonl").read_bytes()
+                with patch.object(backend, "BASE_DIR", root), \
+                     patch.object(backend, "_run_hermes_message", return_value=self.hermes_result(answer)) as hermes, \
+                     patch.object(backend, "_accept_async_queue_runner") as worker:
+                    result = backend.wsl_hermes(
+                        backend.TaskRun(
+                            task=message,
+                            delivery_id=f"required-conversation-{index}",
+                            reply_to=f"required-chat-{index}",
+                        )
+                    )
+                    after = (root / "queue" / "work_items.jsonl").read_bytes()
+
+            self.assertEqual(before, after)
+            self.assertEqual(result["selected_route"], "hermes_operator_lean")
+            self.assertEqual(result["queue_delta"], 0)
+            self.assertFalse(result["created"])
+            self.assertTrue(result["direct_reply"])
+            self.assertEqual(result["output"], answer)
+            self.assertNotIn("did not create a task", result["output"].casefold())
+            summary = telegram_bridge.summarize_agent_result(result)
+            self.assertEqual(summary, answer)
+            self.assertTrue(telegram_bridge.preserve_agent_result_format(result, summary))
+            with patch.object(telegram_bridge, "send") as send:
+                telegram_bridge.deliver_agent_result(123, result)
+            send.assert_called_once_with(
+                123,
+                answer,
+                preserve_format=True,
+                document_paths=[],
+            )
+            hermes.assert_called_once()
+            worker.assert_not_called()
+
+    def test_required_execution_creates_exactly_one_task(self):
+        instruction = "Create a task to research 5 prospects."
+        delivery_id = "required-execution"
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_items(root, [])
+
+            def create_once(*args, **kwargs):
+                self.write_items(
+                    root,
+                    [self.item(
+                        "AOS-2026-0401",
+                        "agent_todo",
+                        title="Research 5 prospects.",
+                        owner="revenue",
+                        delivery_id=delivery_id,
+                    ) | {"size": "small"}],
+                )
+                return self.hermes_result("Created AOS-2026-0401: Research 5 prospects.")
+
+            runner = {"available": True, "accepted": True, "state": "accepted", "mode": "one_shot"}
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_run_hermes_message", side_effect=create_once), \
+                 patch.object(backend, "_accept_async_queue_runner", return_value=runner) as worker:
+                result = backend.wsl_hermes(
+                    backend.TaskRun(task=instruction, delivery_id=delivery_id, reply_to="required-chat-3")
+                )
+                rows = backend._read_queue_items()
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(result["queue_delta"], 1)
+        self.assertTrue(result["created"])
+        self.assertEqual(result["work_item_id"], "AOS-2026-0401")
+        worker.assert_called_once()
+
+    def test_operator_lean_failure_returns_direct_error_without_queue(self):
+        failure = {
+            "success": False,
+            "output": "Hermes operator-lean failed before answering. No task was queued.",
+            "reply": "",
+            "stderr": "Hermes operator-lean failed before answering. No task was queued.",
+            "token_usage": {"available": False, "failed": True},
+            "token_usage_text": "Token usage: unavailable from current CLI output",
+            "elapsed_seconds": 0.1,
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_items(root, [])
+            before = (root / "queue" / "work_items.jsonl").read_bytes()
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_run_hermes_message", return_value=failure), \
+                 patch.object(backend, "_accept_async_queue_runner") as worker:
+                result = backend.wsl_hermes(
+                    backend.TaskRun(
+                        task="How much do you know about Time to Revenue?",
+                        delivery_id="required-failure",
+                        reply_to="required-chat-failure",
+                    )
+                )
+                after = (root / "queue" / "work_items.jsonl").read_bytes()
+
+        self.assertEqual(before, after)
+        self.assertFalse(result["success"])
+        self.assertFalse(result["created"])
+        self.assertEqual(result["queue_delta"], 0)
+        self.assertTrue(result["direct_reply"])
+        self.assertIn("No task was queued", result["output"])
         worker.assert_not_called()
 
     def test_operator_oneshot_waits_for_complete_six_tool_snapshot(self):

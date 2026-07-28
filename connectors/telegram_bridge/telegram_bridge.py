@@ -650,11 +650,32 @@ def summarize_agent_result(result):
     """Keep Telegram compact unless the backend already returned a queue closeout."""
     output = str(result.get("output") or "") if isinstance(result, dict) else ""
     success = bool(isinstance(result, dict) and result.get("success"))
+    if isinstance(result, dict) and result.get("direct_reply") and output.strip():
+        return output.strip()
     if is_queue_backend_result(result) and _is_completion_closeout(output):
         return compact_telegram_closeout(output, success=success)
     if is_queue_backend_result(result) and output.strip():
         return output.strip()
     return compact_telegram_closeout(output, success=success)
+
+
+def preserve_agent_result_format(result, summary):
+    """Keep direct conversation text and non-completion queue intake intact."""
+    return bool(
+        (isinstance(result, dict) and result.get("direct_reply"))
+        or (is_queue_backend_result(result) and not _is_completion_closeout(summary))
+    )
+
+
+def deliver_agent_result(chat_id, result):
+    """Deliver one backend result using its explicit formatting contract."""
+    summary = summarize_agent_result(result)
+    return send(
+        chat_id,
+        summary,
+        preserve_format=preserve_agent_result_format(result, summary),
+        document_paths=document_paths_for_completion(result, summary),
+    )
 
 
 def failed_agent_closeout(message):
@@ -679,13 +700,7 @@ def handle_operator(chat_id, text, source="telegram"):
         task = parts[2].strip()
         try:
             result = post_agent("/api/wsl/hermes", f"/work {target} {task}", source=source)
-            summary = summarize_agent_result(result)
-            send(
-                chat_id,
-                summary,
-                preserve_format=is_queue_backend_result(result) and not _is_completion_closeout(summary),
-                document_paths=document_paths_for_completion(result, summary),
-            )
+            deliver_agent_result(chat_id, result)
         except Exception as e:
             send(chat_id, failed_agent_closeout(f"{target} route failed: {type(e).__name__}"))
         return
@@ -709,13 +724,7 @@ def handle_operator(chat_id, text, source="telegram"):
 
     try:
         result = post_agent("/api/wsl/hermes", text, source=source)
-        summary = summarize_agent_result(result)
-        send(
-            chat_id,
-            summary,
-            preserve_format=is_queue_backend_result(result) and not _is_completion_closeout(summary),
-            document_paths=document_paths_for_completion(result, summary),
-        )
+        deliver_agent_result(chat_id, result)
     except Exception as e:
         send(chat_id, failed_agent_closeout(f"Hermes route failed: {type(e).__name__}"))
 

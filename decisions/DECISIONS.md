@@ -1,6 +1,17 @@
 # DECISIONS.md — log of decisions that change system behavior
 > One entry per behavior-affecting change. Newest first.
 
+## 2026-07-28 — Telegram preserves Hermes operator-lean direct replies
+
+The Telegram bridge now treats the backend's explicit `direct_reply` flag as a
+delivery contract. Substantive operator-lean conversation is sent unchanged
+instead of being compacted into the queue closeout format. Queue intake and
+completion formatting are unchanged, and a Hermes failure remains a direct
+failure reply with no inferred task creation.
+
+Files touched: `connectors/telegram_bridge/telegram_bridge.py`,
+`tests/test_telegram_conversational_routing.py`, `decisions/DECISIONS.md`.
+
 ## 2026-07-28 — Olmec falls through to Hermes operator-lean
 
 Olmec is the interface. Slash commands and one frozen literal table remain
