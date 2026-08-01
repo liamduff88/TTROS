@@ -1,6 +1,156 @@
 # DECISIONS.md — log of decisions that change system behavior
 > One entry per behavior-affecting change. Newest first.
 
+## 2026-08-01 — Operator lean has one explicit executive escalation tool
+
+The operator-only MCP surface gains one guarded `escalate_to_executive` call
+for business-wide opinion, synthesis, and priority judgment. It forwards the
+already assembled current message and rolling window into one per-invocation
+`aos-orchestrator` run, whose existing launcher supplies the executive brief.
+The call echoes visibly, cannot recur or become sticky, cannot share an inbound
+turn with task creation, and writes a receipt plus exact Hermes usage evidence
+without creating queue work or changing the global/default profile.
+
+Files touched: live `hermes.py`, `queue/profiles/operator-lean.md`,
+`tools/aos-hermes-operator-lean.sh`, `tools/operator_lean_mcp.py`,
+`tools/operator_lean_oneshot.py`, focused routing tests, and
+`decisions/DECISIONS.md`.
+
+## 2026-08-01 — Queue provenance outranks receipts; brief unknowns and pytest boundaries are explicit
+
+Per-message Gmail proposals are identified by the exact capture source
+`capture/gmail-live-read-only`, not by ID range, and may be cancelled when they
+are metadata-only and have no queue artifact. Receipt existence is not business
+value evidence. The executive brief now counts genuine conflicts separately
+from notes whose freshness metadata cannot be parsed, and the default pytest
+configuration structurally excludes the North Shore workspace and Telegram
+bridge directory from collection.
+
+Files touched: `queue/work_items.jsonl`, archive snapshot,
+`tools/aos_executive_brief.py`, `tests/test_aos_executive_brief.py`,
+`pytest.ini`, generated executive artifacts, closeout receipt, and
+`decisions/DECISIONS.md`.
+
+## 2026-08-01 — Gmail capture routes runs to evidence plus one review digest
+
+The existing read-only Gmail poll keeps its provider scope, schedule,
+authentication, cursor, deduplication, isolation, and no-mutation boundaries,
+but no longer treats each captured message as queue work. Every captured row
+gets a private, dated, content-free record under `capture/gmail/`; a material
+poll creates at most one idempotent `human_review` digest linking those records,
+and an empty/non-material poll creates no item. Ordinary search excludes the
+private evidence tree and continues to consume only the existing typed capture
+metadata projection.
+
+The executive brief now reads every Markdown note below the canonical
+`memory/` and `operating_context/` roots, reports reads/skips and UNKNOWN
+freshness states, detects semantic contradictions, stale stamps, and met
+deterministic Revisit conditions, shows informative bounded Decisions rows,
+and selects recent plus genuinely stale material Open items while excluding
+dead fixtures and stale immaterial rows.
+
+Files touched: `.gitignore`, `capture/README.md`, `tools/aos_capture.py`,
+`tools/aos_capture_live.py`, `tools/aos_indexer.py`,
+`tools/aos_executive_brief.py`, focused tests, generated executive artifacts,
+archive snapshot/summary, cancellation receipt, and `decisions/DECISIONS.md`.
+
+## 2026-07-31 — Existing executive paths receive one bounded live brief
+
+One deterministic local refresh projects the existing queue, receipts, run and
+prospect ledgers, metadata-only capture proposals, approved local notes, and
+canonical indexed Business Brain notes into two atomic artifacts. The lean
+operator receives only the one-line header; `aos-orchestrator` receives the full
+brief before reasoning. Failed refreshes retain the last good brief and mark its
+header stale. Neither path creates queue work, auto-escalates, calls a model,
+adds a scheduler, or replaces scoped Business Brain retrieval.
+
+Files touched: `tools/aos_executive_brief.py`,
+`tests/test_aos_executive_brief.py`, `context/EXECUTIVE_BRIEF.md`,
+`context/EXECUTIVE_HEADER.txt`, `tools/aos-hermes-operator-lean.sh`,
+`tools/aos-hermes-coordinator.sh`, `decisions/DECISIONS.md`.
+
+## 2026-07-31 — Linux runtime adopts one canonical orphaned Vite process
+
+`start` and `status` now identify exactly one Vite process rooted in the live
+frontend with port 3010 and adopt/report it, matching the existing runner
+adoption contract. Multiple matches fail as ambiguous. This prevents a stale
+npm PID file from making restart report `frontend=stopped` while the real live
+frontend is healthy and holding the port.
+
+Files touched: `tools/aos-linux-runtime.sh`,
+`tests/test_aos_dashboard_cleanup.py`, `decisions/DECISIONS.md`.
+
+## 2026-07-31 — Gmail capture hydrates bounded Composio large-result artifacts
+
+The current Composio CLI stores sufficiently large successful tool results in
+its local `/tmp/composio` artifact area and returns a pointer envelope. The
+read-only Gmail capture executor now hydrates that envelope in-process after
+absolute-path, containment, non-symlink, regular-file, size, UTF-8, JSON, and
+object-shape checks. Provider/message identifiers remain out of poll receipts
+and operator status output. No Gmail mutation or new action was added.
+
+Files touched: `tools/aos_capture_live.py`,
+`tests/test_aos_capture_live.py`, `decisions/DECISIONS.md`.
+
+## 2026-07-31 — Search status exposes logical ingestion identity only
+
+The deterministic index retains historical ingestion receipts unchanged, but
+its operator-facing status response no longer returns absolute `source_path`
+or `source_root` values. The logical indexed path, source, status, timestamp,
+and token evidence remain visible. This prevents a pre-migration receipt from
+being presented as a current Windows runtime authority and avoids leaking host
+filesystem details that are unnecessary for health assessment.
+
+Files touched: `tools/aos_indexer.py`, `tests/test_aos_search.py`,
+`decisions/DECISIONS.md`.
+
+## 2026-07-31 — Activate proven internal gaps without new frameworks
+
+The existing daily Windows task now invokes the existing Linux backup script
+against `/home/liam/agentic-os-live` and a Linux-native backup root; protected
+client/bridge subtrees and `.env` files are excluded. The existing Graphify
+document service rebuilt its derived 29-source Business Brain projection.
+
+Queue `done` transitions now enforce the documented receipt-completeness
+contract at the same `finalize_done()` point as token metering: a real receipt,
+completion contract, validation note, and schema-valid lane/profile/model/token/
+artifact record are required. Completed explicitly reviewed skill runs append
+the existing skill-trust ledger. The other five protection specs execute at
+their smallest real boundaries: Hermes native `pre_tool_call`, scoped Business
+Brain retrieval/completion, and the shared Composio mutation adapter.
+
+The shared Hermes coordinator launcher accepts only the five existing `aos-*`
+profiles and the dashboard passes the routed profile with native `-p` per
+invocation. Department-scoped authentication was repaired by reusing the
+working orchestrator auth source; all four departments and orchestrator-to-
+department delegation passed live proofs without `default` fallback. The
+active/default Hermes profile and default config were not changed.
+
+Root `prospector.py` is a thin operational entry point over the existing
+`prospecting_daily_run` engine, canonical ledgers/review cards, scoped Business
+Brain retrieval, and Gmail draft-only behavior. No second queue, CRM,
+prospecting engine, scheduler, approval system, or connector stack was added.
+
+Files touched: backup scripts, queue done lifecycle/schema/tests, hook runtime
+and docs, Hermes launcher/profile docs/routing tests, external-action adapter,
+prospecting entry point/tests/proofs, dashboard human-review receipt generation,
+`docs/ACTIVATION_STATUS.md`, and `decisions/DECISIONS.md`.
+
+## 2026-07-31 — Memory Board edits canonical Business Brain Markdown directly
+
+Memory Board rows now open the full registry-approved global Business Brain
+note and expose the same manual edit/save interaction used by the Skills Board.
+Saves replace the exact canonical Markdown file with optimistic revision and
+post-write verification, reject traversal, backup, unapproved, non-Markdown,
+and vault-escaping targets, and report the existing per-file search refresh
+result. Direct Liam edits do not enter the semantic promotion/review path;
+Graphify receives no new synchronization mechanism.
+
+Files touched: `dashboard/backend/main.py`,
+`dashboard/backend/test_composio_hermes.py`, `dashboard/frontend/src/api.js`,
+`dashboard/frontend/src/views/DashboardV1.jsx`, focused Memory Board tests and
+browser-proof artifacts, `decisions/DECISIONS.md`.
+
 ## 2026-07-28 — Operator-lean retrieves scoped Business Brain notes on demand
 
 Olmec still sends generic conversation through one lean Hermes call without
