@@ -93,6 +93,8 @@ dashboard/data/
 
 # Dark capture runtime: raw communications and cursor state never enter Git.
 capture/runtime/
+# Dated Gmail evidence is private runtime data and never enters Git.
+capture/gmail/
 
 # Runtime orchestration locks
 queue/locks/*.lock
@@ -119,3 +121,6 @@ workflows/queue_artifacts/AOS-2026-*.md
 
 # Private Gmail draft recovery/review state; never Git/search/preview content.
 queue/draft_runtime/
+
+# Prospecting handoff inbox is operator-supplied runtime input, not generated source.
+workflows/prospecting_daily_run/input/

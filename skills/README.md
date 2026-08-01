@@ -1,5 +1,5 @@
 # skills/ — earned playbooks
-> Revisit: when a skill is added, retired, or a v0 marker is removed. · Last touched: 2026-07-07.
+> Revisit: when a skill is added, retired, or a v0 marker is removed. · Last touched: 2026-07-31.
 
 A skill is a named, repeatable playbook — not invented ahead of need.
 Claude Code and Codex propose skills; they don't create them. The default
@@ -11,19 +11,26 @@ in `SKILL_GRADUATION_POLICY.md` — read that before adding anything here.
 steps, a "never" list, a verifiable done-when. Every non-v0 skill starts
 at `watch` in `queue/skill_trust.jsonl` and graduates on real repeated use.
 
-## Planned inventory (built in Batches 8–9, not yet present)
-**Delivery & sales** (Batch 8 — 10 files): `fit_call_prep`,
+## Current inventory
+
+The playbooks below are present and locally callable. Their current trust state
+continues to come from `queue/skill_trust.jsonl`; file presence does not imply
+graduation or permission for an external action.
+
+**Delivery & sales:** `fit_call_prep`,
 `quick_win_scan`, `business_efficiency_assessment`,
 `ai_operations_support`, `client_hub`, `aoa_working_session`,
+`delivery_ops_documents`,
 `build_speed_to_lead` (v0), `build_voice_agent` (v0),
 `build_client_memory` (v0), `build_lead_gen_agent` (v0).
 
-**Ops & content** (Batch 9 — list carries an open count question: the
-batch prompt names 9 files against a planned count of 8, and flags that
-`custom_project` may duplicate into Batch 8's v0 set — resolve at Batch 9
-time, not here): `custom_project` (v0), `content_draft`,
+**Ops & content:** `custom_project` (v0), `content_draft`,
+`linkedin_carousel_from_md`,
 `linkedin_outreach_prep`, `proposal_prep`, `case_note`, `weekly_review`,
 `morning_brief`, `maintain_os`, `memory_promotion`.
+
+**Revenue operating additions:** `internal_outreach_daily`,
+`prospecting_daily_run`, `prospecting_week_review`.
 
 ## v0 pre-seeded skills
 `build_speed_to_lead`, `build_voice_agent`, `build_client_memory`,
