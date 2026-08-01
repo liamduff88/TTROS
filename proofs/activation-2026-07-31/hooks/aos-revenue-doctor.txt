@@ -1,0 +1,9 @@
+Checking 1 configured shell hook(s)...
+
+  [pre_tool_call] /home/liam/agentic-os-live/hooks/runtime_guard.py
+      ✓ script exists and is executable
+      ✓ allowlisted (approved 2026-07-31T19:34:18.868774Z)
+      ✓ script unchanged since approval
+      ✓ produced valid JSON on synthetic payload (exit=0, 0.024s)
+
+All shell hooks look healthy.

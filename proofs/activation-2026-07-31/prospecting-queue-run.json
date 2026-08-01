@@ -1,0 +1,20 @@
+{
+  "assigned_worker": "revenue",
+  "attempts_used": 1,
+  "item_id": "AOS-2026-0189",
+  "notification": null,
+  "receipt_path": "queue/receipts/AOS-2026-0189.md",
+  "review": {
+    "decision": "PASS",
+    "instructions": "",
+    "output": "PASS"
+  },
+  "status": "human_review",
+  "success": true,
+  "worker_model_used": "default",
+  "worker_output": "PASS\nFiles touched: queue/prospects.jsonl\nValidation: Command: python3 prospector.py --work-item-id AOS-2026-0189 --handoff workflows/prospecting_daily_run/input/TTR_ICP_A_OUTREACH_HANDOFF_2026-07-22_METRO_VANCOUVER_MSP_RECRUITMENT.md\nConnector access: No connector action reported\nToken usage:\n- unavailable from current CLI output\nBlockers: None\nNext action: Liam/operator reviews the human_review packages and decides whether to manually use the LinkedIn action card or Gmail draft; Agentic OS has not sent, messaged, posted, or mutated CRM.",
+  "worker_profile_requested": "aos-revenue",
+  "worker_profile_used": "aos-revenue",
+  "worker_provider_used": "default",
+  "worker_success": true
+}

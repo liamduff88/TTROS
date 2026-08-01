@@ -1,0 +1,55 @@
+{
+  "success": true,
+  "timestamp": "2026-07-31T15:36:45.827Z",
+  "canonical_vault": "/mnt/c/Users/Admin/Documents/A-Time to revenue/TTROS Business Brain",
+  "listed_note_count": 29,
+  "backups_exposed": false,
+  "existing_repo_local_copies": [],
+  "results": [
+    {
+      "pointer": "business_brain:memory/company.md",
+      "canonical_path": "/mnt/c/Users/Admin/Documents/A-Time to revenue/TTROS Business Brain/memory/company.md",
+      "loaded_full_markdown_bytes": 751,
+      "marker": "<!-- memory-board-proof-company-2026-07-31 -->",
+      "original_sha256": "73aaaea909877c068476396e6e0687838ecde1a67f497d7638106cc16d08bb3d",
+      "saved_sha256": "cb54a4c812e2a6c2ebac13e157f4460c6cb910e013ff4f5f2a314638c6912cb1",
+      "restored_sha256": "73aaaea909877c068476396e6e0687838ecde1a67f497d7638106cc16d08bb3d",
+      "save_refresh": {
+        "search": "skipped",
+        "graphify": "not_configured"
+      },
+      "restore_refresh": {
+        "search": "skipped",
+        "graphify": "not_configured"
+      },
+      "saved_reopened_in_browser": true,
+      "restored_reopened_in_browser": true
+    },
+    {
+      "pointer": "business_brain:memory/delivery_model.md",
+      "canonical_path": "/mnt/c/Users/Admin/Documents/A-Time to revenue/TTROS Business Brain/memory/delivery_model.md",
+      "loaded_full_markdown_bytes": 1226,
+      "marker": "<!-- memory-board-proof-delivery-2026-07-31 -->",
+      "original_sha256": "72a8b6051915e7324217e3949877251ac41ea2205ac5e86c728022b0b64eefe9",
+      "saved_sha256": "4a4899ee197ebd499fed7d2fc27c9570f19bc774bda918de5a70a737b8599dbd",
+      "restored_sha256": "72a8b6051915e7324217e3949877251ac41ea2205ac5e86c728022b0b64eefe9",
+      "save_refresh": {
+        "search": "current",
+        "graphify": "not_configured"
+      },
+      "restore_refresh": {
+        "search": "current",
+        "graphify": "not_configured"
+      },
+      "saved_reopened_in_browser": true,
+      "restored_reopened_in_browser": true
+    }
+  ],
+  "console_errors": [],
+  "failed_responses": [],
+  "screenshots": [
+    "company-saved-and-reopened.png",
+    "delivery_model-saved-and-reopened.png"
+  ],
+  "token_usage_text": "Token usage: no agent invocation"
+}

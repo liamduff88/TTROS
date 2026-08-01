@@ -1,0 +1,16 @@
+{
+  "success": true,
+  "surfaces": {
+    "Cockpit": true,
+    "Work Queue": true,
+    "Message Board": true,
+    "Memory Board": true,
+    "Skills Board": true,
+    "Results & Receipts": true
+  },
+  "each_surface_rendered": true,
+  "console_errors": [],
+  "failed_responses": [],
+  "screenshot": "proofs/final-operational-verification-2026-07-31/dashboard-current.png",
+  "token_usage_text": "Token usage: no agent invocation"
+}

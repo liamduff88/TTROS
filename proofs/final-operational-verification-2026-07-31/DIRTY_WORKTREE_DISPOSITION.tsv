@@ -1,0 +1,120 @@
+# Snapshot taken after final repairs; no path staged, committed, pushed, discarded, or reverted.
+# status\tpath\tdisposition
+??	dashboard/frontend/tests/memoryBoard.test.js	completed but uncommitted implementation
+??	dashboard/frontend/tests/memoryBoardBrowserProof.mjs	completed but uncommitted implementation
+??	docs/ACTIVATION_STATUS.md	completed but uncommitted implementation
+??	hooks/receipt_completeness_check.md	completed but uncommitted implementation
+??	hooks/runtime_guard.py	completed but uncommitted implementation
+??	proofs/activation-2026-07-31/departments/aos-delivery-output.txt	intentional generated evidence
+??	proofs/activation-2026-07-31/departments/aos-delivery-stderr.txt	intentional generated evidence
+??	proofs/activation-2026-07-31/departments/aos-delivery-usage.json	intentional generated evidence
+??	proofs/activation-2026-07-31/departments/aos-marketing-output.txt	intentional generated evidence
+??	proofs/activation-2026-07-31/departments/aos-marketing-stderr.txt	intentional generated evidence
+??	proofs/activation-2026-07-31/departments/aos-marketing-usage.json	intentional generated evidence
+??	proofs/activation-2026-07-31/departments/aos-ops-output.txt	intentional generated evidence
+??	proofs/activation-2026-07-31/departments/aos-ops-stderr.txt	intentional generated evidence
+??	proofs/activation-2026-07-31/departments/aos-ops-usage.json	intentional generated evidence
+??	proofs/activation-2026-07-31/departments/aos-revenue-output.txt	intentional generated evidence
+??	proofs/activation-2026-07-31/departments/aos-revenue-stderr.txt	intentional generated evidence
+??	proofs/activation-2026-07-31/departments/aos-revenue-usage.json	intentional generated evidence
+??	proofs/activation-2026-07-31/hooks/aos-delivery-doctor.txt	intentional generated evidence
+??	proofs/activation-2026-07-31/hooks/aos-delivery-final-approval-usage.json	intentional generated evidence
+??	proofs/activation-2026-07-31/hooks/aos-delivery-refresh-usage.json	intentional generated evidence
+??	proofs/activation-2026-07-31/hooks/aos-delivery-registration-output.txt	intentional generated evidence
+??	proofs/activation-2026-07-31/hooks/aos-delivery-registration-usage.json	intentional generated evidence
+??	proofs/activation-2026-07-31/hooks/aos-marketing-doctor.txt	intentional generated evidence
+??	proofs/activation-2026-07-31/hooks/aos-marketing-final-approval-usage.json	intentional generated evidence
+??	proofs/activation-2026-07-31/hooks/aos-marketing-refresh-usage.json	intentional generated evidence
+??	proofs/activation-2026-07-31/hooks/aos-marketing-registration-output.txt	intentional generated evidence
+??	proofs/activation-2026-07-31/hooks/aos-marketing-registration-usage.json	intentional generated evidence
+??	proofs/activation-2026-07-31/hooks/aos-ops-doctor.txt	intentional generated evidence
+??	proofs/activation-2026-07-31/hooks/aos-ops-final-approval-usage.json	intentional generated evidence
+??	proofs/activation-2026-07-31/hooks/aos-ops-refresh-usage.json	intentional generated evidence
+??	proofs/activation-2026-07-31/hooks/aos-ops-registration-output.txt	intentional generated evidence
+??	proofs/activation-2026-07-31/hooks/aos-ops-registration-usage.json	intentional generated evidence
+??	proofs/activation-2026-07-31/hooks/aos-orchestrator-doctor.txt	intentional generated evidence
+??	proofs/activation-2026-07-31/hooks/aos-orchestrator-final-approval-usage.json	intentional generated evidence
+??	proofs/activation-2026-07-31/hooks/aos-orchestrator-refresh-usage.json	intentional generated evidence
+??	proofs/activation-2026-07-31/hooks/aos-orchestrator-registration-output.txt	intentional generated evidence
+??	proofs/activation-2026-07-31/hooks/aos-orchestrator-registration-usage.json	intentional generated evidence
+??	proofs/activation-2026-07-31/hooks/aos-revenue-doctor.txt	intentional generated evidence
+??	proofs/activation-2026-07-31/hooks/aos-revenue-final-approval-usage.json	intentional generated evidence
+??	proofs/activation-2026-07-31/hooks/aos-revenue-refresh-usage.json	intentional generated evidence
+??	proofs/activation-2026-07-31/orchestration/aos-delivery-output.txt	intentional generated evidence
+??	proofs/activation-2026-07-31/orchestration/aos-delivery-usage.json	intentional generated evidence
+??	proofs/activation-2026-07-31/orchestration/aos-marketing-output.txt	intentional generated evidence
+??	proofs/activation-2026-07-31/orchestration/aos-marketing-usage.json	intentional generated evidence
+??	proofs/activation-2026-07-31/orchestration/aos-ops-output.txt	intentional generated evidence
+??	proofs/activation-2026-07-31/orchestration/aos-ops-usage.json	intentional generated evidence
+??	proofs/activation-2026-07-31/orchestration/aos-orchestrator-output.txt	intentional generated evidence
+??	proofs/activation-2026-07-31/orchestration/aos-orchestrator-stderr.txt	intentional generated evidence
+??	proofs/activation-2026-07-31/orchestration/aos-orchestrator-usage.json	intentional generated evidence
+??	proofs/activation-2026-07-31/orchestration/aos-revenue-output.txt	intentional generated evidence
+??	proofs/activation-2026-07-31/orchestration/aos-revenue-usage.json	intentional generated evidence
+??	proofs/activation-2026-07-31/orchestration/orchestrator-prompt.txt	intentional generated evidence
+??	proofs/activation-2026-07-31/prospecting-item-id.txt	intentional generated evidence
+??	proofs/activation-2026-07-31/prospecting-queue-create.json	intentional generated evidence
+??	proofs/activation-2026-07-31/prospecting-queue-run.json	intentional generated evidence
+??	proofs/final-operational-verification-2026-07-31/dashboard-browser-evidence.json	intentional generated evidence
+??	proofs/final-operational-verification-2026-07-31/dashboard-current.png	intentional generated evidence
+??	proofs/final-operational-verification-2026-07-31/DIRTY_WORKTREE_DISPOSITION.tsv	intentional generated evidence
+??	proofs/final-operational-verification-2026-07-31/integrated-csuite-prompt.md	intentional generated evidence
+??	proofs/final-operational-verification-2026-07-31/integrated-delivery-prompt.md	intentional generated evidence
+??	proofs/final-operational-verification-2026-07-31/integrated-delivery-usage.json	intentional generated evidence
+??	proofs/final-operational-verification-2026-07-31/integrated-delivery.md	intentional generated evidence
+??	proofs/final-operational-verification-2026-07-31/integrated-marketing-prompt.md	intentional generated evidence
+??	proofs/final-operational-verification-2026-07-31/integrated-marketing-usage.json	intentional generated evidence
+??	proofs/final-operational-verification-2026-07-31/integrated-marketing.md	intentional generated evidence
+??	proofs/final-operational-verification-2026-07-31/integrated-operations-prompt.md	intentional generated evidence
+??	proofs/final-operational-verification-2026-07-31/integrated-operations-usage.json	intentional generated evidence
+??	proofs/final-operational-verification-2026-07-31/integrated-operations.md	intentional generated evidence
+??	proofs/final-operational-verification-2026-07-31/integrated-orchestrator-usage.json	intentional generated evidence
+??	proofs/final-operational-verification-2026-07-31/integrated-revenue-prompt.md	intentional generated evidence
+??	proofs/final-operational-verification-2026-07-31/integrated-revenue-usage.json	intentional generated evidence
+??	proofs/final-operational-verification-2026-07-31/integrated-revenue.md	intentional generated evidence
+??	proofs/final-operational-verification-2026-07-31/OPERATIONAL_VERIFICATION_CLOSEOUT.md	intentional generated evidence
+??	proofs/final-operational-verification-2026-07-31/safe-delivery-fixture.md	intentional generated evidence
+??	proofs/memory-board-editing/2026-07-31/browser-evidence.json	intentional generated evidence
+??	proofs/memory-board-editing/2026-07-31/company-saved-and-reopened.png	intentional generated evidence
+??	proofs/memory-board-editing/2026-07-31/delivery_model-saved-and-reopened.png	intentional generated evidence
+??	prospector.py	completed but uncommitted implementation
+??	queue/schemas/receipt_completeness.schema.json	completed but uncommitted implementation
+??	tests/test_prospector.py	completed but uncommitted implementation
+??	tests/test_runtime_guards.py	completed but uncommitted implementation
+??	TTROS_TELEGRAM_CONVERSATIONAL_ROUTING_TOKEN_EFFICIENCY_CONTEXT_2026-07-23.md	pre-existing local work; retained unchanged
+M	connectors/composio_access_adapter.py	completed but uncommitted implementation
+M	connectors/telegram_bridge/Start-Telegram-Bridge-Auto.ps1	pre-existing local work; protected; untouched by this task
+M	connectors/telegram_bridge/telegram_bridge.py	pre-existing local work; protected; untouched by this task
+M	dashboard/backend/main.py	completed but uncommitted implementation
+M	dashboard/backend/test_composio_hermes.py	completed but uncommitted implementation
+M	dashboard/frontend/src/api.js	completed but uncommitted implementation
+M	dashboard/frontend/src/views/DashboardV1.jsx	completed but uncommitted implementation
+M	decisions/DECISIONS.md	completed but uncommitted implementation
+M	.gitignore	completed but uncommitted implementation
+M	hooks/client_isolation_check.md	completed but uncommitted implementation
+M	hooks/pre_external_action.md	completed but uncommitted implementation
+M	hooks/pre_publish_check.md	completed but uncommitted implementation
+M	hooks/protected_path_check.md	completed but uncommitted implementation
+M	hooks/README.md	completed but uncommitted implementation
+M	hooks/secret_exposure_check.md	completed but uncommitted implementation
+M	queue/profiles/aos-delivery.md	completed but uncommitted implementation
+M	queue/profiles/aos-marketing.md	completed but uncommitted implementation
+M	queue/profiles/aos-ops.md	completed but uncommitted implementation
+M	queue/profiles/aos-orchestrator.md	completed but uncommitted implementation
+M	queue/profiles/aos-revenue.md	completed but uncommitted implementation
+M	queue/profiles/README.md	completed but uncommitted implementation
+M	skills/README.md	completed but uncommitted implementation
+M	tests/test_aos_capture_live.py	completed but uncommitted implementation
+M	tests/test_aos_dashboard_cleanup.py	completed but uncommitted implementation
+M	tests/test_aos_queue.py	completed but uncommitted implementation
+M	tests/test_aos_search.py	completed but uncommitted implementation
+M	tests/test_business_brain_context.py	completed but uncommitted implementation
+M	tests/test_telegram_bridge_formatting.py	completed but uncommitted implementation
+M	tools/aos_capture_live.py	completed but uncommitted implementation
+M	tools/aos_indexer.py	completed but uncommitted implementation
+M	tools/aos-hermes-coordinator.sh	completed but uncommitted implementation
+M	tools/aos-linux-backup.sh	completed but uncommitted implementation
+M	tools/aos-linux-runtime.sh	completed but uncommitted implementation
+M	tools/aos-queue.py	completed but uncommitted implementation
+M	tools/business_brain_context.py	completed but uncommitted implementation
+M	tools/Register-TTROS-BackupTask.ps1	completed but uncommitted implementation

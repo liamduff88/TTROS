@@ -1,0 +1,55 @@
+{
+  "allowed_actions": [
+    "local_read",
+    "public_web_read",
+    "local_queue_reconciliation",
+    "gmail_draft_only_replay",
+    "local_artifact_write"
+  ],
+  "claim": {
+    "claimed_at": null,
+    "claimed_by": null
+  },
+  "client_scope": "global",
+  "context": "Perform one controlled real prospecting operation through the existing engine. Use the work item ID in this prompt and run: python3 prospector.py --work-item-id <THIS_WORK_ITEM_ID> --handoff workflows/prospecting_daily_run/input/TTR_ICP_A_OUTREACH_HANDOFF_2026-07-22_METRO_VANCOUVER_MSP_RECRUITMENT.md. This is an idempotent operational replay against canonical prospect/review state: retrieve Business Brain context, verify both public signals, exercise duplicate/prior-contact reconciliation, surface the existing Gmail draft and LinkedIn manual-action packages, and write the prospector artifact/receipt. Do not send email, message/connect on LinkedIn, mutate CRM, or change any recipient. Return PASS with exact artifact paths and validation counts.",
+  "context_classification": "knowledge_sensitive",
+  "created_at": "2026-07-31T19:13:11Z",
+  "definition_of_done": "prospector.py exits PASS; two live public signals verify; canonical duplicate/prior-contact controls run; useful Gmail and LinkedIn review packages surface in human_review; artifacts and token evidence exist; zero sends/messages/posts/CRM mutations.",
+  "depends_on": [],
+  "id": "AOS-2026-0189",
+  "on_complete": null,
+  "owner": "revenue",
+  "owner_type": "agent",
+  "parent_id": null,
+  "priority": 95,
+  "receipts": [],
+  "requested_by": "Liam activation task",
+  "review": "none",
+  "source": "local_activation",
+  "sources": [
+    "business_brain:index/MEMORY_INDEX.md",
+    "business_brain:memory/ideal_clients.md",
+    "business_brain:memory/prospecting_query_bank.md",
+    "business_brain:memory/prospecting_scoring_contract.md",
+    "prospector.py",
+    "workflows/prospecting_daily_run/outreach_handoff.py"
+  ],
+  "status": "agent_todo",
+  "step_index": null,
+  "stop_conditions": [
+    "external_send",
+    "linkedin_action",
+    "crm_mutation",
+    "recipient_change",
+    "signal_unreachable",
+    "credential_exposure"
+  ],
+  "tags": [
+    "activation_proof",
+    "prospecting_daily_run",
+    "lane:revenue"
+  ],
+  "title": "Activation proof: run TTROS prospecting entry point",
+  "updated_at": "2026-07-31T19:13:11Z",
+  "workbench": "revenue"
+}
