@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Fail-closed Hermes oneshot entrypoint for the six-tool operator profile.
+"""Fail-closed Hermes oneshot entrypoint for the seven-tool operator profile.
 
-Revisit: when Hermes oneshot or MCP startup semantics change. · Last touched: 2026-07-28.
+Revisit: when Hermes oneshot or MCP startup semantics change. · Last touched: 2026-08-01.
 """
 
 from __future__ import annotations
@@ -22,6 +22,7 @@ EXPECTED_TOOLS = frozenset(
         "mcp__operator__get_latest_receipt",
         "mcp__operator__get_token_ledger",
         "mcp__operator__create_task",
+        "mcp__operator__escalate_to_executive",
     }
 )
 TOOL_UNAVAILABLE_EXIT = 78
@@ -61,7 +62,7 @@ def run_operator_oneshot(
         require_operator_tools(discover)
     except Exception as exc:
         print(
-            f"TOOL_UNAVAILABLE: operator-lean requires exactly six queue tools ({exc}). "
+            f"TOOL_UNAVAILABLE: operator-lean requires exactly seven bounded tools ({exc}). "
             "No model was called and no task was queued.",
             file=sys.stderr,
         )
@@ -75,7 +76,7 @@ def run_operator_oneshot(
 
 
 def inspect_loaded_preamble() -> dict[str, Any]:
-    """Return the real post-discovery system prompt and six schemas; no API call."""
+    """Return the real post-discovery system prompt and seven schemas; no API call."""
     names = require_operator_tools()
     from agent.system_prompt import build_system_prompt
     from hermes_cli.prompt_size import _build_inspection_agent

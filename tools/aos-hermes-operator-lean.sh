@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Revisit: when the operator-lean Hermes profile or one-shot CLI changes. · Last touched: 2026-07-28.
+# Revisit: when the operator-lean Hermes profile or one-shot CLI changes. · Last touched: 2026-08-01.
 set -euo pipefail
 
 export PATH="$HOME/.local/bin:$HOME/.local/npm/bin:$PATH"
@@ -42,6 +42,7 @@ done
 
 if [[ -n "$prompt_file" ]]; then
   [[ -f "$prompt_file" ]] || { echo "Blockers: Prompt file not found: $prompt_file"; exit 2; }
+  export AOS_OPERATOR_CONTEXT_FILE="$prompt_file"
   prompt="$(<"$prompt_file")"
 elif (($# > 0)); then
   prompt="$*"
@@ -50,17 +51,47 @@ else
   exit 2
 fi
 
+brief_generator="${AOS_ROOT}/tools/aos_executive_brief.py"
+executive_header_file="${AOS_ROOT}/context/EXECUTIVE_HEADER.txt"
+if ! python3 "$brief_generator"; then
+  # A failed refresh deliberately leaves the last good brief and a stale header.
+  :
+fi
+if [[ ! -f "$executive_header_file" ]]; then
+  echo "NEEDS ATTENTION"
+  echo "Blockers: Executive header is unavailable"
+  exit 78
+fi
+executive_header="$(<"$executive_header_file")"
+prompt="Executive header (read-only situational awareness):
+${executive_header}
+
+Operator message:
+${prompt}"
+
 # Running from the profile home prevents repository AGENTS.md and Business
 # Brain pointers from entering this deliberately tiny one-shot context.
 cd "$profile_home"
 export HERMES_HOME="$profile_home"
+escalation_reply_file="$(mktemp "${AOS_ROOT}/queue/run_prompts/operator_escalation_reply.XXXXXX")"
+oneshot_output_file="$(mktemp "${AOS_ROOT}/queue/run_prompts/operator_lean_output.XXXXXX")"
+cleanup_operator_files() {
+  rm -f -- "$escalation_reply_file" "$oneshot_output_file"
+}
+trap cleanup_operator_files EXIT
+export AOS_OPERATOR_ESCALATION_REPLY_FILE="$escalation_reply_file"
+set +e
 if [[ -n "$usage_file" ]]; then
-  if [[ -n "$prompt_file" ]]; then
-    exec "$hermes_python" "$oneshot_entry" --usage-file "$usage_file" --prompt-file "$prompt_file"
-  fi
-  exec "$hermes_python" "$oneshot_entry" --usage-file "$usage_file" "$prompt"
+  "$hermes_python" "$oneshot_entry" --usage-file "$usage_file" "$prompt" >"$oneshot_output_file"
+  oneshot_status=$?
+else
+  "$hermes_python" "$oneshot_entry" "$prompt" >"$oneshot_output_file"
+  oneshot_status=$?
 fi
-if [[ -n "$prompt_file" ]]; then
-  exec "$hermes_python" "$oneshot_entry" --prompt-file "$prompt_file"
+set -e
+if [[ -s "$escalation_reply_file" ]]; then
+  command cat "$escalation_reply_file"
+else
+  command cat "$oneshot_output_file"
 fi
-exec "$hermes_python" "$oneshot_entry" "$prompt"
+exit "$oneshot_status"

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Six bounded local queue tools for the Hermes operator-lean profile.
+"""Seven bounded local tools for the Hermes operator-lean profile.
 
-Revisit: when queue fields or the operator-lean tool contract changes. · Last touched: 2026-07-28.
+Revisit: when queue fields or the operator-lean tool contract changes. · Last touched: 2026-08-01.
 """
 
 from __future__ import annotations
@@ -12,6 +12,8 @@ import importlib.util
 import json
 import os
 import re
+import subprocess
+import tempfile
 from pathlib import Path
 from typing import Any, Literal
 
@@ -39,7 +41,9 @@ CODE_TASK_RE = re.compile(
 ITEM_ID_RE = re.compile(r"^AOS-\d{4}-\d{4}$")
 MAX_TOOL_ROWS = 10
 MAX_RECEIPT_CHARS = 2_000
+HERMES_ROUTER = Path("/home/liam/agentic-os/hermes/hermes.py")
 _task_created = False
+_executive_escalated = False
 
 mcp = FastMCP("operator-lean")
 
@@ -94,6 +98,26 @@ def _queue_module():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def _publish_escalation_reply(reply: str) -> None:
+    """Let the operator launcher return the tool result without model rewriting."""
+    target_arg = str(os.environ.get("AOS_OPERATOR_ESCALATION_REPLY_FILE") or "").strip()
+    if not target_arg:
+        return
+    raw_target = Path(target_arg)
+    if raw_target.is_symlink():
+        return
+    target = raw_target.resolve()
+    allowed = (ROOT / "queue" / "run_prompts").resolve()
+    try:
+        target.relative_to(allowed)
+    except ValueError:
+        return
+    try:
+        target.write_text(reply, encoding="utf-8")
+    except OSError:
+        return
 
 
 @mcp.tool()
@@ -201,6 +225,8 @@ def create_task(
 ) -> dict[str, Any]:
     """Create one local tracked task for this message."""
     global _task_created
+    if _executive_escalated:
+        return {"created": False, "error": "create_task is unavailable after executive escalation for this inbound message"}
     if _task_created:
         return {"created": False, "error": "create_task may be called only once per inbound message"}
     _task_created = True
@@ -255,6 +281,74 @@ def create_task(
         **_item_ref(item),
         "size": item.get("size"),
     }
+
+
+@mcp.tool()
+def escalate_to_executive(message: str) -> str:
+    """Escalate one business-wide opinion, synthesis, or priority judgment."""
+    global _executive_escalated
+    if _executive_escalated:
+        return "NEEDS ATTENTION: executive escalation may be called only once per inbound message."
+    if _task_created:
+        return "NEEDS ATTENTION: executive escalation is unavailable after create_task for this inbound message."
+    text = " ".join(str(message or "").split()).strip()
+    if not text or len(text.encode("utf-8")) > 4_000:
+        return "NEEDS ATTENTION: escalation message must contain 1-4,000 UTF-8 bytes."
+    _executive_escalated = True
+
+    context_arg = str(os.environ.get("AOS_OPERATOR_CONTEXT_FILE") or "").strip()
+    temporary_context: Path | None = None
+    if context_arg:
+        context_path = Path(context_arg)
+    else:
+        prompt_dir = ROOT / "queue" / "run_prompts"
+        prompt_dir.mkdir(parents=True, exist_ok=True)
+        handle = tempfile.NamedTemporaryFile(
+            "w", encoding="utf-8", prefix="operator_escalation_", suffix=".md",
+            dir=prompt_dir, delete=False,
+        )
+        with handle:
+            handle.write(text)
+        context_path = Path(handle.name)
+        temporary_context = context_path
+
+    try:
+        result = subprocess.run(
+            [str(HERMES_ROUTER), "executive", "--prompt-file", str(context_path)],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            timeout=75,
+            check=False,
+        )
+        try:
+            payload = json.loads((result.stdout or "").strip())
+        except json.JSONDecodeError:
+            payload = {
+                "success": False,
+                "error": (result.stderr or result.stdout or "executive router returned no structured result").strip(),
+            }
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        payload = {"success": False, "error": str(exc)}
+    finally:
+        if temporary_context is not None:
+            try:
+                temporary_context.unlink()
+            except FileNotFoundError:
+                pass
+
+    echo = "Escalating to the executive…"
+    if not payload.get("success"):
+        detail = str(payload.get("error") or "executive invocation failed").strip()[:1_000]
+        reply = f"{echo}\n\nNEEDS ATTENTION: {detail}"
+        _publish_escalation_reply(reply)
+        return reply
+    answer = str(payload.get("answer") or "").strip()
+    receipt = str(payload.get("receipt_path") or "").strip()
+    suffix = f"\n\nReceipt: {receipt}" if receipt else ""
+    reply = f"{echo}\n\n{answer}{suffix}"
+    _publish_escalation_reply(reply)
+    return reply
 
 
 if __name__ == "__main__":
