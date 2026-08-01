@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentic-os.local/schemas/receipt_completeness.schema.json",
+  "title": "Done-transition receipt completeness record",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "item_id",
+    "status",
+    "lane",
+    "profile_requested",
+    "profile_resolved",
+    "model_requested",
+    "model_confirmed",
+    "receipt_path",
+    "artifact_paths",
+    "verification_note",
+    "completion_contract",
+    "completion_contract_sha256",
+    "token_usage"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "item_id": {"type": "string", "pattern": "^(AOS|Q)-[0-9]{4}-[0-9]{4}$"},
+    "status": {"const": "done"},
+    "lane": {"type": "string", "minLength": 1},
+    "profile_requested": {"type": "string", "minLength": 1},
+    "profile_resolved": {"type": "string", "minLength": 1},
+    "model_requested": {"type": "string", "minLength": 1},
+    "model_confirmed": {"type": "string", "minLength": 1},
+    "receipt_path": {"type": "string", "minLength": 1},
+    "artifact_paths": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"type": "string", "minLength": 1},
+      "uniqueItems": true
+    },
+    "verification_note": {"type": "string", "minLength": 1},
+    "completion_contract": {
+      "type": "object",
+      "required": ["definition_of_done", "allowed_actions", "stop_conditions"],
+      "properties": {
+        "definition_of_done": {"type": "string", "minLength": 1},
+        "allowed_actions": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+        "stop_conditions": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}
+      },
+      "additionalProperties": false
+    },
+    "completion_contract_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "token_usage": {
+      "type": "object",
+      "required": ["orchestrator", "subagents", "workbenches", "totals", "est_cost_usd", "unavailable"]
+    }
+  },
+  "additionalProperties": false
+}
