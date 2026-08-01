@@ -1,5 +1,5 @@
 # hooks/pre_external_action.md
-> Revisit: on a new connector or a boundary incident. · Last touched: 2026-07-07.
+> Revisit: on a new connector or a boundary incident. · Last touched: 2026-07-31.
 
 ## Event
 Fires before any tool call classified as a gated verb: send, write/publish/
@@ -22,5 +22,8 @@ a different path or silently downgrading the action.
 `rules/never.md` #1, #11 · `context/EXTERNAL_ACTIONS.md` gated list.
 
 ## Status
-Documented only. No live tool call is wired — this spec is what a Claude
-Code hook or Hermes queue-runner checkpoint would implement.
+LIVE. `hooks/runtime_guard.py` blocks direct connector mutations at Hermes'
+native `pre_tool_call` event. The governed boundary in
+`connectors/composio_access_adapter.py` then requires a real queue item with
+the exact action, exact target, and a typed per-action operator command before
+calling a mutation tool, and writes a redacted gate receipt.

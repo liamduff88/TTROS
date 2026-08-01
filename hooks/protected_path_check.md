@@ -1,5 +1,5 @@
 # hooks/protected_path_check.md
-> Revisit: on a new protected area or a boundary incident. · Last touched: 2026-07-07.
+> Revisit: on a new protected area or a boundary incident. · Last touched: 2026-07-31.
 
 ## Event
 Fires before any file write or edit tool call.
@@ -20,4 +20,7 @@ to route around the match.
 `rules/never.md` #2, #3, #8 · `context/PROTECTED_PATHS.md`.
 
 ## Status
-Documented only. No live filesystem hook installed yet.
+LIVE. `hooks/runtime_guard.py` runs before Hermes tools and blocks mutating
+calls that target the protected client, connector, dashboard, routing, or
+legacy-state categories. A live Hermes probe confirmed the tool was blocked
+before the requested file existed.

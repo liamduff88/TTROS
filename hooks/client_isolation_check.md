@@ -1,5 +1,5 @@
 # hooks/client_isolation_check.md
-> Revisit: on a new client or a boundary incident. · Last touched: 2026-07-07.
+> Revisit: on a new client or a boundary incident. · Last touched: 2026-07-31.
 
 ## Event
 Fires before any output that references client data — a report, a draft, a
@@ -20,5 +20,7 @@ still leave inferential leakage).
 `rules/always.md` #7 · `rules/never.md` #9 · `rules/client_data_boundaries.md`.
 
 ## Status
-Documented only. Runs as a check step before any client-facing artifact is
-marked done, not a live filter on an external system.
+LIVE. `tools/business_brain_context.py` rejects unresolved or cross-client
+Brain pointers at retrieval and completion. `hooks/runtime_guard.py` also
+blocks a Hermes tool call that declares more than one `client:<scope>` marker;
+it is installed as `pre_tool_call` on all five operating profiles.

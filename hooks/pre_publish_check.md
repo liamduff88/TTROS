@@ -1,5 +1,5 @@
 # hooks/pre_publish_check.md
-> Revisit: on a compliance change or a new outreach channel. · Last touched: 2026-07-07.
+> Revisit: on a compliance change or a new outreach channel. · Last touched: 2026-07-31.
 
 ## Event
 Fires before any write to a public or external-facing surface: LinkedIn,
@@ -21,4 +21,8 @@ in draft state. No partial publish.
 CASL/outreach-specific gate.
 
 ## Status
-Documented only, not wired to a live publish path.
+LIVE. Hermes' `pre_tool_call` guard rejects direct send/post/publish bypasses.
+At the governed Composio adapter, SEND/POST/PUBLISH/UPLOAD requires the queue
+item's `publish_review_passed=true`; SEND additionally requires `email_safe`
+and a non-empty outreach basis. Gmail remains draft-only through its narrower
+adapter.
