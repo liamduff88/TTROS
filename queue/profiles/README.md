@@ -1,4 +1,5 @@
 # Agentic OS Hermes Profiles
+> Revisit: when profile configuration, authentication, or queue routing changes. · Last touched: 2026-07-31.
 
 Agentic OS uses one Operating Hermes runtime. Revenue, marketing, delivery, operations, and orchestrator roles are Hermes profiles plus queue routing metadata, not separate Hermes installations.
 
@@ -10,6 +11,19 @@ The five `aos-*` profiles were created manually:
 - `aos-delivery`
 - `aos-ops`
 
-As of the July 6, 2026 Prompt B profile pass, `hermes profile list` shows the Model column as `—` for each `aos-*` profile. The queue router must therefore request these profiles only as metadata and fall back to the default Operating Hermes route until a profile has a configured model and a supported native invocation path.
+All five `aos-*` profiles now have a configured `openai-codex/gpt-5.5`
+model. `tools/aos-hermes-coordinator.sh --profile <name>` and the dashboard
+queue runner bind the routed profile with Hermes' native `-p` selector for
+that invocation only.
 
-Do not run `hermes profile use` for queue routing. Do not mutate Hermes profile config from this repo. Model and toolset policy should live in Hermes once configured; this repo keeps only the thin lane map and guardrails in `queue/lane_profiles.json`.
+`aos-orchestrator` passed a live one-shot proof on 2026-07-31. The four
+department profiles load their own model, identity, and tool prompt offline,
+but live inference currently returns HTTP 401 because stale profile-scoped
+credentials shadow the healthy global pool. Credential/auth files are
+protected and were not changed during activation; those four profiles must
+fail visibly until separately reauthenticated.
+
+Do not run `hermes profile use` for queue routing. Never mutate the Hermes
+global/default profile. Model and toolset policy lives in each named Hermes
+profile; this repo keeps only the thin lane map, validated launcher, and
+guardrails. Never silently substitute `default` after a named-profile failure.
