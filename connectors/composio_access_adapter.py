@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
-"""Thin stdlib-only access spine for the local Composio CLI."""
+"""Thin stdlib-only access spine for the local Composio CLI.
+
+Revisit: when connector mutation approval or Composio CLI contracts change. · Last touched: 2026-07-31.
+"""
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import subprocess
@@ -19,6 +23,7 @@ except ModuleNotFoundError:  # package import in tests/IDE contexts
 
 
 COMPOSIO = Path("/home/liam/.composio/composio")
+ROOT = Path(__file__).resolve().parents[1]
 REGISTRY = Path(__file__).with_name("composio_tool_registry.json")
 TIMEOUT_SECONDS = 30
 ANSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
@@ -35,6 +40,13 @@ MUTATION_VERBS = {
     "PUBLISH",
     "UPLOAD",
 }
+PUBLISH_VERBS = {"SEND", "POST", "PUBLISH", "UPLOAD"}
+SECRET_VALUE_RES = (
+    re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"),
+    re.compile(r"\bBearer\s+[A-Za-z0-9._~+/-]{20,}", re.IGNORECASE),
+    re.compile(r"\b(?:api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret)\s*[:=]\s*['\"]?[A-Za-z0-9._~+/-]{12,}", re.IGNORECASE),
+    re.compile(r"\bsk-[A-Za-z0-9_-]{20,}"),
+)
 
 
 def now_utc() -> str:
@@ -43,6 +55,90 @@ def now_utc() -> str:
 
 def emit(value: Any) -> None:
     print(json.dumps(value, indent=2, sort_keys=True))
+
+
+def _append_gate_receipt(*, work_item_id: str, action: str, target: str, decision: str, reason: str) -> None:
+    path = ROOT / "queue/receipts/external-action-gate.jsonl"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    record = {
+        "timestamp": now_utc(),
+        "work_item_id": work_item_id or "unavailable",
+        "action": action,
+        "target_sha256": hashlib.sha256(target.encode("utf-8")).hexdigest() if target else None,
+        "decision": decision,
+        "reason": reason,
+        "execution_occurred": decision == "allowed",
+    }
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record, sort_keys=True, separators=(",", ":")) + "\n")
+
+
+def _queue_item(work_item_id: str) -> dict[str, Any] | None:
+    if not work_item_id:
+        return None
+    path = ROOT / "queue/work_items.jsonl"
+    if not path.is_file():
+        return None
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        try:
+            row = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(row, dict) and row.get("id") == work_item_id:
+            return row
+    return None
+
+
+def _payload_contains_secret(value: Any) -> bool:
+    rendered = json.dumps(value, sort_keys=True, separators=(",", ":"))
+    return any(pattern.search(rendered) for pattern in SECRET_VALUE_RES)
+
+
+def authorize_external_mutation(*, action: str, target: str, work_item_id: str, payload: dict[str, Any]) -> tuple[bool, str]:
+    verbs = set(action.split("_")).intersection(MUTATION_VERBS)
+    if not verbs:
+        return True, "read-only action"
+    if _payload_contains_secret(payload):
+        return False, "secret-exposure check failed"
+    item = _queue_item(work_item_id)
+    if item is None:
+        return False, "exact queue item approval is required"
+    approved_actions = item.get("approved_external_action")
+    if isinstance(approved_actions, str):
+        approved_actions = [approved_actions]
+    approved_actions = {str(value).strip().upper() for value in (approved_actions or [])}
+    if action not in approved_actions:
+        return False, "queue item does not approve this exact action"
+    if not target or str(item.get("approved_external_target") or "").strip() != target:
+        return False, "queue item does not approve this exact target"
+    if not str(item.get("approved_external_command") or "").strip():
+        return False, "typed per-action operator command is missing"
+    if verbs.intersection(PUBLISH_VERBS) and item.get("publish_review_passed") is not True:
+        return False, "pre-publish review has not passed"
+    if "SEND" in verbs and (item.get("email_safe") is not True or not str(item.get("outreach_basis") or "").strip()):
+        return False, "email-safe/CASL basis is missing"
+    return True, "exact action, target, operator command, and publication gates matched"
+
+
+def _authorize_or_emit(*, action: str, payload: dict[str, Any], args: argparse.Namespace) -> bool:
+    work_item_id = str(getattr(args, "work_item_id", "") or "").strip()
+    target = str(getattr(args, "target", "") or "").strip()
+    allowed, reason = authorize_external_mutation(
+        action=action,
+        target=target,
+        work_item_id=work_item_id,
+        payload=payload,
+    )
+    _append_gate_receipt(
+        work_item_id=work_item_id,
+        action=action,
+        target=target,
+        decision="allowed" if allowed else "blocked",
+        reason=reason,
+    )
+    if not allowed:
+        emit({"ok": False, "tool_slug": action, "args": None, "error": reason, "transmitted": False})
+    return allowed
 
 
 def clean_error(text: str) -> str:
@@ -318,6 +414,8 @@ def command_tool_run(args: argparse.Namespace) -> int:
             "error": f"External mutation tool requires --confirmed ({', '.join(mutation_verbs)}).",
         })
         return 2
+    if mutation_verbs and not _authorize_or_emit(action=tool_slug, payload=payload, args=args):
+        return 2
 
     result = cli("execute", tool_slug, "-d", data)
     response = {"ok": result["ok"], "tool_slug": tool_slug, "args": payload}
@@ -398,6 +496,8 @@ def command_run(args: argparse.Namespace) -> int:
     if execute_requested and not (args.execute and args.operator_command):
         emit({"ok": False, "error": "Actual execution requires both --execute and --operator-command."})
         return 2
+    if execute_requested and not _authorize_or_emit(action=action, payload=payload, args=args):
+        return 2
     cli_args = ["execute", action, "-d", json.dumps(payload, separators=(",", ":"))]
     if not execute_requested:
         cli_args.append("--dry-run")
@@ -435,6 +535,8 @@ def parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Explicitly confirm execution of an external mutation tool",
     )
+    tool_run.add_argument("--work-item-id", help="Queue item carrying exact action approval")
+    tool_run.add_argument("--target", help="Exact externally affected target named by Liam")
     tool_run.set_defaults(handler=command_tool_run)
 
     prepare = commands.add_parser("prepare")
@@ -449,6 +551,8 @@ def parser() -> argparse.ArgumentParser:
     run.add_argument("--data", default="{}", help="JSON object for the action")
     run.add_argument("--execute", action="store_true", help="Execute instead of previewing with --dry-run")
     run.add_argument("--operator-command", action="store_true", help="Confirm Liam explicitly commanded this specific action")
+    run.add_argument("--work-item-id", help="Queue item carrying exact action approval")
+    run.add_argument("--target", help="Exact externally affected target named by Liam")
     run.set_defaults(handler=command_run)
     return root
 

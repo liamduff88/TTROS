@@ -7,6 +7,7 @@ import shlex
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -14,11 +15,16 @@ import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
+import fcntl
+
 WORKSPACE = Path("/home/liam/agentic-os-live")
 BRIDGE_DIR = WORKSPACE / "connectors" / "telegram_bridge"
 ENV_FILE = BRIDGE_DIR / ".env"
 ALLOWED_FILE = BRIDGE_DIR / "allowed_chats.json"
 LOG_DIR = WORKSPACE / "logs"
+RUNTIME_DIR = LOG_DIR / "runtime"
+UPDATE_STATE_FILE = RUNTIME_DIR / "telegram_bridge_updates.json"
+BRIDGE_LOCK_FILE = RUNTIME_DIR / "telegram_bridge.lock"
 PILOT_ID = "northshore_honda_sales_demo"
 BACKEND = "http://127.0.0.1:8010"
 TOOLS_DIR = WORKSPACE / "tools"
@@ -29,6 +35,7 @@ import business_brain
 import business_brain_inbox
 
 LOG_DIR.mkdir(parents=True, exist_ok=True)
+RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def load_token():
@@ -100,7 +107,10 @@ _DOC_REF_RE = re.compile(
 _ALLOWED_DOC_PREFIXES = ("queue/receipts/", "workflows/queue_artifacts/", "results/", "packets/", "logs/")
 _MAX_DOCUMENT_BYTES = 10 * 1024 * 1024
 SUBMISSION_ACK_TIMEOUT_SECONDS = 20
-AGENT_RESPONSE_TIMEOUT_SECONDS = 180
+AGENT_RESPONSE_TIMEOUT_SECONDS = SUBMISSION_ACK_TIMEOUT_SECONDS
+STATUS_BACKEND_TIMEOUT_SECONDS = 1.5
+STATUS_SEND_TIMEOUT_SECONDS = 3
+MAX_RECORDED_UPDATE_IDS = 512
 _CAPTURE_COMMAND_RE = re.compile(r"^/(?:inbox|capture)(?:@[A-Za-z0-9_]+)?(?:\s+([\s\S]*))?$", re.IGNORECASE)
 _SUPPORTED_DOCUMENT_EXTENSIONS = {".txt", ".md", ".markdown", ".pdf", ".docx", ".rtf", ".csv", ".json", ".yaml", ".yml"}
 _SUPPORTED_DOCUMENT_MIME_TYPES = {
@@ -115,6 +125,10 @@ _HERMES_COORDINATION_RE = re.compile(
     r"|\b(?:request|make|apply)\s+(?:a\s+)?corrections?\b",
     re.IGNORECASE,
 )
+_UPDATE_STATE_LOCK = threading.Lock()
+_AGENT_REQUEST_LOCK = threading.Lock()
+_ACTIVE_AGENT_REQUESTS = set()
+_BRIDGE_LOCK_HANDLE = None
 
 
 def compact_telegram_closeout(text, success=None):
@@ -326,14 +340,14 @@ def send_document(chat_id, document_path, caption=""):
         return False
 
 
-def send(chat_id, text, preserve_format=False, document_paths=None):
+def send(chat_id, text, preserve_format=False, document_paths=None, api_timeout=20):
     text = str(text or "").strip()
     if not preserve_format and not is_queue_specific_output(text):
         text = compact_telegram_closeout(text)
     if len(text) > 3500:
         text = text[:3400] + "\n\n[trimmed]"
     try:
-        api("sendMessage", {"chat_id": str(chat_id), "text": text}, timeout=20)
+        api("sendMessage", {"chat_id": str(chat_id), "text": text}, timeout=api_timeout)
         message_sent = True
     except Exception as e:
         log(f"send_error chat={chat_id} error={type(e).__name__}")
@@ -427,9 +441,14 @@ def _agent_request_timeout(task):
     return AGENT_RESPONSE_TIMEOUT_SECONDS
 
 
-def post_agent(route, task, timeout=None, source="telegram"):
+def post_agent(route, task, timeout=None, source="telegram", delivery_id="", reply_to=""):
     timeout = _agent_request_timeout(task) if timeout is None else timeout
-    payload = json.dumps({"task": task, "source": source}).encode("utf-8")
+    payload = json.dumps({
+        "task": task,
+        "source": source,
+        "delivery_id": str(delivery_id or ""),
+        "reply_to": str(reply_to or ""),
+    }).encode("utf-8")
     req = urllib.request.Request(
         f"{BACKEND}{route}",
         data=payload,
@@ -440,7 +459,7 @@ def post_agent(route, task, timeout=None, source="telegram"):
         return json.loads(res.read().decode("utf-8"))
 
 
-def get_backend_status(timeout=5):
+def get_backend_status(timeout=STATUS_BACKEND_TIMEOUT_SECONDS):
     req = urllib.request.Request(f"{BACKEND}/api/wsl/status", method="GET")
     with urllib.request.urlopen(req, timeout=timeout) as res:
         payload = json.loads(res.read().decode("utf-8"))
@@ -690,7 +709,54 @@ def failed_agent_closeout(message):
     ])
 
 
-def handle_operator(chat_id, text, source="telegram"):
+def _run_agent_request(chat_id, task, source, delivery_id):
+    """Submit one request off the polling thread and send its intake result once."""
+    try:
+        result = post_agent(
+            "/api/wsl/hermes",
+            task,
+            source=source,
+            delivery_id=delivery_id,
+            reply_to=str(chat_id),
+        )
+        if isinstance(result, dict) and result.get("duplicate"):
+            log(f"agent_request_duplicate delivery_id={delivery_id}")
+            return
+        deliver_agent_result(chat_id, result)
+    except Exception as exc:
+        send(chat_id, failed_agent_closeout(f"Agent route failed: {type(exc).__name__}"))
+    finally:
+        with _AGENT_REQUEST_LOCK:
+            _ACTIVE_AGENT_REQUESTS.discard(delivery_id)
+
+
+def dispatch_agent_request(chat_id, task, source="telegram", delivery_id=""):
+    """Single-flight one Telegram delivery while keeping polling responsive."""
+    request_id = str(delivery_id or "").strip()
+    if not request_id:
+        digest = hashlib.sha256(f"{chat_id}\0{task}".encode("utf-8")).hexdigest()
+        request_id = f"{source}-request-{digest}"
+    with _AGENT_REQUEST_LOCK:
+        if request_id in _ACTIVE_AGENT_REQUESTS:
+            log(f"agent_request_inflight_duplicate delivery_id={request_id}")
+            return False
+        _ACTIVE_AGENT_REQUESTS.add(request_id)
+    worker = threading.Thread(
+        target=_run_agent_request,
+        args=(chat_id, task, source, request_id),
+        name=f"telegram-agent-{request_id[-16:]}",
+        daemon=True,
+    )
+    try:
+        worker.start()
+    except Exception:
+        with _AGENT_REQUEST_LOCK:
+            _ACTIVE_AGENT_REQUESTS.discard(request_id)
+        raise
+    return True
+
+
+def handle_operator(chat_id, text, source="telegram", delivery_id=""):
     if text.startswith("/work "):
         parts = text.split(" ", 2)
         if len(parts) < 3 or parts[1].lower() not in {"codex", "claude", "hermes"}:
@@ -698,11 +764,12 @@ def handle_operator(chat_id, text, source="telegram"):
             return
         target = parts[1].lower()
         task = parts[2].strip()
-        try:
-            result = post_agent("/api/wsl/hermes", f"/work {target} {task}", source=source)
-            deliver_agent_result(chat_id, result)
-        except Exception as e:
-            send(chat_id, failed_agent_closeout(f"{target} route failed: {type(e).__name__}"))
+        dispatch_agent_request(
+            chat_id,
+            f"/work {target} {task}",
+            source=source,
+            delivery_id=delivery_id,
+        )
         return
 
     if text.startswith("/pilot_add "):
@@ -722,14 +789,10 @@ def handle_operator(chat_id, text, source="telegram"):
         send(chat_id, "Commands: /status, /inbox <text>, /work codex|claude|hermes <task>, /pilot_add <chat_id> <pilot_id>")
         return
 
-    try:
-        result = post_agent("/api/wsl/hermes", text, source=source)
-        deliver_agent_result(chat_id, result)
-    except Exception as e:
-        send(chat_id, failed_agent_closeout(f"Hermes route failed: {type(e).__name__}"))
+    dispatch_agent_request(chat_id, text, source=source, delivery_id=delivery_id)
 
 
-def handle_message(msg, source="telegram"):
+def handle_message(msg, source="telegram", delivery_id=""):
     chat = msg.get("chat") or {}
     chat_id = int(chat.get("id"))
     text = (msg.get("text") or msg.get("caption") or "").strip()
@@ -744,11 +807,11 @@ def handle_message(msg, source="telegram"):
             status = format_operator_status(get_backend_status(), mode=mode)
         except Exception as exc:
             status = backend_unavailable_status(mode=mode, reason=type(exc).__name__)
-        send(chat_id, status, preserve_format=True)
+        send(chat_id, status, preserve_format=True, api_timeout=STATUS_SEND_TIMEOUT_SECONDS)
         return
 
     if text.startswith("/whoami"):
-        send(chat_id, f"chat_id={chat_id}")
+        send(chat_id, f"chat_id={chat_id}", api_timeout=STATUS_SEND_TIMEOUT_SECONDS)
         return
 
     if is_operator and _capture_requested(msg, text):
@@ -764,7 +827,7 @@ def handle_message(msg, source="telegram"):
         return
 
     if is_operator:
-        handle_operator(chat_id, text, source=source)
+        handle_operator(chat_id, text, source=source, delivery_id=delivery_id)
         return
 
     if pilot_id == PILOT_ID:
@@ -783,8 +846,77 @@ def handle_message(msg, source="telegram"):
         send(chat_id, f"Unregistered chat. Send /whoami to get chat_id={chat_id}")
 
 
+def _load_recorded_update_ids():
+    try:
+        payload = json.loads(UPDATE_STATE_FILE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    values = payload.get("processed_update_ids") if isinstance(payload, dict) else []
+    return sorted({
+        int(value) for value in values
+        if isinstance(value, int) and not isinstance(value, bool) and value >= 0
+    })
+
+
+def claim_update(update_id):
+    """Durably claim a Telegram update before dispatching any agent work."""
+    value = int(update_id)
+    with _UPDATE_STATE_LOCK:
+        recorded = _load_recorded_update_ids()
+        if value in recorded:
+            return False
+        recorded = sorted([*recorded, value])[-MAX_RECORDED_UPDATE_IDS:]
+        UPDATE_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        handle = tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            prefix=".telegram_bridge_updates.",
+            suffix=".tmp",
+            dir=UPDATE_STATE_FILE.parent,
+            delete=False,
+        )
+        temporary = Path(handle.name)
+        try:
+            with handle:
+                json.dump({"processed_update_ids": recorded}, handle, separators=(",", ":"))
+                handle.write("\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, UPDATE_STATE_FILE)
+        except Exception:
+            try:
+                temporary.unlink()
+            except OSError:
+                pass
+            raise
+    return True
+
+
+def acquire_bridge_singleton():
+    """Hold one canonical Linux bridge lock without killing unrelated processes."""
+    global _BRIDGE_LOCK_HANDLE
+    BRIDGE_LOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
+    handle = BRIDGE_LOCK_FILE.open("a+", encoding="utf-8")
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        handle.close()
+        return False
+    handle.seek(0)
+    handle.truncate()
+    handle.write(f"{os.getpid()}\n")
+    handle.flush()
+    os.fsync(handle.fileno())
+    _BRIDGE_LOCK_HANDLE = handle
+    return True
+
+
 def main():
-    offset = 0
+    if not acquire_bridge_singleton():
+        print("PASS bridge_already_running", flush=True)
+        return
+    recorded = _load_recorded_update_ids()
+    offset = (recorded[-1] + 1) if recorded else 0
     me = api("getMe", {}, timeout=20).get("result", {})
     load_allowed()
     print(f"PASS bridge_live bot=@{me.get('username')} operator_configured={bool(load_allowed().get('operator_chat_ids'))}", flush=True)
@@ -793,10 +925,14 @@ def main():
         try:
             res = api("getUpdates", {"timeout": "45", "offset": str(offset)}, timeout=60)
             for update in res.get("result", []):
-                offset = max(offset, int(update.get("update_id", 0)) + 1)
+                update_id = int(update.get("update_id", 0))
+                offset = max(offset, update_id + 1)
+                if not claim_update(update_id):
+                    log(f"duplicate_update update_id={update_id}")
+                    continue
                 msg = update.get("message") or update.get("edited_message")
                 if msg:
-                    handle_message(msg)
+                    handle_message(msg, delivery_id=f"telegram-update-{update_id}")
         except KeyboardInterrupt:
             raise
         except Exception as e:
