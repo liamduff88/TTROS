@@ -61,6 +61,30 @@ def parse_json(stdout):
 
 
 class AosQueueTest(unittest.TestCase):
+    COMPLETION_ARGS = (
+        "--definition-of-done", "The requested local state is verified.",
+        "--allowed-actions", "local reads,local writes,validation commands",
+        "--stop-conditions", "external action required,validation fails",
+    )
+
+    def _create_contract_item(self, root, title, owner="codex"):
+        result = run_cli(
+            root, "create", "--title", title, "--owner", owner,
+            *self.COMPLETION_ARGS,
+        )
+        self.assertEqual(0, result.returncode, result.stderr)
+        return parse_json(result.stdout)
+
+    def _write_complete_receipt(self, root, name="complete.md", validation="Focused validation passed."):
+        path = f"queue/receipts/{name}"
+        target = root / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(
+            f"PASS\n\nValidation:\n- {validation}\n\nArtifacts:\n- {path}\n",
+            encoding="utf-8",
+        )
+        return path
+
     def test_live_lane_profiles_and_model_routes_cover_alias_and_fallback_contracts(self):
         module = load_tool_module()
         lanes = module.load_lane_profiles(ROOT)
@@ -770,7 +794,10 @@ class AosQueueTest(unittest.TestCase):
             with self.subTest(mode=mode), tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
                 module = load_tool_module()
-                item = parse_json(run_cli(root, "create", "--title", "Fault done", "--owner", "codex").stdout)
+                item = self._create_contract_item(root, "Fault done")
+                receipt_path = self._write_complete_receipt(root, "fault-done.md")
+                attached = module.attach_receipt(root, item["id"], receipt_path)
+                self.assertEqual(receipt_path, attached["receipts"][-1]["path"])
                 real_replace = module.durable_replace_text
                 calls = 0
 
@@ -1192,7 +1219,7 @@ class AosQueueTest(unittest.TestCase):
     def test_claim_release_status_and_receipt_commands(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            item = parse_json(run_cli(root, "create", "--title", "Move work", "--owner", "codex").stdout)
+            item = self._create_contract_item(root, "Move work")
 
             claimed = run_cli(root, "claim", item["id"], "codex")
             self.assertEqual(claimed.returncode, 0, claimed.stderr)
@@ -1211,11 +1238,137 @@ class AosQueueTest(unittest.TestCase):
             self.assertEqual(status.returncode, 0, status.stderr)
             self.assertEqual(parse_json(status.stdout)["status"], "human_review")
 
-            receipt = run_cli(root, "receipt", item["id"], "queue/receipts/unit.md", "--status", "done")
+            receipt_path = self._write_complete_receipt(root, "unit.md")
+            receipt = run_cli(root, "receipt", item["id"], receipt_path, "--status", "done")
             self.assertEqual(receipt.returncode, 0, receipt.stderr)
             receipt_item = parse_json(receipt.stdout)
             self.assertEqual(receipt_item["status"], "done")
             self.assertEqual(receipt_item["receipts"][0]["path"], "queue/receipts/unit.md")
+
+    def test_receipt_completeness_hook_blocks_missing_proof_without_side_effect_ledgers(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            item = self._create_contract_item(root, "Missing receipt proof")
+
+            result = run_cli(root, "status", item["id"], "done")
+
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("hooks/receipt_completeness_check.md", result.stderr)
+            current = parse_json(run_cli(root, "show", item["id"]).stdout)
+            self.assertEqual("inbox", current["status"])
+            self.assertFalse((root / "queue/run_ledger.jsonl").exists())
+            self.assertFalse((root / "queue/token_ledger.jsonl").exists())
+            self.assertFalse((root / f"queue/receipts/{item['id']}.token_usage.json").exists())
+
+    def test_receipt_completeness_hook_blocks_missing_contract_and_validation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            item = parse_json(run_cli(root, "create", "--title", "Incomplete close", "--owner", "codex").stdout)
+            receipt_path = self._write_complete_receipt(root, "missing-contract.md")
+            self.assertEqual(0, run_cli(root, "receipt", item["id"], receipt_path).returncode)
+            missing_contract = run_cli(root, "status", item["id"], "done")
+            self.assertNotEqual(0, missing_contract.returncode)
+            self.assertIn("completion contract incomplete", missing_contract.stderr)
+
+            complete = self._create_contract_item(root, "Missing validation")
+            invalid_path = "queue/receipts/missing-validation.md"
+            (root / invalid_path).write_text("PASS\n\nArtifacts:\n- local proof\n", encoding="utf-8")
+            self.assertEqual(0, run_cli(root, "receipt", complete["id"], invalid_path).returncode)
+            missing_validation = run_cli(root, "status", complete["id"], "done")
+            self.assertNotEqual(0, missing_validation.returncode)
+            self.assertIn("substantive Validation note", missing_validation.stderr)
+
+    def test_receipt_completeness_hook_writes_structured_proof(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            item = self._create_contract_item(root, "Complete close")
+            receipt_path = self._write_complete_receipt(root, "structured-proof.md")
+
+            result = run_cli(root, "receipt", item["id"], receipt_path, "--status", "done")
+
+            self.assertEqual(0, result.returncode, result.stderr)
+            sidecar = json.loads(
+                (root / f"queue/receipts/{item['id']}.token_usage.json").read_text(encoding="utf-8")
+            )
+            proof = sidecar["receipt_completeness"]
+            self.assertEqual(item["id"], proof["item_id"])
+            self.assertEqual("done", proof["status"])
+            self.assertEqual("codex", proof["lane"])
+            self.assertEqual("default", proof["profile_requested"])
+            self.assertEqual(receipt_path, proof["receipt_path"])
+            self.assertEqual([receipt_path], proof["artifact_paths"])
+            self.assertEqual(item["definition_of_done"], proof["completion_contract"]["definition_of_done"])
+            self.assertRegex(proof["completion_contract_sha256"], r"^[0-9a-f]{64}$")
+            self.assertIn("token_usage", proof)
+
+    def test_done_records_explicit_skill_review_in_trust_ledger(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            item = self._create_contract_item(root, "Trusted prospecting run", owner="revenue")
+            receipt_path = self._write_complete_receipt(root, "trusted-skill.md")
+            trust_path = root / "queue/skill_trust.jsonl"
+            trust_path.parent.mkdir(parents=True, exist_ok=True)
+            trust_path.write_text(
+                json.dumps({
+                    "skill": "prospecting_daily_run",
+                    "version": "earned",
+                    "date": "2026-07-01",
+                    "item_id": "Q-2026-9001",
+                    "lane": "revenue",
+                    "profile": "aos-revenue",
+                    "outcome": "ACCEPT",
+                    "escalated": False,
+                    "real_use": False,
+                }) + "\n",
+                encoding="utf-8",
+            )
+
+            result = run_cli(
+                root,
+                "done",
+                item["id"],
+                "--receipt",
+                receipt_path,
+                "--skill",
+                "prospecting_daily_run",
+                "--review",
+                "ACCEPT",
+            )
+
+            self.assertEqual(0, result.returncode, result.stderr)
+            rows = [json.loads(line) for line in trust_path.read_text(encoding="utf-8").splitlines()]
+            recorded = rows[-1]
+            self.assertEqual("prospecting_daily_run", recorded["skill"])
+            self.assertEqual("earned", recorded["version"])
+            self.assertEqual(item["id"], recorded["item_id"])
+            self.assertEqual("default", recorded["profile"])
+            self.assertEqual("ACCEPT", recorded["outcome"])
+            self.assertTrue(recorded["real_use"])
+            self.assertEqual(recorded, parse_json(result.stdout)["skill_trust_line"] | {
+                "effect_id": recorded["effect_id"]
+            })
+
+    def test_done_without_completed_review_does_not_write_skill_trust(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            item = self._create_contract_item(root, "Pending skill review", owner="operations")
+            receipt_path = self._write_complete_receipt(root, "pending-skill.md")
+
+            result = run_cli(
+                root,
+                "done",
+                item["id"],
+                "--receipt",
+                receipt_path,
+                "--skill",
+                "maintain_os",
+                "--review",
+                "pending",
+            )
+
+            self.assertEqual(0, result.returncode, result.stderr)
+            self.assertIsNone(parse_json(result.stdout)["skill_trust_line"])
+            self.assertFalse((root / "queue/skill_trust.jsonl").exists())
 
     def test_claim_is_exclusive_against_reentry(self):
         tool = load_tool_module()
@@ -1263,8 +1416,11 @@ class AosQueueTest(unittest.TestCase):
     def test_release_to_done_runs_finalize_and_writes_both_ledgers(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            item = parse_json(run_cli(root, "create", "--title", "Release close", "--owner", "codex").stdout)
+            item = self._create_contract_item(root, "Release close")
             self.assertEqual(run_cli(root, "claim", item["id"], "codex").returncode, 0)
+            receipt_path = self._write_complete_receipt(root, "release-close.md")
+            attached = run_cli(root, "receipt", item["id"], receipt_path)
+            self.assertEqual(0, attached.returncode, attached.stderr)
 
             released = run_cli(root, "release", item["id"], "--status", "done")
             self.assertEqual(released.returncode, 0, released.stderr)
@@ -1282,11 +1438,12 @@ class AosQueueTest(unittest.TestCase):
     def test_release_to_done_on_already_done_item_only_clears_claim(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            item = parse_json(run_cli(root, "create", "--title", "Backend close", "--owner", "codex").stdout)
+            item = self._create_contract_item(root, "Backend close")
             self.assertEqual(run_cli(root, "claim", item["id"], "codex").returncode, 0)
             # Mirror the run endpoint: attach_receipt finalizes done first,
             # then release-to-done only clears the claim (main.py:8451).
-            receipt = run_cli(root, "receipt", item["id"], "queue/receipts/close.md", "--status", "done")
+            receipt_path = self._write_complete_receipt(root, "close.md")
+            receipt = run_cli(root, "receipt", item["id"], receipt_path, "--status", "done")
             self.assertEqual(receipt.returncode, 0, receipt.stderr)
             run_before = (root / "queue/run_ledger.jsonl").read_text(encoding="utf-8")
             token_before = (root / "queue/token_ledger.jsonl").read_text(encoding="utf-8")
@@ -1548,7 +1705,8 @@ class AosQueueTest(unittest.TestCase):
             root = Path(tmp)
             module = load_tool_module()
             rollup = load_rollup_module()
-            item = parse_json(run_cli(root, "create", "--title", "Price confirmed model", "--owner", "codex").stdout)
+            item = self._create_contract_item(root, "Price confirmed model")
+            receipt_path = self._write_complete_receipt(root, "confirmed-model.md")
             usage = {
                 "orchestrator": {"input": 1_000_000, "output": 0},
                 "subagents": [
@@ -1561,6 +1719,7 @@ class AosQueueTest(unittest.TestCase):
             record = module.finalize_done(
                 root,
                 item,
+                receipt_path=receipt_path,
                 token_usage_json=usage,
                 model_confirmed="claude-sonnet-5",
             )

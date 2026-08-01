@@ -63,6 +63,7 @@ class AosSearchTest(unittest.TestCase):
         self.assertTrue(aos_indexer.is_excluded(Path("queue/command_routes.json")))
         self.assertTrue(aos_indexer.is_excluded(Path("queue/model_routes.json")))
         self.assertTrue(aos_indexer.is_excluded(Path("queue/lane_profiles.json")))
+        self.assertTrue(aos_indexer.is_excluded(Path("capture/gmail/2026-08-01/_unresolved/cap-example.json")))
         self.assertTrue(aos_indexer.is_excluded(Path("notes/.env.local")))
         self.assertTrue(aos_indexer.is_excluded(Path("docs/client_secret_notes.md")))
         self.assertTrue(aos_indexer.is_excluded(Path("legacy_harvest/archive.md")))
@@ -99,6 +100,28 @@ class AosSearchTest(unittest.TestCase):
             indexed = aos_indexer.search("inbox carousel", client_scope="global")
             self.assertGreaterEqual(indexed["count"], 1)
             self.assertIn("agentic_os_live:queue/inbox/drop.md", json.dumps(indexed["groups"]))
+
+    def test_status_hides_absolute_historical_ingestion_paths(self):
+        with tempfile.TemporaryDirectory() as tmp_text:
+            live, _brain = self.configure_roots(Path(tmp_text))
+            write(live / "results" / "current.md", "# Current\nindexed")
+            aos_indexer.scan()
+            write(
+                aos_indexer.INGEST_RECEIPT_PATH,
+                json.dumps({
+                    "status": "success",
+                    "indexed_path": "agentic_os_live:queue/inbox/old.md",
+                    "source": "agentic_os_live",
+                    "source_path": r"C:\\retired\\Agentic OS Live\\queue\\inbox\\old.md",
+                    "source_root": r"C:\\retired\\Agentic OS Live",
+                    "token_usage_text": "Token usage: no agent invocation",
+                }) + "\n",
+            )
+
+            receipt = aos_indexer.status()["last_ingestion_receipt"]
+            self.assertEqual(receipt["indexed_path"], "agentic_os_live:queue/inbox/old.md")
+            self.assertNotIn("source_path", receipt)
+            self.assertNotIn("source_root", receipt)
 
     def test_business_brain_is_read_only_and_no_secret_content_surfaces(self):
         with tempfile.TemporaryDirectory() as tmp_text:

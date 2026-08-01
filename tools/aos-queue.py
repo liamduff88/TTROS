@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Local Agentic OS work queue and explicit workbench launch boundary.
 
-Revisit: when queue lifecycle, Codex supervision, or token reconciliation changes. · Last touched: 2026-07-20.
+Revisit: when queue lifecycle, receipt completeness, Codex supervision, or token reconciliation changes. · Last touched: 2026-07-31.
 
 Queue mutations stay local. The ``codex-run`` command is the one bounded
 exception: it launches the installed Codex CLI for an explicit work-item ID,
@@ -60,8 +60,11 @@ LANE_PROFILES_PATH = QUEUE_DIR / "lane_profiles.json"
 MODEL_ROUTES_PATH = QUEUE_DIR / "model_routes.json"
 RUN_LEDGER_PATH = QUEUE_DIR / "run_ledger.jsonl"
 TOKEN_LEDGER_PATH = QUEUE_DIR / "token_ledger.jsonl"
+SKILL_TRUST_PATH = QUEUE_DIR / "skill_trust.jsonl"
 RUN_LEDGER_SCHEMA_PATH = QUEUE_DIR / "run_ledger_schema.json"
 TOKEN_LEDGER_SCHEMA_PATH = QUEUE_DIR / "token_ledger_schema.json"
+SKILL_TRUST_SCHEMA_PATH = QUEUE_DIR / "skill_trust_schema.json"
+RECEIPT_COMPLETENESS_SCHEMA_PATH = QUEUE_DIR / "schemas" / "receipt_completeness.schema.json"
 # Pricing and schemas are repo assets, resolved from the tool location (not --root),
 # so a temporary --root (tests/sandboxes) still finds the canonical files.
 MODEL_PRICES_PATH = REPO_DIR / "scripts" / "model_prices.json"
@@ -311,9 +314,9 @@ def probe_profile_invocation(profile_requested: str, fallback_profile: str) -> d
 
     This never runs `hermes profile use` (prohibited for queue routing by
     queue/profiles/README.md) and never runs a model. It queries
-    `hermes profile show`, which HERMES_CAPABILITIES.md sanctions as the
-    inspection surface, and reports the evidence. No invocation is simulated:
-    when native switching cannot occur, the reason is recorded, not faked.
+    `hermes profile show`, then records the supported per-invocation selector
+    (`hermes -p <profile>`). No invocation is simulated: `invoked` remains
+    false until an actual model run reports usage.
     """
     result: dict[str, Any] = {
         "requested_profile": profile_requested,
@@ -368,11 +371,11 @@ def probe_profile_invocation(profile_requested: str, fallback_profile: str) -> d
 
     if has_model:
         result["resolved_profile"] = profile_requested
+        result["native_invocation"] = f"hermes -p {profile_requested} --oneshot <prompt>"
         result["evidence"] += "; profile present WITH configured model"
         result["reason"] = (
-            f"Profile '{profile_requested}' has a configured model, but `hermes profile use` is "
-            "prohibited for queue routing (queue/profiles/README.md); the queue does not switch "
-            "the sticky default. Native switching intentionally not performed."
+            f"Profile '{profile_requested}' has a configured model and is referenceable per "
+            "invocation with `hermes -p`; the sticky default was not changed."
         )
     else:
         result["resolved_profile"] = fallback_profile
@@ -567,6 +570,20 @@ def _derive_skill(item: dict, override: str | None) -> str:
     return "unspecified"
 
 
+def _skill_trust_version(root: Path, skill: str) -> str:
+    """Preserve the registered trust version; new explicit skills begin at v0."""
+    path = root / SKILL_TRUST_PATH
+    if path.is_file():
+        for line in reversed(path.read_text(encoding="utf-8").splitlines()):
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if row.get("skill") == skill and row.get("version") in {"v0", "earned"}:
+                return row["version"]
+    return "v0"
+
+
 def _latest_receipt_path(item: dict, override: str | None) -> str | None:
     if override:
         return override
@@ -574,6 +591,158 @@ def _latest_receipt_path(item: dict, override: str | None) -> str | None:
     if receipts:
         return receipts[-1].get("path")
     return None
+
+
+def _nonempty_strings(value: object) -> list[str]:
+    if isinstance(value, str):
+        return [value.strip()] if value.strip() else []
+    if isinstance(value, list):
+        return [str(part).strip() for part in value if str(part).strip()]
+    return []
+
+
+def _markdown_validation_note(text: str) -> str | None:
+    """Return a substantive Validation section without interpreting prose."""
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
+        match = re.match(r"^\s*(?:#{1,6}\s*)?Validation\s*:\s*(.*)$", line, re.IGNORECASE)
+        if not match:
+            continue
+        parts = [match.group(1).strip()] if match.group(1).strip() else []
+        for following in lines[index + 1:]:
+            if re.match(r"^\s*(?:#{1,6}\s*)?[A-Za-z][A-Za-z0-9 /_-]{1,48}:\s*", following):
+                break
+            if following.strip():
+                parts.append(following.strip())
+        note = " ".join(parts).strip()
+        normalized = note.lstrip("-* ").strip().lower()
+        if note and normalized not in {"", "...", "n/a", "not run", "unavailable"}:
+            return note
+        return None
+    return None
+
+
+def _receipt_verification_note(path: Path) -> str | None:
+    if path.suffix.lower() == ".json":
+        payload = _read_json_or(None, path)
+        if not isinstance(payload, dict):
+            return None
+        for key in ("validation", "verification", "evidence_references"):
+            value = payload.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+            if isinstance(value, (list, dict)) and value:
+                return f"structured {key} recorded"
+        return None
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+    first = next((line.strip() for line in text.splitlines() if line.strip()), "")
+    if first != "PASS":
+        return None
+    return _markdown_validation_note(text)
+
+
+def _receipt_completeness_preflight(root: Path, item: dict, receipt_path: str | None) -> dict:
+    """Validate the human-readable proof and completion contract before done."""
+    if not receipt_path:
+        raise QueueError(
+            "receipt required; refusing done-transition (hooks/receipt_completeness_check.md)"
+        )
+    relative = Path(str(receipt_path))
+    if relative.is_absolute() or ".." in relative.parts:
+        raise QueueError(
+            "receipt path must be root-relative; refusing done-transition "
+            "(hooks/receipt_completeness_check.md)"
+        )
+    candidate = root / relative
+    resolved_root = root.resolve()
+    resolved = candidate.resolve()
+    try:
+        resolved.relative_to(resolved_root)
+    except ValueError as exc:
+        raise QueueError(
+            "receipt path escapes AOS_ROOT; refusing done-transition "
+            "(hooks/receipt_completeness_check.md)"
+        ) from exc
+    if candidate.is_symlink() or not resolved.is_file():
+        raise QueueError(
+            "receipt file is missing or not a regular file; refusing done-transition "
+            "(hooks/receipt_completeness_check.md)"
+        )
+
+    definition = str(item.get("definition_of_done") or "").strip()
+    allowed = _nonempty_strings(item.get("allowed_actions"))
+    stops = _nonempty_strings(item.get("stop_conditions"))
+    missing = [
+        name for name, present in (
+            ("definition_of_done", bool(definition)),
+            ("allowed_actions", bool(allowed)),
+            ("stop_conditions", bool(stops)),
+        ) if not present
+    ]
+    if missing:
+        raise QueueError(
+            "completion contract incomplete (missing " + ", ".join(missing)
+            + "); refusing done-transition (hooks/receipt_completeness_check.md)"
+        )
+    verification_note = _receipt_verification_note(resolved)
+    if not verification_note:
+        raise QueueError(
+            "receipt lacks PASS plus a substantive Validation note; refusing done-transition "
+            "(hooks/receipt_completeness_check.md)"
+        )
+
+    contract = {
+        "definition_of_done": definition,
+        "allowed_actions": allowed,
+        "stop_conditions": stops,
+    }
+    contract_sha256 = hashlib.sha256(
+        json.dumps(contract, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    return {
+        "receipt_path": relative.as_posix(),
+        "artifact_paths": [relative.as_posix()],
+        "verification_note": verification_note,
+        "completion_contract": contract,
+        "completion_contract_sha256": contract_sha256,
+    }
+
+
+def _receipt_completeness_record(
+    root: Path,
+    item: dict,
+    preflight: dict,
+    route: dict,
+    invocation: dict,
+    model_requested: str,
+    model_confirmed: str,
+    token_usage: dict,
+) -> dict:
+    record = {
+        "schema_version": 1,
+        "item_id": item["id"],
+        "status": DONE_STATUS,
+        "lane": route["lane"],
+        "profile_requested": route["profile_requested"],
+        "profile_resolved": str(invocation.get("resolved_profile") or route["fallback_profile"]),
+        "model_requested": model_requested,
+        "model_confirmed": model_confirmed,
+        **preflight,
+        "token_usage": token_usage,
+    }
+    schema_path = root / RECEIPT_COMPLETENESS_SCHEMA_PATH
+    if not schema_path.is_file():
+        schema_path = REPO_DIR / RECEIPT_COMPLETENESS_SCHEMA_PATH
+    error = _validate_against_schema(record, schema_path)
+    if error:
+        raise QueueError(
+            f"receipt completeness record failed schema; refusing done-transition: {error} "
+            "(hooks/receipt_completeness_check.md)"
+        )
+    return record
 
 
 def _validate_against_schema(line: dict, schema_path: Path) -> str | None:
@@ -615,6 +784,7 @@ def _write_receipt_token_usage(
     block: dict,
     invocation: dict,
     counters: dict | None = None,
+    receipt_completeness: dict | None = None,
 ) -> str:
     """Attach the token_usage block to the item's receipt.
 
@@ -626,6 +796,7 @@ def _write_receipt_token_usage(
         "token_usage": block,
         "profile_invocation": invocation,
         "warnings": token_usage_warnings(block),
+        **({"receipt_completeness": receipt_completeness} if receipt_completeness else {}),
         **(counters or _unavailable_codex_counters()),
     }
     sidecar = root / RECEIPTS_DIR / f"{item_id}.token_usage.json"
@@ -1377,6 +1548,8 @@ def finalize_done(
     persisting status=done, so a refusal here leaves the item's prior status
     untouched (hooks/token_budget_check.md).
     """
+    resolved_receipt = _latest_receipt_path(item, receipt_path)
+    receipt_preflight = _receipt_completeness_preflight(root, item, resolved_receipt)
     route = resolve_route(root, item.get("owner"))
     invocation = probe_profile_invocation(route["profile_requested"], route["fallback_profile"])
 
@@ -1387,7 +1560,6 @@ def finalize_done(
 
     resolved_budget = _derive_budget_class(item, budget_class)
     resolved_skill = _derive_skill(item, skill)
-    resolved_receipt = _latest_receipt_path(item, receipt_path)
     routes_meta = load_model_routes(root).get("routes", {}).get(route["lane"], {})
     resolved_model_requested = model_requested or routes_meta.get("model") or "configured externally"
     resolved_model_confirmed = model_confirmed or confirmed or "unavailable"
@@ -1443,6 +1615,20 @@ def finalize_done(
         "token_usage": block,
         **_unavailable_codex_counters(),
     }
+    skill_trust_line = None
+    if resolved_skill != "unspecified" and review in {"ACCEPT", "REVISE"}:
+        skill_trust_line = {
+            "skill": resolved_skill,
+            "version": _skill_trust_version(root, resolved_skill),
+            "date": timestamp[:10],
+            "item_id": item["id"],
+            "lane": route["lane"],
+            "profile": route["profile_requested"],
+            "outcome": review,
+            "escalated": bool(escalated),
+            "real_use": True,
+            "notes": f"Coordinator-recorded completed queue run; receipt {resolved_receipt}.",
+        }
 
     # Hard block: a line that fails schema validation must never be appended
     # (finding #2). Validated before any file is touched, so a failure here
@@ -1453,13 +1639,43 @@ def finalize_done(
     token_err = _validate_against_schema(token_line, root / TOKEN_LEDGER_SCHEMA_PATH)
     if token_err:
         raise QueueError(f"token_ledger line failed schema; refusing done-transition: {token_err}")
+    if skill_trust_line is not None:
+        skill_err = _validate_against_schema(skill_trust_line, root / SKILL_TRUST_SCHEMA_PATH)
+        if skill_err:
+            raise QueueError(
+                f"skill_trust line failed schema; refusing done-transition: {skill_err}"
+            )
+
+    receipt_completeness = _receipt_completeness_record(
+        root,
+        item,
+        receipt_preflight,
+        route,
+        invocation,
+        resolved_model_requested,
+        resolved_model_confirmed,
+        block,
+    )
 
     sidecar_path = _write_receipt_token_usage(
-        root, item["id"], resolved_receipt, block, invocation, _unavailable_codex_counters()
+        root,
+        item["id"],
+        resolved_receipt,
+        block,
+        invocation,
+        _unavailable_codex_counters(),
+        receipt_completeness,
     )
     stable_effect = effect_id or f"done:{item['id']}:{timestamp}"
     _append_jsonl(root, root / RUN_LEDGER_PATH, run_line, effect_id=f"{stable_effect}:run")
     _append_jsonl(root, root / TOKEN_LEDGER_PATH, token_line, effect_id=f"{stable_effect}:tokens")
+    if skill_trust_line is not None:
+        _append_jsonl(
+            root,
+            root / SKILL_TRUST_PATH,
+            skill_trust_line,
+            effect_id=f"{stable_effect}:skill:{resolved_skill}",
+        )
 
     return {
         "item_id": item["id"],
@@ -1468,6 +1684,8 @@ def finalize_done(
         "run_ledger_line": run_line,
         "token_ledger_line": token_line,
         "token_usage_sidecar": sidecar_path,
+        "receipt_completeness": receipt_completeness,
+        "skill_trust_line": skill_trust_line,
         "effect_id": stable_effect,
     }
 
@@ -1579,6 +1797,8 @@ def create_item(root: Path, args: argparse.Namespace) -> dict:
         "capture_proposal": _load_json_arg(getattr(args, "capture_proposal", None)),
         "run_prompt_path": getattr(args, "run_prompt_path", None),
         "needs_me": getattr(args, "needs_me", None),
+        "size": getattr(args, "size", None),
+        "source_binding": _load_json_arg(getattr(args, "source_binding", None)),
     }
     for key, value in optional_values.items():
         if value is not None and value != "":

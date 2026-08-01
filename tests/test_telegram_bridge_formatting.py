@@ -1,6 +1,9 @@
 import importlib.util
+import json
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
@@ -8,6 +11,7 @@ from unittest.mock import patch
 
 
 BRIDGE = Path(__file__).parents[1] / "connectors" / "telegram_bridge" / "telegram_bridge.py"
+AUTO_LAUNCHER = BRIDGE.with_name("Start-Telegram-Bridge-Auto.ps1")
 
 
 def load_bridge():
@@ -40,6 +44,18 @@ class TelegramBridgeFormattingTests(unittest.TestCase):
             response.read.return_value = b'{"success":true,"accepted":true,"request_returned_before_completion":true}'
             bridge.post_agent("/api/wsl/hermes", "/work claude bounded proof")
         self.assertEqual(urlopen.call_args.kwargs["timeout"], 20)
+
+    def test_windows_auto_launcher_is_powershell_51_safe_and_linux_canonical(self):
+        source = AUTO_LAUNCHER.read_text(encoding="utf-8")
+        self.assertIn("System.Diagnostics.ProcessStartInfo", source)
+        self.assertIn("$startInfo.Arguments", source)
+        self.assertNotIn("$startInfo.ArgumentList", source)
+        self.assertNotIn("-ArgumentList", source)
+        self.assertIn("/home/liam/agentic-os-live", source)
+        self.assertIn("AgenticOSClean", source)
+        self.assertNotIn("py.exe", source)
+        self.assertNotIn("Stop-Process", source)
+        self.assertNotIn(".env", source)
 
     def test_hermes_and_coordinated_codex_use_agent_response_timeout(self):
         bridge = load_bridge()
@@ -88,6 +104,11 @@ class TelegramBridgeFormattingTests(unittest.TestCase):
         self.assertIn("Local-agent readiness: ready", body)
         self.assertIn("Last route failure: none recorded", body)
         self.assertTrue(send.call_args.kwargs["preserve_format"])
+        self.assertEqual(send.call_args.kwargs["api_timeout"], bridge.STATUS_SEND_TIMEOUT_SECONDS)
+        self.assertLess(
+            bridge.STATUS_BACKEND_TIMEOUT_SECONDS + bridge.STATUS_SEND_TIMEOUT_SECONDS,
+            5,
+        )
 
     def test_status_backend_unavailable_is_bounded_and_degraded(self):
         bridge = load_bridge()
@@ -112,15 +133,132 @@ class TelegramBridgeFormattingTests(unittest.TestCase):
             "selected_route": "async_queue",
             "output": "PASS\nWork item ID: AOS-2026-9999\nStatus: agent_todo",
         }
-        with patch.object(bridge, "post_agent", return_value=result) as post_agent, \
+        completed = threading.Event()
+
+        def post(*args, **kwargs):
+            completed.set()
+            return result
+
+        with patch.object(bridge, "post_agent", side_effect=post) as post_agent, \
              patch.object(bridge, "send"):
-            bridge.handle_operator(123, "/work codex create the local proof", source="route_repair_fixture")
+            bridge.handle_operator(
+                123,
+                "/work codex create the local proof",
+                source="route_repair_fixture",
+                delivery_id="fixture-update-1",
+            )
+            self.assertTrue(completed.wait(1))
 
         post_agent.assert_called_once_with(
             "/api/wsl/hermes",
             "/work codex create the local proof",
             source="route_repair_fixture",
+            delivery_id="fixture-update-1",
+            reply_to="123",
         )
+
+    def test_slow_agent_submission_does_not_block_status_and_sends_one_acknowledgement(self):
+        bridge = load_bridge()
+        started = threading.Event()
+        release = threading.Event()
+        result = {
+            "success": True,
+            "accepted": True,
+            "created": True,
+            "request_returned_before_completion": True,
+            "requested_target": "queue",
+            "selected_route": "async_queue",
+            "output": "PASS\nWork item ID: AOS-2026-9999\nStatus: agent_todo",
+        }
+
+        def slow_post(*args, **kwargs):
+            started.set()
+            release.wait(2)
+            return result
+
+        backend_status = {
+            "success": True,
+            "state": "healthy",
+            "bridge": {"state": "running"},
+            "queue": {"state": "healthy", "items": 1, "actionable": 1},
+            "runner": {"state": "running"},
+            "codex": {"state": "ready"},
+            "hermes": {"state": "ready"},
+            "local_agent_route": {"state": "ready"},
+            "last_route_failure": None,
+        }
+        sent = []
+        with patch.object(bridge, "load_allowed", return_value={"operator_chat_ids": [123], "pilots": {}}), \
+             patch.object(bridge, "post_agent", side_effect=slow_post) as post_agent, \
+             patch.object(bridge, "get_backend_status", return_value=backend_status), \
+             patch.object(bridge, "send", side_effect=lambda chat, text, **kwargs: sent.append((chat, text, kwargs))):
+            began = time.monotonic()
+            bridge.handle_message(
+                {"chat": {"id": 123}, "text": "Run a deliberately slow bounded task"},
+                delivery_id="telegram-update-700",
+            )
+            dispatch_elapsed = time.monotonic() - began
+            self.assertTrue(started.wait(1))
+
+            status_began = time.monotonic()
+            bridge.handle_message(
+                {"chat": {"id": 123}, "text": "/status"},
+                delivery_id="telegram-update-701",
+            )
+            status_elapsed = time.monotonic() - status_began
+            self.assertLess(dispatch_elapsed, 0.5)
+            self.assertLess(status_elapsed, 0.5)
+            self.assertEqual(len([row for row in sent if "Overall: healthy" in row[1]]), 1)
+
+            release.set()
+            deadline = time.monotonic() + 2
+            while len(sent) < 2 and time.monotonic() < deadline:
+                time.sleep(0.01)
+
+        self.assertEqual(post_agent.call_count, 1)
+        acknowledgements = [row for row in sent if "AOS-2026-9999" in row[1]]
+        self.assertEqual(len(acknowledgements), 1)
+
+    def test_agent_delivery_single_flight_blocks_duplicate_thread(self):
+        bridge = load_bridge()
+        started = threading.Event()
+        release = threading.Event()
+
+        def slow_post(*args, **kwargs):
+            started.set()
+            release.wait(2)
+            return {
+                "success": True,
+                "accepted": True,
+                "requested_target": "queue",
+                "selected_route": "async_queue",
+                "output": "PASS\nWork item ID: AOS-2026-9998\nStatus: agent_todo",
+            }
+
+        with patch.object(bridge, "post_agent", side_effect=slow_post) as post_agent, \
+             patch.object(bridge, "send"):
+            first = bridge.dispatch_agent_request(123, "slow", delivery_id="telegram-update-800")
+            self.assertTrue(started.wait(1))
+            second = bridge.dispatch_agent_request(123, "slow", delivery_id="telegram-update-800")
+            release.set()
+            deadline = time.monotonic() + 2
+            while "telegram-update-800" in bridge._ACTIVE_AGENT_REQUESTS and time.monotonic() < deadline:
+                time.sleep(0.01)
+
+        self.assertTrue(first)
+        self.assertFalse(second)
+        self.assertEqual(post_agent.call_count, 1)
+
+    def test_update_id_claim_is_durable_and_bounded(self):
+        bridge = load_bridge()
+        with tempfile.TemporaryDirectory() as tmp:
+            bridge.UPDATE_STATE_FILE = Path(tmp) / "runtime" / "telegram_bridge_updates.json"
+            self.assertTrue(bridge.claim_update(900))
+            self.assertFalse(bridge.claim_update(900))
+            self.assertTrue(bridge.claim_update(901))
+            payload = json.loads(bridge.UPDATE_STATE_FILE.read_text(encoding="utf-8"))
+
+        self.assertEqual(payload["processed_update_ids"], [900, 901])
 
     def test_operator_inbox_text_and_forward_capture_without_queue_or_external_send(self):
         bridge = load_bridge()
@@ -250,6 +388,33 @@ class TelegramBridgeFormattingTests(unittest.TestCase):
         self.assertNotEqual(summary, result["output"])
         self.assertIn("Files touched:", summary)
         self.assertIn("Token usage:", summary)
+
+    def test_direct_conversation_reply_is_preserved_and_sent_once(self):
+        bridge = load_bridge()
+        result = {
+            "success": True,
+            "created": False,
+            "direct_reply": True,
+            "selected_route": "local_conversation",
+            "output": "No task was created. What would you like to discuss?",
+            "token_usage": {"available": False, "no_agent_invocation": True},
+        }
+        with patch.object(bridge, "post_agent", return_value=result) as post, \
+             patch.object(bridge, "send") as send:
+            bridge._run_agent_request(
+                123,
+                "Can we discuss the wording first?",
+                "telegram",
+                "telegram-update-direct-1",
+            )
+
+        post.assert_called_once()
+        send.assert_called_once_with(
+            123,
+            result["output"],
+            preserve_format=True,
+            document_paths=[],
+        )
 
     def test_completed_queue_output_is_compact_and_lists_documents_to_attach(self):
         bridge = load_bridge()

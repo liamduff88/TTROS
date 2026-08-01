@@ -6,7 +6,7 @@ import time
 import unittest
 from pathlib import Path
 
-# Revisit: when desktop cleanup or external runner supervision changes. · Last touched: 2026-07-19.
+# Revisit: when desktop cleanup or external runtime supervision changes. · Last touched: 2026-07-31.
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -135,6 +135,34 @@ class DashboardCleanupTests(unittest.TestCase):
                 result.stdout,
             )
             self.assertNotIn("runner=stopped", result.stdout)
+
+    def test_status_recognizes_one_canonical_orphaned_vite_frontend(self):
+        with tempfile.TemporaryDirectory(dir="/tmp") as tmp:
+            root = Path(tmp)
+            frontend = root / "dashboard" / "frontend"
+            frontend.mkdir(parents=True)
+            (root / "tools").mkdir()
+            vite = self.spawn(
+                frontend,
+                root / "dashboard" / "frontend" / "node_modules" / "vite" / "bin" / "vite.js",
+                "--host", "127.0.0.1", "--port", "3010",
+            )
+            time.sleep(0.1)
+            result = subprocess.run(
+                ["bash", str(RUNTIME), "status"],
+                cwd=ROOT,
+                env={**os.environ, "AOS_ROOT": str(root)},
+                text=True,
+                capture_output=True,
+                timeout=10,
+            )
+
+            self.assertEqual(1, result.returncode)
+            self.assertIn(
+                f"frontend=running pid={vite.pid} root={root} supervisor=external",
+                result.stdout,
+            )
+            self.assertNotIn("frontend=stopped", result.stdout)
 
 
 if __name__ == "__main__":

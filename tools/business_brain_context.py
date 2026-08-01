@@ -1,6 +1,6 @@
 """Scoped Business Brain retrieval, actual-read provenance, and work classification.
 
-Revisit: when retrieval hierarchy or completion context rules change. · Last touched: 2026-07-15.
+Revisit: when retrieval hierarchy or completion context rules change. · Last touched: 2026-07-31.
 """
 
 from __future__ import annotations
@@ -44,6 +44,11 @@ BUSINESS_IMPLICATION_FIELDS = {
 
 class BrainContextError(RuntimeError):
     """Mandatory scoped context could not be loaded or validated."""
+
+
+def effective_discovery_mode(requested: str | None, *, graphify: bool) -> str:
+    """Make the CLI's `--graphify` flag select graph discovery by default."""
+    return requested or ("cross_cutting" if graphify else "explicit")
 
 
 @dataclass(frozen=True)
@@ -309,7 +314,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--pointer", action="append", default=[])
     parser.add_argument("--query", default="")
     parser.add_argument("--direct-fallback")
-    parser.add_argument("--discovery-mode", choices=["explicit", *sorted(GRAPH_DISCOVERY_MODES)], default="explicit")
+    parser.add_argument("--discovery-mode", choices=["explicit", *sorted(GRAPH_DISCOVERY_MODES)])
     parser.add_argument("--graphify", action="store_true")
     parser.add_argument("--limit", type=int, default=5)
     args = parser.parse_args(argv)
@@ -322,7 +327,7 @@ def main(argv: list[str] | None = None) -> int:
         work={"client_scope": args.client_scope},
         pointers=args.pointer,
         query=args.query,
-        discovery_mode=args.discovery_mode,
+        discovery_mode=effective_discovery_mode(args.discovery_mode, graphify=args.graphify),
         direct_fallback=args.direct_fallback,
         limit=args.limit,
     )

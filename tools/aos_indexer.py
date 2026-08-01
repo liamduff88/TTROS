@@ -1,4 +1,7 @@
-"""Deterministic local SQLite FTS index for Agentic OS."""
+"""Deterministic local SQLite FTS index for Agentic OS.
+
+Revisit: when indexed source scopes or public status metadata change. · Last touched: 2026-08-01.
+"""
 
 from __future__ import annotations
 
@@ -55,6 +58,7 @@ PROTECTED_PATH_PARTS = (
     "queue/model_routes.json",
     "queue/lane_profiles.json",
     "capture/runtime",
+    "capture/gmail",
     "queue/draft_runtime",
     "inbox/source_notes",
 )
@@ -619,11 +623,21 @@ def status(db_path: Path | None = None) -> dict:
             latest_receipt = record
             if record.get("status") not in {"success", "skipped"}:
                 failures_count += 1
+    # Ingestion receipts are durable history and can legitimately predate the
+    # Linux-authority migration.  Status is an operator surface, so expose the
+    # stable logical identity only; absolute source paths are neither needed to
+    # assess health nor safe to present as a current runtime authority.
+    public_receipt = None
+    if latest_receipt is not None:
+        public_receipt = {
+            key: value for key, value in latest_receipt.items()
+            if key not in {"source_path", "source_root"}
+        }
     return {
         "exists": True,
         "files_indexed": int(row["count"] or 0),
         "last_scan_time": row["last_scan_time"],
-        "last_ingestion_receipt": latest_receipt,
+        "last_ingestion_receipt": public_receipt,
         "failures_count": failures_count,
         "db_path": str(db_path),
         "token_usage_text": TOKEN_USAGE_TEXT,

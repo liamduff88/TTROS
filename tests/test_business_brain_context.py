@@ -11,12 +11,18 @@ if str(ROOT / "tools") not in sys.path:
 
 import aos_indexer
 from business_brain_context import (
-    BrainContextError, ScopedBrainLoader, classify_work, validate_completion_context, validate_degraded_context,
+    BrainContextError, ScopedBrainLoader, classify_work, effective_discovery_mode,
+    validate_completion_context, validate_degraded_context,
 )
 from tests.business_brain_test_support import make_registry, write_note
 
 
 class BusinessBrainContextTest(unittest.TestCase):
+    def test_graphify_flag_defaults_to_graph_discovery(self):
+        self.assertEqual("cross_cutting", effective_discovery_mode(None, graphify=True))
+        self.assertEqual("explicit", effective_discovery_mode(None, graphify=False))
+        self.assertEqual("explicit", effective_discovery_mode("explicit", graphify=True))
+
     def test_classification_is_fail_closed(self):
         for work in (
             {"sources": ["business_brain:README.md"]},
