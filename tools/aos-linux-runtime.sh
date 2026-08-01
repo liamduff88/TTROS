@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Revisit: when backend/frontend ports or the existing runner contract changes. · Last touched: 2026-07-19.
+# Revisit: when backend/frontend ports or the existing runner contract changes. · Last touched: 2026-07-31.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
@@ -114,7 +114,8 @@ classify_desktop_process() {
   fi
 
   for arg in "${args[@]}"; do
-    if [[ "$arg" == "$ROOT/dashboard/frontend/node_modules/"*'/vite/bin/vite.js' ||
+    if [[ "$arg" == "$ROOT/dashboard/frontend/node_modules/vite/bin/vite.js" ||
+          "$arg" == "$ROOT/dashboard/frontend/node_modules/"*'/vite/bin/vite.js' ||
           "$arg" == "$ROOT/dashboard/frontend/node_modules/.bin/vite" ]]; then
       if has_arg_pair '--port' '3010' "${args[@]}"; then
         printf '%s\n' 'dashboard frontend (vite :3010)'
@@ -166,6 +167,37 @@ canonical_runner_pid() {
   fi
   if ((${#matches[@]} > 1)); then
     echo "multiple canonical orchestration runners detected; refusing ambiguous adoption" >&2
+    return 2
+  fi
+  return 1
+}
+
+canonical_frontend_pid() {
+  local proc pid cwd arg
+  local -a args=() matches=()
+  for proc in /proc/[0-9]*; do
+    pid="${proc##*/}"
+    [[ "$pid" != "$$" ]] || continue
+    cwd="$(readlink -f "$proc/cwd" 2>/dev/null || true)"
+    [[ "$cwd" == "$ROOT/dashboard/frontend" ]] || continue
+    mapfile -d '' -t args <"$proc/cmdline" 2>/dev/null || continue
+    ((${#args[@]})) || continue
+    is_protected_process "${args[@]}" && continue
+    for arg in "${args[@]}"; do
+      if [[ "$arg" == "$ROOT/dashboard/frontend/node_modules/vite/bin/vite.js" ||
+            "$arg" == "$ROOT/dashboard/frontend/node_modules/"*'/vite/bin/vite.js' ]] &&
+         has_arg_pair '--port' '3010' "${args[@]}"; then
+        matches+=("$pid")
+        break
+      fi
+    done
+  done
+  if ((${#matches[@]} == 1)); then
+    printf '%s\n' "${matches[0]}"
+    return 0
+  fi
+  if ((${#matches[@]} > 1)); then
+    echo "multiple canonical dashboard frontends detected; refusing ambiguous adoption" >&2
     return 2
   fi
   return 1
@@ -283,7 +315,15 @@ start_backend() {
 }
 
 start_frontend() {
+  local discovered rc
   if ! pid_alive "$FRONTEND_PID"; then
+    if discovered="$(canonical_frontend_pid)"; then
+      printf '%s\n' "$discovered" >"$FRONTEND_PID"
+      return 0
+    else
+      rc=$?
+      ((rc != 2)) || return 1
+    fi
     (
       cd "$ROOT/dashboard/frontend"
       [[ ! -e "/proc/$BASHPID/fd/9" ]] || exec 9>&-
@@ -409,10 +449,27 @@ status_runner() {
   fi
 }
 
+status_frontend() {
+  local discovered rc
+  if pid_alive "$FRONTEND_PID"; then
+    status_one frontend "$FRONTEND_PID"
+    return
+  fi
+  if discovered="$(canonical_frontend_pid)"; then
+    echo "frontend=running pid=$discovered root=$ROOT supervisor=external"
+    return 0
+  else
+    rc=$?
+    echo "frontend=stopped root=$ROOT"
+    ((rc != 2)) || echo "frontend_health=duplicate" >&2
+    return 1
+  fi
+}
+
 status() {
   local result=0
   status_one backend "$BACKEND_PID" || result=1
-  status_one frontend "$FRONTEND_PID" || result=1
+  status_frontend || result=1
   status_runner || result=1
   curl --noproxy '*' -fsS --max-time 2 "$BACKEND_URL" >/dev/null 2>&1 && echo "backend_ready=yes" || { echo "backend_ready=no"; result=1; }
   curl --noproxy '*' -fsS --max-time 2 "$FRONTEND_URL" >/dev/null 2>&1 && echo "frontend_ready=yes" || { echo "frontend_ready=no"; result=1; }

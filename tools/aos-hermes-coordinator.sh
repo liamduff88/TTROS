@@ -1,22 +1,25 @@
 #!/usr/bin/env bash
+# Revisit: when Hermes per-invocation profile selection changes. · Last touched: 2026-07-31.
 set -euo pipefail
 
 export PATH="$HOME/.local/bin:$HOME/.local/npm/bin:$PATH"
 
 profile="aos-orchestrator"
-profile_home="${HOME}/.hermes/profiles/${profile}"
-if [[ ! -d "$profile_home" ]]; then
-  echo "NEEDS ATTENTION"
-  echo "Blockers: Required Hermes profile '${profile}' is unavailable at ${profile_home}"
-  exit 78
-fi
-
 prompt_file=""
 provider_requested=""
 model_requested=""
 usage_file=""
 while (($# > 0)); do
   case "${1:-}" in
+    --profile)
+      if (($# < 2)); then
+        echo "NEEDS ATTENTION"
+        echo "Blockers: --profile requires a profile name"
+        exit 2
+      fi
+      profile="$2"
+      shift 2
+      ;;
     --prompt-file)
       if (($# < 2)); then
         echo "NEEDS ATTENTION"
@@ -59,6 +62,21 @@ while (($# > 0)); do
   esac
 done
 
+case "$profile" in
+  aos-orchestrator|aos-revenue|aos-marketing|aos-delivery|aos-ops) ;;
+  *)
+    echo "NEEDS ATTENTION"
+    echo "Blockers: Profile '${profile}' is not an Agentic OS runtime profile"
+    exit 2
+    ;;
+esac
+profile_home="${HOME}/.hermes/profiles/${profile}"
+if [[ ! -d "$profile_home" ]]; then
+  echo "NEEDS ATTENTION"
+  echo "Blockers: Required Hermes profile '${profile}' is unavailable at ${profile_home}"
+  exit 78
+fi
+
 if [[ -n "$prompt_file" ]]; then
   if [[ ! -f "$prompt_file" ]]; then
     echo "NEEDS ATTENTION"
@@ -72,6 +90,28 @@ elif (($# == 0)); then
   exit 2
 else
   prompt="$*"
+fi
+
+if [[ "$profile" == "aos-orchestrator" ]]; then
+  script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+  aos_root="${AOS_ROOT:-$(dirname -- "$script_dir")}"
+  brief_generator="${aos_root}/tools/aos_executive_brief.py"
+  executive_brief_file="${aos_root}/context/EXECUTIVE_BRIEF.md"
+  if ! python3 "$brief_generator"; then
+    # Continue only with the generator's retained last-good stale brief.
+    :
+  fi
+  if [[ ! -f "$executive_brief_file" ]]; then
+    echo "NEEDS ATTENTION"
+    echo "Blockers: Executive brief is unavailable"
+    exit 78
+  fi
+  executive_brief="$(<"$executive_brief_file")"
+  prompt="Executive brief (read-only situational awareness; do not auto-escalate):
+${executive_brief}
+
+Coordinator task:
+${prompt}"
 fi
 
 # Native Hermes owns tool choice and delegation. Web/search, scrape,
