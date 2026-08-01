@@ -4,7 +4,7 @@ All provider and model boundaries are disabled or deterministic fixtures in
 Stage A. Raw evidence is never projected; only CaptureMetadataProjection may
 enter search or Graphify.
 
-Revisit: at the explicit live-capture activation gate. · Last touched: 2026-07-15.
+Revisit: at the explicit live-capture activation gate. · Last touched: 2026-08-01.
 """
 
 from __future__ import annotations
@@ -812,6 +812,109 @@ class CaptureQueueWriter:
             item["updated_at"] = tool.now_iso()
             tool.save_items(self.root, items)
         return item, True, receipt_path
+
+    def create_digest_or_get(
+        self,
+        *,
+        evidence_records: list[str],
+        captured_count: int,
+        material_count: int,
+        triage_counts: dict[str, int],
+    ) -> tuple[dict[str, Any], bool, str]:
+        """Create one idempotent human-review item for one live capture run."""
+        if self.capture_mode != "live":
+            raise CaptureError("Gmail capture digests are live-capture routing only")
+        evidence = sorted(dict.fromkeys(str(value) for value in evidence_records if str(value)))
+        if material_count < 1 or not evidence:
+            raise CaptureError("a Gmail digest requires material evidence")
+        digest_key = stable_hash("gmail-capture-digest-v1", *evidence)
+        tool = _queue_tool()
+        args = argparse.Namespace(
+            title=f"Gmail capture digest — {material_count} item(s) for review",
+            requested_by="Phase 6B live capture",
+            owner_type="agent",
+            owner="operations",
+            status="human_review",
+            priority=1,
+            source="capture/gmail-live-read-only-digest",
+            tags="phase-6b-live,capture_digest",
+            context=(
+                f"Captured {captured_count} metadata-only Gmail record(s); {material_count} require review. "
+                "The dated evidence records contain no message body, thread, attachment, sender address, "
+                "provider message ID, or external action."
+            ),
+            sources=",".join(evidence),
+            allowed_actions="local_read,local_review,review_close_blocked",
+            stop_conditions="external_send,connector_action,calendar_action,brain_auto_promotion",
+            definition_of_done=(
+                "Review the capture digest and route any actual work through the existing queue; "
+                "do not mutate Gmail or promote communications facts automatically."
+            ),
+            parent_id=None,
+            step_index=None,
+            depends_on="",
+            on_complete=None,
+            workbench=None,
+            review="none",
+            client_scope="",
+            context_classification="knowledge_sensitive",
+            brain_context_status="not_applicable",
+            brain_context_used=None,
+            degraded_context=None,
+            promotion_proposal=None,
+            capture_proposal=None,
+            source_binding=json.dumps({
+                "kind": "gmail_capture_digest",
+                "version": 1,
+                "digest_key": digest_key,
+                "evidence_records": evidence,
+            }),
+            idempotency_key=f"gmail-capture-digest:{digest_key}",
+            inbound_route="capture/gmail-live-read-only",
+            delivery_id=digest_key,
+            reply_to="",
+        )
+        item = tool.create_item(self.root, args)
+        created = not bool(getattr(args, "idempotency_duplicate", False))
+        receipt_path = f"queue/receipts/{item['id']}-gmail-capture-digest.json"
+        receipt = {
+            "schema_version": 1,
+            "item_id": item["id"],
+            "status": "human_review",
+            "digest_key": digest_key,
+            "captured_count": int(captured_count),
+            "material_count": int(material_count),
+            "triage_counts": dict(sorted((str(key), int(value)) for key, value in triage_counts.items())),
+            "evidence_records": evidence,
+            "external_action": "none",
+            "token_usage_text": TOKEN_USAGE_TEXT,
+        }
+        receipt_text = json.dumps(receipt, indent=2, sort_keys=True) + "\n"
+        receipt_file = self.root / receipt_path
+        if receipt_file.exists():
+            if receipt_file.read_text(encoding="utf-8") != receipt_text:
+                raise CaptureError("existing Gmail digest receipt conflicts with the idempotency key")
+        else:
+            durable_replace_text(receipt_file, receipt_text)
+        if not any(
+            isinstance(row, dict) and row.get("path") == receipt_path
+            for row in item.get("receipts") or []
+        ):
+            item = tool.attach_receipt(self.root, str(item["id"]), receipt_path, "human_review")
+        invocation_id = f"gmail-digest-{digest_key[:20]}"
+        self.ledger.token(
+            item_id=str(item["id"]),
+            event=LIVE_STAGE3_EVENT,
+            invocation_id=invocation_id,
+            model_requested="none",
+        )
+        self.ledger.run(
+            item_id=str(item["id"]),
+            status="human_review",
+            receipt=receipt_path,
+            brain_context_used=[],
+        )
+        return item, created, receipt_path
 
     def update_token_references(self, item_id: str, references: list[str]) -> dict[str, Any]:
         tool = _queue_tool()

@@ -6,7 +6,7 @@ existing Hermes scheduler. It delegates durable capture to ``aos_capture`` and
 provider access to the existing Composio adapter. It has no Gmail mutation,
 send, draft, label, attachment, Calendar, Drive, CRM, or whitelist operation.
 
-Revisit: after the Phase 6B observation window or a Gmail/Composio schema change. · Last touched: 2026-07-19.
+Revisit: after the Phase 6B observation window or a Gmail/Composio schema change. · Last touched: 2026-08-01.
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ import fcntl
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -36,12 +37,12 @@ from tools.aos_capture import (
     CaptureEnvelope,
     CaptureError,
     CaptureMetadataProjection,
-    CaptureProposer,
     CaptureQueueWriter,
     CaptureStorage,
     CaptureStorageError,
     CaptureTriage,
     DeltaBatch,
+    TriageDecision,
     LiveCaptureDisabled,
     capture_document,
     stable_hash,
@@ -61,6 +62,7 @@ LOCK_PATH = ROOT / "capture" / "runtime" / "control" / "poll.lock"
 COMPOSIO_ADAPTER = ROOT / "connectors" / "composio_access_adapter.py"
 SEARCH_DB = ROOT / "search" / "os_index.db"
 CAPTURE_ROLLUPS = ROOT / "capture" / "runtime" / "rollups"
+GMAIL_EVIDENCE_ROOT = ROOT / "capture" / "gmail"
 ACTIVATION_CONTRACT = {"approved": True, "contract": "gmail_history_metadata_read_only"}
 ALLOWED_ACTIONS = {
     "GMAIL_GET_PROFILE",
@@ -70,8 +72,11 @@ ALLOWED_ACTIONS = {
 }
 PROHIBITED_LABELS = {"SPAM", "TRASH", "SENT"}
 MAX_HISTORY_PAGES = 5
+MAX_HISTORY_MESSAGES_PER_POLL = 25
 MAX_BOOTSTRAP_RESULTS = 100
 POLL_TIMEOUT_SECONDS = 180
+COMPOSIO_ARTIFACT_ROOT = Path("/tmp/composio")
+MAX_COMPOSIO_ARTIFACT_BYTES = 20_000_000
 
 
 def _sha(value: str | bytes) -> str:
@@ -212,12 +217,49 @@ class ComposioReadOnlyExecutor:
         if result.returncode or response.get("ok") is not True:
             raise CaptureError("Composio read-only Gmail action failed")
         value = response.get("result")
+        if isinstance(value, dict) and value.get("storedInFile") is True:
+            value = self._stored_result(value)
         if not isinstance(value, dict) or value.get("successful") is False:
             raise CaptureError("Composio read-only Gmail result was unsuccessful")
         data = value.get("data")
         if not isinstance(data, dict):
             raise CaptureError("Composio read-only Gmail result lacked object data")
         return data
+
+    @staticmethod
+    def _stored_result(stub: dict[str, Any]) -> dict[str, Any]:
+        """Hydrate a current Composio large-result artifact without exposing it.
+
+        Newer CLI builds keep large successful payloads under their local
+        artifact root and return only a pointer envelope.  Capture consumes the
+        JSON in-process so provider/message identifiers never reach receipts or
+        operator status surfaces.
+        """
+        raw_path = str(stub.get("outputFilePath") or "").strip()
+        if not raw_path:
+            raise CaptureError("Composio stored result lacked an artifact path")
+        candidate = Path(raw_path)
+        if not candidate.is_absolute() or candidate.is_symlink():
+            raise CaptureError("Composio stored result path is unsafe")
+        root = COMPOSIO_ARTIFACT_ROOT.resolve()
+        resolved = candidate.resolve()
+        try:
+            resolved.relative_to(root)
+        except ValueError as exc:
+            raise CaptureError("Composio stored result escaped its artifact root") from exc
+        try:
+            size = resolved.stat().st_size
+        except OSError as exc:
+            raise CaptureError("Composio stored result is unavailable") from exc
+        if size <= 0 or size > MAX_COMPOSIO_ARTIFACT_BYTES:
+            raise CaptureError("Composio stored result size is outside the safe bound")
+        try:
+            hydrated = json.loads(resolved.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise CaptureError("Composio stored result is invalid JSON") from exc
+        if not isinstance(hydrated, dict):
+            raise CaptureError("Composio stored result is not an object")
+        return hydrated
 
 
 def _labels(value: dict[str, Any]) -> set[str]:
@@ -345,6 +387,34 @@ def _added_refs(rows: Iterable[dict[str, Any]]) -> list[tuple[str, dict[str, Any
     return refs
 
 
+def _bounded_history_refs(
+    refs: list[tuple[str, dict[str, Any]]],
+) -> tuple[list[tuple[str, dict[str, Any]]], str, bool]:
+    """Take a bounded prefix without splitting one Gmail history checkpoint.
+
+    Advancing only to the last completely consumed history ID lets subsequent
+    polls drain a backlog without skipping messages or overrunning the
+    scheduler's bounded execution window.
+    """
+    selected: list[tuple[str, dict[str, Any]]] = []
+    last_history = ""
+    offset = 0
+    while offset < len(refs):
+        history_id = refs[offset][0]
+        end = offset + 1
+        while end < len(refs) and refs[end][0] == history_id:
+            end += 1
+        group = refs[offset:end]
+        if selected and len(selected) + len(group) > MAX_HISTORY_MESSAGES_PER_POLL:
+            break
+        selected.extend(group)
+        last_history = history_id or last_history
+        offset = end
+        if len(selected) >= MAX_HISTORY_MESSAGES_PER_POLL:
+            break
+    return selected, last_history, offset < len(refs)
+
+
 def _bootstrap_messages(data: dict[str, Any]) -> list[dict[str, Any]]:
     for key in ("messages", "emails", "items"):
         raw = data.get(key)
@@ -382,6 +452,7 @@ def _prepare_delta(
     current_history, mailbox_hash = _profile(executor)
     envelopes: list[CaptureEnvelope] = []
     history_entries = 0
+    history_backlog_truncated = False
     boundary: str | None = None
     if cursor is None:
         start = dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=bootstrap_hours)
@@ -437,6 +508,7 @@ def _prepare_delta(
                 break
         else:
             raise CaptureError("Gmail history pagination exceeded the bounded page limit")
+        refs, bounded_history, history_backlog_truncated = _bounded_history_refs(refs)
         seen = set()
         for history_id, ref in refs:
             message_id, _thread_id = _message_identity(ref)
@@ -451,13 +523,14 @@ def _prepare_delta(
             )
             if candidate is not None:
                 envelopes.append(candidate)
-        current_history = next_history
+        current_history = bounded_history if history_backlog_truncated else next_history
     unique = {row.message_id: row for row in envelopes}
     return DeltaBatch(next_cursor=current_history, envelopes=tuple(unique.values())), {
         "bootstrap_boundary_utc": boundary,
         "bootstrap_hours": bootstrap_hours if cursor is None else 0,
         "history_entries_received": history_entries,
         "authorized_envelopes": len(unique),
+        "history_backlog_truncated": bool(cursor is not None and history_backlog_truncated),
     }
 
 
@@ -483,6 +556,132 @@ def _projection_for_discard(storage: CaptureStorage, decision: Any) -> None:
         "linked_item_id": "",
         "token_usage_text": "Token usage: no agent invocation",
     })
+
+
+def _evidence_component(value: str | None) -> str:
+    component = re.sub(r"[^a-z0-9_-]+", "--", str(value or "_unresolved").casefold()).strip("-")
+    return component or "_unresolved"
+
+
+def _write_gmail_evidence(
+    storage: CaptureStorage,
+    decision: TriageDecision,
+    *,
+    evidence_root: Path = GMAIL_EVIDENCE_ROOT,
+) -> str:
+    """Publish one private, dated, content-free evidence record idempotently."""
+    raw = storage.raw_record(decision.record_id)
+    try:
+        timestamp = dt.datetime.fromisoformat(str(raw["timestamp"]).replace("Z", "+00:00"))
+    except (KeyError, ValueError) as exc:
+        raise CaptureError("captured Gmail evidence has an invalid timestamp") from exc
+    day = timestamp.astimezone(dt.timezone.utc).date().isoformat()
+    scope = _evidence_component(decision.client_scope)
+    path = Path(evidence_root).resolve() / day / scope / f"{decision.record_id}.json"
+    record = {
+        "schema_version": 1,
+        "expires": "never; point-in-time capture evidence",
+        "record_id": str(raw["record_id"]),
+        "evidence_reference": str(raw["evidence_reference"]),
+        "client_scope": str(decision.client_scope or "_unresolved"),
+        "scope_state": str(raw.get("scope_state") or "unresolved"),
+        "timestamp": str(raw["timestamp"]),
+        "source_type": "gmail",
+        "subject_classification": decision.subject_classification,
+        "triage_state": decision.state,
+        "route": decision.route,
+        "linked_item_id": str(raw.get("linked_item_id") or ""),
+        "contains_message_content": False,
+        "external_actions": 0,
+    }
+    text = json.dumps(record, indent=2, sort_keys=True) + "\n"
+    for directory in (Path(evidence_root).resolve(), path.parent.parent, path.parent):
+        directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+        os.chmod(directory, 0o700)
+    if path.exists():
+        if path.read_text(encoding="utf-8") != text:
+            raise CaptureError("existing Gmail evidence conflicts with its record identity")
+    else:
+        durable_replace_text(path, text)
+        os.chmod(path, 0o600)
+    try:
+        return path.relative_to(storage.repo_root).as_posix()
+    except ValueError as exc:
+        raise CaptureError("Gmail evidence escaped the authoritative repository") from exc
+
+
+def _projection_for_digest(
+    storage: CaptureStorage,
+    decision: TriageDecision,
+    *,
+    linked_item_id: str,
+) -> None:
+    raw = storage.raw_record(decision.record_id)
+    row = CaptureMetadataProjection(
+        record_id=str(raw["record_id"]),
+        reference_path=str(raw["evidence_reference"]),
+        client_scope=str(decision.client_scope or "_unresolved"),
+        linked_item_id=linked_item_id,
+        subject_classification=decision.subject_classification,
+        timestamp=str(raw["timestamp"]),
+        source_type="gmail",
+        triage_state=decision.state,
+        proposal_state="digest_human_review",
+    )
+    storage.append_derived(decision.client_scope, "metadata", row.to_dict())
+    storage.append_derived(decision.client_scope, "operational_receipts", {
+        "record_id": row.record_id,
+        "reference_path": row.reference_path,
+        "client_scope": row.client_scope,
+        "proposal_state": row.proposal_state,
+        "linked_item_id": linked_item_id,
+        "token_usage_text": "Token usage: no agent invocation",
+    })
+
+
+def _route_captured_messages(
+    storage: CaptureStorage,
+    decisions: list[TriageDecision],
+    *,
+    queue_writer: CaptureQueueWriter,
+    evidence_root: Path = GMAIL_EVIDENCE_ROOT,
+) -> dict[str, Any]:
+    """Route a capture run to evidence plus zero or one review digest."""
+    triage_counts: Counter[str] = Counter()
+    evidence_records: list[str] = []
+    material: list[TriageDecision] = []
+    for decision in decisions:
+        triage_counts[decision.route] += 1
+        evidence_records.append(_write_gmail_evidence(storage, decision, evidence_root=evidence_root))
+        if decision.route == "discard":
+            _projection_for_discard(storage, decision)
+        else:
+            material.append(decision)
+    if not material:
+        return {
+            "item": None,
+            "created": False,
+            "receipt": "",
+            "evidence_records": evidence_records,
+            "material_count": 0,
+            "triage_counts": dict(sorted(triage_counts.items())),
+        }
+    item, created, receipt = queue_writer.create_digest_or_get(
+        evidence_records=evidence_records,
+        captured_count=len(decisions),
+        material_count=len(material),
+        triage_counts=dict(triage_counts),
+    )
+    for decision in material:
+        _projection_for_digest(storage, decision, linked_item_id=str(item["id"]))
+    return {
+        "item": item,
+        "created": created,
+        "receipt": receipt,
+        "evidence_records": evidence_records,
+        "material_count": len(material),
+        "triage_counts": dict(sorted(triage_counts.items())),
+    }
 
 
 def _publish_metadata(storage: CaptureStorage) -> dict[str, Any]:
@@ -639,29 +838,18 @@ def poll_once(*, scheduled: bool, bootstrap_hours: int = 24) -> dict[str, Any]:
                 )
                 capture = CaptureEngine(storage).run_once(PreparedDeltaAdapter(batch))
                 capture_result = capture
-                triage_counts: Counter[str] = Counter()
-                created_needs_input = 0
-                created_human_review = 0
-                proposer = CaptureProposer(
-                    storage=storage,
-                    registry=load_registry(),
-                    brain_loader=None,
+                decisions = [
+                    CaptureTriage(storage).triage(record["record_id"])
+                    for record in capture["records"]
+                ]
+                routing = _route_captured_messages(
+                    storage,
+                    decisions,
                     queue_writer=CaptureQueueWriter(capture_mode="live"),
-                    evidence_loader=lambda **_kwargs: (_ for _ in ()).throw(CaptureError("live content loader is disabled")),
                 )
-                for record in capture["records"]:
-                    decision = CaptureTriage(storage).triage(record["record_id"])
-                    triage_counts[decision.route] += 1
-                    if decision.route == "discard":
-                        _projection_for_discard(storage, decision)
-                        continue
-                    intent = (
-                        "scope_resolution_required"
-                        if decision.client_scope is None
-                        else "stage3_model_unavailable_requires_liam"
-                    )
-                    proposal = proposer.propose_needs_input(decision, intent=intent)
-                    created_needs_input += int(proposal["created"])
+                triage_counts = Counter(routing["triage_counts"])
+                created_human_review = int(routing["created"])
+                created_needs_input = 0
                 projection = _publish_metadata(storage)
                 receipt = _receipt_base("success", scheduled=scheduled, action_counts=executor.action_counts)
                 receipt.update(metadata)
