@@ -68,6 +68,8 @@ export const saveDashboardWorkflow = (data) => api.post('/dashboard/workflows/sa
 export const getWorkflowContracts = () => api.get('/dashboard/workflow-contracts').then(r => r.data)
 export const getDashboardSkills = () => api.get('/dashboard/skills').then(r => r.data)
 export const getDashboardMemory = () => api.get('/dashboard/memory').then(r => r.data)
+export const getDashboardMemoryNote = (path) => api.get('/dashboard/memory/note', { params: { path } }).then(r => r.data)
+export const saveDashboardMemory = (data) => api.post('/dashboard/memory/save', data).then(r => r.data)
 export const getDashboardPrompts = () => api.get('/dashboard/prompts').then(r => r.data)
 export const getDashboardGraphify = () => api.get('/dashboard/graphify').then(r => r.data)
 export const getDashboardRepoIngest = () => api.get('/dashboard/repo-ingest').then(r => r.data)

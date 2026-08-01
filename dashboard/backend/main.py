@@ -1,6 +1,6 @@
 """Agentic OS dashboard backend.
 
-Revisit: when operator routing, local-agent CLI contracts, or runtime health changes. · Last touched: 2026-07-28.
+Revisit: when operator routing, local-agent CLI contracts, or runtime health changes. · Last touched: 2026-07-31.
 """
 
 from fastapi import FastAPI, HTTPException, Request
@@ -95,6 +95,7 @@ TRACKER_FILE = DATA_DIR / "tracker.json"
 TOKEN_USAGE_FILE = LOGS_DIR / "token_usage.jsonl"
 QUEUE_DIR = BASE_DIR / "queue"
 BACKUP_RECEIPTS_FILE = QUEUE_DIR / "receipts" / "backups.jsonl"
+LINUX_BACKUP_RECEIPTS_FILE = QUEUE_DIR / "receipts" / "linux-backups.jsonl"
 NOTIFICATIONS_FILE = QUEUE_DIR / "notifications.json"
 TOKEN_LEDGER_FILE = QUEUE_DIR / "token_ledger.jsonl"
 ROOT_TOKEN_LEDGER_FILE = BASE_DIR / "token_ledger.jsonl"
@@ -287,12 +288,21 @@ def _backup_status(now: datetime.datetime | None = None, receipts: list[dict] | 
     now = now or datetime.datetime.now(datetime.timezone.utc)
     if now.tzinfo is None:
         now = now.replace(tzinfo=datetime.timezone.utc)
-    records = _read_backup_receipts() if receipts is None else receipts
+    receipt_file = BACKUP_RECEIPTS_FILE
+    if receipts is None:
+        linux_records = _read_backup_receipts(LINUX_BACKUP_RECEIPTS_FILE)
+        if linux_records:
+            records = linux_records
+            receipt_file = LINUX_BACKUP_RECEIPTS_FILE
+        else:
+            records = _read_backup_receipts()
+    else:
+        records = receipts
     if not records:
         return {
             "state": "no_receipts",
             "latest": None,
-            "latest_receipt_path": _safe_relative(BACKUP_RECEIPTS_FILE),
+            "latest_receipt_path": _safe_relative(receipt_file),
             "latest_log_path": None,
             "stale_after_hours": 48,
             "needs_attention": False,
@@ -330,9 +340,12 @@ def _backup_status(now: datetime.datetime | None = None, receipts: list[dict] | 
             "dry_run": bool(latest.get("dry_run")),
             "errors": latest.get("errors") or [],
             "warnings": latest.get("warnings") or [],
+            "authority": latest.get("authority") or "legacy_windows",
+            "exclusions": latest.get("exclusions") or [],
+            "readable_proof": bool(latest.get("readable_proof")),
             "token_usage_text": latest.get("token_usage_text") or "Token usage: no agent invocation",
         },
-        "latest_receipt_path": _safe_relative(BACKUP_RECEIPTS_FILE),
+        "latest_receipt_path": _safe_relative(receipt_file),
         "latest_log_path": safe_log_path,
         "stale_after_hours": 48,
         "needs_attention": state in {"failed", "stale"},
@@ -630,6 +643,12 @@ class DashboardSkillSave(BaseModel):
     name: str = ""
     description: str = ""
     body: str = ""
+
+
+class DashboardMemorySave(BaseModel):
+    path: str
+    content: str
+    expected_revision: str
 
 
 class DashboardWorkflowSave(BaseModel):
@@ -1993,6 +2012,7 @@ def _markdown_title(text: str, fallback: str) -> str:
 
 _WORKFLOW_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,119}$")
 _WORKFLOW_MAX_BYTES = 512 * 1024
+_MEMORY_NOTE_MAX_BYTES = 750 * 1024
 
 
 def _workflow_root() -> Path:
@@ -2049,6 +2069,50 @@ def _workflow_display_name(path: Path, text: str, workflow_id: str = "", metadat
 
 def _workflow_revision(content: str) -> str:
     return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+
+def _dashboard_memory_note_path(pointer: str, *, registry=None) -> tuple[Path, object]:
+    gate = registry or business_brain_scope.load_registry()
+    resolved = gate.resolve_brain_pointer("global", pointer)
+    target = resolved.resolved_path
+    if target.suffix.lower() != ".md" or not target.is_file():
+        raise ValueError("only existing canonical Business Brain Markdown notes are editable")
+    if target.stat().st_size > _MEMORY_NOTE_MAX_BYTES:
+        raise ValueError("Business Brain note exceeds the editor size limit")
+    return target, gate
+
+
+def _validate_dashboard_memory_content(content: str) -> None:
+    if not isinstance(content, str):
+        raise ValueError("Business Brain content must be text")
+    if "\x00" in content:
+        raise ValueError("Business Brain content contains an invalid NUL character")
+    if len(content.encode("utf-8")) > _MEMORY_NOTE_MAX_BYTES:
+        raise ValueError("Business Brain note exceeds the editor size limit")
+
+
+def _atomic_business_brain_replace(path: Path, content: str) -> None:
+    """Atomically replace one canonical vault file on DrvFS or native Linux."""
+    fd, name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    temporary = Path(name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as handle:
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+        try:
+            directory_fd = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
+        except OSError:
+            # DrvFS may not support directory fsync; the file itself is flushed
+            # and the replacement remains same-directory and atomic.
+            pass
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def _workflow_path_for_id(workflow_id: str, *, writable: bool = False) -> Path:
@@ -4381,6 +4445,13 @@ _KNOWN_HERMES_PROVIDERS = {
     "xai",
     "zai",
 }
+_AOS_RUNTIME_PROFILES = {
+    "aos-orchestrator",
+    "aos-revenue",
+    "aos-marketing",
+    "aos-delivery",
+    "aos-ops",
+}
 
 
 def _queue_route_value(value: object, fallback: str = "configured externally") -> str:
@@ -4417,9 +4488,9 @@ def _queue_resolve_route_metadata(owner: object) -> dict:
         _queue_provider_value_is_safe(provider_requested)
         and _queue_route_value_is_explicit(model_requested)
     )
-    scoped_orchestrator = profile_requested == "aos-orchestrator"
-    profile_used = "aos-orchestrator" if scoped_orchestrator else "explicit_model_provider_route" if explicit_route else "default"
-    profile_fallback_reason = "" if scoped_orchestrator or explicit_route else "explicit provider/model route missing or placeholder"
+    scoped_profile = profile_requested in _AOS_RUNTIME_PROFILES
+    profile_used = profile_requested if scoped_profile else "default"
+    profile_fallback_reason = "" if scoped_profile or profile_requested == "default" else "requested profile is not an approved Agentic OS runtime profile"
     provider_used = provider_requested if explicit_route else "default"
     model_used = model_requested if explicit_route else "default"
     model_confirmed = "configured in queue/model_routes.json" if explicit_route else "unavailable from current CLI output"
@@ -4591,6 +4662,9 @@ def _queue_write_review_receipt(item_id: str, review_note: str, status: str = "d
         "- Reviewed by: Liam",
         f"- Reviewed at: {timestamp}",
         f"- Status: {status}",
+        "",
+        "Validation:",
+        "- Liam explicitly reviewed this item and approved the recorded status transition.",
     ]
     if note:
         lines.extend(["", "Review note:", note])
@@ -4616,6 +4690,9 @@ def _queue_write_workflow_final_closeout_receipt(item_id: str, review_note: str)
         f"- Reviewed at: {created_at}",
         "- Status: done",
         "- Workflow result: final integrated review approved",
+        "",
+        "Validation:",
+        "- Liam explicitly approved the integrated workflow after its bounded correction/review cycle.",
         "",
         "Token usage: no agent invocation.",
     ]
@@ -7198,7 +7275,7 @@ def dashboard_memory():
             "blocked_path_count": blocked,
             "denied_pointer_count": len(registry.data.get("denied_brain_pointers") or []),
         },
-        "files": files[:50],
+        "files": files,
         "brain_context_used": context_used,
         "promotion_queue": [],
         "promotion_state": {
@@ -7211,6 +7288,68 @@ def dashboard_memory():
             "latest_safe_promotion": promotion_receipts[0] if promotion_receipts else None,
             "reason": "Scope-gated promotion machinery is available; queue titles and tags are never promotion state.",
         },
+    }
+
+
+@app.get("/api/dashboard/memory/note")
+def dashboard_memory_note(path: str):
+    try:
+        target, _registry = _dashboard_memory_note_path(path)
+        content = target.read_text(encoding="utf-8", errors="strict")
+        frontmatter, body = aos_indexer.parse_frontmatter(content)
+    except (business_brain.BusinessBrainPointerError, business_brain_scope.ClientScopeError, ValueError, UnicodeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"Business Brain note load failed: {exc}")
+    return {
+        "success": True,
+        "path": path,
+        "id": frontmatter.get("id"),
+        "type": frontmatter.get("type"),
+        "title": _markdown_title(body, target.name),
+        "content": content,
+        "revision": _workflow_revision(content),
+        "modified": datetime.datetime.fromtimestamp(target.stat().st_mtime).isoformat(),
+    }
+
+
+@app.post("/api/dashboard/memory/save")
+def dashboard_save_memory(body: DashboardMemorySave):
+    try:
+        target, registry = _dashboard_memory_note_path(body.path)
+        existing = target.read_text(encoding="utf-8", errors="strict")
+        if not body.expected_revision or body.expected_revision != _workflow_revision(existing):
+            raise RuntimeError("Business Brain note changed after it was loaded; reopen it before saving")
+        _validate_dashboard_memory_content(body.content)
+        _atomic_business_brain_replace(target, body.content)
+        persisted = target.read_text(encoding="utf-8", errors="strict")
+        if persisted != body.content:
+            raise OSError("Business Brain save verification failed")
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except (business_brain.BusinessBrainPointerError, business_brain_scope.ClientScopeError, ValueError, UnicodeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"Business Brain note save failed: {exc}")
+
+    refresh = {"search": "current", "graphify": "not_configured"}
+    try:
+        index_result = aos_indexer.index_one(str(target), registry=registry)
+        refresh["search"] = "current" if index_result.get("status") == "success" else index_result.get("status", "skipped")
+    except Exception as exc:  # the canonical save succeeded; report derived-index failure honestly
+        refresh = {"search": "failed", "graphify": "not_configured", "error": str(exc)}
+
+    frontmatter, markdown_body = aos_indexer.parse_frontmatter(persisted)
+    return {
+        "success": True,
+        "path": body.path,
+        "id": frontmatter.get("id"),
+        "type": frontmatter.get("type"),
+        "title": _markdown_title(markdown_body, target.name),
+        "content": persisted,
+        "revision": _workflow_revision(persisted),
+        "modified": datetime.datetime.fromtimestamp(target.stat().st_mtime).isoformat(),
+        "refresh": refresh,
     }
 
 
@@ -7735,6 +7874,10 @@ def _queue_token_task_label(item: dict, owner: str) -> str:
 
 def _hermes_coordinator_command_template(route_metadata: dict | None = None) -> str:
     command = _quoted_linux_path(HERMES_COORDINATOR)
+    if route_metadata:
+        requested_profile = str(route_metadata.get("profile_requested") or "").strip()
+        if requested_profile in _AOS_RUNTIME_PROFILES:
+            command += f" --profile {shlex.quote(requested_profile)}"
     if route_metadata and route_metadata.get("explicit_model_provider_route"):
         command += f" --provider {shlex.quote(str(route_metadata['provider_requested']))}"
         command += f" --model {shlex.quote(str(route_metadata['model_requested']))}"

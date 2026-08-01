@@ -178,9 +178,26 @@ class HermesComposioTests(unittest.TestCase):
     def test_hermes_coordinator_wrapper_pins_profile_per_invocation_without_sticky_mutation(self):
         wrapper = (MAIN.parents[2] / "tools" / "aos-hermes-coordinator.sh").read_text(encoding="utf-8")
         self.assertIn('profile="aos-orchestrator"', wrapper)
+        self.assertIn("aos-orchestrator|aos-revenue|aos-marketing|aos-delivery|aos-ops", wrapper)
         self.assertIn('hermes -p "$profile"', wrapper)
         self.assertNotIn("hermes profile use", wrapper)
         self.assertIn("exit 78", wrapper)
+
+    def test_all_department_routes_bind_their_named_profile_per_invocation(self):
+        expected = {
+            "revenue": "aos-revenue",
+            "marketing": "aos-marketing",
+            "delivery": "aos-delivery",
+            "operations": "aos-ops",
+            "hermes": "aos-orchestrator",
+        }
+        for owner, profile in expected.items():
+            with self.subTest(owner=owner):
+                metadata = backend._queue_resolve_route_metadata(owner)
+                command = backend._hermes_coordinator_command_template(metadata)
+                self.assertEqual(profile, metadata["profile_used"])
+                self.assertIn(f"--profile {profile}", command)
+                self.assertNotIn("profile use", command)
 
     def test_inline_and_agent_timeout_configs_have_independent_defaults_and_overrides(self):
         with patch.dict(backend.os.environ, {}, clear=True):
@@ -1055,7 +1072,7 @@ class HermesComposioTests(unittest.TestCase):
         (queue / "lane_profiles.json").write_text(json.dumps(data, indent=2), encoding="utf-8")
 
     def sample_queue_items(self):
-        return [
+        items = [
             {
                 "id": "AOS-2026-0001",
                 "title": "Triage inbox lead",
@@ -1089,6 +1106,11 @@ class HermesComposioTests(unittest.TestCase):
                 "created_at": "2026-07-05T10:03:00Z",
             },
         ]
+        for item in items:
+            item.setdefault("allowed_actions", ["local_read", "local_edit", "local_test"])
+            item.setdefault("stop_conditions", ["external_send", "destructive_action_outside_scope"])
+            item.setdefault("definition_of_done", "The local queue outcome is verified with a durable receipt.")
+        return items
 
     def approval_item(self, item_id, status, *, title="Repair local routing", context="Local code and tests only"):
         return {
@@ -1285,7 +1307,9 @@ class HermesComposioTests(unittest.TestCase):
     def test_backup_status_no_receipts(self):
         with tempfile.TemporaryDirectory() as tmp:
             receipt_path = Path(tmp) / "queue" / "receipts" / "backups.jsonl"
-            with patch.object(backend, "BACKUP_RECEIPTS_FILE", receipt_path):
+            linux_receipt_path = Path(tmp) / "queue" / "receipts" / "linux-backups.jsonl"
+            with patch.object(backend, "BACKUP_RECEIPTS_FILE", receipt_path), \
+                 patch.object(backend, "LINUX_BACKUP_RECEIPTS_FILE", linux_receipt_path):
                 result = backend._backup_status(now=datetime.datetime(2026, 7, 9, 12, 0, tzinfo=datetime.timezone.utc))
         self.assertEqual(result["state"], "no_receipts")
         self.assertFalse(result["needs_attention"])
@@ -1306,6 +1330,21 @@ class HermesComposioTests(unittest.TestCase):
         self.assertFalse(result["needs_attention"])
         self.assertEqual(result["latest"]["target"], "D:\\TTROS_Backups")
         self.assertEqual(result["token_usage_text"], "Token usage: no agent invocation")
+
+    def test_backup_status_prefers_current_linux_authority(self):
+        now = datetime.datetime(2026, 7, 31, 20, 0, tzinfo=datetime.timezone.utc)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            legacy = root / "backups.jsonl"
+            linux = root / "linux-backups.jsonl"
+            legacy.write_text('{"ts":"2026-07-11T01:00:28Z","status":"success"}\n')
+            linux.write_text('{"ts":"2026-07-31T19:30:00Z","status":"success","authority":"linux","readable_proof":true}\n')
+            with patch.object(backend, "BACKUP_RECEIPTS_FILE", legacy), \
+                 patch.object(backend, "LINUX_BACKUP_RECEIPTS_FILE", linux):
+                result = backend._backup_status(now=now)
+        self.assertEqual("fresh_success", result["state"])
+        self.assertEqual("linux", result["latest"]["authority"])
+        self.assertTrue(result["latest"]["readable_proof"])
 
     def test_backup_status_stale_success(self):
         now = datetime.datetime(2026, 7, 9, 12, 0, tzinfo=datetime.timezone.utc)
@@ -1543,6 +1582,9 @@ class HermesComposioTests(unittest.TestCase):
                     "depends_on": [step1_id],
                     "source_refs": [source_pack],
                     "on_complete": "human_review",
+                    "allowed_actions": ["local_read", "local_edit", "local_test"],
+                    "stop_conditions": ["external_send", "destructive_action_outside_scope"],
+                    "definition_of_done": "The reviewed workflow step is explicitly approved with a durable receipt.",
                     "created_at": "2026-07-10T00:00:00Z",
                     "updated_at": "2026-07-10T00:00:00Z",
                     "receipts": [{"path": "queue/receipts/step2.md", "created_at": "2026-07-10T00:01:00Z", "status": "human_review"}],
@@ -1865,7 +1907,7 @@ class HermesComposioTests(unittest.TestCase):
             self.assertIn("Lane: codex", receipt)
             self.assertIn("Profile requested: default", receipt)
             self.assertIn("Profile used: default", receipt)
-            self.assertIn("Profile fallback reason: explicit provider/model route missing or placeholder", receipt)
+            self.assertIn("Profile fallback reason: None", receipt)
             self.assertIn("Model requested: configured externally", receipt)
             self.assertIn("Model used: default", receipt)
             self.assertIn("Provider requested: configured externally", receipt)
@@ -1903,7 +1945,7 @@ class HermesComposioTests(unittest.TestCase):
                 unknown = backend._queue_resolve_route_metadata("unknown")
 
             self.assertEqual(loaded["version"], "unit")
-            self.assertEqual(revenue["profile_used"], "default")
+            self.assertEqual(revenue["profile_used"], "aos-revenue")
             self.assertEqual(revenue["profile_requested"], "aos-revenue")
             self.assertEqual(revenue["model_requested"], "configured externally")
             self.assertEqual(revenue["model_used"], "default")
@@ -1917,10 +1959,10 @@ class HermesComposioTests(unittest.TestCase):
 
         expected_profiles = {
             "hermes": "aos-orchestrator",
-            "revenue": "default",
-            "marketing": "default",
-            "delivery": "default",
-            "operations": "default",
+            "revenue": "aos-revenue",
+            "marketing": "aos-marketing",
+            "delivery": "aos-delivery",
+            "operations": "aos-ops",
             "codex": "default",
             "claude": "default",
         }
@@ -1953,11 +1995,11 @@ class HermesComposioTests(unittest.TestCase):
                 missing = backend._queue_resolve_route_metadata("unknown")
 
         self.assertEqual(revenue["profile_requested"], "aos-revenue")
-        self.assertEqual(revenue["profile_used"], "default")
-        self.assertEqual(revenue["profile_fallback_reason"], "explicit provider/model route missing or placeholder")
+        self.assertEqual(revenue["profile_used"], "aos-revenue")
+        self.assertEqual(revenue["profile_fallback_reason"], "")
         self.assertEqual(missing["profile_requested"], "default")
         self.assertEqual(missing["profile_used"], "default")
-        self.assertEqual(missing["profile_fallback_reason"], "explicit provider/model route missing or placeholder")
+        self.assertEqual(missing["profile_fallback_reason"], "")
 
     def test_explicit_model_provider_route_builds_hermes_flags(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -2006,10 +2048,10 @@ class HermesComposioTests(unittest.TestCase):
 
         self.assertTrue(result["success"])
         self.assertIn("--provider anthropic --model claude-sonnet-4 --prompt-file", commands[0])
-        self.assertNotIn("--profile", commands[0])
+        self.assertIn("--profile aos-revenue", commands[0])
         worker = result["worker_result"]
         self.assertEqual(worker["profile_requested"], "aos-revenue")
-        self.assertEqual(worker["profile_used"], "explicit_model_provider_route")
+        self.assertEqual(worker["profile_used"], "aos-revenue")
         self.assertEqual(worker["profile_fallback_reason"], "")
         self.assertEqual(worker["model_requested"], "claude-sonnet-4")
         self.assertEqual(worker["model_used"], "claude-sonnet-4")
@@ -2037,8 +2079,8 @@ class HermesComposioTests(unittest.TestCase):
                 metadata = backend._queue_resolve_route_metadata("revenue")
 
         self.assertEqual(metadata["profile_requested"], "aos-revenue")
-        self.assertEqual(metadata["profile_used"], "default")
-        self.assertEqual(metadata["profile_fallback_reason"], "explicit provider/model route missing or placeholder")
+        self.assertEqual(metadata["profile_used"], "aos-revenue")
+        self.assertEqual(metadata["profile_fallback_reason"], "")
         self.assertEqual(metadata["model_requested"], "TBD")
         self.assertEqual(metadata["model_used"], "default")
         self.assertEqual(metadata["provider_requested"], "configured externally")
@@ -2046,6 +2088,7 @@ class HermesComposioTests(unittest.TestCase):
         self.assertEqual(metadata["model_confirmed"], "unavailable from current CLI output")
         self.assertFalse(metadata["explicit_model_provider_route"])
         command = backend._hermes_coordinator_command_template(metadata)
+        self.assertIn("--profile aos-revenue", command)
         self.assertNotIn("--provider", command)
         self.assertNotIn("--model", command)
 
@@ -2069,8 +2112,10 @@ class HermesComposioTests(unittest.TestCase):
                     metadata = backend._queue_resolve_route_metadata("revenue")
                     command = backend._hermes_coordinator_command_template(metadata)
                 self.assertFalse(metadata["explicit_model_provider_route"], provider)
+                self.assertEqual(metadata["profile_used"], "aos-revenue", provider)
                 self.assertEqual(metadata["provider_used"], "default", provider)
                 self.assertEqual(metadata["model_used"], "default", provider)
+                self.assertIn("--profile aos-revenue", command, provider)
                 self.assertNotIn("--provider", command, provider)
                 self.assertNotIn("--model", command, provider)
 
@@ -2125,8 +2170,8 @@ class HermesComposioTests(unittest.TestCase):
             receipt = (root / item["receipts"][-1]["path"]).read_text(encoding="utf-8")
             self.assertIn("Lane: revenue", receipt)
             self.assertIn("Profile requested: aos-revenue", receipt)
-            self.assertIn("Profile used: default", receipt)
-            self.assertIn("Profile fallback reason: explicit provider/model route missing or placeholder", receipt)
+            self.assertIn("Profile used: aos-revenue", receipt)
+            self.assertIn("Profile fallback reason: None", receipt)
             self.assertIn("Model requested: configured externally", receipt)
             self.assertIn("Model used: default", receipt)
             self.assertIn("Provider requested: configured externally", receipt)
@@ -2142,9 +2187,9 @@ class HermesComposioTests(unittest.TestCase):
             record_text = json.dumps(records[0], sort_keys=True)
             self.assertEqual(records[0]["lane"], "revenue")
             self.assertEqual(records[0]["profile_requested"], "aos-revenue")
-            self.assertEqual(records[0]["profile_used"], "default")
-            self.assertEqual(records[0]["profile_fallback_reason"], "explicit provider/model route missing or placeholder")
-            self.assertEqual(records[0]["profile"], "default")
+            self.assertEqual(records[0]["profile_used"], "aos-revenue")
+            self.assertEqual(records[0]["profile_fallback_reason"], "")
+            self.assertEqual(records[0]["profile"], "aos-revenue")
             self.assertEqual(records[0]["model_requested"], "configured externally")
             self.assertEqual(records[0]["model_used"], "default")
             self.assertEqual(records[0]["provider_requested"], "configured externally")
@@ -3786,6 +3831,105 @@ class HermesComposioTests(unittest.TestCase):
 
             run.assert_not_called()
 
+    def test_dashboard_memory_editor_saves_and_reopens_exact_canonical_markdown(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            vault = root / "brain"
+            note = vault / "memory" / "company.md"
+            note.parent.mkdir(parents=True)
+            original = (
+                "---\n"
+                "id: company-canonical\n"
+                "type: memory\n"
+                "aliases: [TTROS, Time to Revenue]\n"
+                "---\n"
+                "# Company\n\n"
+                "Keep [[memory/offers|Offers]] and every unrelated line.\n"
+            )
+            edited = original.replace("# Company", "# Company\n\n<!-- dashboard-memory-proof -->")
+            note.write_text(original, encoding="utf-8")
+
+            class Registry:
+                def resolve_brain_pointer(self, scope, pointer):
+                    if scope != "global" or pointer != "business_brain:memory/company.md":
+                        raise backend.business_brain_scope.ClientScopeError("pointer is not an editable global note")
+                    return backend.business_brain.resolve_business_brain_pointer(pointer, root=vault)
+
+            registry = Registry()
+            with patch.object(backend.business_brain_scope, "load_registry", return_value=registry), \
+                 patch.object(backend.aos_indexer, "index_one", return_value={"status": "success"}) as index_one:
+                loaded = backend.dashboard_memory_note("business_brain:memory/company.md")
+                saved = backend.dashboard_save_memory(backend.DashboardMemorySave(
+                    path="business_brain:memory/company.md",
+                    content=edited,
+                    expected_revision=loaded["revision"],
+                ))
+                reopened = backend.dashboard_memory_note("business_brain:memory/company.md")
+
+            self.assertTrue(saved["success"])
+            self.assertEqual(edited, note.read_text(encoding="utf-8"))
+            self.assertEqual(edited, reopened["content"])
+            self.assertIn("aliases: [TTROS, Time to Revenue]", reopened["content"])
+            self.assertIn("[[memory/offers|Offers]]", reopened["content"])
+            self.assertEqual("current", saved["refresh"]["search"])
+            self.assertEqual("not_configured", saved["refresh"]["graphify"])
+            index_one.assert_called_once_with(str(note.resolve()), registry=registry)
+            self.assertEqual([note], list(vault.rglob("company.md")))
+
+    def test_dashboard_memory_editor_rejects_stale_and_unsafe_targets(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            vault = root / "brain"
+            note = vault / "memory" / "company.md"
+            backup = vault / "_backups" / "company.md"
+            outside = root / "outside.md"
+            note.parent.mkdir(parents=True)
+            backup.parent.mkdir(parents=True)
+            note.write_text("# Company\n", encoding="utf-8")
+            backup.write_text("# Backup\n", encoding="utf-8")
+            outside.write_text("# Outside\n", encoding="utf-8")
+            link = vault / "memory" / "outside-link.md"
+            link.symlink_to(outside)
+            permitted = {
+                "business_brain:memory/company.md",
+                "business_brain:_backups/company.md",
+                "business_brain:memory/outside-link.md",
+            }
+
+            class Registry:
+                def resolve_brain_pointer(self, scope, pointer):
+                    if scope != "global" or pointer not in permitted:
+                        raise backend.business_brain_scope.ClientScopeError("pointer is not an editable global note")
+                    return backend.business_brain.resolve_business_brain_pointer(pointer, root=vault)
+
+            with patch.object(backend.business_brain_scope, "load_registry", return_value=Registry()), \
+                 patch.object(backend.aos_indexer, "index_one") as index_one:
+                loaded = backend.dashboard_memory_note("business_brain:memory/company.md")
+                note.write_text("# Concurrent change\n", encoding="utf-8")
+                with self.assertRaises(backend.HTTPException) as stale:
+                    backend.dashboard_save_memory(backend.DashboardMemorySave(
+                        path="business_brain:memory/company.md",
+                        content="# Overwrite\n",
+                        expected_revision=loaded["revision"],
+                    ))
+                for unsafe in (
+                    "business_brain:../outside.md",
+                    "business_brain:_backups/company.md",
+                    "business_brain:memory/outside-link.md",
+                    "business_brain:memory/not-approved.md",
+                    str(outside),
+                ):
+                    with self.subTest(path=unsafe):
+                        with self.assertRaises(backend.HTTPException) as rejected:
+                            backend.dashboard_memory_note(unsafe)
+                        self.assertEqual(400, rejected.exception.status_code)
+
+            self.assertEqual(409, stale.exception.status_code)
+            self.assertEqual("# Concurrent change\n", note.read_text(encoding="utf-8"))
+            self.assertEqual("# Backup\n", backup.read_text(encoding="utf-8"))
+            self.assertEqual("# Outside\n", outside.read_text(encoding="utf-8"))
+            index_one.assert_not_called()
+
     def test_hermes_review_prompt_uses_dashboard_artifact_path_verification(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -4779,6 +4923,9 @@ class HermesComposioTests(unittest.TestCase):
                     "owner_type": "workflow",
                     "priority": 5,
                     "tags": ["pkg:fixture", "pkgver:v1"],
+                    "allowed_actions": ["local_read", "local_edit", "local_test"],
+                    "stop_conditions": ["external_send", "destructive_action_outside_scope"],
+                    "definition_of_done": "The integrated workflow review is explicitly approved with a durable receipt.",
                     "receipts": [],
                 }
                 self.write_queue_items(root, [item])

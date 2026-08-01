@@ -12,6 +12,7 @@ import {
   getLatitudeStatus,
   getHermesUiStatus,
   getDashboardMemory,
+  getDashboardMemoryNote,
   getDashboardPrompts,
   getDashboardRepoIngest,
   getDashboardResults,
@@ -27,6 +28,7 @@ import {
   refetchGraphifyRepository,
   runGraphifyAction,
   saveDashboardSkill,
+  saveDashboardMemory,
   saveDashboardWorkflow,
 } from '../api'
 import { HumanReviewCard } from '../components/HumanReviewCard'
@@ -630,13 +632,56 @@ export function TokensROI() {
 }
 
 export function MemoryBoard() {
-  const { data, loading, error } = useAsync(getDashboardMemory)
+  const [reloadKey, setReloadKey] = useState(0)
+  const { data, loading, error } = useAsync(getDashboardMemory, [reloadKey])
   const [filters, setFilters] = useState({})
   const [selected, setSelected] = useState(null)
+  const [editing, setEditing] = useState(false)
+  const [editContent, setEditContent] = useState('')
+  const [saveState, setSaveState] = useState({ status: '', message: '' })
   const files = (data?.files || []).filter(item => textMatch(item, filters.q || ''))
+  const openNote = async item => {
+    setSelected({ ...item, loading: true })
+    setEditing(false)
+    setEditContent('')
+    setSaveState({ status: '', message: '' })
+    try {
+      const note = await getDashboardMemoryNote(item.path)
+      setSelected({ ...item, ...note, loading: false })
+    } catch (requestError) {
+      const message = requestError.response?.data?.detail || requestError.message || 'Business Brain note could not be loaded.'
+      setSelected({ ...item, loading: false, loadError: message })
+      setSaveState({ status: 'error', message })
+    }
+  }
+  const startEdit = () => {
+    setEditContent(selected?.content || '')
+    setEditing(true)
+    setSaveState({ status: '', message: '' })
+  }
+  const cancelEdit = () => {
+    setEditContent('')
+    setEditing(false)
+    setSaveState({ status: '', message: '' })
+  }
+  const saveEdit = async () => {
+    setSaveState({ status: 'saving', message: `Saving ${selected.path}…` })
+    try {
+      const saved = await saveDashboardMemory({ path: selected.path, content: editContent, expected_revision: selected.revision })
+      setSelected(current => ({ ...current, ...saved, preview: saved.content }))
+      setEditing(false)
+      setEditContent('')
+      const searchStatus = saved.refresh?.search
+      const refreshMessage = searchStatus && searchStatus !== 'current' ? ` Search refresh: ${searchStatus}${saved.refresh.error ? ` (${saved.refresh.error})` : ''}.` : ''
+      setSaveState({ status: searchStatus && searchStatus !== 'current' ? 'warning' : 'success', message: `Saved ${saved.path}.${refreshMessage}` })
+      setReloadKey(key => key + 1)
+    } catch (requestError) {
+      setSaveState({ status: 'error', message: requestError.response?.data?.detail || requestError.message || 'Business Brain note could not be saved.' })
+    }
+  }
   return (
     <>
-      <PageHeader title="Memory Board" question="Is the canonical Business Brain available and navigable?" />
+      <PageHeader title="Memory Board" question="Open and edit canonical Business Brain Markdown." actions={<ActionButton onClick={() => setReloadKey(key => key + 1)}><RefreshCw size={13} />Refresh</ActionButton>} />
       {loading && <EmptyState title="Loading" detail="Reading canonical Business Brain pointers." />}
       {error && <EmptyState title="Unavailable" detail={error} />}
       {data && <div className="mb-4 grid gap-3 md:grid-cols-3">
@@ -646,11 +691,32 @@ export function MemoryBoard() {
       </div>}
       <FilterBar filters={filters} onChange={setFilters} />
       <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-        {files.map(item => <RowButton key={item.id || item.path} title={item.title} meta={`${item.path} · ${item.type || 'untyped'}`} onClick={() => setSelected(item)} />)}
+        {files.map(item => <RowButton key={item.path} title={item.title} meta={`${item.path} · ${item.type || 'untyped'}`} onClick={() => openNote(item)} />)}
       </div>
       {!loading && !files.length && <EmptyState title="No canonical notes" detail={data?.brain?.error || 'Nothing matched the current filters.'} />}
-      <DetailPanel item={selected} title={selected?.title} subtitle={selected?.path} onClose={() => setSelected(null)}>
-        <MarkdownPreview content={selected?.preview || 'Preview unavailable.'} />
+      <DetailPanel item={selected} title={selected?.title} subtitle={selected?.path} onClose={() => { setSelected(null); setEditing(false); setSaveState({ status: '', message: '' }) }}>
+        {selected?.loading && <EmptyState title="Loading full Markdown" detail="Reading the canonical Business Brain note." />}
+        {selected?.loadError && <EmptyState title="Unable to open note" detail={selected.loadError} />}
+        {!selected?.loading && !selected?.loadError && (
+          <>
+            <div className="mb-3 flex flex-wrap gap-2">
+              {!editing && <ActionButton onClick={startEdit}><Edit3 size={13} />Edit</ActionButton>}
+              {editing && <ActionButton kind="primary" onClick={saveEdit} disabled={saveState.status === 'saving'}><Save size={13} />{saveState.status === 'saving' ? 'Saving…' : 'Save'}</ActionButton>}
+              {editing && <ActionButton onClick={cancelEdit} disabled={saveState.status === 'saving'}><X size={13} />Cancel</ActionButton>}
+              {!editing && <ActionButton onClick={() => navigator.clipboard?.writeText(selected?.content || '')}><Copy size={13} />Copy</ActionButton>}
+            </div>
+            {saveState.message && <div role={saveState.status === 'error' ? 'alert' : 'status'} data-testid="memory-save-state" className={`mb-3 rounded border p-3 text-xs ${saveState.status === 'error' ? 'border-clay/70 bg-clay/10 text-clay' : 'border-champagne/60 bg-champagne/10 text-champagne'}`}>{saveState.message}</div>}
+            {editing ? (
+              <textarea
+                aria-label={`Markdown content for ${selected.path}`}
+                data-testid="memory-markdown-editor"
+                value={editContent}
+                onChange={event => setEditContent(event.target.value)}
+                className="min-h-[70vh] w-full rounded border border-softgraph bg-ink px-3 py-2 font-mono text-xs leading-5 text-stone"
+              />
+            ) : <MarkdownPreview content={selected?.content || 'Note is empty.'} />}
+          </>
+        )}
       </DetailPanel>
     </>
   )
