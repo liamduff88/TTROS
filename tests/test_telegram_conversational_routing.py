@@ -1,7 +1,7 @@
 """Focused Olmec/Hermes operator-lean routing proofs.
 
-Revisit: when the frozen literal table, operator context cap, or small Codex
-prompt changes. · Last touched: 2026-07-28.
+Revisit: when the frozen literal table, operator context cap, escalation wire,
+or small Codex prompt changes. · Last touched: 2026-08-01.
 """
 
 import json
@@ -431,7 +431,7 @@ class TelegramConversationalRoutingTests(unittest.TestCase):
         self.assertIn("No task was queued", result["output"])
         worker.assert_not_called()
 
-    def test_operator_oneshot_waits_for_complete_six_tool_snapshot(self):
+    def test_operator_oneshot_waits_for_complete_seven_tool_snapshot(self):
         events = []
 
         def discover():
@@ -486,7 +486,7 @@ class TelegramConversationalRoutingTests(unittest.TestCase):
         self.assertIn("No task was queued", result["output"])
         worker.assert_not_called()
 
-    def test_live_loaded_operator_preamble_has_exactly_six_tools_under_budget(self):
+    def test_live_loaded_operator_preamble_has_exactly_seven_tools_under_budget(self):
         profile_home = Path.home() / ".hermes" / "profiles" / "operator-lean"
         hermes_python = Path.home() / ".hermes" / "hermes-agent" / "venv" / "bin" / "python3"
         env = dict(os.environ, HERMES_HOME=str(profile_home))
@@ -509,7 +509,7 @@ class TelegramConversationalRoutingTests(unittest.TestCase):
             for row in preamble["tools"]
         }
         self.assertEqual(tool_names, operator_lean_oneshot.EXPECTED_TOOLS)
-        self.assertEqual(len(preamble["tools"]), 6)
+        self.assertEqual(len(preamble["tools"]), 7)
         create_task = next(
             row for row in preamble["tools"]
             if row["function"]["name"] == "mcp__operator__create_task"
@@ -529,20 +529,26 @@ class TelegramConversationalRoutingTests(unittest.TestCase):
                 )
             )
         )
-        self.assertLess(system_tokens + tool_tokens, 1_200)
+        self.assertLess(system_tokens + tool_tokens, 1_350)
 
     def test_profile_launcher_and_tool_server_enforce_lean_surface(self):
         launcher = (ROOT / "tools" / "aos-hermes-operator-lean.sh").read_text(encoding="utf-8")
         profile = (ROOT / "queue" / "profiles" / "operator-lean.md").read_text(encoding="utf-8")
         server = (ROOT / "tools" / "operator_lean_mcp.py").read_text(encoding="utf-8")
-        self.assertEqual(len(operator_lean_oneshot.EXPECTED_TOOLS), 6)
+        self.assertEqual(len(operator_lean_oneshot.EXPECTED_TOOLS), 7)
         self.assertIn('profile="operator-lean"', launcher)
         self.assertIn('cd "$profile_home"', launcher)
         self.assertIn("operator_lean_oneshot.py", launcher)
         self.assertNotIn("aos-orchestrator", launcher)
         self.assertIn("Never delegate, orchestrate", profile)
-        self.assertEqual(server.count("@mcp.tool()"), 6)
+        self.assertIn('export AOS_OPERATOR_CONTEXT_FILE="$prompt_file"', launcher)
+        self.assertIn('export AOS_OPERATOR_ESCALATION_REPLY_FILE="$escalation_reply_file"', launcher)
+        self.assertIn("escalate_to_executive(message)", profile)
+        self.assertEqual(server.count("@mcp.tool()"), 7)
         self.assertIn("_task_created", server)
+        self.assertIn("_executive_escalated", server)
+        self.assertIn("_publish_escalation_reply", server)
+        self.assertIn('/home/liam/agentic-os/hermes/hermes.py', server)
 
 
 if __name__ == "__main__":
