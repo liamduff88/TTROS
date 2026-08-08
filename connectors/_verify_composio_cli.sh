@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -u
 
-WORKSPACE="/mnt/c/Users/Admin/Documents/A-Time to revenue/Agentic OS Live"
+WORKSPACE="/home/liam/agentic-os-live"
 COMPOSIO="/home/liam/.composio/composio"
 OUT="$WORKSPACE/connectors/composio_live_connections.txt"
 

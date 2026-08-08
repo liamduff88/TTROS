@@ -62,9 +62,7 @@ Paste this prompt into Operating Hermes manually. Do not automatically launch an
 
 Suggested manual launch from PowerShell only when the operator chooses to run it:
 
-cd "C:\Users\Admin\Documents\A-Time to revenue\Agentic OS Live"
-
-wsl -d AgenticOSClean --user liam -- bash -lc 'export PATH="$HOME/.local/bin:$HOME/.local/npm/bin:$HOME/.composio:$PATH"; cd "/mnt/c/Users/Admin/Documents/A-Time to revenue/Agentic OS Live"; aos-hermes'
+wsl -d AgenticOSClean --user liam -- bash -lc 'export PATH="$HOME/.local/bin:$HOME/.local/npm/bin:$HOME/.composio:$PATH"; cd "/home/liam/agentic-os-live"; aos-hermes'
 
 ## Receipt
 
