@@ -1,0 +1,8 @@
+{
+  "success": true,
+  "source": "recorded live response replayed in browser",
+  "source_invocation_id": "hermes-0244cefba56b4480a9851c766acb112e",
+  "backend_mutated": false,
+  "model_invoked": false,
+  "screenshot": "05-safe-profile-context-evidence.png"
+}

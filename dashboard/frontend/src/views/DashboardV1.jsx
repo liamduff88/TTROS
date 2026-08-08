@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import { CheckCircle2, Columns3, Copy, Database, Edit3, ExternalLink, FolderOpen, GitBranch, Layers, Play, Plus, RefreshCw, Save, Search, Settings, Shield, Workflow, X } from 'lucide-react'
+import { CheckCircle2, ChevronDown, ChevronRight, Columns3, Copy, Database, Edit3, ExternalLink, FolderOpen, GitBranch, Layers, Play, Plus, RefreshCw, Save, Search, Settings, Shield, Users, Workflow, X } from 'lucide-react'
 import {
   attachQueueReceipt,
-  createCockpitCommand,
   createDashboardTask,
   createQueueItem,
   getDashboardCockpit,
@@ -32,6 +31,8 @@ import {
   saveDashboardWorkflow,
 } from '../api'
 import { HumanReviewCard } from '../components/HumanReviewCard'
+import AskDavid from '../components/AskDavid'
+import ExecutiveTeam from '../components/ExecutiveTeam'
 import { validateGitHubRepositoryUrl } from '../graphifyState'
 import { launcherPrompt } from '../launcherPrompts'
 import { laneRoutePath } from '../shellState'
@@ -148,51 +149,16 @@ function MarkdownPreview({ content }) {
 
 export function Cockpit({ cockpit, onNavigate, refresh }) {
   const [selected, setSelected] = useState(null)
-  const [command, setCommand] = useState('')
-  const [commandState, setCommandState] = useState({ busy: false, message: '', error: '' })
+  const [specialistsOpen, setSpecialistsOpen] = useState(false)
   const data = cockpit || {}
   const counts = data.counts || {}
   const needs = data.needs_me || []
   const recent = data.recent_output || []
   const laneActivity = data.lane_activity || []
-  const submitCommand = async event => {
-    event.preventDefault()
-    const text = command.trim()
-    if (!text || commandState.busy) return
-    setCommandState({ busy: true, message: '', error: '' })
-    try {
-      const result = await createCockpitCommand(text)
-      if (!result?.item?.id) throw new Error('Local queue item was not created')
-      setCommand('')
-      setCommandState({ busy: false, message: `${result.item.id} routed to ${result.item.owner}.`, error: '' })
-      await refresh?.()
-      onNavigate('work-queue', { selectedId: result.item.id })
-    } catch (error) {
-      setCommandState({ busy: false, message: '', error: error?.response?.data?.detail || error?.message || 'Command could not be queued' })
-    }
-  }
   return (
     <>
       <PageHeader title="Cockpit" question="What needs me right now, and what is the OS doing/spending?" actions={<ActionButton onClick={refresh}><RefreshCw size={13} />Refresh</ActionButton>} />
-      <form onSubmit={submitCommand} className="mb-4 rounded border border-champagne/40 bg-graphite p-4" data-testid="cockpit-command-input">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
-          <label className="min-w-0 flex-1">
-            <span className="text-xs font-mono text-champagne">COMMAND THE OS</span>
-            <textarea
-              value={command}
-              onChange={event => { setCommand(event.target.value); setCommandState(current => ({ ...current, message: '', error: '' })) }}
-              maxLength={2000}
-              placeholder="Describe the work in plain language"
-              className="mt-2 min-h-20 w-full resize-y rounded border border-softgraph bg-ink px-3 py-2 text-sm text-stone outline-none placeholder:text-taupe focus:border-champagne/60"
-            />
-          </label>
-          <ActionButton kind="primary" type="submit" disabled={commandState.busy || !command.trim()}>
-            <Plus size={14} />{commandState.busy ? 'Routing…' : 'Add to Work Queue'}
-          </ActionButton>
-        </div>
-        <p className="mt-2 text-xs text-taupe">Deterministic local intake only. This creates a routed work item; it does not call a model or take external action.</p>
-        {(commandState.message || commandState.error) && <div className={`mt-2 text-xs font-mono ${commandState.error ? 'text-clay' : 'text-champagne'}`}>{commandState.error || commandState.message}</div>}
-      </form>
+      <AskDavid onNavigate={onNavigate} refresh={refresh} />
       <section className="rounded border border-champagne/40 bg-graphite p-4">
         <div className="mb-3 flex items-center justify-between">
           <div>
@@ -252,6 +218,19 @@ export function Cockpit({ cockpit, onNavigate, refresh }) {
         <div className="grid gap-2 md:grid-cols-2">
           {recent.slice(0, 6).map(item => <RowButton key={item.id} title={item.title} meta={`${item.source} · ${item.path}`} onClick={() => setSelected(item)} />)}
         </div>
+      </section>
+      <section className="mt-4 rounded border border-softgraph bg-graphite/40 p-4" data-testid="specialist-consultations">
+        <button type="button" onClick={() => setSpecialistsOpen(value => !value)} className="flex w-full items-center justify-between gap-2 text-left" aria-expanded={specialistsOpen}>
+          <div className="flex items-center gap-2">
+            <Users size={14} className="text-taupe" />
+            <div>
+              <h2 className="text-sm font-semibold text-stone">Consult a specialist</h2>
+              <p className="mt-0.5 text-xs text-taupe">Optional — ask Revenue, Marketing, Delivery, Operations, or the full Executive Team for a specific department view. David already covers most of what you need day to day.</p>
+            </div>
+          </div>
+          {specialistsOpen ? <ChevronDown size={16} className="shrink-0 text-taupe" /> : <ChevronRight size={16} className="shrink-0 text-taupe" />}
+        </button>
+        {specialistsOpen && <div className="mt-3"><ExecutiveTeam /></div>}
       </section>
       <DetailPanel item={selected} title={selected?.title} subtitle={selected?.id || selected?.path} onClose={() => setSelected(null)}>
         {selected?.status && <div className="mb-3 flex gap-2"><StatusChip status={selected.status} /><SourceChip source={selected.source} /></div>}

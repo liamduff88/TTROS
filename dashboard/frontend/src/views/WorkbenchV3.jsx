@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { AlertCircle, Bot, CheckCircle2, Copy, FileUp, Play, RefreshCw, Save, Search, SlidersHorizontal, X } from 'lucide-react'
-import { askHermesMessage, createQueueChain, createQueueItem, getArtifacts, getDashboardAgents, getDashboardResults, getDashboardSystemWatch, getQueueArtifact, getSearchStatus, ingestTick, openQueueArtifactFolder, reindexSearch, routeMessageBoardCommand, searchIndex } from '../api'
+import { askHermesMessage, createQueueChain, createQueueItem, getArtifacts, getDashboardAgents, getDashboardResults, getDashboardSystemWatch, getQueueArtifact, getQueueItem, getSearchStatus, ingestTick, openQueueArtifactFolder, reindexSearch, routeMessageBoardCommand, searchIndex } from '../api'
 import { ActionButton, EmptyState, PageHeader, RowButton, SourceChip, StatusChip } from '../components/DashboardKit'
 
 const csv = value => Array.isArray(value) ? value.filter(Boolean).join(',') : String(value || '')
@@ -132,6 +132,46 @@ export function MessageBoard({ refresh }) {
   const [editingCard, setEditingCard] = useState(null)
   const [editDraft, setEditDraft] = useState({})
   const [chainDrafts, setChainDrafts] = useState({})
+  const [conversationId] = useState(() => {
+    const stored = window.localStorage?.getItem('aos-executive-conversation-id')
+    if (stored) return stored
+    const created = `dashboard-${entryId()}`
+    window.localStorage?.setItem('aos-executive-conversation-id', created)
+    return created
+  })
+
+  useEffect(() => {
+    const active = thread.filter(entry => entry.type === 'objective' && !['done', 'blocked', 'needs_input'].includes(entry.status))
+    if (!active.length) return undefined
+    let cancelled = false
+    const poll = async () => {
+      const updates = await Promise.all(active.map(async entry => {
+        try {
+          const result = await getQueueItem(entry.parentId)
+          return [entry.parentId, result.item]
+        } catch (_error) {
+          return [entry.parentId, null]
+        }
+      }))
+      if (cancelled) return
+      setThread(current => current.map(entry => {
+        if (entry.type !== 'objective') return entry
+        const item = updates.find(([id]) => id === entry.parentId)?.[1]
+        if (!item) return entry
+        return {
+          ...entry,
+          status: item.status,
+          summary: item.objective?.outcome || item.summary_for_operator,
+          outcomeArtifact: item.objective?.outcome_artifact || '',
+          steps: item.objective?.plan || entry.steps,
+        }
+      }))
+      if (updates.some(([, item]) => item && ['done', 'blocked', 'needs_input'].includes(item.status))) refresh?.()
+    }
+    const timer = window.setInterval(poll, 3000)
+    poll()
+    return () => { cancelled = true; window.clearInterval(timer) }
+  }, [thread, refresh])
 
   const sourceRefs = files.map(file => `attachment:${file.name}`)
   const submit = async event => {
@@ -143,7 +183,22 @@ export function MessageBoard({ refresh }) {
     const userEntry = { id: entryId(), type: 'user', text: clean, source_refs: sourceRefs }
     try {
       const card = await routeMessageBoardCommand({ text: clean, source_refs: sourceRefs })
-      setThread(current => [...current, userEntry, { id: entryId(), type: 'card', card, prompt: clean }])
+      if (card.executive_objective) {
+        const reply = await askHermesMessage(clean, sourceRefs, conversationId)
+        if (reply.objective?.parent_id) {
+          setThread(current => [...current, userEntry, {
+            id: entryId(), type: 'objective', parentId: reply.objective.parent_id,
+            status: reply.objective.status, steps: reply.objective.plan || [],
+            summary: reply.reply || 'Hermes accepted the complete objective and is tracking every dependent stage.',
+            token: reply.token_usage_text || 'Token usage: unavailable from current CLI output',
+          }])
+          refresh?.()
+        } else {
+          setThread(current => [...current, userEntry, { id: entryId(), type: 'hermes', text: reply.output || reply.reply || 'Hermes needs input.', token: reply.token_usage_text, needsInput: reply.needs_input_item }])
+        }
+      } else {
+        setThread(current => [...current, userEntry, { id: entryId(), type: 'card', card, prompt: clean }])
+      }
       setText('')
     } catch (error) {
       setThread(current => [...current, userEntry, { id: entryId(), type: 'error', text: errorText(error) || 'Route failed' }])
@@ -209,10 +264,10 @@ export function MessageBoard({ refresh }) {
       if (mode === 'hermes') {
         setCardBusy(current => ({ ...current, [cardId]: 'hermes' }))
         try {
-          const reply = await askHermesMessage(cardEntry.prompt || '', cardEntry.card?.work_order?.source_refs || [])
+          const reply = await askHermesMessage(cardEntry.prompt || '', cardEntry.card?.work_order?.source_refs || [], conversationId)
           const chainId = entryId()
-          setThread(current => [...current, reply.chain_proposal ? { id: chainId, type: 'chain', proposal: reply.chain_proposal, token: reply.token_usage_text || 'Token usage: unavailable from current CLI output' } : { id: entryId(), type: 'hermes', text: reply.reply || reply.answer || reply.output || 'Hermes replied.', token: reply.token_usage_text || 'Token usage: unavailable from current CLI output', needsInput: reply.needs_input_item }])
-          if (reply.chain_proposal) setChainDrafts(current => ({ ...current, [chainId]: JSON.stringify(reply.chain_proposal, null, 2) }))
+          setThread(current => [...current, reply.objective?.parent_id ? { id: chainId, type: 'objective', parentId: reply.objective.parent_id, status: reply.objective.status, steps: reply.objective.plan || [], summary: reply.reply, token: reply.token_usage_text } : reply.chain_proposal ? { id: chainId, type: 'chain', proposal: reply.chain_proposal, token: reply.token_usage_text || 'Token usage: unavailable from current CLI output' } : { id: entryId(), type: 'hermes', text: reply.reply || reply.answer || reply.output || 'Hermes replied.', token: reply.token_usage_text || 'Token usage: unavailable from current CLI output', needsInput: reply.needs_input_item }])
+          if (reply.chain_proposal && !reply.objective) setChainDrafts(current => ({ ...current, [chainId]: JSON.stringify(reply.chain_proposal, null, 2) }))
         } catch (error) {
           setCardError(cardId, errorText(error) || 'Hermes unavailable')
         } finally {
@@ -224,10 +279,10 @@ export function MessageBoard({ refresh }) {
     if (mode === 'hermes') {
       setCardBusy(current => ({ ...current, [cardId]: 'hermes' }))
       try {
-        const reply = await askHermesMessage(cardEntry.card.work_order.context, cardEntry.card.work_order.source_refs || [])
+        const reply = await askHermesMessage(cardEntry.card.work_order.context, cardEntry.card.work_order.source_refs || [], conversationId)
         const chainId = entryId()
-        setThread(current => [...current, reply.chain_proposal ? { id: chainId, type: 'chain', proposal: reply.chain_proposal, token: reply.token_usage_text || 'Token usage: unavailable from current CLI output' } : { id: entryId(), type: 'hermes', text: reply.reply || reply.answer || reply.output || 'Hermes replied.', token: reply.token_usage_text || 'Token usage: unavailable from current CLI output', needsInput: reply.needs_input_item }])
-        if (reply.chain_proposal) setChainDrafts(current => ({ ...current, [chainId]: JSON.stringify(reply.chain_proposal, null, 2) }))
+        setThread(current => [...current, reply.objective?.parent_id ? { id: chainId, type: 'objective', parentId: reply.objective.parent_id, status: reply.objective.status, steps: reply.objective.plan || [], summary: reply.reply, token: reply.token_usage_text } : reply.chain_proposal ? { id: chainId, type: 'chain', proposal: reply.chain_proposal, token: reply.token_usage_text || 'Token usage: unavailable from current CLI output' } : { id: entryId(), type: 'hermes', text: reply.reply || reply.answer || reply.output || 'Hermes replied.', token: reply.token_usage_text || 'Token usage: unavailable from current CLI output', needsInput: reply.needs_input_item }])
+        if (reply.chain_proposal && !reply.objective) setChainDrafts(current => ({ ...current, [chainId]: JSON.stringify(reply.chain_proposal, null, 2) }))
       } catch (error) {
         setCardError(cardId, errorText(error) || 'Hermes unavailable')
       } finally {
@@ -297,11 +352,12 @@ export function MessageBoard({ refresh }) {
                 {entry.type === 'card' && <WorkOrderCard card={entry.card} busy={cardBusy[entry.id]} error={cardErrors[entry.id]} editing={editingCard === entry.id} editDraft={editDraft} onAction={mode => createFromCard(entry, mode)} onCancel={() => removeCard(entry.id)} onEditChange={(key, value) => setEditDraft(current => ({ ...current, [key]: value }))} onEditApply={() => applyEdit(entry.id)} onEditCancel={() => { setEditingCard(null); setEditDraft({}) }} />}
                 {entry.type === 'chain' && <ChainProposalCard proposal={entry.proposal} draft={chainDrafts[entry.id]} busy={cardBusy[entry.id]} error={cardErrors[entry.id]} onDraftChange={value => setChainDrafts(current => ({ ...current, [entry.id]: value }))} onConfirm={raw => confirmChain(entry, raw)} onCancel={() => removeCard(entry.id)} />}
                 {entry.type === 'hermes' && <div className="rounded border border-champagne/40 bg-ink p-3"><div className="whitespace-pre-wrap text-sm text-stone">{entry.text}</div>{entry.needsInput?.id && <div className="mt-2 text-xs text-champagne">Needs input: {entry.needsInput.id}</div>}<div className="mt-2 text-xs font-mono text-champagne">{entry.token}</div></div>}
+                {entry.type === 'objective' && <div className="rounded border border-champagne/50 bg-ink p-3"><div className="flex items-center justify-between gap-2"><div className="text-sm font-semibold text-ivory">Executive objective {entry.parentId}</div><StatusChip status={entry.status}>{entry.status}</StatusChip></div><div className="mt-2 whitespace-pre-wrap text-sm text-stone">{entry.summary || 'Hermes is executing the dependency chain.'}</div>{entry.steps?.length > 0 && <div className="mt-2 text-xs text-taupe">{entry.steps.length} tracked stage(s); downstream work continues automatically.</div>}{entry.outcomeArtifact && <div className="mt-2 text-xs font-mono text-champagne">{entry.outcomeArtifact}</div>}<div className="mt-2 text-xs font-mono text-champagne">{entry.token}</div></div>}
                 {entry.type === 'created' && <div className="rounded border border-olive/50 bg-olive/10 p-3 text-sm text-stone"><CheckCircle2 size={14} className="mr-2 inline text-olive" />{entry.mode === 'chain' ? 'Chain filed' : entry.mode === 'run' ? 'Queued to run' : 'Saved to queue'}: {entry.item?.id}{entry.steps?.length ? ` (${entry.steps.length} steps)` : ''}</div>}
                 {entry.type === 'error' && <div className="rounded border border-clay/60 bg-clay/10 p-3 text-sm text-clay">{entry.text}</div>}
               </div>
             ))}
-            {!thread.length && <EmptyState title="No messages yet" detail="Submit a command to produce a confirmation card before any queue mutation." />}
+            {!thread.length && <EmptyState title="No messages yet" detail="Submit an ordinary objective. Multi-stage work is planned, tracked, delegated, and continued by Hermes; simple deterministic routes still produce a confirmation card." />}
           </div>
         </section>
         <form onSubmit={submit} className="rounded border border-softgraph bg-graphite/70 p-4">

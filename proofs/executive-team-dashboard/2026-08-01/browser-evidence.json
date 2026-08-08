@@ -1,0 +1,309 @@
+{
+  "success": true,
+  "timestamp": "2026-08-01T16:05:08.039Z",
+  "base_url": "http://127.0.0.1:3010",
+  "permanent_card_count": 6,
+  "before": {
+    "queue_count": 441,
+    "queue_sha256": "4d935c56689b565249c4d78d0c614d2ba6fc9870ed6b04624775672c29d179f9",
+    "run_ledger_count": 318,
+    "token_ledger_count": 1064,
+    "receipt_count": 1263
+  },
+  "after": {
+    "queue_count": 441,
+    "queue_sha256": "4d935c56689b565249c4d78d0c614d2ba6fc9870ed6b04624775672c29d179f9",
+    "run_ledger_count": 318,
+    "token_ledger_count": 1064,
+    "receipt_count": 1263
+  },
+  "queue_unchanged": true,
+  "double_click_request_count": 1,
+  "results": [
+    {
+      "executive_id": "hermes",
+      "requested_profile": "operator-lean",
+      "actual_profile": "operator-lean",
+      "fallback_occurred": false,
+      "status": "success",
+      "context": {
+        "classification": "executive_header_only",
+        "sources": [
+          {
+            "label": "executive_header",
+            "path": "context/EXECUTIVE_HEADER.txt",
+            "available": true,
+            "sha256": "0135f071423b335bfb5da315c8a0f2eb0c8828fa2f687bab279303100de26b8a",
+            "byte_count": 91
+          }
+        ],
+        "executive_header_included": true,
+        "executive_brief_included": false,
+        "named_profile_context": "operator-lean",
+        "stale": false
+      },
+      "queue_effect": {
+        "action": "none",
+        "before": {
+          "count": 441,
+          "sha256": "4d935c56689b565249c4d78d0c614d2ba6fc9870ed6b04624775672c29d179f9"
+        },
+        "after": {
+          "count": 441,
+          "sha256": "4d935c56689b565249c4d78d0c614d2ba6fc9870ed6b04624775672c29d179f9"
+        },
+        "items_created": 0,
+        "unchanged": true
+      },
+      "idempotency": {
+        "request_id": "361203ed-e498-48ae-bd5d-f7b2060f43c7",
+        "replayed": false
+      },
+      "invocation_id": "hermes-0244cefba56b4480a9851c766acb112e",
+      "response": "Focus today on converting the “awaiting you” pile into revenue movement. With 48 items waiting and the oldest commitment at 25 days, Time to Revenue is probably being slowed more by unresolved decisions/approvals than by new execution.\n\nThree most important actions:\n\n1. Clear the oldest revenue-blocking commitments first  \n   Start with anything tied to active deals, proposals, delivery starts, invoices, or customer approvals. A 25-day-old open commitment is the biggest TTR risk signal.\n\n2. Triage the 48 awaiting-you items into: approve, reject, unblock, defer  \n   Do not fully process everything. Spend the first pass identifying which items directly affect cash, deal progression, launch dates, or customer confidence. Handle those today.\n\n3. Resolve the 11 unknowns enough to assign ownership or next step  \n   “Unknown” is a revenue drag because nobody knows whether it matters. Convert each unknown into either a named owner, a concrete next action, or an intentional parking-lot item.\n\nMy judgment: today is not a strategy day. It is a bottleneck-clearing day. The highest-leverage move is to reduce Liam-dependency on anything connected to near-term revenue.",
+      "error": null
+    },
+    {
+      "executive_id": "revenue",
+      "requested_profile": "aos-revenue",
+      "actual_profile": "aos-revenue",
+      "fallback_occurred": false,
+      "status": "success",
+      "context": {
+        "classification": "named_department_profile",
+        "sources": [
+          {
+            "label": "department_profile_contract",
+            "path": "queue/profiles/aos-revenue.md",
+            "available": true,
+            "sha256": "20efde03b2b983d966e038d05a688341d5bba6977fbaf99f49cc7374efcd4395",
+            "byte_count": 632
+          },
+          {
+            "label": "runtime_profile_selector",
+            "profile": "aos-revenue",
+            "available": true
+          }
+        ],
+        "executive_header_included": false,
+        "executive_brief_included": false,
+        "named_profile_context": "aos-revenue",
+        "stale": false
+      },
+      "queue_effect": {
+        "action": "none",
+        "before": {
+          "count": 441,
+          "sha256": "4d935c56689b565249c4d78d0c614d2ba6fc9870ed6b04624775672c29d179f9"
+        },
+        "after": {
+          "count": 441,
+          "sha256": "4d935c56689b565249c4d78d0c614d2ba6fc9870ed6b04624775672c29d179f9"
+        },
+        "items_created": 0,
+        "unchanged": true
+      },
+      "idempotency": {
+        "request_id": "a59416fe-f46a-4cc2-b919-b373c0e92c8c",
+        "replayed": false
+      },
+      "invocation_id": "hermes-1e521feb003f4587bc06d0031ebfa9c0",
+      "response": "Strongest immediate route to new revenue: sell the Speed-to-Lead / inbound response wedge to service businesses that are already leaking revenue from slow or inconsistent follow-up.\n\nThis is the best near-term route because it is specific, painful, measurable, and close to money. It avoids vague “AI transformation” selling and gives Liam a clear commercial promise: capture more of the demand you already paid for.\n\nThree actions:\n\n1. Build a short target list of high-intent service businesses with visible lead leakage\n\nFocus on businesses where delayed response has direct revenue cost:\n\n- home services\n- clinics / health-adjacent services\n- legal / immigration / financial advisory\n- B2B agencies or consultancies with inbound forms\n- high-ticket local services\n- growing firms running paid ads or SEO but with weak intake\n\nLook for public signals:\n\n- “Book a consultation” or “Request a quote” forms\n- active Google Ads / SEO landing pages\n- multiple service pages but generic intake\n- reviews mentioning slow response, missed calls, confusion, or poor communication\n- job posts for admin, receptionist, sales coordinator, or operations help\n- founder-led firms where the owner is still visibly handling sales/admin\n\nWhy this is strongest:\nThese businesses already have demand. TTR does not need to convince them AI is interesting; it needs to show that response speed and follow-up consistency are costing them booked calls and revenue. That makes the offer easier to understand and easier to justify.\n\n2. Run a “lead response leak” diagnostic before pitching implementation\n\nFor each prospect, prepare a simple diagnosis:\n\n- Where leads currently enter: form, phone, email, chat, booking page\n- What happens after the inquiry: immediate booking, manual callback, generic thank-you, no next step\n- Friction points: unclear CTA, slow handoff, no qualification, no reminder, no nurture\n- Likely revenue leak: missed speed-to-lead window, untracked inquiries, inconsistent follow-up\n- Suggested system: instant response, qualification, routing, booking, CRM update, follow-up sequence\n\nDo not lead with tools. Lead with the business issue:\n\n“You appear to be investing in demand capture, but the intake path looks manual or delayed. The fastest win may be tightening the response system before adding more lead volume.”\n\nWhy this is strongest:\nIt positions TTR as a commercial operator, not an AI vendor. The prospect sees a specific leak in their funnel. That creates a natural bridge to a paid diagnostic or implementation offer.\n\n3. Package the first sale as a low-friction Speed-to-Lead Sprint\n\nImmediate offer shape:\n\n- 1-week or 2-week sprint\n- audit current inbound path\n- map response workflow\n- implement instant lead acknowledgement\n- add basic qualification\n- route qualified leads to booking / CRM / inbox\n- add follow-up reminders or nurture\n- produce before/after response proof\n\nSuggested positioning:\n\n“Speed-to-Lead Sprint: turn inbound inquiries into booked conversations faster, without hiring another admin.”\n\nWhy this is strongest:\nIt is easier to buy than a broad AI ops engagement. It has a clear before/after. It can expand into CRM cleanup, pipeline automation, reporting, follow-up sequences, and broader operations work. It also creates proof TTR can reuse in future sales conversations.\n\nBottom line:\nDo not start with general AI consulting. Start with revenue leakage in inbound response. The fastest path is:\n\nTarget businesses already generating leads → diagnose visible intake leaks → sell a focused Speed-to-Lead Sprint.\n\nThat gives Time to Revenue the highest chance of near-term paid work because the pain is close to revenue, the buyer can understand it quickly, and the delivery can be scoped tightly.",
+      "error": null
+    },
+    {
+      "executive_id": "marketing",
+      "requested_profile": "aos-marketing",
+      "actual_profile": "aos-marketing",
+      "fallback_occurred": false,
+      "status": "success",
+      "context": {
+        "classification": "named_department_profile",
+        "sources": [
+          {
+            "label": "department_profile_contract",
+            "path": "queue/profiles/aos-marketing.md",
+            "available": true,
+            "sha256": "d4fcf0562461cf0fe78c57a8a2777661ec1508f68f6e4916bb23b17511e8b0b8",
+            "byte_count": 629
+          },
+          {
+            "label": "runtime_profile_selector",
+            "profile": "aos-marketing",
+            "available": true
+          }
+        ],
+        "executive_header_included": false,
+        "executive_brief_included": false,
+        "named_profile_context": "aos-marketing",
+        "stale": false
+      },
+      "queue_effect": {
+        "action": "none",
+        "before": {
+          "count": 441,
+          "sha256": "4d935c56689b565249c4d78d0c614d2ba6fc9870ed6b04624775672c29d179f9"
+        },
+        "after": {
+          "count": 441,
+          "sha256": "4d935c56689b565249c4d78d0c614d2ba6fc9870ed6b04624775672c29d179f9"
+        },
+        "items_created": 0,
+        "unchanged": true
+      },
+      "idempotency": {
+        "request_id": "d930d0fa-6de4-4498-9eae-5517f9829911",
+        "replayed": false
+      },
+      "invocation_id": "hermes-da534b357b3c4e2088496b002700ad72",
+      "response": "Focused campaign: “Your leads are going cold before you see them”\n\nAudience:\nOwner-led service businesses with inbound demand but inconsistent follow-up — especially firms where enquiries arrive through website forms, email, voicemail, social DMs, or referral intros and response time depends on a busy founder or coordinator.\n\nCore message:\nYou do not need more leads if the ones you already earn are waiting hours or days for a response. Time to Revenue helps service businesses install a Speed-to-Lead system that captures every enquiry, routes it properly, follows up fast, and gives the team visibility into what is slipping.\n\nPrimary asset:\nA short diagnostic landing page or one-page PDF:\n“Speed-to-Lead Leak Check: 7 places revenue is lost before the first sales conversation”\n\nStructure:\n- Answer-first intro: “Most inbound revenue leakage happens before a human conversation starts.”\n- 7 common leak points:\n  1. Form submissions go to one inbox.\n  2. No immediate acknowledgement.\n  3. No clear owner for each lead.\n  4. DMs and voicemails sit outside the CRM.\n  5. Follow-up depends on memory.\n  6. No visibility into missed response-time targets.\n  7. No simple escalation path for high-intent enquiries.\n- CTA: “Book a Speed-to-Lead diagnostic. We’ll map your current inbound path and show where revenue is leaking.”\n\nNext step:\nDraft the landing page or LinkedIn post version of this campaign, keeping it tightly tied to the Speed-to-Lead wedge and avoiding any broader “AI transformation” language.",
+      "error": null
+    },
+    {
+      "executive_id": "delivery",
+      "requested_profile": "aos-delivery",
+      "actual_profile": "aos-delivery",
+      "fallback_occurred": false,
+      "status": "success",
+      "context": {
+        "classification": "named_department_profile",
+        "sources": [
+          {
+            "label": "department_profile_contract",
+            "path": "queue/profiles/aos-delivery.md",
+            "available": true,
+            "sha256": "32f951cf3e2e64045aa44c3b187fd491e809dbbb179de083bd1e663699569369",
+            "byte_count": 627
+          },
+          {
+            "label": "runtime_profile_selector",
+            "profile": "aos-delivery",
+            "available": true
+          }
+        ],
+        "executive_header_included": false,
+        "executive_brief_included": false,
+        "named_profile_context": "aos-delivery",
+        "stale": false
+      },
+      "queue_effect": {
+        "action": "none",
+        "before": {
+          "count": 441,
+          "sha256": "4d935c56689b565249c4d78d0c614d2ba6fc9870ed6b04624775672c29d179f9"
+        },
+        "after": {
+          "count": 441,
+          "sha256": "4d935c56689b565249c4d78d0c614d2ba6fc9870ed6b04624775672c29d179f9"
+        },
+        "items_created": 0,
+        "unchanged": true
+      },
+      "idempotency": {
+        "request_id": "6a091d00-7459-4401-b73f-5f2912db0c5e",
+        "replayed": false
+      },
+      "invocation_id": "hermes-349b5c385c624f6cb3c0c2b69a436ab4",
+      "response": "First five steps to onboard a new Speed-to-Lead client:\n\n1. Confirm scope and success criteria\n   - Define what “Speed-to-Lead” means for this client.\n   - Confirm target response time, lead sources covered, handoff expectations, and what counts as a qualified lead.\n   - Lock the completion contract before touching systems.\n\n2. Map the current inbound lead flow\n   - Identify every source of inbound leads: website forms, ads, directories, referrals, phone calls, chat, email, CRM entries, etc.\n   - Document where each lead goes today, who sees it, how fast they respond, and where leads get lost.\n\n3. Audit the existing tools and access requirements\n   - Review CRM, inboxes, form tools, calendar, phone/SMS systems, automations, and notification channels.\n   - Determine what can be improved with configuration versus what needs a new automation layer.\n   - No access or system changes happen until explicitly approved.\n\n4. Design the target response workflow\n   - Define the ideal path from lead capture to first response to booked appointment or sales handoff.\n   - Include routing rules, fallback rules, SLA alerts, deduplication, and owner assignment.\n   - Decide what messages are automated, semi-automated, or human-owned.\n\n5. Build the implementation checklist and acceptance test\n   - Translate the workflow into a step-by-step build plan.\n   - Define test leads for each source.\n   - Set acceptance criteria: lead captured, routed correctly, response sent, owner notified, CRM updated, and failure states visible.\n\nInformation I would need:\n\nClient/business basics\n- Client name\n- Website\n- Service area\n- Core offer/services\n- Ideal customer profile\n- Sales team structure\n- Who owns inbound response\n\nLead sources\n- Website forms\n- Landing pages\n- Paid ad platforms\n- Google Business Profile\n- Direct email addresses\n- Phone numbers\n- Chat widgets\n- Referral sources\n- Any third-party marketplaces/directories\n\nCurrent systems\n- CRM used\n- Form builder/CMS\n- Email provider\n- SMS/phone provider\n- Calendar/booking tool\n- Automation tools already in use\n- Shared inboxes or notification channels\n- Existing Zapier/Make/native automations\n\nOperational requirements\n- Desired response time SLA\n- Business hours and after-hours rules\n- Qualification criteria\n- Lead routing logic\n- Sales handoff process\n- Appointment booking rules\n- Escalation/fallback process if no one responds\n\nMessaging requirements\n- Approved tone/voice\n- First-response templates, if any\n- Compliance constraints\n- Services/prices that can or cannot be mentioned automatically\n- Required disclaimers\n\nAccess and approvals\n- Which systems we are approved to inspect\n- Which systems we are approved to modify\n- Whether external actions are approved for this build\n- Primary client contact for approvals\n- Test lead details we are allowed to use\n\nThe delivery judgment: do not start by building automations. Start by proving the current lead path, defining the commercial response standard, then building only against tested acceptance criteria.",
+      "error": null
+    },
+    {
+      "executive_id": "operations",
+      "requested_profile": "aos-ops",
+      "actual_profile": "aos-ops",
+      "fallback_occurred": false,
+      "status": "success",
+      "context": {
+        "classification": "named_department_profile",
+        "sources": [
+          {
+            "label": "department_profile_contract",
+            "path": "queue/profiles/aos-ops.md",
+            "available": true,
+            "sha256": "b1c989ae4b8031776e49d6dbb49d24d51580a609ec1fd7561d12cae5373de5d0",
+            "byte_count": 633
+          },
+          {
+            "label": "runtime_profile_selector",
+            "profile": "aos-ops",
+            "available": true
+          }
+        ],
+        "executive_header_included": false,
+        "executive_brief_included": false,
+        "named_profile_context": "aos-ops",
+        "stale": false
+      },
+      "queue_effect": {
+        "action": "none",
+        "before": {
+          "count": 441,
+          "sha256": "4d935c56689b565249c4d78d0c614d2ba6fc9870ed6b04624775672c29d179f9"
+        },
+        "after": {
+          "count": 441,
+          "sha256": "4d935c56689b565249c4d78d0c614d2ba6fc9870ed6b04624775672c29d179f9"
+        },
+        "items_created": 0,
+        "unchanged": true
+      },
+      "idempotency": {
+        "request_id": "41ad1919-43bf-44a9-8c27-bb5c526428db",
+        "replayed": false
+      },
+      "invocation_id": "hermes-c40773a4055440b38b0db123aee61a3c",
+      "response": "Based on the ops profile’s judgment, the top three operational priorities/blockers that could slow Time to Revenue this week are:\n\n1. Receipt completeness drift\n\nBlocker:\nWork can look “done” before it is actually verifiable. If queue items close without clear completion contracts, evidence, token usage, and risk notes, Liam loses trust in the system and follow-up work slows down.\n\nNext action:\nRun a receipt-completeness check on this week’s recently completed or in-progress work before anything is considered closed. Any item missing proof, decision notes, or “Token usage: unavailable” where applicable should be corrected before new work is layered on top.\n\n2. Maintenance / rot loop slippage\n\nBlocker:\nThe OS has many moving parts: lane profiles, rules, skills, hooks, wiki pages, token ledger, protected paths, and revisit dates. If the weekly light scan or monthly `/maintain-os` cadence slips, stale instructions and silent drift can create friction across every lane.\n\nNext action:\nPrioritize a lightweight weekly drift review: check for stale Revisit dates, rules contradictions, broken hooks, unused or v0 skills, and any profile/config mismatch. Do not change anything automatically; surface only the highest-confidence findings for Liam’s decision.\n\n3. Ambiguous ownership between lanes\n\nBlocker:\nIf work crosses revenue, marketing, delivery, and ops boundaries without a clear lane owner, it can stall in triage or get handled by the wrong profile. The most likely slowdown is not execution capacity; it is unclear routing and unclear completion criteria.\n\nNext action:\nFor any active or new request this week, force a simple classification before work starts: lane, owner profile, completion contract, external-action flag, and token budget class. If the lane is unclear, the orchestrator should hold it rather than letting departments improvise across boundaries.\n\nBottom line:\nThe biggest risk this week is not a single technical blocker. It is operating-system trust: incomplete receipts, stale maintenance signals, and unclear routing. Tighten those three and the rest of the work will move faster.",
+      "error": null
+    },
+    {
+      "executive_id": "executive-team",
+      "requested_profile": "aos-orchestrator",
+      "actual_profile": "aos-orchestrator",
+      "fallback_occurred": false,
+      "status": "success",
+      "context": {
+        "classification": "full_executive_brief",
+        "sources": [
+          {
+            "label": "executive_brief",
+            "path": "context/EXECUTIVE_BRIEF.md",
+            "available": true,
+            "sha256": "c2676b15d4c1debbeb007c5a59872a080f69cd55dd02a2ad4d46b409353150c6",
+            "byte_count": 7073
+          }
+        ],
+        "executive_header_included": false,
+        "executive_brief_included": true,
+        "named_profile_context": "aos-orchestrator",
+        "stale": false
+      },
+      "queue_effect": {
+        "action": "none",
+        "before": {
+          "count": 441,
+          "sha256": "4d935c56689b565249c4d78d0c614d2ba6fc9870ed6b04624775672c29d179f9"
+        },
+        "after": {
+          "count": 441,
+          "sha256": "4d935c56689b565249c4d78d0c614d2ba6fc9870ed6b04624775672c29d179f9"
+        },
+        "items_created": 0,
+        "unchanged": true
+      },
+      "idempotency": {
+        "request_id": "df7de339-4c6f-40a9-b79c-12963639d779",
+        "replayed": false
+      },
+      "invocation_id": "hermes-69ccb326805d458094664dd4a239987f",
+      "response": "Integrated Speed-to-Lead plan — Revenue + Marketing\n\nObjective:\nTurn Speed-to-Lead into the immediate commercial wedge for Time to Revenue by pairing a clear revenue motion with a focused marketing signal. The plan should create conversations with service businesses where inbound response speed is visibly costing money.\n\nPrimary owner:\nRevenue owns pipeline creation and sales conversations.\n\nSupporting owner:\nMarketing owns market education, proof framing, and campaign assets.\n\nOrchestrator role:\nKeep the offer tight, sequence the work, and prevent “content activity” from replacing buyer conversations.\n\n---\n\n1. Core offer position\n\nOffer name:\nSpeed-to-Lead Response System\n\nPromise:\nWhen a qualified inbound lead arrives, the business responds fast, consistently, and with the right next step — without relying on a human remembering to check email, forms, DMs, or voicemail.\n\nCommercial framing:\nMost service businesses do not have a “lead problem” first. They have a response gap:\n- leads sit too long\n- replies are inconsistent\n- ownership is unclear\n- follow-up depends on memory\n- CRM notes lag reality\n- the first useful reply happens after the buyer has already contacted competitors\n\nTTR’s wedge:\nDiagnose the response gap, implement the minimum working system, then optimize once live.\n\nDo not sell:\n“AI automation.”\n\nSell:\nRecovered revenue from faster inbound handling.\n\n---\n\n2. Target buyer for this push\n\nBest immediate audience:\nGrowing local or regional service businesses where leads are valuable and response timing matters.\n\nPriority examples:\n- home services\n- clinics / private health services\n- legal intake\n- real estate services\n- B2B service firms with consultation requests\n- agencies or consultancies with inconsistent inbound triage\n\nBuyer:\nOwner, GM, operations lead, sales manager, or founder who knows leads are slipping but does not have a clean system.\n\nTrigger:\n“We’re getting inquiries, but I’m not confident every lead is handled quickly or consistently.”\n\n---\n\n3. Revenue plan\n\nOwner: Revenue\n\nGoal:\nCreate qualified conversations around a concrete operational pain: slow or inconsistent inbound response.\n\nRevenue actions:\n\nA. Define the diagnostic entry point\nOffer a simple Speed-to-Lead Review, not a full transformation project.\n\nSuggested diagnostic promise:\n“In 30 minutes, we’ll map what happens from first inquiry to first useful response and identify the biggest leak in your current flow.”\n\nOutput of diagnostic:\n- current lead sources\n- current response path\n- delay points\n- ownership gaps\n- immediate fix recommendations\n- whether a system build is warranted\n\nB. Build a short outbound list\nRevenue should identify 20–30 businesses with visible inbound channels and likely response complexity.\n\nSelection criteria:\n- multiple lead channels: website form, phone, email, social, booking link\n- high-value customer acquisition\n- founder/owner-led or ops-constrained\n- evidence of active marketing or paid acquisition\n- weak or generic intake path\n\nC. Direct outreach angle\nDo not lead with AI. Lead with revenue leakage.\n\nExample angle:\n“Noticed you have a few different ways prospects can reach you. I help service businesses tighten the first 5 minutes after an inquiry so leads don’t sit, get missed, or get inconsistent replies. Worth a quick look at where your current response path may be leaking?”\n\nD. Sales conversation structure\n1. What counts as an inbound lead?\n2. Where do leads arrive?\n3. Who sees them first?\n4. How fast is first useful response?\n5. What happens if no one replies?\n6. What is a missed lead worth?\n7. What would need to be true for this to be worth fixing now?\n\nRevenue deliverable:\nA qualified conversation, not a polished campaign.\n\n---\n\n4. Marketing plan\n\nOwner: Marketing\n\nGoal:\nMake the Speed-to-Lead problem obvious and commercially urgent before and during Revenue outreach.\n\nMarketing actions:\n\nA. Create one focused campaign theme\nCampaign theme:\n“Your next customer is not waiting for your workflow.”\n\nCore message:\nIf a buyer is ready now, slow response is not admin friction — it is revenue leakage.\n\nB. Produce three supporting assets\n\nAsset 1: LinkedIn post\nTopic:\n“The first 5 minutes after an inbound lead matter more than your AI strategy.”\n\nPurpose:\nMarket education and founder resonance.\n\nAsset 2: One-page diagnostic explainer\nTitle:\n“Speed-to-Lead Review: Find the leaks between inquiry and response.”\n\nPurpose:\nGive Revenue something simple to send after interest.\n\nSections:\n- who it is for\n- symptoms\n- what gets reviewed\n- what the buyer receives\n- what happens after the review\n\nAsset 3: Short checklist\nTitle:\n“Speed-to-Lead Leak Checklist”\n\nQuestions:\n- Do all inquiry channels route to one visible place?\n- Is there a named owner for first response?\n- Is first response measured?\n- Are after-hours inquiries handled?\n- Is there automatic acknowledgement?\n- Is follow-up tracked?\n- Can you see which leads stalled?\n\nPurpose:\nUseful, non-salesy proof of expertise.\n\nC. Marketing should not publish broadly before Revenue has the offer language tight\nThe first version should support direct sales. Public content can come after Liam confirms the angle.\n\nMarketing deliverable:\nSales enablement and campaign clarity, not a content calendar.\n\n---\n\n5. Sequencing\n\nStep 1 — Align the offer\nOwner: Orchestrator + Revenue\nOutput:\nOne clear sentence for the Speed-to-Lead Review.\n\nRecommended version:\n“We help service businesses find and fix the gaps between a new inquiry and the first useful response, so fewer ready buyers slip away.”\n\nStep 2 — Define the diagnostic\nOwner: Revenue\nOutput:\nA 30-minute review format with 5–7 discovery questions and a simple post-call recommendation structure.\n\nStep 3 — Build the first prospect list\nOwner: Revenue\nOutput:\n20–30 businesses that likely have valuable inbound leads and imperfect response systems.\n\nStep 4 — Draft campaign assets\nOwner: Marketing\nOutput:\nLinkedIn post, one-page explainer, checklist.\n\nStep 5 — Run controlled outreach\nOwner: ",
+      "error": null
+    }
+  ],
+  "console_errors": [],
+  "failed_responses": [],
+  "screenshots": [
+    "01-cockpit-executive-team-cards.png",
+    "02-department-response.png",
+    "03-executive-team-response.png"
+  ]
+}
