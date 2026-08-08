@@ -70,3 +70,23 @@ export function resolveQueueSelection({ items, currentId, preferredId, nextId, s
   if (exists(nextId)) return nextId
   return list[0]?.id || null
 }
+
+export function selectionAfterTaskDeletion(items, deletedId) {
+  const list = Array.isArray(items) ? items : []
+  const deletedIndex = list.findIndex(item => item?.id === deletedId)
+  const remaining = list.filter(item => item?.id !== deletedId)
+  if (!remaining.length) return { items: remaining, selectedId: null }
+  const nextIndex = deletedIndex < 0 ? 0 : Math.min(deletedIndex, remaining.length - 1)
+  return { items: remaining, selectedId: remaining[nextIndex]?.id || null }
+}
+
+export const canSubmitTaskDeletion = ({ itemId, reason, confirmation, submitting }) =>
+  !submitting && Boolean(itemId) && String(reason || '').trim().length > 0 && String(reason || '').trim().length <= 240 && confirmation === itemId
+
+export function taskDeletionFailureMessage(detail) {
+  if (typeof detail === 'string' && detail.trim()) return detail.trim()
+  if (!detail || typeof detail !== 'object') return 'Task deletion failed without a usable backend reason.'
+  const message = String(detail.message || detail.code || 'Task deletion was refused.').trim()
+  const dependentIds = Array.isArray(detail.blockers?.dependent_ids) ? detail.blockers.dependent_ids.filter(Boolean) : []
+  return dependentIds.length ? `${message} Blocking dependents: ${dependentIds.join(', ')}.` : message
+}

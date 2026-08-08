@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { AlertCircle, CheckCircle2, Clipboard, FileText, Focus, FolderOpen, ListChecks, Plus, RefreshCw } from 'lucide-react'
-import { attachQueueReceipt, createQueueItem, externalActionDryRun, getQueueArtifact, getQueueItem, getQueueItemsForScope, getQueuePrompt, getQueueReceipt, getQueueStatus, openQueueArtifactFolder } from '../api'
+import { AlertCircle, CheckCircle2, Clipboard, FileText, Focus, FolderOpen, ListChecks, Plus, RefreshCw, Trash2 } from 'lucide-react'
+import { attachQueueReceipt, createQueueItem, deleteQueueItem, externalActionDryRun, getQueueArtifact, getQueueItem, getQueueItemsForScope, getQueuePrompt, getQueueReceipt, getQueueStatus, openQueueArtifactFolder } from '../api'
 import { laneColor, laneName, workbenchColor } from '../shellState'
-import { loadQueueScope, persistQueueScope, QUEUE_SCOPES, resolveQueueSelection } from '../queueState'
+import { canSubmitTaskDeletion, loadQueueScope, persistQueueScope, QUEUE_SCOPES, resolveQueueSelection, selectionAfterTaskDeletion, taskDeletionFailureMessage } from '../queueState'
 import { isReviewCardItem } from '../reviewCardState'
 import { HumanReviewCard } from '../components/HumanReviewCard'
 
@@ -140,6 +140,12 @@ const emptyCreateForm = {
 const emptyAnswerState = { submitting: false, answer: '', message: '', error: null }
 const emptyDryRunForm = { recipient: '', action: '', payload: '', confirmation: '' }
 const emptyDryRunState = { submitting: false, message: '', error: null, receiptPath: '' }
+const emptyDeletionState = { open: false, itemId: '', title: '', expectedHash: '', reason: '', confirmation: '', requestId: '', submitting: false }
+
+const newDeletionRequestId = () => {
+  const random = globalThis.crypto?.randomUUID?.().replace(/-/g, '') || `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`
+  return `delete-${random}`
+}
 
 // Locked safety distinction: internal-live ≠ third-party-live.
 const manualPlatformUrl = action => /linkedin|post|publish/i.test(action || '')
@@ -246,6 +252,8 @@ export default function Queue({ initialFilters = {}, onViewParamsChange, refresh
   const [primaryArtifactExpanded, setPrimaryArtifactExpanded] = useState(false)
   const [dryRunForm, setDryRunForm] = useState(emptyDryRunForm)
   const [dryRunState, setDryRunState] = useState(emptyDryRunState)
+  const [deletionState, setDeletionState] = useState(emptyDeletionState)
+  const [deletionNotice, setDeletionNotice] = useState({ message: '', error: null })
   const [finalStepSelection, setFinalStepSelection] = useState({ targetId: '', message: '' })
   const [focusMode, setFocusMode] = useState(false)
   const [listCollapsed, setListCollapsed] = useState(Boolean(initialSelectedId))
@@ -254,6 +262,7 @@ export default function Queue({ initialFilters = {}, onViewParamsChange, refresh
   const selectionRevisionRef = useRef(0)
   const refreshRequestRef = useRef(0)
   const detailRequestRef = useRef(0)
+  const deletionSubmittingRef = useRef(false)
   const [filePreview, setFilePreview] = useState({
     path: '',
     category: '',
@@ -290,6 +299,7 @@ export default function Queue({ initialFilters = {}, onViewParamsChange, refresh
       : 'Run assigned worker'
 
   const selectQueueItem = (id, notify = true) => {
+    if (deletionState.open && deletionState.itemId !== id) setDeletionState(emptyDeletionState)
     selectedIdRef.current = id
     selectionRevisionRef.current += 1
     setSelectedId(id)
@@ -614,6 +624,84 @@ export default function Queue({ initialFilters = {}, onViewParamsChange, refresh
     }
   }
 
+  const openTaskDeletion = () => {
+    if (!selected?.id) return
+    setDeletionNotice({ message: '', error: null })
+    setDeletionState({
+      open: true,
+      itemId: selected.id,
+      title: selected.title || 'Untitled queue item',
+      expectedHash: selected.record_hash || '',
+      reason: '',
+      confirmation: '',
+      requestId: newDeletionRequestId(),
+      submitting: false,
+    })
+  }
+
+  const cancelTaskDeletion = () => {
+    if (deletionSubmittingRef.current) return
+    setDeletionState(emptyDeletionState)
+  }
+
+  const submitTaskDeletion = async event => {
+    event.preventDefault()
+    if (deletionSubmittingRef.current || !canSubmitTaskDeletion({
+      itemId: deletionState.itemId,
+      reason: deletionState.reason,
+      confirmation: deletionState.confirmation,
+      submitting: deletionState.submitting,
+    })) return
+    if (!deletionState.expectedHash) {
+      setDeletionNotice({ message: '', error: 'This item has no deletion version. Refresh the queue and try again.' })
+      return
+    }
+
+    deletionSubmittingRef.current = true
+    setDeletionState(current => ({ ...current, submitting: true }))
+    setDeletionNotice({ message: '', error: null })
+    try {
+      const response = await deleteQueueItem(deletionState.itemId, {
+        expected_record_hash: deletionState.expectedHash,
+        deletion_reason: deletionState.reason.trim(),
+        request_id: deletionState.requestId,
+      })
+      if (response?.success === false || response?.ok === false || response?.deleted_item_id !== deletionState.itemId) {
+        throw new Error(response?.reason || response?.message || 'Task deletion did not return a valid result')
+      }
+
+      const deletedId = deletionState.itemId
+      const next = selectionAfterTaskDeletion(items, deletedId)
+      setItems(next.items)
+      selectedIdRef.current = next.selectedId
+      setSelectedId(next.selectedId)
+      setNextItem(current => current?.id === deletedId ? (next.items.find(item => !['done', 'cancelled'].includes(item.status)) || null) : current)
+      setStatus(current => current ? {
+        ...current,
+        counts: response.counts || current.counts,
+        totalCount: response.total_count ?? Math.max(0, (current.totalCount || items.length) - 1),
+        activeCount: Object.entries(response.counts || {}).reduce((total, [queueStatus, value]) => total + (!['done', 'cancelled'].includes(queueStatus) ? Number(value) || 0 : 0), 0),
+      } : current)
+      onViewParamsChange?.({ ...filters, selectedId: next.selectedId })
+      setDeletionState(emptyDeletionState)
+      setDeletionNotice({
+        message: `${deletedId} was permanently removed. Minimal tombstone: ${response.tombstone_reference}.`,
+        error: null,
+      })
+      await refreshQueue(next.selectedId)
+      await refresh?.()
+    } catch (error) {
+      const detail = error?.response?.data?.detail
+      setDeletionState(current => ({ ...current, submitting: false }))
+      setDeletionNotice({
+        message: '',
+        error: taskDeletionFailureMessage(detail || error?.message),
+      })
+    } finally {
+      deletionSubmittingRef.current = false
+    }
+  }
+
   const reason = state.error?.response?.data?.detail || state.error?.message
   const counts = status?.counts || {}
   const activeCount = status?.activeCount ?? items.filter(item => !['done', 'cancelled'].includes(item.status)).length
@@ -687,6 +775,16 @@ export default function Queue({ initialFilters = {}, onViewParamsChange, refresh
             Queue load failed
           </div>
           <div className="mt-2 text-xs font-mono text-taupe">{compactReason(reason)}</div>
+        </div>
+      )}
+
+      {(deletionNotice.message || deletionNotice.error) && (
+        <div
+          className={`rounded-lg border p-4 text-xs font-mono ${deletionNotice.error ? 'border-clay/40 bg-clay/10 text-clay' : 'border-champagne/30 bg-champagne/10 text-champagne'}`}
+          role={deletionNotice.error ? 'alert' : 'status'}
+          data-testid="task-deletion-notice"
+        >
+          {deletionNotice.error || deletionNotice.message}
         </div>
       )}
 
@@ -941,6 +1039,23 @@ export default function Queue({ initialFilters = {}, onViewParamsChange, refresh
           </div>
         </div>
 
+        <div className="space-y-3">
+        {selected && (
+          <div className="flex items-center justify-between gap-3 rounded-lg border border-softgraph bg-graphite px-4 py-3" data-testid="task-deletion-control">
+            <div className="min-w-0">
+              <div className="text-[11px] font-semibold uppercase tracking-wider text-taupe">Selected task safety</div>
+              <div className="mt-1 truncate text-xs font-mono text-stone">{selected.id} — permanent removal requires confirmation</div>
+            </div>
+            <button
+              type="button"
+              onClick={openTaskDeletion}
+              className="inline-flex flex-shrink-0 items-center gap-2 rounded border border-clay/40 bg-ink px-3 py-2 text-xs font-mono text-clay transition-colors hover:border-clay hover:bg-clay/10"
+              data-testid="open-task-deletion"
+            >
+              <Trash2 size={13} />Delete
+            </button>
+          </div>
+        )}
         {selected && isReviewCardItem(selected) ? (
           <HumanReviewCard
             item={selected}
@@ -1510,7 +1625,73 @@ export default function Queue({ initialFilters = {}, onViewParamsChange, refresh
           )}
         </div>
         )}
+        </div>
       </section>
+
+      {deletionState.open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" role="presentation" data-testid="task-deletion-overlay">
+          <form
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="task-deletion-title"
+            onSubmit={submitTaskDeletion}
+            className="w-full max-w-xl rounded-lg border border-clay/50 bg-graphite p-5 shadow-2xl"
+            data-testid="task-deletion-dialog"
+          >
+            <div className="flex items-start gap-3">
+              <AlertCircle size={20} className="mt-0.5 flex-shrink-0 text-clay" />
+              <div>
+                <h2 id="task-deletion-title" className="text-lg font-semibold text-ivory">Permanently delete this task?</h2>
+                <p className="mt-1 text-sm text-taupe">This removes the live queue record. Existing receipts and artifacts are not deleted.</p>
+              </div>
+            </div>
+            <div className="mt-4 rounded border border-softgraph bg-ink p-3">
+              <div className="font-mono text-xs text-champagne" data-testid="task-deletion-item-id">{deletionState.itemId}</div>
+              <div className="mt-1 break-words text-sm text-stone" data-testid="task-deletion-item-title">{deletionState.title}</div>
+            </div>
+            <div className="mt-4 space-y-3">
+              <FieldLabel label="Short deletion reason">
+                <input
+                  className={fieldBase}
+                  value={deletionState.reason}
+                  maxLength={240}
+                  onChange={event => setDeletionState(current => ({ ...current, reason: event.target.value }))}
+                  placeholder="Why this task should be permanently removed"
+                  autoFocus
+                  data-testid="task-deletion-reason"
+                />
+              </FieldLabel>
+              <FieldLabel label={`Type ${deletionState.itemId} to confirm`}>
+                <input
+                  className={fieldBase}
+                  value={deletionState.confirmation}
+                  onChange={event => setDeletionState(current => ({ ...current, confirmation: event.target.value }))}
+                  autoComplete="off"
+                  data-testid="task-deletion-confirmation"
+                />
+              </FieldLabel>
+            </div>
+            <div className="mt-5 flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                onClick={cancelTaskDeletion}
+                disabled={deletionState.submitting}
+                className="rounded border border-softgraph bg-ink px-3 py-2 text-xs font-mono text-stone disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={!canSubmitTaskDeletion({ itemId: deletionState.itemId, reason: deletionState.reason, confirmation: deletionState.confirmation, submitting: deletionState.submitting })}
+                className="inline-flex items-center gap-2 rounded bg-clay px-3 py-2 text-xs font-mono font-semibold text-ivory transition-colors hover:bg-clay/80 disabled:cursor-not-allowed disabled:opacity-50"
+                data-testid="confirm-task-deletion"
+              >
+                <Trash2 size={13} />{deletionState.submitting ? 'Deleting permanently...' : 'Permanently delete'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
     </div>
   )
 }

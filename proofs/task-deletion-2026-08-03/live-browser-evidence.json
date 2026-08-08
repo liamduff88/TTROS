@@ -1,0 +1,161 @@
+{
+  "success": true,
+  "proof_kind": "real Chromium against isolated Vite and real local backend",
+  "authoritative_queue": "queue/work_items.jsonl",
+  "start": {
+    "queue_count": 471,
+    "queue_sha256": "8ca8571ade68324acb84c074f05755a19f966eb866316536e60e024623173915",
+    "tombstone_count": 3,
+    "active_claim_count": 3,
+    "detached_executor_count": 0
+  },
+  "end": {
+    "queue_count": 471,
+    "queue_sha256": "8ca8571ade68324acb84c074f05755a19f966eb866316536e60e024623173915",
+    "tombstone_count": 8,
+    "active_claim_count": 3,
+    "detached_executor_count": 0
+  },
+  "status_counts_start_and_end": {
+    "inbox": 1,
+    "agent_todo": 3,
+    "agent_working": 0,
+    "needs_input": 9,
+    "human_review": 72,
+    "done": 67,
+    "blocked": 17,
+    "cancelled": 302
+  },
+  "operations": [
+    {
+      "name": "cancel_confirmation",
+      "item_id": "AOS-2026-0475",
+      "queue_count_before": 472,
+      "queue_count_after": 472,
+      "queue_hash_unchanged": true,
+      "tombstones_before": 3,
+      "tombstones_after": 3,
+      "claims_unchanged": true,
+      "executors_unchanged": true
+    },
+    {
+      "name": "delete_primary_in_ui",
+      "item_id": "AOS-2026-0475",
+      "queue_count_before": 472,
+      "queue_count_after": 471,
+      "tombstones_before": 3,
+      "tombstones_after": 4,
+      "card_removed_without_reload": true,
+      "next_item_selected": true,
+      "claims_unchanged": true,
+      "executors_unchanged": true
+    },
+    {
+      "name": "replay_same_request",
+      "item_id": "AOS-2026-0475",
+      "queue_count_before": 471,
+      "queue_count_after": 471,
+      "queue_hash_unchanged": true,
+      "tombstones_before": 4,
+      "tombstones_after": 4,
+      "idempotent_replay": true,
+      "claims_unchanged": true,
+      "executors_unchanged": true
+    },
+    {
+      "name": "independent_request_after_deletion",
+      "item_id": "AOS-2026-0475",
+      "http_status": 410,
+      "code": "already_deleted",
+      "mutation": false
+    },
+    {
+      "name": "refuse_stale_state",
+      "item_id": "AOS-2026-0476",
+      "http_status": 409,
+      "code": "stale_queue_state",
+      "queue_count_before": 472,
+      "queue_count_after": 472,
+      "queue_hash_unchanged": true,
+      "tombstones_before": 4,
+      "tombstones_after": 4,
+      "claims_unchanged": true,
+      "executors_unchanged": true
+    },
+    {
+      "name": "refuse_agent_working",
+      "item_id": "AOS-2026-0477",
+      "http_status": 409,
+      "code": "agent_working",
+      "queue_count_before": 472,
+      "queue_count_after": 472,
+      "queue_hash_unchanged": true,
+      "tombstones_before": 5,
+      "tombstones_after": 5,
+      "message_requires_cancel_or_stop": true,
+      "claims_unchanged": true,
+      "executors_unchanged": true
+    },
+    {
+      "name": "refuse_nonterminal_dependent",
+      "item_id": "AOS-2026-0478",
+      "blocking_dependent_ids": ["AOS-2026-0479"],
+      "http_status": 409,
+      "code": "active_dependents",
+      "queue_count_before": 473,
+      "queue_count_after": 473,
+      "queue_hash_unchanged": true,
+      "tombstones_before": 6,
+      "tombstones_after": 6,
+      "claims_unchanged": true,
+      "executors_unchanged": true
+    },
+    {
+      "name": "refuse_protected_item",
+      "item_id": "AOS-2026-0071",
+      "http_status": 403,
+      "code": "immutable_item",
+      "queue_count_before": 471,
+      "queue_count_after": 471,
+      "queue_sha256_before": "8ca8571ade68324acb84c074f05755a19f966eb866316536e60e024623173915",
+      "queue_sha256_after": "8ca8571ade68324acb84c074f05755a19f966eb866316536e60e024623173915",
+      "tombstones_before": 8,
+      "tombstones_after": 8,
+      "claims_before": 3,
+      "claims_after": 3,
+      "executors_before": 0,
+      "executors_after": 0,
+      "record_hash_unchanged": true
+    }
+  ],
+  "primary_tombstone": {
+    "keys": [
+      "created_at",
+      "deleted_at",
+      "deleted_by",
+      "deletion_reason",
+      "item_id",
+      "owner",
+      "previous_status",
+      "record_sha256",
+      "title"
+    ],
+    "record_sha256": "9a828683fb254e3a300fa147164ac291e8b589c4fba8aabee1a2073df707d97a",
+    "bounded_title_length": 54,
+    "bounded_reason_length": 28,
+    "forbidden_context_absent": true
+  },
+  "aggregate_tombstones": {
+    "count": 8,
+    "all_keys_allowed": true,
+    "all_required_keys_present": true,
+    "duplicate_item_id_count": 0,
+    "forbidden_keys_present": [],
+    "forbidden_value_markers_present": [],
+    "pending_tombstone_count": 0
+  },
+  "safe_fixture_tasks_cleaned_through_delete_path": 5,
+  "safe_fixture_tasks_remaining": 0,
+  "existing_business_tasks_deleted": 0,
+  "screenshot": "proofs/task-deletion-2026-08-03/live-confirmation.png"
+}

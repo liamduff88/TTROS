@@ -1,0 +1,20 @@
+{
+  "success": true,
+  "proof_kind": "rendered Work Queue browser interaction with safe mocked items",
+  "confirmation_shows_exact_id_and_title": true,
+  "cancelled_without_request": true,
+  "double_submit_delete_calls": 1,
+  "deleted_without_reload": true,
+  "selected_next_item": "AOS-2026-9902",
+  "success_message_visible": true,
+  "idempotent_replay": true,
+  "tombstone_count": 1,
+  "honest_failure_states": [
+    "stale_queue_state",
+    "agent_working",
+    "active_dependents",
+    "immutable_item"
+  ],
+  "dependent_ids_visible": true,
+  "screenshot": "proofs/task-deletion-2026-08-03/frontend-confirmation.png"
+}

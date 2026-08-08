@@ -1,0 +1,17 @@
+{
+  "success": true,
+  "focused_tests": 2,
+  "tests_exit_code": 0,
+  "queue_before": {
+    "count": 471,
+    "sha256": "8ca8571ade68324acb84c074f05755a19f966eb866316536e60e024623173915"
+  },
+  "queue_after": {
+    "count": 471,
+    "sha256": "8ca8571ade68324acb84c074f05755a19f966eb866316536e60e024623173915"
+  },
+  "queue_unchanged": true,
+  "prior_real_browser_consultation_proof_success": true,
+  "prior_real_browser_consultation_queue_unchanged": true,
+  "prior_real_browser_evidence": "proofs/executive-team-dashboard/2026-08-01/browser-evidence.json"
+}

@@ -1,0 +1,22 @@
+{
+  "success": true,
+  "proof_kind": "real dispatch_next and claim_item against temporary safe queue root",
+  "fixture_count": 3,
+  "capacity_limit": 2,
+  "before": {
+    "active": 0,
+    "available": 2
+  },
+  "after_first": {
+    "active": 1,
+    "available": 1
+  },
+  "after_second": {
+    "active": 2,
+    "available": 0
+  },
+  "dispatched_count": 2,
+  "distinct_dispatches": true,
+  "third_dispatch_blocked_at_capacity": true,
+  "actual_model_or_legacy_launches": 0
+}
