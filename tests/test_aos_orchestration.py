@@ -58,6 +58,30 @@ def item(item_id, status, **extra):
 
 
 class AosOrchestrationTests(unittest.TestCase):
+    def test_artifact_refs_preserve_full_jsonl_suffix(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            receipt = root / "queue" / "receipts" / "AOS-2026-0489.md"
+            receipt.parent.mkdir(parents=True)
+            receipt.write_text(
+                "PASS\n\nValidation:\n- Exact usage: `logs/token_usage.jsonl`.\n",
+                encoding="utf-8",
+            )
+            work = item(
+                "AOS-2026-0489",
+                "done",
+                receipts=[{
+                    "path": "queue/receipts/AOS-2026-0489.md",
+                    "created_at": "2026-08-06T00:00:00Z",
+                    "status": "done",
+                }],
+            )
+
+            refs = runner.artifact_refs_for(root, work)
+
+        self.assertIn("logs/token_usage.jsonl", refs)
+        self.assertNotIn("logs/token_usage.json", refs)
+
     def test_completion_event_persists_successful_canonical_attachment_evidence(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -258,8 +282,7 @@ class AosOrchestrationTests(unittest.TestCase):
         self.assertIn("--watch --interval", launcher)
         self.assertNotIn("while true", launcher)
         self.assertIn("desktop-start) desktop_start", launcher)
-        self.assertIn("desktop_cleanup\n  preflight\n  start_backend\n  start_frontend", launcher)
-        self.assertNotIn("desktop_cleanup\n  preflight\n  start_backend\n  start_frontend\n  start_runner", launcher)
+        self.assertIn("desktop_cleanup\n  preflight\n  start_backend\n  start_frontend\n  start_runner", launcher)
         self.assertIn("if ! wait_http \"$BACKEND_URL\" backend; then\n    stop", launcher)
         self.assertIn("if ! wait_http \"$FRONTEND_URL\" frontend; then\n    stop", launcher)
         self.assertIn("grep -Ev 'grep|rg|codex|aos-linux-runtime\\.sh'", launcher)

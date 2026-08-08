@@ -336,6 +336,11 @@ export default function Queue({ initialFilters = {}, onViewParamsChange, refresh
   }, [scope])
 
   useEffect(() => {
+    const poll = window.setInterval(() => refreshQueue(selectedIdRef.current), 5000)
+    return () => window.clearInterval(poll)
+  }, [scope])
+
+  useEffect(() => {
     if (selectedId) setListCollapsed(true)
   }, [selectedId])
 

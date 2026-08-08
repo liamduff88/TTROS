@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Run deterministic queue transitions and tagged asynchronous dispatch work.
 
-Revisit: when queue claim or backend agent-timeout contracts change. · Last touched: 2026-07-18.
+Revisit: when queue claim, capacity, dependency, or backend agent-timeout contracts change. · Last touched: 2026-08-03.
 """
 
 from __future__ import annotations
@@ -44,6 +44,7 @@ DEFAULT_EXECUTION_TIMEOUT_SECONDS = 7800
 DEFAULT_REVIEW_TIMEOUT_SECONDS = 120
 DEFAULT_FINALIZATION_TIMEOUT_SECONDS = 120
 DEFAULT_GRACEFUL_TERMINATION_SECONDS = 10
+DEFAULT_MAX_CONCURRENT_EXECUTORS = 2
 
 
 def _timeout_from_env(name: str, default: int) -> int:
@@ -53,47 +54,121 @@ def _timeout_from_env(name: str, default: int) -> int:
         return default
 
 
+def _worker_runtime_live(item: dict) -> bool:
+    runtime = item.get("worker_runtime")
+    if not isinstance(runtime, dict):
+        return False
+    try:
+        pid = int(runtime.get("pid"))
+        stat = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
+        fields = stat.rsplit(") ", 1)[1].split()
+        actual_start_id = fields[19]
+    except (OSError, TypeError, ValueError, IndexError):
+        return False
+    expected_start_id = str(runtime.get("process_start_id") or "")
+    return bool(expected_start_id and actual_start_id == expected_start_id)
+
+
+def _heartbeat_age(item: dict, now: datetime.datetime) -> float | None:
+    value = item.get("worker_heartbeat_at") or (item.get("claim") or {}).get("claimed_at") or item.get("updated_at")
+    try:
+        parsed = datetime.datetime.fromisoformat(str(value or "").replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=datetime.timezone.utc)
+    return max(0.0, (now - parsed.astimezone(datetime.timezone.utc)).total_seconds())
+
+
+def _working_item_is_live(item: dict, now: datetime.datetime, lease_seconds: int) -> bool:
+    age = _heartbeat_age(item, now)
+    return _worker_runtime_live(item) or (age is not None and age < lease_seconds)
+
+
+def _completed_dependency(item: dict) -> bool:
+    if item.get("status") != "done":
+        return False
+    receipts = item.get("receipts") or []
+    latest = receipts[-1] if receipts else None
+    return isinstance(latest, dict) and latest.get("status") == "done"
+
+
+def _dependencies_satisfied(item: dict, by_id: dict[str, dict]) -> bool:
+    dependencies = [str(value) for value in item.get("depends_on") or [] if str(value).strip()]
+    return all(_completed_dependency(by_id.get(dependency, {})) for dependency in dependencies)
+
+
+def _pending_executor_item_ids(root: Path) -> set[str]:
+    """Return detached executors that have started but may not have claimed yet."""
+    pending: set[str] = set()
+    expected_runner = str(Path(__file__).resolve())
+    for proc in Path("/proc").glob("[0-9]*"):
+        try:
+            cwd = proc.joinpath("cwd").resolve()
+            args = [part.decode("utf-8", errors="replace") for part in proc.joinpath("cmdline").read_bytes().split(b"\0") if part]
+        except OSError:
+            continue
+        if cwd != root or expected_runner not in args or "--execute-item" not in args:
+            continue
+        index = args.index("--execute-item")
+        if index + 1 < len(args):
+            pending.add(args[index + 1])
+    return pending
+
+
+def async_dispatch_capacity(root: Path) -> dict:
+    items = load_items(root)
+    now = datetime.datetime.now(datetime.timezone.utc)
+    lease_seconds = _timeout_from_env("AOS_AGENT_LEASE_SECONDS", 90)
+    limit = _timeout_from_env("AOS_MAX_CONCURRENT_EXECUTORS", DEFAULT_MAX_CONCURRENT_EXECUTORS)
+    live_working = {
+        str(item.get("id") or "")
+        for item in items
+        if item.get("owner_type") != "workflow"
+        and item.get("status") == "agent_working"
+        and _working_item_is_live(item, now, lease_seconds)
+    }
+    pending = _pending_executor_item_ids(root) - live_working
+    active_ids = live_working | pending
+    return {
+        "limit": limit,
+        "active": len(active_ids),
+        "available": max(0, limit - len(active_ids)),
+        "active_ids": sorted(active_ids),
+        "lease_seconds": lease_seconds,
+    }
+
+
 def next_async_item(root: Path) -> dict | None:
+    items = load_items(root)
     tagged = [
-        item for item in load_items(root)
+        item for item in items
         if item.get("owner_type") != "workflow"
         and ASYNC_DISPATCH_TAG in {str(tag) for tag in item.get("tags") or []}
     ]
+    by_id = {str(item.get("id") or ""): item for item in items}
     now = datetime.datetime.now(datetime.timezone.utc)
     lease_seconds = _timeout_from_env("AOS_AGENT_LEASE_SECONDS", 90)
-
-    def heartbeat_age(item: dict) -> float | None:
-        value = item.get("worker_heartbeat_at") or (item.get("claim") or {}).get("claimed_at") or item.get("updated_at")
-        try:
-            parsed = datetime.datetime.fromisoformat(str(value or "").replace("Z", "+00:00"))
-        except ValueError:
-            return None
-        if parsed.tzinfo is None:
-            parsed = parsed.replace(tzinfo=datetime.timezone.utc)
-        return max(0.0, (now - parsed.astimezone(datetime.timezone.utc)).total_seconds())
-
-    def worker_runtime_live(item: dict) -> bool:
-        runtime = item.get("worker_runtime")
-        if not isinstance(runtime, dict):
-            return False
-        try:
-            pid = int(runtime.get("pid"))
-            stat = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
-            fields = stat.rsplit(") ", 1)[1].split()
-            actual_start_id = fields[19]
-        except (OSError, TypeError, ValueError, IndexError):
-            return False
-        expected_start_id = str(runtime.get("process_start_id") or "")
-        return bool(expected_start_id and actual_start_id == expected_start_id)
 
     abandoned = [
         item for item in tagged
         if item.get("status") == "agent_working"
-        and (heartbeat_age(item) is None or heartbeat_age(item) >= lease_seconds)
-        and not worker_runtime_live(item)
+        and not _working_item_is_live(item, now, lease_seconds)
     ]
-    ready = [item for item in tagged if item.get("status") == "agent_todo"]
-    candidates = abandoned or ready
+    if abandoned:
+        candidates = abandoned
+    else:
+        capacity = async_dispatch_capacity(root)
+        if capacity["available"] <= 0:
+            return None
+        pending = set(capacity["active_ids"])
+        candidates = [
+            item for item in tagged
+            if item.get("status") == "agent_todo"
+            and not (item.get("claim") or {}).get("claimed_by")
+            and str(item.get("id") or "") not in pending
+            and _dependencies_satisfied(item, by_id)
+        ]
     if not candidates:
         return None
     return sorted(candidates, key=lambda item: (-int(item.get("priority", 0)), item.get("created_at", ""), item.get("id", "")))[0]
@@ -289,6 +364,7 @@ def main() -> int:
     while True:
         result = tick(root, allow_telegram_escalation=not args.skip_telegram_escalation)
         result["dispatch"] = dispatch_next(root)
+        result["capacity"] = async_dispatch_capacity(root)
         print(json.dumps(result, indent=2, sort_keys=True), flush=True)
         count += 1
         if not args.watch or (args.max_ticks is not None and count >= args.max_ticks):

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Revisit: when backend/frontend ports or the existing runner contract changes. · Last touched: 2026-07-31.
+# Revisit: when backend/frontend ports or the existing runner contract changes. · Last touched: 2026-08-03.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
@@ -383,16 +383,14 @@ desktop_start() {
   preflight
   start_backend
   start_frontend
+  start_runner
   wait_dashboard
   pid_alive "$BACKEND_PID"
   pid_alive "$FRONTEND_PID"
-  if pid_alive "$RUNNER_PID"; then
-    echo "runner unexpectedly active after desktop cleanup" >&2
-    return 1
-  fi
+  pid_alive "$RUNNER_PID"
   status_one backend "$BACKEND_PID"
   status_one frontend "$FRONTEND_PID"
-  echo "runner=stopped root=$ROOT"
+  status_one runner "$RUNNER_PID"
 }
 
 stop_one() {
