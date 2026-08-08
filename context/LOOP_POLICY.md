@@ -1,5 +1,5 @@
 # LOOP_POLICY.md — how work moves through the OS
-> Revisit: on a Hermes release, a routing change, or an escalation-trigger dispute. · Last touched: 2026-07-07.
+> Revisit: on a Hermes release, a routing change, or an escalation-trigger dispute. · Last touched: 2026-08-04.
 
 ## The loop
 ```
@@ -41,8 +41,11 @@ Two subagents never work the same item concurrently. One client, one thread.
 Cross-client or cross-lane contamination is a stop condition, not a merge point.
 
 ## Scheduled loops
-- `/morning-brief` — daily, read-only by construction (calendar, queue,
-  overnight receipts, top 3 priorities). The safe first automation.
+- `/morning-brief` — fresh zero-model-token attention query over queue,
+  receipts, prospect state, scoped canonical notes, and Graphify discovery;
+  Hermes interprets afterward through Context Assembler. On-demand is active;
+  scheduled delivery is not activated and no automatic Telegram/email send is
+  part of this loop.
 - `/maintain-os` — weekly scan (drift, unused skills, stale Revisit dates),
   monthly interview (walks due dates, asks refresh questions). Reports and
   recommends only; never deletes without Liam's okay (never.md #12).

@@ -1,6 +1,6 @@
 """Executive brief generator and runtime wiring proofs.
 
-Revisit: when executive evidence or profile assembly contracts change. · Last touched: 2026-08-01.
+Revisit: when executive evidence or profile assembly contracts change. · Last touched: 2026-08-04.
 """
 
 from __future__ import annotations
@@ -80,17 +80,17 @@ class ExecutiveBriefTests(unittest.TestCase):
         self.assertEqual(1, len((self.root / brief.HEADER_REL).read_text(encoding="utf-8").splitlines()))
         positions = [outcome.brief.index(f"## {name}") for name in brief.SECTION_NAMES]
         self.assertEqual(positions, sorted(positions))
-        for name in ("Open", "Changed", "Decisions"):
+        for name in ("Attention", "Open", "Changed", "Decisions"):
             section = outcome.brief.partition(f"## {name}\n")[2].partition("\n\n## ")[0]
             self.assertEqual("none", section.strip())
         conflicts = outcome.brief.partition("## Conflicts\n")[2].partition("\n\n## Decisions")[0]
         self.assertEqual("### Conflicts\nnone\n\n### Unknown\nnone", conflicts)
         self.assertRegex(
             outcome.header,
-            r"^0 awaiting you · 0 conflicts · 0 unknown · oldest open commitment 0d · brief 0h old$",
+            r"^0 deterministic findings · 0 awaiting Liam · 0 conflicts · 0 unknown · oldest open commitment 0d · brief 0h old$",
         )
 
-    def test_exact_runtime_tokenizer_caps_when_available(self):
+    def test_exact_runtime_tokenizer_keeps_header_bounded_without_truncating_findings(self):
         try:
             import tiktoken
         except ImportError:
@@ -108,7 +108,8 @@ class ExecutiveBriefTests(unittest.TestCase):
         outcome = self.refresh()
         encoding = tiktoken.get_encoding("o200k_base")
         self.assertLess(len(encoding.encode(outcome.header)), brief.HEADER_TOKEN_LIMIT)
-        self.assertLess(len(encoding.encode(outcome.brief)), brief.BRIEF_TOKEN_LIMIT)
+        self.assertGreater(len(encoding.encode(outcome.brief)), brief.BRIEF_TOKEN_LIMIT)
+        self.assertIn("260 deterministic findings", outcome.header)
 
     def test_contradiction_detection_cites_recent_and_canonical_sources(self):
         canonical = self.brain / "operating_context/active_projects.md"
@@ -153,7 +154,7 @@ class ExecutiveBriefTests(unittest.TestCase):
         self.assertIn("1 stale item(s) without artifact or receipt excluded", open_text)
         self.assertIn("oldest open commitment 30d", outcome.header)
 
-    def test_changed_uses_only_previous_single_brief(self):
+    def test_changed_never_uses_previous_generated_brief_as_truth(self):
         self.write_jsonl("queue/work_items.jsonl", [
             self.item("AOS-2026-1001", "human_review", "2026-07-30T10:00:00Z", "review me")
         ])
@@ -163,7 +164,8 @@ class ExecutiveBriefTests(unittest.TestCase):
             self.item("AOS-2026-1001", "done", "2026-07-30T10:00:00Z", "review me")
         ])
         second = self.refresh(NOW + timedelta(hours=1))
-        self.assertIn("AOS-2026-1001: human_review → done", second.brief)
+        self.assertIn("## Changed\nnone", second.brief)
+        self.assertNotIn("AOS-2026-1001: human_review → done", second.brief)
         third = self.refresh(NOW + timedelta(hours=2))
         self.assertNotIn("human_review → done", third.brief)
 
@@ -189,7 +191,7 @@ class ExecutiveBriefTests(unittest.TestCase):
         self.assertIn("age:", decision_rows[0])
         self.assertIn("250 further items awaiting review — see dashboard", decisions)
         self.assertNotRegex(decisions, r"human_review — AOS-")
-        self.assertLess(brief.token_count(outcome.brief), brief.BRIEF_TOKEN_LIMIT)
+        self.assertIn("## Attention", outcome.brief)
 
     def test_full_canonical_roots_are_read_and_skips_are_reported(self):
         extra = self.brain / "memory/unindexed_note.md"
@@ -254,13 +256,18 @@ class ExecutiveBriefTests(unittest.TestCase):
             outcome = self.refresh()
         self.assertEqual(0, outcome.exit_code, outcome.reason)
         targets = [target for _source, target in replaced]
-        self.assertEqual([self.root / brief.BRIEF_REL, self.root / brief.HEADER_REL], targets)
+        self.assertEqual(
+            [self.root / brief.BRIEF_REL, self.root / brief.HEADER_REL, self.root / brief.FINDINGS_REL],
+            targets,
+        )
         self.assertTrue(all(source.parent == target.parent for source, target in replaced))
         self.assertFalse(list((self.root / "context").glob("*.tmp")))
 
-    def test_failed_refresh_retains_last_good_brief_and_marks_header_stale(self):
+    def test_failed_refresh_retains_complete_last_good_artifact_set(self):
         first = self.refresh()
         expected_brief = first.brief
+        expected_header = (self.root / brief.HEADER_REL).read_bytes()
+        expected_findings = (self.root / brief.FINDINGS_REL).read_bytes()
         for relative in ("queue/work_items.jsonl", "queue/run_ledger.jsonl", "queue/prospects.jsonl"):
             (self.root / relative).unlink()
         for path in sorted(self.brain.rglob("*"), reverse=True):
@@ -271,10 +278,8 @@ class ExecutiveBriefTests(unittest.TestCase):
         outcome = self.refresh(NOW + timedelta(hours=5))
         self.assertNotEqual(0, outcome.exit_code)
         self.assertEqual(expected_brief, (self.root / brief.BRIEF_REL).read_text(encoding="utf-8"))
-        header = (self.root / brief.HEADER_REL).read_text(encoding="utf-8").strip()
-        self.assertTrue(header.endswith("· STALE"))
-        self.assertIn("brief 5h old", header)
-        self.assertIn("0 conflicts · 0 unknown", header)
+        self.assertEqual(expected_header, (self.root / brief.HEADER_REL).read_bytes())
+        self.assertEqual(expected_findings, (self.root / brief.FINDINGS_REL).read_bytes())
 
     def test_no_previous_complete_failure_emits_unavailable_artifacts(self):
         empty_root = Path(self.temp.name) / "empty"
@@ -286,14 +291,13 @@ class ExecutiveBriefTests(unittest.TestCase):
         for name in brief.SECTION_NAMES:
             self.assertIn(f"## {name}\nnone", generated)
 
-    def test_bad_source_degrades_without_blocking_good_sources(self):
+    def test_malformed_authoritative_source_fails_closed(self):
         (self.root / "queue/prospects.jsonl").write_text("{not-json}\n", encoding="utf-8")
         outcome = self.refresh()
-        self.assertEqual(0, outcome.exit_code, outcome.reason)
-        self.assertIn("ignored 1 malformed JSONL line", outcome.brief)
-        self.assertIn("source: `queue/prospects.jsonl`", outcome.brief)
+        self.assertNotEqual(0, outcome.exit_code)
+        self.assertIn("authoritative source malformed", outcome.reason)
 
-    def test_generation_writes_nothing_outside_two_artifacts(self):
+    def test_generation_writes_nothing_outside_three_artifacts(self):
         before = {
             path.relative_to(self.root): path.read_bytes()
             for path in self.root.rglob("*") if path.is_file()
@@ -305,7 +309,7 @@ class ExecutiveBriefTests(unittest.TestCase):
             for path in self.root.rglob("*") if path.is_file()
         }
         changed = {path for path in before.keys() | after.keys() if before.get(path) != after.get(path)}
-        self.assertEqual({brief.BRIEF_REL, brief.HEADER_REL}, changed)
+        self.assertEqual({brief.BRIEF_REL, brief.HEADER_REL, brief.FINDINGS_REL}, changed)
 
     def test_pending_gmail_proposals_are_counted_without_body_or_attachment_reads(self):
         item = self.item(
@@ -324,22 +328,20 @@ class ExecutiveBriefTests(unittest.TestCase):
 
 
 class ExecutiveBriefWiringTests(unittest.TestCase):
-    def test_operator_lean_refreshes_once_and_loads_header_only(self):
+    def test_operator_lean_uses_mandatory_assembled_context_path(self):
         launcher = (ROOT / "tools/aos-hermes-operator-lean.sh").read_text(encoding="utf-8")
-        self.assertEqual(1, launcher.count('python3 "$brief_generator"'))
-        self.assertIn("EXECUTIVE_HEADER.txt", launcher)
-        self.assertNotIn("EXECUTIVE_BRIEF.md", launcher)
-        self.assertNotIn("aos-orchestrator", launcher)
-        self.assertNotIn("create_task", launcher)
+        assembler = (ROOT / "tools/context_assembler.py").read_text(encoding="utf-8")
+        self.assertNotIn('python3 "$brief_generator"', launcher)
+        self.assertIn("mandatory, relevance-selected One Brain", launcher)
+        self.assertIn("_deterministic_morning_brief(kind, client_scope=client_scope, query=relevance)", assembler)
+        self.assertIn("FINDINGS_REL.name", assembler)
 
-    def test_orchestrator_refreshes_once_and_loads_full_brief_conditionally(self):
+    def test_orchestrator_uses_same_mandatory_assembled_context_path(self):
         launcher = (ROOT / "tools/aos-hermes-coordinator.sh").read_text(encoding="utf-8")
-        self.assertEqual(1, launcher.count('python3 "$brief_generator"'))
-        self.assertIn('if [[ "$profile" == "aos-orchestrator" ]]', launcher)
-        self.assertIn("EXECUTIVE_BRIEF.md", launcher)
-        self.assertNotIn("EXECUTIVE_HEADER.txt", launcher)
-        self.assertIn("do not auto-escalate", launcher)
-        self.assertNotIn("create_task", launcher)
+        assembler = (ROOT / "tools/context_assembler.py").read_text(encoding="utf-8")
+        self.assertNotIn('python3 "$brief_generator"', launcher)
+        self.assertIn("mandatory assembled One Brain context", launcher)
+        self.assertEqual(1, assembler.count("_deterministic_morning_brief(kind, client_scope=client_scope, query=relevance)"))
 
     def test_real_cli_writes_only_bounded_artifacts(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -350,6 +352,7 @@ class ExecutiveBriefWiringTests(unittest.TestCase):
             for name in ("work_items.jsonl", "run_ledger.jsonl", "prospects.jsonl"):
                 (root / "queue" / name).write_text("", encoding="utf-8")
             (brain_root / "index").mkdir(parents=True)
+            (brain_root / "prospects").mkdir()
             (brain_root / "index/MEMORY_INDEX.md").write_text("# Index\n", encoding="utf-8")
             result = subprocess.run(
                 [

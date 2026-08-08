@@ -49,7 +49,7 @@ OPERATOR_STATUS_LABELS = {
     "cancelled": "failed",
 }
 ALLOWED_ARTIFACT_PREFIXES = ("results/", "workflows/", "packets/", "logs/", "queue/receipts/")
-ARTIFACT_RE = re.compile(r"(?P<path>(?:results|workflows|packets|logs|queue/receipts)/[^\s`'\"<>]+?\.(?:md|txt|json|jsonl|pdf|html))")
+ARTIFACT_RE = re.compile(r"(?P<path>(?:results|workflows|packets|logs|queue/receipts)/[^\s`'\"<>]+?\.(?:jsonl|json|md|txt|pdf|html))")
 
 
 class OrchestrationError(Exception):
@@ -611,6 +611,12 @@ def finalize_workflow_parents(root: Path, items: list[dict], events: list[dict])
     """Move completed workflow aggregates to human_review exactly once per child set."""
     actions: list[dict] = []
     for parent in sorted(items, key=lambda row: str(row.get("id") or "")):
+        # Executive objectives are finalized by the dashboard's existing
+        # Hermes synthesis path after the Open Engine completes every child.
+        # Treating them as ordinary workflow aggregates would introduce a
+        # spurious Liam review gate between execution and final reporting.
+        if "executive_objective" in {str(tag) for tag in parent.get("tags") or []}:
+            continue
         if parent.get("owner_type") != "workflow" or parent.get("status") in {DONE_STATUS, "human_review"}:
             continue
         children = _workflow_children(parent, items)

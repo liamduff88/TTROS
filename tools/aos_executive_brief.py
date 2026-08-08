@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Build the bounded, read-only Agentic OS executive brief.
 
-Revisit: when queue, prospect, capture, or Business Brain evidence contracts change. · Last touched: 2026-08-01.
+Revisit: when queue, prospect, capture, or Business Brain evidence contracts change. · Last touched: 2026-08-04.
 """
 
 from __future__ import annotations
@@ -20,10 +20,16 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Iterable
 
+try:
+    from morning_brief_detector import DetectionResult, detect as detect_attention, render_markdown
+except ModuleNotFoundError:
+    from tools.morning_brief_detector import DetectionResult, detect as detect_attention, render_markdown
+
 
 ROOT = Path(os.environ.get("AOS_ROOT", Path(__file__).resolve().parents[1])).resolve()
 BRIEF_REL = Path("context/EXECUTIVE_BRIEF.md")
 HEADER_REL = Path("context/EXECUTIVE_HEADER.txt")
+FINDINGS_REL = Path("context/MORNING_BRIEF_FINDINGS.json")
 ACTIVE_STATUSES = frozenset({"inbox", "agent_todo", "agent_working", "needs_input", "human_review", "blocked"})
 DECISION_STATUSES = ("human_review", "needs_input")
 TERMINAL_PROSPECT_STATUSES = frozenset({"won", "lost", "rejected", "do_not_contact", "withdrawn"})
@@ -37,7 +43,7 @@ CANONICAL_POINTERS = (
 )
 CANONICAL_NOTE_ROOTS = (Path("memory"), Path("operating_context"))
 LOCAL_NOTE_DIRS = (Path("capture/approved"), Path("context/operator_notes"))
-SECTION_NAMES = ("State", "Open", "Changed", "Conflicts", "Decisions")
+SECTION_NAMES = ("State", "Attention", "Open", "Changed", "Conflicts", "Decisions")
 BRIEF_TOKEN_LIMIT = 4_000
 HEADER_TOKEN_LIMIT = 250
 BRIEF_BYTE_LIMIT = 7_800
@@ -813,23 +819,31 @@ def _assemble(generated: datetime, source_count: int, sections: dict[str, list[s
     return f"> Generated: {_iso(generated)} · Sources: {source_count}\n\n{body}\n"
 
 
-def build_brief(evidence: Evidence, previous: str, now: datetime) -> tuple[str, str]:
+def build_brief(
+    evidence: Evidence,
+    previous: str,
+    now: datetime,
+    detection: DetectionResult | None = None,
+) -> tuple[str, str]:
     decisions, decision_total = _decision_lines(evidence.queue_items, now)
     conflicts = _conflict_lines(evidence, now)
     unknown = _unknown_lines(evidence)
     state = _state_lines(evidence, decision_total)
-    changed = _changed_lines(previous, evidence.queue_items)
+    # A prior generated brief is never an authority for the next run. Change
+    # history belongs to queue/receipt records, so this projection is empty
+    # until an authoritative transition stream is selected.
+    changed: list[str] = []
     open_lines, _excluded = _open_lines(evidence, now)
+    attention = render_markdown(detection) if detection is not None else []
     sections = {
         "State": state,
+        "Attention": attention,
         "Open": open_lines,
         "Changed": changed,
         "Conflicts": _conflicts_section_lines(conflicts, unknown),
         "Decisions": decisions,
     }
     brief = _assemble(now, len(evidence.sources), sections)
-    if token_count(brief) >= BRIEF_TOKEN_LIMIT or len(brief.encode("utf-8")) >= BRIEF_BYTE_LIMIT:
-        raise RuntimeError("mandatory Conflicts/Decisions exceed the executive brief cap")
     oldest = min(
         (
             _parse_time(item.get("created_at"))
@@ -840,8 +854,18 @@ def build_brief(evidence: Evidence, previous: str, now: datetime) -> tuple[str, 
     )
     oldest_days = max(0, int((now - oldest).total_seconds() // 86_400)) if oldest else 0
     age_hours = max(0, int((now - _previous_generated(brief)).total_seconds() // 3_600))
+    finding_total = len(detection.findings) if detection is not None else 0
+    detected_conflicts = sum(
+        finding.category == "contradiction"
+        for finding in (detection.findings if detection is not None else ())
+    )
+    liam_total = sum(
+        finding.owner_class in {"liam_judgment", "liam_review", "external_action_gate"}
+        for finding in (detection.findings if detection is not None else ())
+    )
     header = (
-        f"{decision_total} awaiting you · {len(conflicts)} conflicts · {len(unknown)} unknown · "
+        f"{finding_total} deterministic findings · {liam_total} awaiting Liam · "
+        f"{len(conflicts) + detected_conflicts} conflicts · {len(unknown)} unknown · "
         f"oldest open commitment {oldest_days}d · brief {age_hours}h old"
     )
     if token_count(header) >= HEADER_TOKEN_LIMIT or "\n" in header:
@@ -877,28 +901,32 @@ def _write_temp(path: Path, text: str) -> Path:
     return temp_path
 
 
-def _atomic_write_pair(brief_path: Path, brief: str, header_path: Path, header: str) -> None:
-    brief_temp = _write_temp(brief_path, brief)
-    header_temp = _write_temp(header_path, header + "\n")
-    old_brief = brief_path.read_text(encoding="utf-8") if brief_path.exists() else None
-    old_header = header_path.read_text(encoding="utf-8") if header_path.exists() else None
-    replaced_brief = False
+def _atomic_write_artifacts(artifacts: list[tuple[Path, str]]) -> None:
+    temporary = [(path, _write_temp(path, content)) for path, content in artifacts]
+    previous = {
+        path: path.read_text(encoding="utf-8") if path.exists() else None
+        for path, _content in artifacts
+    }
+    replaced: list[Path] = []
     try:
-        os.replace(brief_temp, brief_path)
-        replaced_brief = True
-        os.replace(header_temp, header_path)
+        for path, temp in temporary:
+            os.replace(temp, path)
+            replaced.append(path)
     except Exception:
-        brief_temp.unlink(missing_ok=True)
-        header_temp.unlink(missing_ok=True)
-        if replaced_brief:
-            if old_brief is None:
-                brief_path.unlink(missing_ok=True)
+        for _path, temp in temporary:
+            temp.unlink(missing_ok=True)
+        for path in reversed(replaced):
+            old = previous[path]
+            if old is None:
+                path.unlink(missing_ok=True)
             else:
-                restore = _write_temp(brief_path, old_brief)
-                os.replace(restore, brief_path)
-        if old_header is None:
-            header_path.unlink(missing_ok=True)
+                restore = _write_temp(path, old)
+                os.replace(restore, path)
         raise
+
+
+def _atomic_write_pair(brief_path: Path, brief: str, header_path: Path, header: str) -> None:
+    _atomic_write_artifacts([(brief_path, brief), (header_path, header + "\n")])
 
 
 def _atomic_write(path: Path, text: str) -> None:
@@ -945,6 +973,10 @@ def refresh(
     root: Path = ROOT,
     brain_root: Path | None = None,
     now: datetime | None = None,
+    client_scope: str | None = "global",
+    registry: Any = None,
+    graph_query: Any = None,
+    graphify_root: Path | None = None,
 ) -> RefreshOutcome:
     started = time.monotonic()
     root = Path(root).resolve()
@@ -952,6 +984,7 @@ def refresh(
     brain_root = Path(brain_root) if brain_root is not None else None
     brief_path = root / BRIEF_REL
     header_path = root / HEADER_REL
+    findings_path = root / FINDINGS_REL
     try:
         previous = brief_path.read_text(encoding="utf-8") if brief_path.exists() else ""
     except OSError:
@@ -969,17 +1002,32 @@ def refresh(
         evidence = collect_evidence(root, Path(brain_root), now)
         if not evidence.sources:
             raise RuntimeError("no readable executive evidence sources")
-        brief, header = build_brief(evidence, good_previous, now)
-        _atomic_write_pair(brief_path, brief, header_path, header)
+        detection = detect_attention(
+            root=root,
+            brain_root=Path(brain_root),
+            now=now,
+            client_scope=client_scope,
+            registry=registry,
+            graph_query=graph_query,
+            graphify_root=graphify_root or Path("/home/liam/graphify-brain"),
+        )
+        brief, header = build_brief(evidence, "", now, detection)
+        findings_json = json.dumps(detection.to_dict(), ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+        _atomic_write_artifacts([
+            (brief_path, brief),
+            (header_path, header + "\n"),
+            (findings_path, findings_json),
+        ])
         return RefreshOutcome(0, header, brief, duration_seconds=time.monotonic() - started)
     except Exception as exc:
         reason = _clean(exc, 300) or type(exc).__name__
         if good_previous:
-            header = _stale_header(good_previous, now)
+            # Failure publishes nothing: the entire prior usable artifact set
+            # remains byte-exact rather than becoming a mixed-generation pair.
             try:
-                _atomic_write(header_path, header + "\n")
-            except Exception as stale_exc:
-                reason = f"{reason}; stale header write failed: {_clean(stale_exc, 180)}"
+                header = header_path.read_text(encoding="utf-8").strip()
+            except OSError:
+                header = "brief stale; prior usable Markdown retained"
             return RefreshOutcome(1, header, good_previous, reason, time.monotonic() - started)
         brief = _unavailable_brief(now)
         header = "brief unavailable"
@@ -995,6 +1043,8 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--root", type=Path, default=ROOT)
     parser.add_argument("--brain-root", type=Path)
     parser.add_argument("--now", help="fixed ISO8601 generation time for deterministic validation")
+    parser.add_argument("--client-scope", default="global")
+    parser.add_argument("--format", choices=("quiet", "markdown", "json"), default="quiet")
     return parser
 
 
@@ -1007,9 +1057,13 @@ def main(argv: list[str] | None = None) -> int:
     except ValueError as exc:
         print(f"executive brief refresh failed: {exc}", file=sys.stderr)
         return 2
-    outcome = refresh(root=args.root, brain_root=args.brain_root, now=now)
+    outcome = refresh(root=args.root, brain_root=args.brain_root, now=now, client_scope=args.client_scope)
     if outcome.exit_code:
         print(f"executive brief refresh failed: {outcome.reason}", file=sys.stderr)
+    elif args.format == "markdown":
+        print(outcome.brief, end="")
+    elif args.format == "json":
+        print((Path(args.root).resolve() / FINDINGS_REL).read_text(encoding="utf-8"), end="")
     return outcome.exit_code
 
 
