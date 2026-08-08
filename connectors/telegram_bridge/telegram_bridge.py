@@ -107,7 +107,10 @@ _DOC_REF_RE = re.compile(
 _ALLOWED_DOC_PREFIXES = ("queue/receipts/", "workflows/queue_artifacts/", "results/", "packets/", "logs/")
 _MAX_DOCUMENT_BYTES = 10 * 1024 * 1024
 SUBMISSION_ACK_TIMEOUT_SECONDS = 20
-AGENT_RESPONSE_TIMEOUT_SECONDS = SUBMISSION_ACK_TIMEOUT_SECONDS
+# Direct Hermes conversation includes deterministic Context Assembler work and
+# one bounded model turn. Keep its client window above the backend's 90-second
+# operator timeout without making Telegram intake unbounded.
+AGENT_RESPONSE_TIMEOUT_SECONDS = 120
 STATUS_BACKEND_TIMEOUT_SECONDS = 1.5
 STATUS_SEND_TIMEOUT_SECONDS = 3
 MAX_RECORDED_UPDATE_IDS = 512
@@ -709,6 +712,15 @@ def failed_agent_closeout(message):
     ])
 
 
+def failed_conversation_reply(failure_class):
+    """Return a direct executive-route failure without inventing queue work."""
+    reason = "timed out before the reply reached Telegram" if failure_class == "TimeoutError" else "failed before the reply reached Telegram"
+    return (
+        f"I couldn't complete that executive reply because the local conversation route {reason}. "
+        "No queue item or worker was created, and no fallback profile response was used."
+    )
+
+
 def _run_agent_request(chat_id, task, source, delivery_id):
     """Submit one request off the polling thread and send its intake result once."""
     try:
@@ -724,7 +736,16 @@ def _run_agent_request(chat_id, task, source, delivery_id):
             return
         deliver_agent_result(chat_id, result)
     except Exception as exc:
-        send(chat_id, failed_agent_closeout(f"Agent route failed: {type(exc).__name__}"))
+        failure_class = type(exc).__name__
+        is_work_request = bool(re.match(r"^\s*/work\b", str(task or ""), re.IGNORECASE))
+        log(
+            f"agent_request_failed route={'work' if is_work_request else 'conversation'} "
+            f"failure={failure_class} delivery_id={delivery_id}"
+        )
+        if is_work_request:
+            send(chat_id, failed_agent_closeout(f"Agent route failed: {failure_class}"))
+        else:
+            send(chat_id, failed_conversation_reply(failure_class), preserve_format=True)
     finally:
         with _AGENT_REQUEST_LOCK:
             _ACTIVE_AGENT_REQUESTS.discard(delivery_id)
