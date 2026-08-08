@@ -4,10 +4,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from tools.validate_business_brain import analyze_vault
+from tools.validate_business_brain import analyze_vault, navigation_exempt
 
 
 class BusinessBrainVaultValidationTest(unittest.TestCase):
+    def test_point_in_time_handoff_is_navigation_exempt(self):
+        self.assertTrue(navigation_exempt("operating_context/TTROS_HANDOFF_2026-08-04.md"))
+
     def test_ids_links_reachability_and_backup_exclusion(self):
         with tempfile.TemporaryDirectory() as temp:
             vault = Path(temp)

@@ -59,7 +59,7 @@ class BusinessBrainGraphTest(unittest.TestCase):
             self.assertEqual(result["graph_state"], "fresh")
             self.assertTrue(result["trusted_for_model"])
             self.assertTrue(result["targets"])
-            self.assertEqual(set(result["targets"][0]), {"path", "score"})
+            self.assertEqual(set(result["targets"][0]), {"path", "score", "relationship_reasons"})
             self.assertNotIn("Scoped workflow builds", json.dumps(result))
 
     def test_unchanged_build_is_idempotent_and_failure_preserves_publication(self):
@@ -106,7 +106,9 @@ class BusinessBrainGraphTest(unittest.TestCase):
             service = BusinessBrainGraphService(graphify_root=graphify, vault_root=vault, registry=registry)
             service.build()
             result = service.query_targets("shared discovery", client_scope="client-a", registry=registry)
-            self.assertEqual(result["targets"], [{"path": "business_brain:memory/client-a.md", "score": 6.0}])
+            self.assertEqual(result["targets"][0]["path"], "business_brain:memory/client-a.md")
+            self.assertEqual(result["targets"][0]["score"], 6.0)
+            self.assertEqual(result["targets"][0]["relationship_reasons"], ["direct deterministic query match"])
             self.assertNotIn("client-b", json.dumps(result))
             self.assertNotIn("BODY-SENTINEL", json.dumps(result))
 

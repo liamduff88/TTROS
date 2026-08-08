@@ -1,6 +1,6 @@
 """Deterministic structural validation for the canonical Business Brain vault.
 
-Revisit: when the vault metadata or Obsidian wiki-link contract changes. · Last touched: 2026-07-15.
+Revisit: when the vault metadata or Obsidian wiki-link contract changes. · Last touched: 2026-08-04.
 """
 
 from __future__ import annotations
@@ -23,6 +23,14 @@ WIKI_LINK_RE = re.compile(r"(?<!!)\[\[([^\]]+)\]\]")
 ROOTS = ("README.md", "index/MEMORY_INDEX.md")
 OBSIDIAN_JSON = ("app.json", "appearance.json", "core-plugins.json", "graph.json", "workspace.json")
 INTAKE_PREFIXES = ("inbox/source_notes/", "inbox/distilled_packets/")
+NAVIGATION_EXEMPT_PREFIXES = ("sessions/",)
+NAVIGATION_EXEMPT_NAMES = (
+    "TTROS_ARCHITECTURE_",
+    "TTROS_HANDOFF_",
+    "TTROS_HERMES_",
+    "TTROS_SESSION_HANDOFF_",
+    "TTROS_TARGET_ARCHITECTURE_",
+)
 
 
 def canonical_markdown(vault: Path) -> list[Path]:
@@ -55,6 +63,23 @@ def canonical_wiki_target(raw: str) -> str:
     if target.startswith("/") or "\\" in target or any(part in {".", ".."} for part in Path(target).parts):
         return target
     return target if target.lower().endswith(".md") else f"{target}.md"
+
+
+def resolve_wiki_target(raw: str, *, source: str, paths: set[str]) -> str:
+    """Resolve an Obsidian link deterministically without basename guessing."""
+    target = canonical_wiki_target(raw)
+    if not target or target.startswith("/") or "\\" in target:
+        return target
+    if target in paths:
+        return target
+    sibling = (Path(source).parent / target).as_posix()
+    return sibling if sibling in paths else target
+
+
+def navigation_exempt(relative: str) -> bool:
+    return relative.startswith(NAVIGATION_EXEMPT_PREFIXES) or any(
+        Path(relative).name.startswith(prefix) for prefix in NAVIGATION_EXEMPT_NAMES
+    )
 
 
 def _before_hashes(path: Path | None) -> dict[str, str]:
@@ -115,13 +140,14 @@ def analyze_vault(vault: Path, *, before_manifest: Path | None = None) -> dict:
         fields_by_path[relative] = sorted(fields)
         note_id = fields.get("id", "")
         if not note_id:
-            missing_ids.append(relative)
+            if not navigation_exempt(relative):
+                missing_ids.append(relative)
         elif note_id in ids:
             duplicate_ids.append({"id": note_id, "paths": [ids[note_id], relative]})
         else:
             ids[note_id] = relative
         for raw_target in WIKI_LINK_RE.findall(body):
-            target = canonical_wiki_target(raw_target)
+            target = resolve_wiki_target(raw_target, source=relative, paths=path_set)
             if not target:
                 continue
             links[relative].append(target)
@@ -140,7 +166,10 @@ def analyze_vault(vault: Path, *, before_manifest: Path | None = None) -> dict:
             if target in path_set and (target not in distances or distances[target] > distances[source] + 1):
                 distances[target] = distances[source] + 1
                 queue.append(target)
-    unreachable = sorted(path_set - set(distances))
+    unreachable = sorted(
+        relative for relative in path_set - set(distances)
+        if not navigation_exempt(relative)
+    )
     backlinks = Counter(target for targets in links.values() for target in targets if target in path_set)
 
     obsidian_errors = []

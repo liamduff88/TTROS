@@ -12,6 +12,7 @@
       "brain_pointers": [
         "business_brain:README.md",
         "business_brain:decisions/DECISIONS.md",
+        "business_brain:inbox/contradictions.md",
         "business_brain:inbox/README.md",
         "business_brain:index/MEMORY_INDEX.md",
         "business_brain:memory/agentic_os.md",
@@ -31,6 +32,8 @@
         "business_brain:memory/website_and_content.md",
         "business_brain:operating_context/active_projects.md",
         "business_brain:operating_context/current_priorities.md",
+        "business_brain:operating_context/executive_view.md",
+        "business_brain:operating_context/open_loops.md",
         "business_brain:operating_context/old_vault_archive_plan.md",
         "business_brain:operating_context/protected_paths.md"
         ,"business_brain:prospects/index.md"
@@ -39,6 +42,11 @@
         ,"business_brain:prospects/2026-07-cyborg-nicolas-dupont.md"
         ,"business_brain:prospects/2026-07-ollama-jeffrey-morgan.md"
         ,"business_brain:prospects/2026-07-punttai-ronnie-coleman.md"
+        ,"business_brain:prospects/2026-07-deepinspect-ai-parminder-singh.md"
+        ,"business_brain:prospects/2026-07-manufex-anush-sridhar.md"
+        ,"business_brain:prospects/2026-07-zunesha-labs-omar-alani.md"
+        ,"business_brain:prospects/2026-07-talent-harbour-loretta-davis.md"
+        ,"business_brain:prospects/2026-07-highway-99-evan-thompson.md"
       ],
       "search_source_identities": [
         {"source": "agentic_os_live", "path_prefix": "agentic_os_live:"},
@@ -48,6 +56,7 @@
           "paths": [
             "business_brain:README.md",
             "business_brain:decisions/DECISIONS.md",
+            "business_brain:inbox/contradictions.md",
             "business_brain:inbox/README.md",
             "business_brain:index/MEMORY_INDEX.md",
             "business_brain:memory/agentic_os.md",
@@ -67,6 +76,8 @@
             "business_brain:memory/website_and_content.md",
             "business_brain:operating_context/active_projects.md",
             "business_brain:operating_context/current_priorities.md",
+            "business_brain:operating_context/executive_view.md",
+            "business_brain:operating_context/open_loops.md",
             "business_brain:operating_context/old_vault_archive_plan.md",
             "business_brain:operating_context/protected_paths.md"
             ,"business_brain:prospects/index.md"
@@ -75,6 +86,11 @@
             ,"business_brain:prospects/2026-07-cyborg-nicolas-dupont.md"
             ,"business_brain:prospects/2026-07-ollama-jeffrey-morgan.md"
             ,"business_brain:prospects/2026-07-punttai-ronnie-coleman.md"
+            ,"business_brain:prospects/2026-07-deepinspect-ai-parminder-singh.md"
+            ,"business_brain:prospects/2026-07-manufex-anush-sridhar.md"
+            ,"business_brain:prospects/2026-07-zunesha-labs-omar-alani.md"
+            ,"business_brain:prospects/2026-07-talent-harbour-loretta-davis.md"
+            ,"business_brain:prospects/2026-07-highway-99-evan-thompson.md"
           ]
         }
       ],
@@ -84,6 +100,7 @@
           "paths": [
             "business_brain:README.md",
             "business_brain:decisions/DECISIONS.md",
+            "business_brain:inbox/contradictions.md",
             "business_brain:inbox/README.md",
             "business_brain:index/MEMORY_INDEX.md",
             "business_brain:memory/agentic_os.md",
@@ -103,6 +120,8 @@
             "business_brain:memory/website_and_content.md",
             "business_brain:operating_context/active_projects.md",
             "business_brain:operating_context/current_priorities.md",
+            "business_brain:operating_context/executive_view.md",
+            "business_brain:operating_context/open_loops.md",
             "business_brain:operating_context/old_vault_archive_plan.md",
             "business_brain:operating_context/protected_paths.md"
             ,"business_brain:prospects/index.md"
@@ -111,6 +130,11 @@
             ,"business_brain:prospects/2026-07-cyborg-nicolas-dupont.md"
             ,"business_brain:prospects/2026-07-ollama-jeffrey-morgan.md"
             ,"business_brain:prospects/2026-07-punttai-ronnie-coleman.md"
+            ,"business_brain:prospects/2026-07-deepinspect-ai-parminder-singh.md"
+            ,"business_brain:prospects/2026-07-manufex-anush-sridhar.md"
+            ,"business_brain:prospects/2026-07-zunesha-labs-omar-alani.md"
+            ,"business_brain:prospects/2026-07-talent-harbour-loretta-davis.md"
+            ,"business_brain:prospects/2026-07-highway-99-evan-thompson.md"
           ]
         }
       ],

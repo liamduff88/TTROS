@@ -3,7 +3,7 @@
 Graphify is a derived selector, never the authority. Published targets contain
 canonical logical paths and scores only; note bodies are never returned.
 
-Revisit: when Graphify's Markdown/manifest contracts change. · Last touched: 2026-07-15.
+Revisit: when Graphify's Markdown/manifest contracts change. · Last touched: 2026-08-04.
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ if str(TOOLS_DIR) not in sys.path:
 
 import business_brain
 from business_brain_scope import ClientScopeError, ClientScopeRegistry, load_registry
-from validate_business_brain import WIKI_LINK_RE, canonical_markdown, canonical_wiki_target, parse_frontmatter
+from validate_business_brain import WIKI_LINK_RE, canonical_markdown, parse_frontmatter, resolve_wiki_target
 
 
 TOKEN_USAGE_TEXT = "Token usage: no agent invocation"
@@ -37,6 +37,14 @@ DEFAULT_GRAPHIFY_ROOT = Path("/home/liam/graphify-brain")
 DEFAULT_NAMESPACE = "ttros-business-brain"
 DEFAULT_GRAPHIFY_PYTHON = Path("/home/liam/.local/share/pipx/venvs/graphifyy/bin/python")
 WORD_RE = re.compile(r"[a-z0-9]+")
+AOS_ACTIVITY_RE = re.compile(r"\bAOS-\d{4}-\d{4}\b", re.IGNORECASE)
+TARGETED_ENTITY_TYPES = frozenset({"person", "prospect", "client", "offer", "commitment", "decision", "project", "experiment"})
+SEMANTIC_RELATIONS = frozenset({"touched"})
+ENTITY_EXCLUDED_PATHS = frozenset({
+    "operating_context/current_priorities.md",
+    "operating_context/executive_view.md",
+    "operating_context/open_loops.md",
+})
 
 
 class BusinessBrainGraphError(RuntimeError):
@@ -76,6 +84,43 @@ def _safe_env() -> dict[str, str]:
         "LC_ALL": "C.UTF-8",
         "PYTHONNOUSERSITE": "1",
     }
+
+
+def targeted_entity_type(relative: str, fields: dict[str, str]) -> str | None:
+    """Return a deliberate entity type, excluding narrative/navigation areas."""
+    path = Path(relative)
+    if (
+        relative in ENTITY_EXCLUDED_PATHS
+        or relative.startswith("sessions/")
+        or path.name in {"README.md", "index.md", "MEMORY_INDEX.md"}
+        or path.name.startswith("TTROS_")
+    ):
+        return None
+    value = str(fields.get("type") or "").strip().lower()
+    return value if value in TARGETED_ENTITY_TYPES else None
+
+
+def frontmatter_sequence(text: str, field: str) -> tuple[str, ...]:
+    """Read one top-level YAML sequence without widening the metadata parser."""
+    if not text.startswith("---\n"):
+        return ()
+    end = text.find("\n---\n", 4)
+    if end < 0:
+        return ()
+    lines = text[4:end].splitlines()
+    values: list[str] = []
+    collecting = False
+    for line in lines:
+        if not line.startswith((" ", "\t")):
+            collecting = line.rstrip() == f"{field}:"
+            continue
+        if collecting:
+            match = re.fullmatch(r"\s+-\s+([^#]+?)\s*", line)
+            if match:
+                values.append(match.group(1).strip().strip("'\""))
+            elif line.strip():
+                break
+    return tuple(values)
 
 
 class BusinessBrainGraphService:
@@ -135,7 +180,7 @@ class BusinessBrainGraphService:
             if not note_id or note_id in ids:
                 raise BusinessBrainGraphError(f"missing or duplicate canonical note id: {relative}")
             ids.add(note_id)
-            files.append({
+            record = {
                 "id": note_id,
                 "relative_path": relative,
                 "source_path": f"business_brain:{relative}",
@@ -143,7 +188,13 @@ class BusinessBrainGraphService:
                 "size_bytes": len(raw),
                 "type": fields.get("type") or None,
                 "status": fields.get("status") or None,
-            })
+            }
+            entity_type = targeted_entity_type(relative, fields)
+            if entity_type:
+                record["entity_type"] = entity_type
+            if fields.get("date"):
+                record["date"] = fields["date"]
+            files.append(record)
         aggregate = _sha256_bytes(_json_bytes(files))
         return {
             "schema_version": 1,
@@ -171,6 +222,8 @@ class BusinessBrainGraphService:
     def _projection(self, source_manifest: dict[str, Any], raw_graph: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
         file_records = {row["relative_path"]: row for row in source_manifest["files"]}
         note_nodes = []
+        activity_nodes = []
+        semantic_edges = []
         wiki_pairs = []
         heading_nodes = []
         structural_edges = []
@@ -212,6 +265,9 @@ class BusinessBrainGraphService:
             text = path.read_text(encoding="utf-8", errors="strict")
             fields, body = parse_frontmatter(text)
             title = next((line.lstrip("#").strip() for line in body.splitlines() if line.startswith("#")), path.stem)
+            metadata = {key: value for key, value in fields.items() if key in {"id", "type", "status", "date", "last_touched"}}
+            if record.get("entity_type"):
+                metadata["entity_type"] = record["entity_type"]
             note_nodes.append({
                 "id": record["id"],
                 "kind": "note",
@@ -219,11 +275,34 @@ class BusinessBrainGraphService:
                 "relative_path": relative,
                 "source_path": record["source_path"],
                 "content_sha256": record["sha256"],
-                "metadata": {key: value for key, value in fields.items() if key in {"id", "type", "status", "last_touched"}},
+                "metadata": metadata,
             })
+            if record.get("entity_type") == "prospect":
+                for queue_id in frontmatter_sequence(text, "queue_ids"):
+                    normalized = queue_id.upper()
+                    if not AOS_ACTIVITY_RE.fullmatch(normalized):
+                        continue
+                    activity_id = f"activity:{normalized}"
+                    activity_nodes.append({
+                        "id": activity_id,
+                        "kind": "activity",
+                        "title": normalized,
+                        "metadata": {"type": "activity", "reference": normalized},
+                        "authoritative": False,
+                    })
+                    semantic_edges.append({
+                        "source": activity_id,
+                        "target": record["id"],
+                        "relation": "touched",
+                        "confidence": "DERIVED",
+                        "edge_kind": "derived",
+                        "extractor": "ttros.frontmatter.queue_ids",
+                        "relationship_reason": f"{normalized} is declared in the prospect note's queue_ids frontmatter",
+                        "target_path": record["source_path"],
+                    })
             seen = set()
             for raw_target in WIKI_LINK_RE.findall(body):
-                target = canonical_wiki_target(raw_target)
+                target = resolve_wiki_target(raw_target, source=relative, paths=set(id_for_path))
                 if target in id_for_path and target not in seen:
                     seen.add(target)
                     wiki_pairs.append((relative, target))
@@ -252,10 +331,11 @@ class BusinessBrainGraphService:
                 "source_path": f"business_brain:{source_path}",
             })
 
-        nodes = sorted(note_nodes + heading_nodes, key=lambda row: row["id"])
-        edges = sorted(explicit_edges + structural_edges, key=lambda row: (row["source"], row["target"], row["relation"]))
+        deduplicated_activities = {node["id"]: node for node in activity_nodes}
+        nodes = sorted(note_nodes + list(deduplicated_activities.values()) + heading_nodes, key=lambda row: row["id"])
+        edges = sorted(explicit_edges + semantic_edges + structural_edges, key=lambda row: (row["source"], row["target"], row["relation"]))
         graph = {
-            "schema_version": 1,
+            "schema_version": 2,
             "namespace": self.namespace,
             "source_manifest_sha256": _sha256_bytes(_json_bytes(source_manifest)),
             "directed": True,
@@ -263,7 +343,7 @@ class BusinessBrainGraphService:
             "edges": edges,
         }
         projection = {
-            "schema_version": 1,
+            "schema_version": 2,
             "namespace": self.namespace,
             "graphify_mode": "installed_graphify_structural_markdown",
             "graphify_cli_documents_mode": "requires external LLM key in graphify 0.9.11; TTROS uses the installed local Markdown extractor API",
@@ -272,6 +352,10 @@ class BusinessBrainGraphService:
             "raw_graphify_edge_count": len(raw_graph["edges"]),
             "raw_graphify_reference_count": raw_reference_count,
             "explicit_wiki_edge_count": len(explicit_edges),
+            "derived_semantic_edge_count": len(semantic_edges),
+            "supported_semantic_relations": sorted(SEMANTIC_RELATIONS),
+            "targeted_entity_count": sum(1 for node in note_nodes if node["metadata"].get("entity_type")),
+            "targeted_entity_types": sorted({node["metadata"]["entity_type"] for node in note_nodes if node["metadata"].get("entity_type")}),
             "package_confirmed_wiki_edge_count": sum(1 for edge in explicit_edges if edge["package_edge_confirmed"]),
             "ttros_repaired_wiki_edge_count": sum(1 for edge in explicit_edges if not edge["package_edge_confirmed"]),
             "stable_note_id_count": len(note_nodes),
@@ -394,26 +478,72 @@ class BusinessBrainGraphService:
         state = self.status()
         if state["state"] != "fresh":
             return {"query": query, "targets": [], "graph_state": state["state"], "trusted_for_model": False, "fallback": {"route": "pointers_search", "reason": state["reason"]}, "token_usage_text": TOKEN_USAGE_TEXT}
-        terms = set(WORD_RE.findall(str(query).lower()))
+        normalized_query = str(query).lower()
+        terms = set(WORD_RE.findall(normalized_query))
+        requested_activities = {value.upper() for value in AOS_ACTIVITY_RE.findall(str(query))}
         graph = json.loads((self.published / "graph.json").read_text(encoding="utf-8"))
         headings: dict[str, list[str]] = {}
         for edge in graph["edges"]:
             if edge.get("relation") == "contains":
                 headings.setdefault(edge["source"], []).append(edge["target"])
         nodes = {node["id"]: node for node in graph["nodes"]}
-        ranked = []
+        seed_scores: dict[str, float] = {}
         for node in graph["nodes"]:
-            if node.get("kind") != "note":
+            if node.get("kind") not in {"note", "activity"}:
                 continue
+            if node.get("kind") == "activity" and not requested_activities:
+                continue
+            searchable = " ".join([
+                str(node.get("title") or ""),
+                str(node.get("relative_path") or ""),
+                str(node.get("metadata") or ""),
+            ] + [str(nodes.get(child, {}).get("label") or "") for child in headings.get(node["id"], [])]).lower()
+            if requested_activities:
+                reference = str((node.get("metadata") or {}).get("reference") or "").upper()
+                if reference not in requested_activities:
+                    continue
+                score = 100.0
+            else:
+                score = float(sum(3 if term in str(node.get("title") or "").lower() else 2 if term in str(node.get("relative_path") or "").lower() else 1 for term in terms if term in searchable))
+            if not score:
+                continue
+            seed_scores[node["id"]] = score
+
+        candidates: dict[str, dict[str, Any]] = {}
+
+        def add_candidate(node_id: str, score: float, reason: str) -> None:
+            node = nodes.get(node_id) or {}
+            if node.get("kind") != "note":
+                return
             try:
                 scoped_path = gate.validate_graph_target(identity.scope_id, self.namespace, str(node.get("source_path") or ""))
             except ClientScopeError:
+                return
+            record = candidates.setdefault(scoped_path, {"path": scoped_path, "score": score, "relationship_reasons": []})
+            record["score"] = max(float(record["score"]), float(score))
+            if reason not in record["relationship_reasons"]:
+                record["relationship_reasons"].append(reason)
+
+        for node_id, score in seed_scores.items():
+            add_candidate(node_id, score, "direct deterministic query match")
+        for edge in graph["edges"]:
+            relation = str(edge.get("relation") or "")
+            if relation not in SEMANTIC_RELATIONS:
                 continue
-            searchable = " ".join([str(node.get("title") or ""), str(node.get("relative_path") or ""), str(node.get("metadata") or "")] + [str(nodes.get(child, {}).get("label") or "") for child in headings.get(node["id"], [])]).lower()
-            score = sum(3 if term in str(node.get("title") or "").lower() else 2 if term in str(node.get("relative_path") or "").lower() else 1 for term in terms if term in searchable)
-            if score:
-                ranked.append({"path": scoped_path, "score": float(score)})
-        ranked.sort(key=lambda row: (-row["score"], row["path"]))
+            source, target = str(edge.get("source") or ""), str(edge.get("target") or "")
+            if source in seed_scores:
+                add_candidate(
+                    target,
+                    seed_scores[source] + 10.0,
+                    f"one-hop {edge.get('edge_kind')} {relation}: {edge.get('relationship_reason')}",
+                )
+            if target in seed_scores:
+                add_candidate(
+                    source,
+                    seed_scores[target] + 5.0,
+                    f"one-hop reverse {edge.get('edge_kind')} {relation}: {edge.get('relationship_reason')}",
+                )
+        ranked = sorted(candidates.values(), key=lambda row: (-row["score"], row["path"]))
         return {
             "query": query,
             "targets": ranked[: max(1, min(int(limit), 20))],
