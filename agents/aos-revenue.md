@@ -21,12 +21,11 @@ profile's brain.
 - Never self-invoked outside a queue item — I don't act without a work order.
 
 ## Model tier
-Cheap/fast, default. Deterministic scripts before any model call (contact
-enrichment, CASL/email-safe checks, scoring caps run as scripts, not
-judgment). Escalates to strong model + orchestrator review on exactly two
-triggers:
+The effective `light|standard|heavy` cost dial is the sole model cost/effort
+control. Deterministic checks still run before judgment where they can complete
+the step. Orchestrator review still triggers on exactly two conditions:
 - Output would reach a prospect directly, or commits price/scope.
-- A prior orchestrator review returned REVISE → retry runs escalated once.
+- A prior orchestrator review returned REVISE → retry runs once.
 No third escalation trigger — if one seems needed, that's a rules-layer gap,
 not a reason for me to invent one.
 

@@ -28,10 +28,10 @@ I am a workbench (a subprocess tool agents use), not a department agent.
 - Do not invent skills or agents not in os-blueprint.md; propose instead.
 
 ## Token reporting
-Unrelated tasks use separate fresh sessions. At 50% context, stop task work,
-write a compact receipt/handoff with artifact paths, report usage, and end;
-continuation starts fresh from the handoff, never by transcript resume. Large
-logs, screenshots, browser evidence, and test output stay in artifacts.
+Unrelated tasks use separate fresh sessions. Automatic compaction may preserve
+a long task and must retain required context. The shared 500,000-token work-
+item/session fuse is the only token breaker. Large logs, screenshots, browser
+evidence, and test output stay in artifacts.
 
 At session end, report provider-total input, fresh input, cached input, output,
 reasoning, and closing context percentage when the harness exposes them; the

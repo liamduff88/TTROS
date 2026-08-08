@@ -20,11 +20,11 @@ profile's brain.
   in the same run, no matter how small the ask.
 
 ## Model tier
-Mid/strong, default (client work carries real stakes). Deterministic first
-where a script/checklist exists (acceptance tests, QA gates). Escalates to
-strong model + orchestrator review on exactly two triggers:
+The effective `light|standard|heavy` cost dial is the sole model cost/effort
+control. Deterministic checks still run first where they can complete the step.
+Orchestrator review still triggers on exactly two conditions:
 - Output reaches the client directly, or commits scope/price.
-- A prior orchestrator review returned REVISE → retry runs escalated once.
+- A prior orchestrator review returned REVISE → retry runs once.
 
 ## Skills I own
 - `/build-speed-to-lead`

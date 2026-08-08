@@ -1,97 +1,74 @@
-# TOKEN_POLICY.md — visible spend and bounded workbench context
-> Revisit: on a Hermes/Codex release (usage metadata can reshape) or monthly pricing check. · Last touched: 2026-07-19.
+# TOKEN_POLICY.md — one visible dial, one token fuse
+> Revisit: on a Hermes/Codex release, provider usage-schema change, or monthly pricing check. · Last touched: 2026-08-04.
 
-## Purpose
-Make token use and retained-context drift visible on every unit of work while
-preventing unrelated tasks from inheriting workbench transcripts. This is
-metering and session hygiene, not a hard spend throttle.
+## Binding contract
 
-## Source-of-truth rule
-Numbers come from harness/API usage fields only. A field the harness does not
-report is named under `unavailable`; it is never estimated or inferred from
-prompt size. Provider-total input must not be labelled fresh input.
+Model cognition has exactly two operator controls:
 
-For Codex JSONL where cached input is included in provider input:
+1. One visible cost/effort dial: `light`, `standard`, or `heavy`.
+2. One 500,000 canonical-token fuse per work item or sticky/executive session.
 
-```text
-provider_total_input = input_tokens
-cached_input = cached_input_tokens
-fresh_input = input_tokens - cached_input_tokens
-output = output_tokens
-reasoning = reasoning_output_tokens
-cache_ratio = cached_input / max(fresh_input, 1)
-```
+Precedence is scope override → `queue/notifications.json` global value →
+documented default `standard`. Invalid values fail visibly. The dial may guide
+model/reasoning preference; it never changes assembled-context completeness,
+Brain access, action permissions, protected paths, or the fuse threshold.
 
-Legacy `input` remains provider-total input. Cached input is not added to it
-again. New workbench entries carry `input`, `fresh_input`, `cached_input`,
-`output`, and `reasoning`; older entries without the additive fields remain
-valid. Missing fields use the explicit unavailable marker, not zero.
+## Exact accounting
 
-An incomplete or malformed final `turn.completed` usage object never falls
-back to an older complete cumulative snapshot. Queue reconciliation records
-usage as unavailable when no exact terminal summary exists; semantic
-contradictions such as cached input exceeding provider input fail explicitly.
+`queue/token_ledger.jsonl` is the canonical durable accounting and Step 6
+evidence store. Separate invocations remain separate. When exposed, each row
+records provider, actual model, scope, input, cached input, output, reasoning,
+canonical total, cost/unpriced state, pricing version/effective date, and time.
 
-## Fresh-session contract
-
-1. Every unrelated direct Codex task starts a separate fresh ephemeral
-   session. `resume`, `--last`, implicit inheritance, and fallback to an old or
-   synthetic session ID are prohibited.
-2. A real `thread.started` ID is required. Failure to create exactly one clean
-   session fails clearly before the result is accepted or reconciled.
-3. Hermes-created Codex children each use their own fresh session.
-4. A correction uses a fresh compact work order containing only the original
-   bounded task, essential repository context, a compact prior-result summary
-   and artifact paths, Hermes feedback, and acceptance criteria. It never
-   replays orchestration history or the prior transcript.
-5. The supervisors treat 75,000 cumulative JSONL tokens as the configured 50%
-   handoff boundary. The final cumulative snapshot replaces earlier snapshots;
-   events are never summed. At the boundary the current process ends, a compact
-   receipt/handoff is written under `logs/codex_handoffs/`, and continuation
-   starts through a new `exec --ephemeral` process from that artifact path.
-   Same-session auto-compaction and transcript resume are not used. At most four
-   successive handoffs are allowed before an explicit failure.
-6. Large logs, screenshots, browser evidence, and verbose test output are
-   stored as artifacts. Later prompts carry compact summaries and paths.
-
-All Codex workbench prompts retain the scoped-local permission header and are
-bounded to 64 KiB. Oversized context must be artifact-backed.
-
-## Receipt and ledger
-Every completed item carries `orchestrator`, `subagents`, `workbenches`,
-provider-total `totals`, deterministic `est_cost_usd`, and an explicit
-`unavailable` list. The existing done-transition contract remains wired on
-all three paths and schema-validates before persisting `done`.
-
-Per reported workbench session, deterministic soft warnings are recorded for:
+Canonical fuse formula:
 
 ```text
-cache_ratio > 20
-context_pct_at_close > 50
+canonical_fuse_total = provider-reported input + provider-reported output
 ```
 
-Warnings do not interrupt a running task. Missing closing-context metadata is
-recorded as unavailable; it is never reconstructed.
+Cached input is always displayed separately and is never added to provider
+input again. For Codex/OpenAI usage, cached input is a subset of provider-total
+input and fresh input is `input - cached`. For Hermes providers that expose
+cache reads as an independent cumulative counter, it is priced as cache
+activity but does not enter the fuse total. Reasoning is a labelled subset of
+output. Unknown or malformed counters are not zero: the scope fails closed.
 
-## Cost
-`scripts/model_prices.json` is the deterministic source. Fresh input is charged
-at `input_per_mtok`, cached input at `cache_read_per_mtok`, and output at
-`output_per_mtok`. When a reported fresh/cache split exists it must sum to the
-provider-total `input`; pricing never adds cached input to provider input.
-Legacy input without a cache split is charged once at the normal input rate.
+`scripts/model_prices.json` is effective-dated. Missing/inapplicable pricing
+keeps exact usage and reports `unpriced`; it never produces false zero cost.
 
-## Rollups
-`scripts/token_rollup.py` makes no model calls and recomputes cost from ledger
-components. Weekly output includes lane/profile/workbench/model/budget views,
-top expensive items, top five sessions by cache ratio, context-ceiling
-breaches, and deterministic soft-warning text. Stored cost is never trusted as
-an aggregate source.
+## Fuse
+
+```text
+250,000 / 50%  advisory (informational)
+400,000 / 80%  warning  (informational)
+500,000 / 100% pause after recording the completed invocation
+```
+
+The advisory and warning do not truncate, change model, compact, or pause. A
+crossing invocation completes and records exact usage; the next call is
+blocked. Threshold evidence is derived idempotently by scope and invocation ID
+from the existing ledger. A scoped override/reset is visible, durable,
+idempotent and applies only to the named fuse. It never grants external-action
+or protected-path permission. Unknown accounting cannot be overridden as if it
+were zero.
+
+## Context and compaction
+
+Context Assembler remains mandatory, shows every block count, and never
+silently truncates selected blocks. `model_auto_compact_token_limit` remains
+session hygiene. It may summarise retained conversation but must preserve the
+assembled context required to understand and complete the task. The former
+75,000-token forced handoff, 50%-context stop, four-handoff maximum, and 64 KiB
+prompt ceiling are removed.
+
+## Deterministic work
+
+Operations such as the Step 5 detector record zero model invocations. Codex
+implementation usage is its own invocation and is never merged with Hermes
+runtime usage.
 
 ## Enforcement
-`tools/aos_codex_policy.py`, both guarded Codex constructors, executable
-handoff writers/continuations, correction prompt builder, `tools/aos-queue.py`, `scripts/token_rollup.py`,
-`hooks/token_budget_check.md`, and the three workbench identity files.
 
-## Known gap
-Receipt and ledger writes remain separate durable operations. A crash between
-them can still create drift; this pre-existing tradeoff is unchanged.
+`tools/step6_cost_control.py`, guarded Hermes launchers and native pre-call
+hook, guarded Codex/Claude/backend boundaries, `queue/token_ledger_schema.json`,
+`scripts/model_prices.json`, status/override API, and named Step 6 verifiers.

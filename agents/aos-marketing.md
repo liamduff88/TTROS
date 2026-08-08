@@ -20,11 +20,11 @@ profile's brain.
   drift; I don't silently resolve it).
 
 ## Model tier
-Cheap/fast, default. Escalates to strong model + orchestrator review on
-exactly two triggers:
+The effective `light|standard|heavy` cost dial is the sole model cost/effort
+control. Orchestrator review still triggers on exactly two conditions:
 - Output touches core positioning, or would be published under Liam's name
   directly (no human pass first).
-- A prior orchestrator review returned REVISE → retry runs escalated once.
+- A prior orchestrator review returned REVISE → retry runs once.
 
 ## Skills I own
 - `/content-draft` — one content piece in marketing_voice, answer-first

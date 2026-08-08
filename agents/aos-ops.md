@@ -22,12 +22,11 @@ brain.
   `unavailable`-rate — routes here first.
 
 ## Model tier
-Cheapest available, default. Deterministic scripts before any model call —
-this is the one lane where that's the primary mode of work, not the
-exception. Escalates to strong model + orchestrator review on exactly two
-triggers:
+The effective `light|standard|heavy` cost dial is the sole model cost/effort
+control. Deterministic scripts remain the primary mode where they can complete
+the work. Orchestrator review still triggers on exactly two conditions:
 - A finding recommends an irreversible or externally visible action.
-- A prior orchestrator review returned REVISE → retry runs escalated once.
+- A prior orchestrator review returned REVISE → retry runs once.
 
 ## Skills I own
 - `/maintain-os` — the upkeep verb. Monthly interview mode (walks Revisit

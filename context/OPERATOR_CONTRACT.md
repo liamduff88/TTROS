@@ -28,9 +28,11 @@ subagents + workbenches). One Hermes install, one brain, one live workspace.
    operate on them — no invented business facts.
 
 ## Standing posture
-Deterministic scripts before model calls. Cheap models before strong ones,
-except on the two escalation triggers. Grow inside-out: earn the outer layer,
-don't pre-build it. Build the working system, not a bureaucracy.
+Deterministic scripts before model calls where they can complete the work. The
+one visible cost dial governs model cost/effort preference; actual model
+identity remains visible and is never silently downgraded. Grow inside-out:
+earn the outer layer, don't pre-build it. Build the working system, not a
+bureaucracy.
 
 ## Breach handling
 A rule violation (external action without command, protected-path touch,

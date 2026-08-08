@@ -1,5 +1,91 @@
 # DECISIONS.md — log of decisions that change system behavior
+> Revisit: when a behavior-affecting system decision is made. · Last touched: 2026-08-07.
 > One entry per behavior-affecting change. Newest first.
+
+## 2026-08-07 — Cockpit leads with Ask David; specialists and profile names demoted
+
+The Cockpit's primary surface is now a single "Ask David" composer
+(`components/AskDavid.jsx`) instead of the Executive Team's "Direct
+consultation" card grid. A new `/api/dashboard/ask-david` route tries, in
+order: the existing bounded existing-item/queue-state deterministic reads,
+then a new deterministic local-search-index lookup (`_try_local_lookup_answer`,
+reusing `aos_indexer.search` and the existing `_receipt_section_value`
+extractor — no new search engine), then the existing `_match_command_route`
+workflow match (genuine execution still reaches the queue exactly as the old
+Cockpit command box did), and only then a zero-queue David consultation
+(`_execute_named_profile_consultation`, factored out of the existing
+`_execute_executive_consultation` so the permanent Executive Team dict and its
+exact-mapping test are untouched). `tools/aos-hermes-coordinator.sh` gained
+`david` in its profile allowlist so the David consultation can run through the
+same Step 6-accounted launcher every other named profile already uses.
+
+Fixes the regression where "where is my pdf branding kit located?" fell
+through the Cockpit's old always-queues unmatched-command fallback and became
+AOS-2026-0492, an aos-orchestrator queue item that cost ~168k tokens. The new
+lookup step answers straight from the durable receipt already on record
+(queue_delta 0, model calls 0) and rewrites `/mnt/<drive>/...` paths to
+Windows-readable form for display.
+
+The Executive Team card grid (`components/ExecutiveTeam.jsx`) is now nested
+inside a collapsed, optional "Consult a specialist" disclosure lower on the
+page, its copy rewritten away from "Direct consultation / Choose an executive
+and ask directly", and its "Hermes / Executive Coordinator" (`operator-lean`)
+card removed from the frontend list — David now owns that daily-judgment
+remit. The backend `_EXECUTIVE_TEAM` registry (and its exact-mapping test)
+keep the `hermes` entry unchanged for backward compatibility. No new router,
+queue, memory system, or conversation framework was introduced.
+
+## 2026-08-04 — Step 4 uses one demonstrated semantic relation
+
+Graphify now preserves deliberate entity types from canonical Brain
+frontmatter and derives only `activity → touched → prospect`, from the
+existing prospect `queue_ids` convention. Generic wiki links remain explicit
+edges; `touched` edges are marked derived with a canonical target path and a
+relationship reason. One-hop selection returns only scope-approved canonical
+Brain paths and never note bodies. Unsupported interested-in, supersession,
+commitment, project, client, or person relationships are not inferred.
+
+## 2026-08-04 — Eligible queue tasks can be physically deleted with one minimal tombstone
+
+The existing Work Queue selected-item surface now offers an explicitly
+confirmed permanent delete. The authoritative queue tool holds the shared
+queue lock, compares the browser's canonical record SHA-256, rejects running,
+claimed, detached, depended-on, stale, and immutable items, durably replaces
+`work_items.jsonl`, and publishes one idempotent minimal JSON tombstone inside
+the existing receipt directory. Deleted tasks have no queue status and vanish
+from Cockpit, counts, runner selection, and normal queue APIs. The four fixed
+protected IDs remain immutable; existing receipts and artifacts are left in
+place.
+
+## 2026-08-03 — Explicit Cockpit work uses the bounded recurring runner
+
+Explicit work created by the Cockpit now carries the existing
+`async_dispatch` eligibility tag, while direct Executive Team consultations
+remain queue-free. The existing Linux desktop launch starts the existing watch
+runner alongside the backend and frontend. That runner admits at most two live
+or starting executors by default, waits for every declared dependency to have a
+`done` receipt, ignores human-review/needs-input/blocked states for capacity,
+and reserves detached startup processes so a work item is not selected twice.
+No scheduler, queue, worker pool, or orchestration layer was added. The Work
+Queue reads canonical state every five seconds so lifecycle changes render
+without a page reload.
+
+## 2026-08-01 — Cockpit gains a permanent, zero-queue Executive Team surface
+
+The existing Cockpit always renders six named Executive Team cards and one
+shared direct-consultation composer. Each request is bound server-side to its
+declared Hermes profile, reports safe profile/context evidence, blocks silent
+fallback, and observes zero queue mutation. Request IDs are idempotent across
+double-clicks, retries, and reconnects. `operator-lean` consultation mode keeps
+the existing Executive Header-only boundary while disabling task creation and
+orchestrator escalation for that one read-only invocation; `aos-orchestrator`
+continues to receive the full deterministic Executive Brief. Ordinary
+consultations append only the existing bounded runtime token evidence.
+
+Files touched: existing dashboard frontend/backend, operator-lean launcher and
+bounded MCP tools, focused unit/browser tests, generated executive context,
+`proofs/executive-team-dashboard/2026-08-01/`, and
+`decisions/DECISIONS.md`.
 
 ## 2026-08-01 — Operator lean has one explicit executive escalation tool
 
@@ -813,3 +899,118 @@ Liam directly, overrides default 3-repeat rule.
 
 Files touched: `skills/delivery_ops_documents/SKILL.md`,
 `workflows/delivery_ops_documents/workflow.md`, `decisions/DECISIONS.md`.
+
+## 2026-08-04 — One Brain binds through a validated adapter
+Hermes durable knowledge now belongs only in the existing Obsidian Business
+Brain. Native profile memory is disabled for every AOS profile. We chose an
+explicit Context Assembler plus an atomic vault writer instead of symlinking
+the vault into Hermes native memory: the native writer owns and rewrites its
+sectioned `MEMORY.md`, so it cannot preserve arbitrary canonical Markdown and
+frontmatter safely. The adapter uses meaning-based vault paths, provenance,
+expected-hash concurrency checks, validation, rollback, and exact-path local
+Git audit commits; it never pushes. Every production AOS model boundary now
+requires an assembled-context object, while formal commitments and external
+actions retain their existing approval gates.
+
+## 2026-08-04 — Morning attention is a fresh deterministic query
+The existing executive-brief generator is the sole morning-attention producer
+for CLI and Hermes. It derives findings from queue/receipt/prospect and scoped
+canonical Brain authority, using Graphify only for one-hop target discovery and
+the existing exact fallback when Graphify is stale or unavailable. Generated
+artifacts are never input to the next run; authoritative resolution clears the
+next query while history remains. Detection has zero model invocations, and
+Hermes receives the same fresh JSON through Context Assembler before spending
+tokens to interpret or prioritise. Publication is an atomic three-artifact
+replace and a failed refresh leaves the complete prior usable set byte-exact.
+No scheduler or automatic delivery was added.
+
+## 2026-08-04 — One visible cost dial and one 500K token fuse
+The live model paths now resolve one `light|standard|heavy` value (scoped
+override, then operator config, then `standard`) and enforce one 500,000-token
+fuse per work item or sticky/executive session. Provider input plus provider
+output is the canonical fuse total; cached input is visible and priced
+separately but never added twice, and reasoning remains an output subset.
+Thresholds at 50/80/100 are ledger-idempotent; only 100 pauses the next call.
+Scoped override/reset changes fuse state only. The former 75K Codex forced
+handoff, 50%-context stop, four-handoff maximum, prompt byte ceiling, and
+profile-level cheap/strong defaults were removed. Native auto-compaction and
+mandatory Context Assembler enforcement remain.
+
+## 2026-08-04 — Assembler v2 and nightly hygiene close the One Brain loop
+The existing mandatory Context Assembler now resolves scoped explicit
+pointers and known canonical entities first, expands fresh Graphify targets by
+one hop only when relationships matter, then uses exact scoped search and a
+direct canonical fallback. It records every actual content read with route,
+scope, and hash; source discovery remains deterministic and zero-token.
+Relevant queue activity, session paragraphs, open loops, and active
+commitments are selected without a whole-vault or whole-transcript default.
+
+The existing Hermes scheduler now runs one local, no-agent nightly transaction.
+Only explicitly structured, verified session candidates may fold into canonical
+notes or executive synthesis; formal commitments remain deferred for Liam.
+Deterministic staleness and contradiction state reconciles by meaning. Brain
+writes, Graphify, search reindex, validation, provenance, and exact-path vault
+Git evidence share one rollback boundary; an unchanged run publishes nothing
+and creates no commit. The validator treats point-in-time `TTROS_HANDOFF_` notes
+like the already-exempt architecture/session handoffs instead of requiring them
+to become canonical navigational memory.
+
+## 2026-08-04 — Telegram existing-item reads require structural direction
+An ordinary Telegram message no longer becomes an existing-item clarification
+merely because an item-read word and a pronoun occur somewhere in the same
+message. Bound reads now require a structural item reference such as “that
+item”, “its receipt”, or “why is it blocked”; otherwise the message falls
+through to the existing sticky `operator-lean` conversation route. Explicit
+approvals, `/work`, and delivery idempotency keep their prior behavior.
+The bridge gives direct conversations a bounded 120-second HTTP response
+window because Context Assembler plus the backend's bounded 90-second Hermes
+turn can legitimately exceed the 20-second asynchronous work-ack window.
+Conversation transport failures remain direct replies; only explicit `/work`
+failures use the work-item closeout formatter.
+
+## 2026-08-04 — Canonical Brain placement and fuse recovery normalize before policy gates
+Ordinary Hermes knowledge pointers now normalize supported aliases, canonical
+vault-relative references, and contained absolute Business Brain paths before
+the existing placement allowlist; traversal, backup, missing, and outside-vault
+targets still fail closed. An explicit Telegram request to reset or override
+only its current executive fuse is handled before Context Assembler or any
+model boundary. A reset starts a durable named-scope ledger epoch without
+deleting prior accounting; unrelated scopes, the global 500,000-token limit,
+the cost dial, queue, workers, action permissions, and memory architecture do
+not change.
+
+## 2026-08-04 — Telegram conversation keywords cannot enter item protocols
+Item approvals now require either an explicit AOS identifier or a complete,
+bounded approval phrase. A sentence beginning with “Continue” is ordinary
+conversation, even when it also mentions priorities, saving knowledge, or
+negative execution language. The sticky executive profile answers business
+judgment directly: only the pre-model `/work ...` route may create work, and
+conversation cannot invoke a nested orchestrator. Conversation closeouts bind
+only to queue identifiers newly created by that same turn, so stale delivery
+state cannot leak an AOS identifier into exception formatting.
+
+## 2026-08-05 — Context Assembler registers through Hermes' native plugin contract
+The existing repository Context Assembler now has a thin general-plugin
+adapter with a `plugin.yaml` manifest and `register(ctx)` pre/post LLM hooks.
+A repository installer links and explicitly enables that same source in seven
+scoped profiles, including David; it never touches the global/default profile.
+The six AOS/operator profiles keep native private memory disabled, while David
+keeps his native personal conversation memory enabled and receives shared
+organisational knowledge through the same assembler plus Brain MCP. The former
+shell-hook declarations remain compatible configuration,
+but native context injection and journal callbacks use the lifecycle surface
+the installed Hermes turn code actually invokes. The drift audit fails closed
+when a profile link, enablement, hook registration, or native marker guard is
+missing. Department invocations also retain explicit safe provider/model
+overrides through `_run_hermes_message`, and receipts identify an unavailable-
+usage Hermes turn by its real invocation ID rather than claiming no identifier.
+
+## 2026-08-06 — Hermes aggregate cache counters are separate Step 6 evidence
+Hermes `openai-codex` usage reports identify their aggregate schema when the
+reported total equals input plus cache-read plus output. Step 6 now treats that
+cache-read value as a separate displayed and priced counter for this exact
+self-describing shape, while direct Codex continues to declare cached input as
+a subset explicitly. Canonical fuse accounting remains provider input plus
+provider output and never adds cache twice. Orchestration artifact matching
+also prefers the longer `.jsonl` suffix before `.json`, preventing durable
+ledger references from being truncated during dependency propagation.

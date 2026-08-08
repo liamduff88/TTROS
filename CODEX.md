@@ -36,12 +36,13 @@ department agent.
 
 ## Token reporting
 Every unrelated task starts a separate fresh ephemeral session. Resume is never
-implicit. At 50% context, stop task work, write a compact receipt/handoff with
-artifact paths, report usage, and end; continuation starts fresh from that
-handoff, never from the transcript. Large logs, screenshots, browser evidence,
-and test output stay in artifacts, not prompts.
+implicit. Large logs, screenshots, browser evidence, and test output stay in
+artifacts, not prompts. Automatic compaction may preserve a long task in the
+same session; it must not remove assembled context required to finish it.
 
 At session end, report provider-total input, fresh input, cached input, output,
 reasoning, and closing context percentage when the harness exposes them; the
-launching agent appends them to queue/token_ledger.jsonl.
+launching agent appends them to queue/token_ledger.jsonl. The shared 500,000-
+token work-item/session fuse is the only token breaker; 50% and 80% are visible
+informational events.
 If unavailable, state "unavailable" — never estimate.

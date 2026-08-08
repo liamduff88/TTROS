@@ -1,54 +1,31 @@
 # hooks/token_budget_check.md
-> Revisit: when ledger schema, Codex JSONL semantics, or warning thresholds change. · Last touched: 2026-07-19.
+> Revisit: when ledger schema, provider usage, pricing, or fuse thresholds change. · Last touched: 2026-08-04.
 
 ## Event
-Fires on all three queue-item transitions to `done` in `tools/aos-queue.py` and
-during supervised Codex process-exit reconciliation.
 
-## Hard checks
-The existing `finalize_done()` contract builds a complete `token_usage` block,
-computes cost from `scripts/model_prices.json`, validates run/token ledger rows,
-and refuses before persisting status if the block or schema is invalid. Missing
-harness fields remain explicitly unavailable; guessed counts never unblock a
-transition.
+Runs before and after every protected model invocation and during queue
+process-exit reconciliation.
 
-Supervised Codex reconciliation additionally requires exactly one real
-`thread.started` identity. Missing or ambiguous clean-session creation fails
-without using a previous or synthetic session ID.
+## Before call
 
-For Codex JSONL, `input_tokens` is provider-total input. When
-`cached_input_tokens` is present, the parser derives fresh input by subtraction,
-rejects cached input greater than provider input, and never adds cached input to
-the provider total. Reasoning must be a subset of output.
+- Require typed assembled context at the model boundary.
+- Resolve the one cost dial (scope override → global → `standard`).
+- Read the named work-item/session state from `queue/token_ledger.jsonl`.
+- Block only a known 500,000-token pause or unknown/corrupt accounting.
 
-The final cumulative `turn.completed` snapshot is authoritative; repeated
-events are not summed and an incomplete terminal event does not inherit fields
-from an earlier event. At 75,000 cumulative tokens the supervisor writes a
-compact handoff receipt, ends the current process, and launches a new
-`exec --ephemeral` continuation from the artifact path. No same-session
-auto-compaction or transcript replay is available.
+## After call
 
-## Soft deterministic warnings
-For each reported workbench entry:
+- Record provider, actual model, exact exposed token fields, canonical total,
+  price/unpriced state, dial source and scope.
+- Emit newly crossed 50/80/100 events once by invocation identity.
+- At 100%, preserve state and block the next call; never claim the running call
+  was interrupted.
 
-1. `cached_input / max(fresh_input, 1) > 20` records the tool, session ID, and
-   ratio.
-2. `context_pct_at_close > 50` records the tool, session ID, and closing value.
-
-Warnings are written into the token sidecar/receipt payload and ledger row and
-reproduced deterministically in the weekly rollup, but do not block completion.
-Missing inputs are named under `unavailable`; the hook does not estimate them.
-
-## Pricing check
-Fresh input is priced at `input_per_mtok`, cached input at
-`cache_read_per_mtok`, and output at `output_per_mtok`. A reported split must
-sum to provider-total input. Legacy `input` without a split is priced once at
-the normal input rate.
+The 50/80 events do not change context, model, compaction, or execution.
+Automatic compaction remains independent session hygiene. Deterministic
+operations record zero model invocations.
 
 ## Enforces
-`rules/always.md` #1 and #5, `rules/token_budget.md`, and
-`context/TOKEN_POLICY.md`.
 
-## Status
-Wired in `tools/aos-queue.py`; rollup warnings and rankings are wired in
-`scripts/token_rollup.py`.
+`context/TOKEN_POLICY.md`, `rules/always.md` #1/#5, exact-or-unknown
+accounting, and the single Step 6 control contract.

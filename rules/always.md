@@ -13,10 +13,11 @@ prohibitions.
    `business_brain:<relative-path>` references and keeps
    `business_brain:index/MEMORY_INDEX.md` navigable.
 4. Every new file in the substrate carries a Revisit: or Expires: line.
-5. Deterministic script first; cheap model second; strong model only on the
-   two escalation triggers (rules/escalation.md). Model spend happens on
-   explicit operator action or an explicit Hermes address — never silently
-   from typing, viewing, or searching.
+5. Deterministic script first where it can complete the work. Model calls use
+   the one visible `light|standard|heavy` cost dial and record the actual model;
+   no hidden rule may silently downgrade it. Model spend happens on explicit
+   operator action or an explicit Hermes address — never silently from typing,
+   viewing, or searching.
 6. State sources for every factual claim in client-facing output.
 7. Keep each client in its own context. One client, one thread, one folder
    (rules/client_data_boundaries.md).
