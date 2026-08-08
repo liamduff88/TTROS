@@ -30,6 +30,11 @@ def load_module(name: str, path: Path):
 
 
 class CodexContextRepairTest(unittest.TestCase):
+    def _context(self, prompt: str):
+        return backend.assemble_model_context(
+            prompt, surface="test:codex", classification="technical_only", write_artifact=False,
+        )
+
     def _fake_codex(self, root: Path, *, with_session: bool = True, large_output: bool = False) -> Path:
         executable = root / "codex-fixture"
         executable.write_text(
@@ -56,7 +61,7 @@ class CodexContextRepairTest(unittest.TestCase):
         executable = root / "codex-threshold-fixture"
         executable.write_text(
             "#!/usr/bin/env python3\n"
-            "import json, pathlib, sys, time\n"
+            "import json, pathlib, sys\n"
             "root = pathlib.Path(sys.argv[sys.argv.index('-C') + 1])\n"
             "prompt = sys.stdin.read()\n"
             "if '--ephemeral' not in sys.argv or 'resume' in sys.argv or '--last' in sys.argv:\n"
@@ -70,7 +75,7 @@ class CodexContextRepairTest(unittest.TestCase):
             "    print(json.dumps({'type':'turn.completed','usage':{'input_tokens':30,'cached_input_tokens':10,'output_tokens':5,'reasoning_output_tokens':2}}), flush=True)\n"
             "    print(json.dumps({'type':'item.completed','item':{'type':'command_execution','aggregated_output':'LARGE_THRESHOLD_LOG_SENTINEL_' + ('z' * 12000)}}), flush=True)\n"
             "    print(json.dumps({'type':'turn.completed','usage':{'input_tokens':55,'cached_input_tokens':20,'output_tokens':5,'reasoning_output_tokens':2}}), flush=True)\n"
-            "    time.sleep(10)\n"
+            "    print(json.dumps({'type':'item.completed','item':{'type':'agent_message','text':'PASS\\nFiles touched: None\\nValidation: retained invocation\\nBlockers: None'}}), flush=True)\n"
             "else:\n"
             "    print(json.dumps({'type':'item.completed','item':{'type':'agent_message','text':'PASS\\nFiles touched: None\\nValidation: fresh continuation\\nBlockers: None'}}), flush=True)\n"
             "    print(json.dumps({'type':'turn.completed','usage':{'input_tokens':12,'cached_input_tokens':2,'output_tokens':3,'reasoning_output_tokens':1}}), flush=True)\n",
@@ -110,8 +115,8 @@ class CodexContextRepairTest(unittest.TestCase):
             executable = self._fake_codex(root)
             target = replace(policy.CODEX_TARGET, root=root, executable=executable, codex_home=root / ".codex")
             with patch.object(backend, "BASE_DIR", root), patch.object(backend, "CODEX_TARGET", target):
-                first = backend._run_codex_local("DIRECT_ALPHA_SENTINEL")
-                second = backend._run_codex_local("DIRECT_BETA_SENTINEL")
+                first = backend._run_codex_local(self._context("DIRECT_ALPHA_SENTINEL"))
+                second = backend._run_codex_local(self._context("DIRECT_BETA_SENTINEL"))
 
             first_prompt = (root / "prompt-1.txt").read_text(encoding="utf-8")
             second_prompt = (root / "prompt-2.txt").read_text(encoding="utf-8")
@@ -134,48 +139,38 @@ class CodexContextRepairTest(unittest.TestCase):
             executable = self._fake_codex(root, with_session=False)
             target = replace(policy.CODEX_TARGET, root=root, executable=executable, codex_home=root / ".codex")
             with patch.object(backend, "BASE_DIR", root), patch.object(backend, "CODEX_TARGET", target):
-                result = backend._run_codex_local("CLEAN_SESSION_FAILURE_SENTINEL")
+                result = backend._run_codex_local(self._context("CLEAN_SESSION_FAILURE_SENTINEL"))
             self.assertFalse(result["success"])
             self.assertEqual(result["failure_class"], "clean_session_creation_failure")
             self.assertIn("refusing previous-session inheritance", result["output"])
             self.assertNotIn("session_id", result["token_usage"])
 
-    def test_cumulative_threshold_writes_handoff_and_continues_in_new_session(self):
+    def test_lower_usage_does_not_force_hidden_handoff(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             executable = self._fake_threshold_codex(root)
             target = replace(policy.CODEX_TARGET, root=root, executable=executable, codex_home=root / ".codex")
-            with patch.object(backend, "BASE_DIR", root), \
-                 patch.object(backend, "CODEX_TARGET", target), \
-                 patch.object(backend, "CONTEXT_HANDOFF_THRESHOLD_TOKENS", 50), \
-                 patch.object(backend, "MAX_CONTEXT_HANDOFFS", 2):
-                result = backend._run_codex_local("THRESHOLD_ORIGINAL_TASK_SENTINEL")
+            with patch.object(backend, "BASE_DIR", root), patch.object(backend, "CODEX_TARGET", target):
+                result = backend._run_codex_local(self._context("THRESHOLD_ORIGINAL_TASK_SENTINEL"))
                 with patch.object(backend, "_log_token_usage") as token_log:
                     backend._compact_agent_closeout(result, "codex", "codex", "threshold fixture")
 
             self.assertTrue(result["success"])
-            self.assertEqual(result["session_id"], "threshold-fresh-2")
-            self.assertEqual([row["session_id"] for row in result["handoff_sessions"]], ["threshold-fresh-1"])
-            self.assertEqual(result["handoff_sessions"][0]["threshold_usage"]["cumulative_tokens"], 60)
-            self.assertEqual(result["handoff_sessions"][0]["threshold_usage"]["event_count"], 2)
-            self.assertEqual(token_log.call_count, 2)
+            self.assertEqual(result["session_id"], "threshold-fresh-1")
+            self.assertNotIn("handoff_sessions", result)
+            self.assertEqual(token_log.call_count, 1)
             self.assertEqual(
                 [call.args[3].get("session_id") for call in token_log.call_args_list],
-                ["threshold-fresh-1", "threshold-fresh-2"],
+                ["threshold-fresh-1"],
             )
 
             first_prompt = (root / "threshold-prompt-1.txt").read_text(encoding="utf-8")
-            second_prompt = (root / "threshold-prompt-2.txt").read_text(encoding="utf-8")
-            handoff_path = root / result["handoff_artifacts"][0]
-            handoff = handoff_path.read_text(encoding="utf-8")
             self.assertIn("THRESHOLD_ORIGINAL_TASK_SENTINEL", first_prompt)
-            self.assertIn("THRESHOLD_ORIGINAL_TASK_SENTINEL", handoff)
-            self.assertNotIn("THRESHOLD_ORIGINAL_TASK_SENTINEL", second_prompt)
-            self.assertIn(result["handoff_artifacts"][0], second_prompt)
-            self.assertNotIn("LARGE_THRESHOLD_LOG_SENTINEL_", second_prompt)
-            self.assertIn("LARGE_THRESHOLD_LOG_SENTINEL_", (root / result["handoff_sessions"][0]["stream_artifacts"][0]).read_text(encoding="utf-8"))
+            self.assertEqual((root / "threshold-counter.txt").read_text(encoding="utf-8"), "1")
+            self.assertEqual(result["cost_control"]["canonical_tokens"], 60)
+            self.assertFalse(result["cost_control"]["paused"])
             self.assertNotIn("resume", " ".join(result["invocation"].get("command", [])))
-            self.assertNotIn("model_auto_compact", first_prompt + second_prompt)
+            self.assertNotIn("model_auto_compact", first_prompt)
 
     def test_small_queue_task_never_recursively_handoffs(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -183,11 +178,8 @@ class CodexContextRepairTest(unittest.TestCase):
             executable = self._fake_queue_threshold_codex(root)
             target = replace(policy.CODEX_TARGET, root=root, executable=executable, codex_home=root / ".codex")
             item = {"id": "AOS-2026-9008", "title": "Small route", "owner": "codex", "size": "small"}
-            with patch.object(backend, "BASE_DIR", root), \
-                 patch.object(backend, "CODEX_TARGET", target), \
-                 patch.object(backend, "CONTEXT_HANDOFF_THRESHOLD_TOKENS", 50), \
-                 patch.object(backend, "MAX_CONTEXT_HANDOFFS", 2):
-                result = backend._run_codex_local("SMALL_SINGLE_SESSION_SENTINEL", item)
+            with patch.object(backend, "BASE_DIR", root), patch.object(backend, "CODEX_TARGET", target):
+                result = backend._run_codex_local(self._context("SMALL_SINGLE_SESSION_SENTINEL"), item)
 
             self.assertTrue(result["success"])
             self.assertEqual(result["session_id"], "queue-threshold-fresh-1")
@@ -211,18 +203,15 @@ class CodexContextRepairTest(unittest.TestCase):
             (root / "queue" / "work_items.jsonl").write_text(json.dumps(item) + "\n", encoding="utf-8")
             executable = self._fake_queue_threshold_codex(root)
             target = replace(policy.CODEX_TARGET, root=root, executable=executable, codex_home=root / ".codex")
-            with patch.object(queue, "CODEX_TARGET", target), \
-                 patch.object(queue, "CONTEXT_HANDOFF_THRESHOLD_TOKENS", 50), \
-                 patch.object(queue, "MAX_CONTEXT_HANDOFFS", 2):
+            with patch.object(queue, "CODEX_TARGET", target):
                 result = queue.run_codex_work_item(root, item_id, "QUEUE_THRESHOLD_ORIGINAL_SENTINEL")
 
             ledger = [json.loads(line) for line in (root / "queue" / "token_ledger.jsonl").read_text(encoding="utf-8").splitlines()]
-            self.assertEqual([row["session_id"] for row in ledger], ["queue-threshold-fresh-1", "queue-threshold-fresh-2"])
-            self.assertEqual(result["session_id"], "queue-threshold-fresh-2")
-            self.assertEqual(result["handoff_sessions"][0]["session_id"], "queue-threshold-fresh-1")
-            second_prompt = (root / "queue-threshold-prompt-2.txt").read_text(encoding="utf-8")
-            self.assertNotIn("QUEUE_THRESHOLD_ORIGINAL_SENTINEL", second_prompt)
-            self.assertIn(result["handoff_artifacts"][0], second_prompt)
+            self.assertEqual([row["session_id"] for row in ledger], ["queue-threshold-fresh-1"])
+            self.assertEqual(result["session_id"], "queue-threshold-fresh-1")
+            self.assertNotIn("handoff_sessions", result)
+            first_prompt = (root / "queue-threshold-prompt-1.txt").read_text(encoding="utf-8")
+            self.assertIn("QUEUE_THRESHOLD_ORIGINAL_SENTINEL", first_prompt)
 
     def test_correction_is_fresh_compact_and_large_output_is_artifact_backed(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -242,7 +231,7 @@ class CodexContextRepairTest(unittest.TestCase):
                 "stop_conditions": ["external_action"], "definition_of_done": "Acceptance sentinel satisfied",
             }
             with patch.object(backend, "BASE_DIR", root), patch.object(backend, "CODEX_TARGET", target):
-                prior = backend._run_codex_local("LARGE_SYNTHETIC_TASK", item)
+                prior = backend._run_codex_local(self._context("LARGE_SYNTHETIC_TASK"), item)
                 prompt = backend._queue_actual_run_prompt(
                     item, "codex", "Fix the validation receipt", 2, 3, prior,
                 )
@@ -255,7 +244,7 @@ class CodexContextRepairTest(unittest.TestCase):
             self.assertIn("Fix the validation receipt", prompt)
             self.assertIn("Acceptance sentinel satisfied", prompt)
             self.assertNotIn("LARGE_OUTPUT_SENTINEL_", prompt)
-            self.assertLess(len(prompt.encode("utf-8")), policy.MAX_FRESH_PROMPT_BYTES)
+            self.assertLess(len(prompt.encode("utf-8")), 64 * 1024)
 
     def test_large_child_evidence_is_artifact_backed_not_reinjected(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -373,14 +362,14 @@ class CodexContextRepairTest(unittest.TestCase):
         self.assertEqual(rolled["totals"]["input"], 1_000)
         self.assertEqual(rolled["totals"]["est_cost_usd"], expected_cost)
         self.assertEqual(rolled["top_cache_ratio_sessions"][0]["cache_ratio"], 9.0)
-        self.assertEqual(rolled["context_ceiling_breaches"][0]["context_pct_at_close"], 51)
-        self.assertTrue(any("context_pct_at_close > 50" in value for value in rolled["warnings"]))
+        self.assertNotIn("context_ceiling_breaches", rolled)
+        self.assertFalse(any("context_pct_at_close > 50" in value for value in rolled["warnings"]))
         warnings = queue.token_usage_warnings({
             **usage,
             "workbenches": [{**usage["workbenches"][0], "fresh_input": 1, "cached_input": 999}],
         })
         self.assertTrue(any("cache_ratio > 20" in value for value in warnings))
-        self.assertTrue(any("context_pct_at_close > 50" in value for value in warnings))
+        self.assertFalse(any("context_pct_at_close > 50" in value for value in warnings))
         cache_warning_usage = {
             "orchestrator": {"input": 0, "output": 0}, "subagents": [],
             "workbenches": [{
@@ -397,7 +386,7 @@ class CodexContextRepairTest(unittest.TestCase):
             ["cache-warning-proof", "cache-proof"],
         )
         self.assertTrue(any("cache_ratio > 20" in value for value in warning_rollup["warnings"]))
-        self.assertTrue(any("context_pct_at_close > 50" in value for value in warning_rollup["warnings"]))
+        self.assertFalse(any("context_pct_at_close > 50" in value for value in warning_rollup["warnings"]))
         direct_line = backend._simple_token_line(
             "AOS-2026-9003", "codex", 1_100, "exact",
             {

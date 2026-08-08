@@ -1,7 +1,7 @@
 """Mandatory Agentic OS policy for every Codex process launch.
 
 Revisit: when the canonical Agentic OS root, Linux user, Codex installation,
-or fresh-session CLI contract changes. · Last touched: 2026-07-19.
+or fresh-session/compaction CLI contract changes. · Last touched: 2026-08-04.
 """
 
 from __future__ import annotations
@@ -20,8 +20,9 @@ class CodexPolicyError(RuntimeError):
 
 SANDBOX_MODE = "danger-full-access"
 APPROVAL_POLICY = "never"
-CONTEXT_CEILING_PCT = 50
-MAX_FRESH_PROMPT_BYTES = 64 * 1024
+AUTO_COMPACT_TOKEN_LIMIT = 75_000
+REASONING_EFFORT_BY_DIAL = {"light": "low", "standard": "medium", "heavy": "high"}
+CODEX_MODEL = "gpt-5.5"
 
 
 def _positive_environment_integer(name: str, default: int) -> int:
@@ -34,10 +35,6 @@ def _positive_environment_integer(name: str, default: int) -> int:
     return value
 
 
-CONTEXT_HANDOFF_THRESHOLD_TOKENS = _positive_environment_integer(
-    "AOS_CODEX_CONTEXT_HANDOFF_TOKENS", 75_000,
-)
-MAX_CONTEXT_HANDOFFS = _positive_environment_integer("AOS_CODEX_MAX_CONTEXT_HANDOFFS", 4)
 PERMISSION_HEADER = """PERMISSION MODE — SCOPED LOCAL TASK APPROVED
 
 Do not ask for permission during this scoped local task. Assume approval for local reads, local edits, local file creation, dependency installation, validation commands, local dev-server startup, browser preview, and screenshot capture inside the stated scope.
@@ -45,12 +42,13 @@ Do not ask for permission during this scoped local task. Assume approval for loc
 Do not ask before editing files inside the stated folder. Make the changes, validate, and return the compact closeout.
 
 Stop only for real external/destructive actions."""
-FRESH_SESSION_POLICY = f"""## Fresh-session and retained-context contract
+FRESH_SESSION_POLICY = """## Fresh-session and retained-context contract
 
 - This invocation is a new, independently scoped ephemeral Codex session. Do not resume, inherit, or search for any previous Codex transcript or session.
 - Work only from this prompt and the repository/artifact paths it names. Do not replay orchestration history.
 - Keep logs, screenshots, browser evidence, and verbose test output in local artifacts; retain only compact summaries and paths in prompts and closeouts.
-- Before context reaches {CONTEXT_CEILING_PCT}%, write a compact receipt/handoff artifact and end the session. Any continuation must start as another fresh session from that artifact, never by transcript resume.
+- Native automatic compaction may summarise retained conversation for session hygiene; it must preserve the assembled context needed to complete the task.
+- The only token breaker is the shared 500,000-token work-item/session fuse. There is no lower handoff or context-percentage breaker.
 - If a clean session cannot be created, fail explicitly without doing task work."""
 
 @dataclass(frozen=True)
@@ -90,8 +88,10 @@ def invocation_metadata(target: CodexRuntimeTarget = CODEX_TARGET) -> dict:
         "ask_for_approval": APPROVAL_POLICY,
         "session_mode": "fresh_ephemeral",
         "resume_allowed": False,
-        "context_ceiling_pct": CONTEXT_CEILING_PCT,
-        "context_handoff_threshold_tokens": CONTEXT_HANDOFF_THRESHOLD_TOKENS,
+        "model_auto_compact_token_limit": AUTO_COMPACT_TOKEN_LIMIT,
+        "token_fuse_limit": 500_000,
+        "model_requested": CODEX_MODEL,
+        "actual_model": CODEX_MODEL,
     }
 
 
@@ -116,19 +116,30 @@ def validate_runtime(
     return invocation_metadata(target)
 
 
-def build_exec_command(target: CodexRuntimeTarget = CODEX_TARGET) -> list[str]:
-    """Return the immutable headless CLI contract; callers add no policy args."""
+def build_exec_command(
+    target: CodexRuntimeTarget = CODEX_TARGET,
+    *,
+    cost_dial: str = "standard",
+) -> list[str]:
+    """Return the immutable headless CLI contract with canonical dial effort."""
+    if cost_dial not in REASONING_EFFORT_BY_DIAL:
+        raise CodexPolicyError(
+            f"invalid cost dial {cost_dial!r}; expected light, standard, or heavy"
+        )
     return [
         str(target.executable),
         "--sandbox", SANDBOX_MODE,
         "--ask-for-approval", APPROVAL_POLICY,
         "-C", str(target.root),
-        "exec", "--ephemeral", "--skip-git-repo-check", "--json", "--color", "never", "-",
+        "--config", f"model_auto_compact_token_limit={AUTO_COMPACT_TOKEN_LIMIT}",
+        "--config", f"model_reasoning_effort={REASONING_EFFORT_BY_DIAL[cost_dial]}",
+        "exec", "--model", CODEX_MODEL,
+        "--ephemeral", "--skip-git-repo-check", "--json", "--color", "never", "-",
     ]
 
 
 def prepare_fresh_prompt(prompt: str) -> str:
-    """Apply the mandatory permission/session header and enforce a bounded work order."""
+    """Apply the mandatory permission/session header without a hidden byte cap."""
     task = str(prompt or "").strip()
     if not task:
         raise CodexPolicyError("Codex clean-session prompt is empty")
@@ -136,12 +147,6 @@ def prepare_fresh_prompt(prompt: str) -> str:
         task = task[len(PERMISSION_HEADER):].lstrip()
     sections = [PERMISSION_HEADER, FRESH_SESSION_POLICY, task]
     prepared = "\n\n".join(sections).rstrip() + "\n"
-    size = len(prepared.encode("utf-8"))
-    if size > MAX_FRESH_PROMPT_BYTES:
-        raise CodexPolicyError(
-            f"Codex clean-session prompt is {size} bytes; maximum is {MAX_FRESH_PROMPT_BYTES}. "
-            "Store large context as an artifact and pass a compact summary plus paths."
-        )
     return prepared
 
 

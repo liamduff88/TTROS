@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentic-os.local/schemas/task_deletion_tombstone.schema.json",
+  "title": "Minimal task deletion tombstone",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "item_id",
+    "title",
+    "previous_status",
+    "owner",
+    "created_at",
+    "deleted_at",
+    "deleted_by",
+    "deletion_reason",
+    "record_sha256"
+  ],
+  "properties": {
+    "item_id": {"type": "string", "pattern": "^AOS-[A-Za-z0-9-]+$"},
+    "title": {"type": "string", "minLength": 1, "maxLength": 160},
+    "previous_status": {
+      "enum": ["inbox", "agent_todo", "agent_working", "needs_input", "human_review", "done", "blocked", "cancelled"]
+    },
+    "owner": {"type": "string", "minLength": 1, "maxLength": 80},
+    "workbench": {"type": "string", "pattern": "^[A-Za-z0-9_.-]{1,80}$"},
+    "created_at": {"type": "string", "maxLength": 40},
+    "deleted_at": {"type": "string", "minLength": 20, "maxLength": 40},
+    "deleted_by": {"type": "string", "minLength": 1, "maxLength": 80},
+    "deletion_reason": {"type": "string", "minLength": 1, "maxLength": 240},
+    "record_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}

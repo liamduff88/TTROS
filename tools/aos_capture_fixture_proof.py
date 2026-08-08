@@ -5,7 +5,7 @@ This command uses only synthetic Gmail data, a local deterministic classifier,
 an ignored fixture Brain, a disposable search/Graphify build, and the existing
 live local queue/ledger paths. It never invokes a connector or external model.
 
-Revisit: when the Block 3 fixture contract or live activation boundary changes. · Last touched: 2026-07-15.
+Revisit: when the Block 3 fixture contract or live activation boundary changes. · Last touched: 2026-08-04.
 """
 
 from __future__ import annotations
@@ -214,7 +214,15 @@ def main() -> int:
     }
     if result["capture"]["replay_new_raw_count"] != 0 or result["stage3"]["known_replay_created"] or result["stage3"]["unresolved_replay_created"]:
         raise RuntimeError("fixture replay was not idempotent")
-    if result["stage3"]["known_status"] != "human_review" or result["stage3"]["unresolved_status"] != "needs_input":
+    # The proof intentionally reuses its durable fixture records. A prior
+    # operator review may have moved either record between the existing Needs
+    # Me states, so replay must validate the boundary instead of pretending the
+    # historical record is newly created on every run.
+    needs_me_statuses = {"human_review", "needs_input", "blocked"}
+    if (
+        result["stage3"]["known_status"] not in needs_me_statuses
+        or result["stage3"]["unresolved_status"] not in needs_me_statuses
+    ):
         raise RuntimeError("fixture queue routing did not use existing Needs Me statuses")
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0

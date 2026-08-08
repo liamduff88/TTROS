@@ -28,6 +28,7 @@ class AosCodexPolicyTest(unittest.TestCase):
         self.assertEqual("never", command[command.index("--ask-for-approval") + 1])
         self.assertEqual("/home/liam/agentic-os-live", command[command.index("-C") + 1])
         self.assertIn("exec", command)
+        self.assertEqual(command[command.index("--model") + 1], policy.CODEX_MODEL)
         self.assertIn("--ephemeral", command)
         self.assertNotIn("resume", command)
         self.assertNotIn("--last", command)
@@ -92,7 +93,7 @@ class AosCodexPolicyTest(unittest.TestCase):
             text = path.read_text(encoding="utf-8")
             with self.subTest(path=path.relative_to(ROOT)):
                 self.assertIn(function_marker, text)
-                self.assertIn("build_codex_exec_command(CODEX_TARGET)", text)
+                self.assertIn("build_codex_exec_command(", text)
                 self.assertIn("validate_codex_runtime", text)
                 self.assertNotIn("workspace-write", text)
 
@@ -103,10 +104,21 @@ class AosCodexPolicyTest(unittest.TestCase):
         workflow = (ROOT / "workflows/prompt_templates/codex_workflow_runner.md").read_text(encoding="utf-8")
         frontend = (ROOT / "dashboard/frontend/src/launcherPrompts.js").read_text(encoding="utf-8")
 
-        self.assertIn("result = _run_codex_local(prompt, item)", backend)  # queue/dashboard/workflow owner
-        self.assertIn("_run_codex_local(body.task)", backend)  # direct backend API
-        self.assertIn("continued = run_codex_work_item(", queue)
-        self.assertIn("_handoff_depth=_handoff_depth + 1", queue)
+        self.assertIn("result = _run_codex_local(worker_context, item)", backend)  # mandatory worker context pack
+        self.assertIn("_run_codex_local(assemble_model_context(", backend)  # direct backend API
+        self.assertIn("require_assembled_context(context)", backend)
+        self.assertIn("step6_preflight(step6_scope", queue)
+        self.assertIn("record_step6_invocation", queue)
+        self.assertNotIn("CONTEXT_HANDOFF_THRESHOLD_TOKENS", queue)
+        self.assertNotIn("MAX_CONTEXT_HANDOFFS", queue)
+        self.assertEqual(policy.AUTO_COMPACT_TOKEN_LIMIT, 75_000)
+        self.assertIn("model_auto_compact_token_limit", (ROOT / "tools/aos_codex_policy.py").read_text(encoding="utf-8"))
+        light = policy.build_exec_command(cost_dial="light")
+        heavy = policy.build_exec_command(cost_dial="heavy")
+        self.assertIn("model_reasoning_effort=low", light)
+        self.assertIn("model_reasoning_effort=high", heavy)
+        with self.assertRaisesRegex(policy.CodexPolicyError, "invalid cost dial"):
+            policy.build_exec_command(cost_dial="invalid")
         self.assertIn("/api/queue/items/{item_id}/run", runner)  # scheduled/on-demand runner
         for text in (workflow, frontend):
             self.assertIn("/home/liam/.local/bin/aos-codex", text)

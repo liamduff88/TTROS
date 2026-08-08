@@ -177,6 +177,7 @@ class AosSearchTest(unittest.TestCase):
                 def get(self, *args, **kwargs):
                     return lambda function: function
                 post = get
+                delete = get
                 middleware = get
 
             class _HTTPException(Exception):

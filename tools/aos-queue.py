@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Local Agentic OS work queue and explicit workbench launch boundary.
 
-Revisit: when queue lifecycle, receipt completeness, Codex supervision, or token reconciliation changes. · Last touched: 2026-07-31.
+Revisit: when queue lifecycle, deletion safety, receipt completeness, Codex supervision, or token reconciliation changes. · Last touched: 2026-08-04.
 
 Queue mutations stay local. The ``codex-run`` command is the one bounded
 exception: it launches the installed Codex CLI for an explicit work-item ID,
@@ -35,8 +35,6 @@ if str(TOOLS_DIR) not in sys.path:
 from aos_paths import AuthorityError, aos_root, assert_authoritative_root
 from aos_codex_policy import (
     CODEX_TARGET,
-    CONTEXT_HANDOFF_THRESHOLD_TOKENS,
-    MAX_CONTEXT_HANDOFFS,
     CodexPolicyError,
     build_environment as build_codex_environment,
     build_exec_command as build_codex_exec_command,
@@ -45,8 +43,15 @@ from aos_codex_policy import (
     require_clean_session_id,
     validate_runtime as validate_codex_runtime,
 )
-from aos_queue_storage import QueueStorageError, durable_replace_text, queue_write_lock
+from aos_queue_storage import QueueStorageError, durable_replace_text, fsync_directory, queue_write_lock
 from business_brain_context import BrainContextError, validate_completion_context
+from step6_cost_control import (
+    CostControlError as Step6CostControlError,
+    Scope as Step6Scope,
+    preflight as step6_preflight,
+    record_invocation as record_step6_invocation,
+    record_unavailable_invocation as record_step6_unavailable,
+)
 
 DEFAULT_ROOT = aos_root()
 QUEUE_DIR = Path("queue")
@@ -65,6 +70,7 @@ RUN_LEDGER_SCHEMA_PATH = QUEUE_DIR / "run_ledger_schema.json"
 TOKEN_LEDGER_SCHEMA_PATH = QUEUE_DIR / "token_ledger_schema.json"
 SKILL_TRUST_SCHEMA_PATH = QUEUE_DIR / "skill_trust_schema.json"
 RECEIPT_COMPLETENESS_SCHEMA_PATH = QUEUE_DIR / "schemas" / "receipt_completeness.schema.json"
+DELETION_TOMBSTONE_SCHEMA_PATH = QUEUE_DIR / "schemas" / "task_deletion_tombstone.schema.json"
 # Pricing and schemas are repo assets, resolved from the tool location (not --root),
 # so a temporary --root (tests/sandboxes) still finds the canonical files.
 MODEL_PRICES_PATH = REPO_DIR / "scripts" / "model_prices.json"
@@ -114,6 +120,16 @@ APPROVED_STATUSES = {
 AVAILABLE_STATUSES = {"inbox", "agent_todo"}
 APPROVED_OWNER_TYPES = {"agent", "workflow"}
 STARTER_AGENTS = ["hermes", "codex", "claude", "revenue", "marketing", "delivery", "operations"]
+PROTECTED_DELETION_ITEM_IDS = {
+    "AOS-2026-0071",
+    "AOS-2026-0073",
+    "AOS-2026-0074",
+    "AOS-2026-0075",
+}
+DELETION_REQUEST_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{7,95}$")
+DELETION_REASON_MAX_LENGTH = 240
+DELETION_TITLE_MAX_LENGTH = 160
+TERMINAL_DEPENDENT_STATUSES = {"done", "cancelled"}
 
 
 class QueueError(Exception):
@@ -127,6 +143,15 @@ class ClaimConflictError(QueueError):
     dashboard run endpoint match on it rather than on class identity."""
 
     code = "claim_conflict"
+
+
+class DeletionRefusedError(QueueError):
+    """Structured refusal for a queue deletion safety or identity check."""
+
+    def __init__(self, code: str, message: str, **details: Any):
+        super().__init__(message)
+        self.code = code
+        self.details = details
 
 
 def now_iso() -> str:
@@ -209,8 +234,332 @@ def load_items(root: Path) -> list[dict]:
 def save_items(root: Path, items: list[dict]) -> None:
     with queue_write_lock(root):
         ensure_queue(root)
-        text = "".join(json.dumps(item, sort_keys=True, separators=(",", ":")) + "\n" for item in items)
+        text = serialize_items(items)
         durable_replace_text(root / WORK_ITEMS_PATH, text)
+
+
+def canonical_queue_record(item: dict) -> str:
+    """Return the canonical queue-record representation used for deletion CAS."""
+    return json.dumps(item, sort_keys=True, separators=(",", ":"))
+
+
+def queue_record_hash(item: dict) -> str:
+    return hashlib.sha256(canonical_queue_record(item).encode("utf-8")).hexdigest()
+
+
+def serialize_items(items: list[dict]) -> str:
+    return "".join(canonical_queue_record(item) + "\n" for item in items)
+
+
+def queue_counts(items: list[dict]) -> dict[str, int]:
+    return {
+        status: sum(1 for item in items if item.get("status") == status)
+        for status in sorted(APPROVED_STATUSES)
+    }
+
+
+def _deletion_paths(root: Path, request_id: str) -> tuple[Path, Path]:
+    receipts = root / RECEIPTS_DIR
+    final = receipts / f"task-deletion-{request_id}.json"
+    pending = receipts / f".task-deletion-{request_id}.pending"
+    return pending, final
+
+
+def _deletion_request_id_from_pending(path: Path) -> str | None:
+    match = re.fullmatch(r"\.task-deletion-([A-Za-z0-9][A-Za-z0-9_-]{7,95})\.pending", path.name)
+    return match.group(1) if match else None
+
+
+def _validate_deletion_tombstone(root: Path, value: object) -> dict:
+    if not isinstance(value, dict):
+        raise QueueStorageError("task deletion tombstone must contain one JSON object")
+    schema_path = root / DELETION_TOMBSTONE_SCHEMA_PATH
+    if not schema_path.is_file():
+        schema_path = REPO_DIR / DELETION_TOMBSTONE_SCHEMA_PATH
+    error = _validate_against_schema(value, schema_path)
+    if error:
+        raise QueueStorageError(f"task deletion tombstone failed its minimal schema: {error}")
+    return value
+
+
+def _read_deletion_tombstone(root: Path, path: Path) -> dict:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise QueueStorageError(f"task deletion evidence is unreadable: {path.name}") from exc
+    return _validate_deletion_tombstone(root, value)
+
+
+def _publish_deletion_tombstone(root: Path, pending: Path, final: Path) -> None:
+    """Publish one flushed pending receipt without overwriting another result."""
+    if final.exists():
+        pending_value = _read_deletion_tombstone(root, pending)
+        final_value = _read_deletion_tombstone(root, final)
+        if pending_value != final_value:
+            raise QueueStorageError("task deletion request ID already has contradictory evidence")
+    else:
+        try:
+            os.link(pending, final)
+        except FileExistsError:
+            final_value = _read_deletion_tombstone(root, final)
+            pending_value = _read_deletion_tombstone(root, pending)
+            if final_value != pending_value:
+                raise QueueStorageError("task deletion request ID publication conflicted")
+        fsync_directory(final.parent)
+    pending.unlink(missing_ok=True)
+    fsync_directory(final.parent)
+
+
+def _recover_completed_pending_deletions(root: Path, items: list[dict]) -> None:
+    """Finish publication only when the authoritative item is already absent."""
+    live_ids = {str(item.get("id") or "") for item in items}
+    receipts = root / RECEIPTS_DIR
+    if not receipts.is_dir():
+        return
+    for pending in sorted(receipts.glob(".task-deletion-*.pending")):
+        request_id = _deletion_request_id_from_pending(pending)
+        if not request_id:
+            raise QueueStorageError(f"unrecognized pending task deletion evidence: {pending.name}")
+        tombstone = _read_deletion_tombstone(root, pending)
+        if tombstone["item_id"] in live_ids:
+            continue
+        _pending, final = _deletion_paths(root, request_id)
+        _publish_deletion_tombstone(root, pending, final)
+
+
+def _matching_deletion_evidence(root: Path, item_id: str, *, include_pending: bool = False) -> list[tuple[Path, dict]]:
+    receipts = root / RECEIPTS_DIR
+    if not receipts.is_dir():
+        return []
+    patterns = ["task-deletion-*.json"]
+    if include_pending:
+        patterns.append(".task-deletion-*.pending")
+    matches: list[tuple[Path, dict]] = []
+    for pattern in patterns:
+        for path in sorted(receipts.glob(pattern)):
+            tombstone = _read_deletion_tombstone(root, path)
+            if tombstone.get("item_id") == item_id:
+                matches.append((path, tombstone))
+    return matches
+
+
+def _detached_executor_item_ids(root: Path) -> set[str]:
+    """Mirror the runner's exact-root detached executor identity check."""
+    pending: set[str] = set()
+    expected_runner = str((root / "tools" / "aos-orchestration-runner.py").resolve())
+    for proc in Path("/proc").glob("[0-9]*"):
+        try:
+            cwd = proc.joinpath("cwd").resolve()
+            args = [
+                part.decode("utf-8", errors="replace")
+                for part in proc.joinpath("cmdline").read_bytes().split(b"\0")
+                if part
+            ]
+        except OSError:
+            continue
+        if cwd != root or expected_runner not in args or "--execute-item" not in args:
+            continue
+        index = args.index("--execute-item")
+        if index + 1 < len(args):
+            pending.add(args[index + 1])
+    return pending
+
+
+def _dependency_values(item: dict) -> tuple[list[str], bool]:
+    value = item.get("depends_on")
+    if value in (None, ""):
+        return [], True
+    if isinstance(value, str):
+        return [value.strip()] if value.strip() else [], True
+    if isinstance(value, list):
+        return [str(entry).strip() for entry in value if str(entry).strip()], True
+    return [], False
+
+
+def _deletion_blockers(root: Path, items: list[dict], item: dict) -> tuple[str, str, dict] | None:
+    item_id = str(item.get("id") or "")
+    if item.get("status") == "agent_working":
+        return (
+            "agent_working",
+            f"{item_id} is running; cancel or stop it first, then retry deletion.",
+            {"status": "agent_working", "action": "cancel_or_stop_first"},
+        )
+    claimed_by = str((item.get("claim") or {}).get("claimed_by") or "").strip()
+    if claimed_by:
+        return (
+            "active_claim",
+            f"{item_id} has an active claim and cannot be deleted.",
+            {"claimed_by": claimed_by, "action": "cancel_or_stop_first"},
+        )
+    if item_id in _detached_executor_item_ids(root):
+        return (
+            "active_executor",
+            f"{item_id} still has a detached executor; cancel or stop it first.",
+            {"action": "cancel_or_stop_first"},
+        )
+    dependent_ids: list[str] = []
+    unsafe_dependency_ids: list[str] = []
+    for candidate in items:
+        candidate_id = str(candidate.get("id") or "")
+        if candidate_id == item_id or candidate.get("status") in TERMINAL_DEPENDENT_STATUSES:
+            continue
+        dependencies, safe = _dependency_values(candidate)
+        if not safe:
+            unsafe_dependency_ids.append(candidate_id or "unknown")
+        elif item_id in dependencies:
+            dependent_ids.append(candidate_id)
+    if unsafe_dependency_ids:
+        return (
+            "dependency_state_unsafe",
+            "A nonterminal queue item has malformed dependency state; deletion failed closed.",
+            {"unsafe_item_ids": sorted(unsafe_dependency_ids)},
+        )
+    if dependent_ids:
+        return (
+            "active_dependents",
+            f"{item_id} is required by nonterminal queue work.",
+            {"dependent_ids": sorted(dependent_ids)},
+        )
+    return None
+
+
+def _tombstone_label(value: object, *, fallback: str, limit: int) -> str:
+    compact = re.sub(r"\s+", " ", str(value or "")).strip()
+    return (compact or fallback)[:limit]
+
+
+def _build_deletion_tombstone(item: dict, reason: str, deleted_by: str, deleted_at: str) -> dict:
+    tombstone = {
+        "item_id": str(item.get("id") or ""),
+        "title": _tombstone_label(item.get("title"), fallback="Untitled queue item", limit=DELETION_TITLE_MAX_LENGTH),
+        "previous_status": str(item.get("status") or ""),
+        "owner": _tombstone_label(item.get("owner"), fallback="unassigned", limit=80),
+        "created_at": str(item.get("created_at") or ""),
+        "deleted_at": deleted_at,
+        "deleted_by": _tombstone_label(deleted_by, fallback="Liam", limit=80),
+        "deletion_reason": reason,
+        "record_sha256": queue_record_hash(item),
+    }
+    workbench = str(item.get("workbench") or "").strip()
+    if workbench and re.fullmatch(r"[A-Za-z0-9_.-]{1,80}", workbench):
+        tombstone["workbench"] = workbench
+    return tombstone
+
+
+def _deletion_result(root: Path, items: list[dict], request_id: str, tombstone: dict, *, replayed: bool) -> dict:
+    _pending, final = _deletion_paths(root, request_id)
+    return {
+        "deleted_item_id": tombstone["item_id"],
+        "deleted_at": tombstone["deleted_at"],
+        "tombstone_reference": final.relative_to(root).as_posix(),
+        "counts": queue_counts(items),
+        "total_count": len(items),
+        "idempotency": {"request_id": request_id, "replayed": replayed},
+    }
+
+
+def delete_item(
+    root: Path,
+    item_id: str,
+    *,
+    expected_record_hash: str,
+    deletion_reason: str,
+    request_id: str,
+    deleted_by: str = "Liam",
+    lock_wait_seconds: float = 5.0,
+) -> dict:
+    """Physically remove one eligible item and publish one minimal receipt."""
+    root = assert_authoritative_root(root)
+    item_id = str(item_id or "").strip()
+    if item_id in PROTECTED_DELETION_ITEM_IDS:
+        raise DeletionRefusedError(
+            "immutable_item",
+            f"{item_id} is permanently protected and cannot be deleted.",
+            protected_item_id=item_id,
+        )
+    expected_record_hash = str(expected_record_hash or "").strip().lower()
+    if not re.fullmatch(r"[0-9a-f]{64}", expected_record_hash):
+        raise DeletionRefusedError("invalid_expected_hash", "expected_record_hash must be a lowercase SHA-256 value")
+    reason = re.sub(r"\s+", " ", str(deletion_reason or "")).strip()
+    if not reason or len(reason) > DELETION_REASON_MAX_LENGTH:
+        raise DeletionRefusedError(
+            "invalid_deletion_reason",
+            f"deletion_reason must contain 1-{DELETION_REASON_MAX_LENGTH} characters",
+        )
+    request_id = str(request_id or "").strip()
+    if not DELETION_REQUEST_ID_RE.fullmatch(request_id):
+        raise DeletionRefusedError("invalid_request_id", "request_id must be 8-96 URL-safe characters")
+
+    with queue_write_lock(root, wait_seconds=lock_wait_seconds):
+        ensure_queue(root)
+        items = load_items(root)
+        _recover_completed_pending_deletions(root, items)
+        pending, final = _deletion_paths(root, request_id)
+
+        if final.exists():
+            tombstone = _read_deletion_tombstone(root, final)
+            if tombstone.get("item_id") != item_id or tombstone.get("record_sha256") != expected_record_hash:
+                raise DeletionRefusedError(
+                    "request_id_conflict",
+                    "request_id was already used for a different deletion request",
+                )
+            if any(str(item.get("id") or "") == item_id for item in items):
+                raise DeletionRefusedError(
+                    "deletion_state_inconsistent",
+                    "Deletion evidence exists but the live item is still present; refusing mutation.",
+                )
+            return _deletion_result(root, items, request_id, tombstone, replayed=True)
+
+        item = next((entry for entry in items if str(entry.get("id") or "") == item_id), None)
+        if item is None:
+            prior = _matching_deletion_evidence(root, item_id)
+            if prior:
+                reference = prior[0][0].relative_to(root).as_posix()
+                raise DeletionRefusedError(
+                    "already_deleted",
+                    f"{item_id} was already deleted by a different request.",
+                    tombstone_reference=reference,
+                )
+            raise DeletionRefusedError("not_found", f"Work item not found: {item_id}")
+
+        actual_hash = queue_record_hash(item)
+        if actual_hash != expected_record_hash:
+            raise DeletionRefusedError(
+                "stale_queue_state",
+                f"{item_id} changed after deletion was opened; refresh and review it again.",
+                expected_record_hash=expected_record_hash,
+                current_record_hash=actual_hash,
+            )
+
+        pending_for_item = _matching_deletion_evidence(root, item_id, include_pending=True)
+        foreign_pending = [path for path, _value in pending_for_item if path != pending]
+        if foreign_pending:
+            raise DeletionRefusedError(
+                "deletion_in_progress",
+                f"{item_id} already has another deletion request in progress.",
+            )
+
+        blocker = _deletion_blockers(root, items, item)
+        if blocker:
+            code, message, details = blocker
+            raise DeletionRefusedError(code, message, **details)
+
+        if pending.exists():
+            tombstone = _read_deletion_tombstone(root, pending)
+            if tombstone.get("item_id") != item_id or tombstone.get("record_sha256") != actual_hash:
+                raise DeletionRefusedError(
+                    "request_id_conflict",
+                    "request_id has contradictory pending deletion evidence",
+                )
+        else:
+            tombstone = _build_deletion_tombstone(item, reason, deleted_by, now_iso())
+            _validate_deletion_tombstone(root, tombstone)
+            durable_replace_text(pending, json.dumps(tombstone, sort_keys=True, separators=(",", ":")) + "\n")
+
+        remaining = [entry for entry in items if str(entry.get("id") or "") != item_id]
+        durable_replace_text(root / WORK_ITEMS_PATH, serialize_items(remaining))
+        _publish_deletion_tombstone(root, pending, final)
+        return _deletion_result(root, remaining, request_id, tombstone, replayed=False)
 
 
 def locked_queue_mutation(function):
@@ -229,12 +578,18 @@ def find_item(items: list[dict], item_id: str) -> dict:
     raise QueueError(f"Work item not found: {item_id}")
 
 
-def next_id(items: list[dict], created_at: str) -> str:
+def next_id(items: list[dict], created_at: str, root: Path | None = None) -> str:
     year = created_at[:4]
     prefix = f"AOS-{year}-"
     max_number = 0
-    for item in items:
-        item_id = str(item.get("id", ""))
+    reserved_ids = [str(item.get("id", "")) for item in items]
+    if root is not None:
+        receipts = Path(root) / RECEIPTS_DIR
+        if receipts.is_dir():
+            for pattern in ("task-deletion-*.json", ".task-deletion-*.pending"):
+                for path in receipts.glob(pattern):
+                    reserved_ids.append(str(_read_deletion_tombstone(Path(root), path).get("item_id") or ""))
+    for item_id in reserved_ids:
         if item_id.startswith(prefix):
             try:
                 max_number = max(max_number, int(item_id.rsplit("-", 1)[1]))
@@ -435,11 +790,8 @@ def token_usage_warnings(block: dict) -> list[str]:
             work["cache_ratio"] = ratio
             if ratio > 20:
                 warnings.append(f"cache_ratio > 20: {tool} session {session} ratio={ratio}")
-        context_pct = work.get("context_pct_at_close")
-        if isinstance(context_pct, (int, float)) and not isinstance(context_pct, bool) and context_pct > 50:
-            warnings.append(
-                f"context_pct_at_close > 50: {tool} session {session} context_pct_at_close={context_pct}"
-            )
+        # Context percentage remains visible telemetry, never a Step 6 alert
+        # or breaker. Native automatic compaction handles session hygiene.
     return warnings
 
 
@@ -472,13 +824,18 @@ def _recompute_totals_and_cost(block: dict, prices: dict, model_confirmed: str) 
     block["totals"] = {"input": total_in, "output": total_out}
 
     cost = 0.0
+    unpriced: list[str] = []
     orch_cost = cost_for(model_confirmed, int(orch.get("input", 0)), int(orch.get("output", 0)), prices)
     if orch_cost is not None:
         cost += orch_cost
+    elif int(orch.get("input", 0)) or int(orch.get("output", 0)):
+        unpriced.append(f"cost for orchestrator model {model_confirmed or 'unavailable'}")
     for s in subs:
         c = cost_for(s.get("model"), int(s.get("input", 0)), int(s.get("output", 0)), prices)
         if c is not None:
             cost += c
+        elif int(s.get("input", 0)) or int(s.get("output", 0)):
+            unpriced.append(f"cost for subagent model {s.get('model') or 'unavailable'}")
     for w in works:
         if w.get("source") == "reported":
             fresh = _coerce_int(w.get("fresh_input"))
@@ -493,7 +850,11 @@ def _recompute_totals_and_cost(block: dict, prices: dict, model_confirmed: str) 
                 message = f"cost/cache-read rate for workbench model {w.get('model') or 'unavailable'}"
                 if message not in block.setdefault("unavailable", []):
                     block["unavailable"].append(message)
-    block["est_cost_usd"] = round(cost, 6)
+                unpriced.append(message)
+    for message in unpriced:
+        if message not in block.setdefault("unavailable", []):
+            block["unavailable"].append(message)
+    block["est_cost_usd"] = None if unpriced else round(cost, 6)
     return block
 
 
@@ -1043,37 +1404,6 @@ def _write_codex_stream_artifacts(root: Path, identity: str, stdout: str, stderr
     return paths
 
 
-def _write_codex_context_handoff(
-    root: Path,
-    session_id: str,
-    item_id: str,
-    prompt: str,
-    usage: dict,
-    stream_artifacts: list[str],
-) -> str:
-    directory = root / "logs" / "codex_handoffs"
-    directory.mkdir(parents=True, exist_ok=True)
-    target = directory / f"{re.sub(r'[^A-Za-z0-9_.-]+', '_', session_id)[:120]}.md"
-    task_summary = re.sub(r"\s+", " ", str(prompt or "")).strip()[:2_000]
-    lines = [
-        "# Codex context handoff receipt",
-        "> Revisit: when the linked task continuation is complete. · Last touched: 2026-07-19.",
-        "",
-        "- Session mode: fresh ephemeral; transcript resume forbidden",
-        f"- Completed session ID: `{session_id}`",
-        f"- Work item ID: `{item_id}`",
-        f"- Configured handoff boundary: 50% / {CONTEXT_HANDOFF_THRESHOLD_TOKENS} cumulative tokens",
-        f"- Observed cumulative usage: `{json.dumps(usage, sort_keys=True)}`",
-        f"- Original task summary: {task_summary}",
-        "- Raw evidence artifacts (inspect selectively; never paste wholesale):",
-        *(f"  - `{path}`" for path in stream_artifacts),
-        "",
-        "Continue from repository state plus this receipt. Do not replay or recover the prior transcript.",
-    ]
-    durable_replace_text(target, "\n".join(lines).rstrip() + "\n")
-    return target.relative_to(root).as_posix()
-
-
 def _codex_usage_block(summary: dict | None, session_id: str) -> dict:
     if summary is None:
         return {
@@ -1354,17 +1684,26 @@ def run_codex_work_item(
     item_id: str,
     prompt: str,
     *,
-    _handoff_depth: int = 0,
     execution_timeout_seconds: float = CODEX_EXECUTION_TIMEOUT_SECONDS,
 ) -> dict:
     """Run Codex noninteractively, capture both streams, wait, and reconcile."""
-    find_item(load_items(root), item_id)  # explicit association must exist before launch
+    item = find_item(load_items(root), item_id)  # explicit association must exist before launch
+    dial_override = next((str(tag).split(":", 1)[1] for tag in item.get("tags", []) if str(tag).startswith("budget:")), None)
+    step6_scope = Step6Scope("work_item", item_id)
     try:
+        step6_before = step6_preflight(step6_scope, dial_override=dial_override, root=root)
         invocation = validate_codex_runtime(root, CODEX_TARGET)
-        command = build_codex_exec_command(CODEX_TARGET)
+        command = build_codex_exec_command(
+            CODEX_TARGET,
+            cost_dial=step6_before["effective_cost_dial"]["value"],
+        )
+        invocation["effective_cost_dial"] = step6_before["effective_cost_dial"]
+        invocation["reasoning_effort"] = {
+            "light": "low", "standard": "medium", "heavy": "high",
+        }[step6_before["effective_cost_dial"]["value"]]
         env = build_codex_environment(CODEX_TARGET)
         prepared_prompt = prepare_codex_fresh_prompt(prompt)
-    except CodexPolicyError as exc:
+    except (CodexPolicyError, Step6CostControlError) as exc:
         raise QueueError(str(exc)) from exc
     version_proc = subprocess.run(
         [str(CODEX_TARGET.executable), "--version"],
@@ -1456,12 +1795,30 @@ def run_codex_work_item(
     except QueueError as exc:
         if "without a parseable final token summary" not in str(exc):
             raise
+        summary = None
+        record_step6_unavailable(
+            step6_scope, invocation_id=session_id, provider="openai-codex",
+            model=str(invocation.get("actual_model") or "unavailable"), reason="Codex terminal usage unavailable",
+            dial_override=dial_override, root=root, surface="queue:codex",
+        )
         result = reconcile_codex_usage(
             root, item_id, None, cli_version, session_id,
             source="Codex supervisor process exit; usage unavailable",
             invocation=invocation,
         )
     else:
+        record_step6_invocation(
+            step6_scope, invocation_id=session_id, provider="openai-codex",
+            model=str(summary.get("model") or invocation.get("actual_model") or "unavailable"),
+            usage={
+                "input_tokens": summary["input"],
+                "cached_input_tokens": summary.get("cached"),
+                "output_tokens": summary["output"],
+                "reasoning_output_tokens": summary.get("reasoning"),
+                "cache_semantics": "included_in_provider_input",
+            },
+            dial_override=dial_override, root=root, surface="queue:codex",
+        )
         source = (
             "Codex supervisor final structured usage event"
             if summary.get("summary_format") == "turn.completed JSONL"
@@ -1477,40 +1834,6 @@ def run_codex_work_item(
         )
     if proc.returncode != 0:
         raise QueueError(f"Codex exited with status {proc.returncode}; process-exit usage was reconciled")
-    snapshot = cumulative_usage_snapshot(combined or "")
-    if snapshot.get("available") and int(snapshot["cumulative_tokens"]) >= CONTEXT_HANDOFF_THRESHOLD_TOKENS:
-        handoff_artifact = _write_codex_context_handoff(
-            root, session_id, item_id, prompt, snapshot, stream_artifacts,
-        )
-        if _handoff_depth >= MAX_CONTEXT_HANDOFFS:
-            raise QueueError(
-                f"Codex reached the context handoff boundary after {MAX_CONTEXT_HANDOFFS} fresh continuations; "
-                f"latest handoff: {handoff_artifact}"
-            )
-        continuation_prompt = "\n".join((
-            "Continue the same bounded queue task in a new fresh ephemeral session.",
-            f"Read the compact handoff receipt at `{handoff_artifact}` and inspect only its named repository/artifact paths as needed.",
-            "Do not resume, recover, or replay the prior transcript. Do not paste raw logs, test output, diffs, screenshots, or browser evidence into this prompt or your closeout.",
-            "Complete the remaining task, validate it, and return the required compact receipt.",
-        ))
-        continued = run_codex_work_item(
-            root, item_id, continuation_prompt,
-            _handoff_depth=_handoff_depth + 1,
-            execution_timeout_seconds=execution_timeout_seconds,
-        )
-        return {
-            **continued,
-            "handoff_sessions": [{
-                "session_id": session_id,
-                "token_usage": result["token_usage"],
-                "handoff_artifact": handoff_artifact,
-                "stream_artifacts": stream_artifacts,
-                "threshold_usage": snapshot,
-            }, *list(continued.get("handoff_sessions") or [])],
-            "handoff_artifacts": [handoff_artifact, *list(continued.get("handoff_artifacts") or [])],
-            "stream_artifacts": [*stream_artifacts, handoff_artifact, *list(continued.get("stream_artifacts") or [])],
-            "retained_output_truncated": bool(continued.get("retained_output_truncated")) or len(stdout or "") > 16_000 or len(stderr or "") > 16_000,
-        }
     return {
         **result,
         "returncode": proc.returncode,
@@ -1753,7 +2076,7 @@ def create_item(root: Path, args: argparse.Namespace) -> dict:
                 return existing
     timestamp = now_iso()
     item = {
-        "id": next_id(items, timestamp),
+        "id": next_id(items, timestamp, root),
         "title": args.title,
         "status": args.status,
         "priority": args.priority,
@@ -2102,6 +2425,13 @@ def build_parser() -> argparse.ArgumentParser:
     status.add_argument("item_id", metavar="ITEM_ID")
     status.add_argument("status", metavar="STATUS", help="Approved status value such as human_review, done, or blocked")
 
+    delete = subparsers.add_parser("delete", help="Permanently delete one eligible item with stale-state protection")
+    delete.add_argument("item_id", metavar="ITEM_ID")
+    delete.add_argument("--expected-record-hash", required=True, metavar="SHA256")
+    delete.add_argument("--reason", required=True, metavar="TEXT")
+    delete.add_argument("--request-id", required=True, metavar="ID")
+    delete.add_argument("--deleted-by", default="Liam", metavar="OPERATOR")
+
     next_parser = subparsers.add_parser("next", help="Show the highest-priority available item for an agent")
     next_parser.add_argument("agent_id")
 
@@ -2164,6 +2494,15 @@ def main(argv: list[str] | None = None) -> int:
             print_json(attach_receipt(root, args.item_id, args.receipt_path, args.status))
         elif args.command == "status":
             print_json(update_status(root, args.item_id, args.status))
+        elif args.command == "delete":
+            print_json(delete_item(
+                root,
+                args.item_id,
+                expected_record_hash=args.expected_record_hash,
+                deletion_reason=args.reason,
+                request_id=args.request_id,
+                deleted_by=args.deleted_by,
+            ))
         elif args.command == "next":
             item = next_item(root, args.agent_id)
             print_json(item if item else {})

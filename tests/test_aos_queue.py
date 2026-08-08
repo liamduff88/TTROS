@@ -85,6 +85,15 @@ class AosQueueTest(unittest.TestCase):
         )
         return path
 
+    def _delete_item(self, module, root, item, request_id="delete-request-0001", reason="Safe fixture cleanup"):
+        return module.delete_item(
+            root,
+            item["id"],
+            expected_record_hash=module.queue_record_hash(item),
+            deletion_reason=reason,
+            request_id=request_id,
+        )
+
     def test_live_lane_profiles_and_model_routes_cover_alias_and_fallback_contracts(self):
         module = load_tool_module()
         lanes = module.load_lane_profiles(ROOT)
@@ -1539,6 +1548,93 @@ class AosQueueTest(unittest.TestCase):
         self.assertEqual(first["id"], dead["id"])
         self.assertEqual(second["id"], ready["id"])
 
+    def test_async_runner_enforces_bounded_capacity_and_releases_slot_for_third_item(self):
+        runner = load_runner_module()
+        now = runner.datetime.datetime.now(runner.datetime.timezone.utc).isoformat()
+        first = {
+            "id": "AOS-2026-0001", "status": "agent_working", "owner_type": "agent", "owner": "revenue",
+            "tags": ["async_dispatch"], "claim": {"claimed_by": "revenue", "claimed_at": now},
+            "worker_heartbeat_at": now,
+        }
+        second = {
+            "id": "AOS-2026-0002", "status": "agent_working", "owner_type": "agent", "owner": "revenue",
+            "tags": ["async_dispatch"], "claim": {"claimed_by": "revenue", "claimed_at": now},
+            "worker_heartbeat_at": now,
+        }
+        third = {
+            "id": "AOS-2026-0003", "status": "agent_todo", "owner_type": "agent", "owner": "revenue",
+            "priority": 10, "tags": ["async_dispatch"], "claim": {"claimed_by": None, "claimed_at": None},
+        }
+        non_capacity = [
+            {"id": f"AOS-2026-000{index}", "status": status, "owner_type": "agent", "tags": ["async_dispatch"]}
+            for index, status in ((4, "human_review"), (5, "needs_input"), (6, "blocked"))
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "queue").mkdir()
+            queue_path = root / "queue/work_items.jsonl"
+            queue_path.write_text("".join(json.dumps(item) + "\n" for item in (first, second, third, *non_capacity)), encoding="utf-8")
+            with patch.dict(runner.os.environ, {"AOS_MAX_CONCURRENT_EXECUTORS": "2"}, clear=False):
+                full = runner.async_dispatch_capacity(root)
+                waiting = runner.next_async_item(root)
+                first["status"] = "human_review"
+                first["claim"] = {"claimed_by": None, "claimed_at": None}
+                queue_path.write_text("".join(json.dumps(item) + "\n" for item in (first, second, third, *non_capacity)), encoding="utf-8")
+                released = runner.async_dispatch_capacity(root)
+                selected = runner.next_async_item(root)
+        self.assertEqual(runner.DEFAULT_MAX_CONCURRENT_EXECUTORS, 2)
+        self.assertEqual(full["active"], 2)
+        self.assertEqual(full["available"], 0)
+        self.assertIsNone(waiting)
+        self.assertEqual(released["active"], 1)
+        self.assertEqual(released["available"], 1)
+        self.assertEqual(selected["id"], third["id"])
+
+    def test_async_runner_waits_for_done_dependency_with_done_receipt(self):
+        runner = load_runner_module()
+        dependency = {
+            "id": "AOS-2026-0001", "status": "human_review", "owner_type": "agent",
+            "tags": ["async_dispatch"], "receipts": [{"path": "queue/receipts/dependency.md", "status": "human_review"}],
+        }
+        dependent = {
+            "id": "AOS-2026-0002", "status": "agent_todo", "owner_type": "agent", "priority": 10,
+            "tags": ["async_dispatch"], "depends_on": [dependency["id"]],
+            "claim": {"claimed_by": None, "claimed_at": None},
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "queue").mkdir()
+            queue_path = root / "queue/work_items.jsonl"
+            queue_path.write_text(json.dumps(dependency) + "\n" + json.dumps(dependent) + "\n", encoding="utf-8")
+            waiting = runner.next_async_item(root)
+            dependency["status"] = "done"
+            dependency["receipts"][-1]["status"] = "done"
+            queue_path.write_text(json.dumps(dependency) + "\n" + json.dumps(dependent) + "\n", encoding="utf-8")
+            selected = runner.next_async_item(root)
+        self.assertIsNone(waiting)
+        self.assertEqual(selected["id"], dependent["id"])
+
+    def test_async_runner_pending_executor_reserves_slot_and_prevents_duplicate_dispatch(self):
+        runner = load_runner_module()
+        first = {
+            "id": "AOS-2026-0001", "status": "agent_todo", "owner_type": "agent", "priority": 10,
+            "tags": ["async_dispatch"], "claim": {"claimed_by": None, "claimed_at": None},
+        }
+        second = {
+            "id": "AOS-2026-0002", "status": "agent_todo", "owner_type": "agent", "priority": 5,
+            "tags": ["async_dispatch"], "claim": {"claimed_by": None, "claimed_at": None},
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "queue").mkdir()
+            (root / "queue/work_items.jsonl").write_text(json.dumps(first) + "\n" + json.dumps(second) + "\n", encoding="utf-8")
+            with patch.object(runner, "_pending_executor_item_ids", return_value={first["id"]}), \
+                 patch.dict(runner.os.environ, {"AOS_MAX_CONCURRENT_EXECUTORS": "2"}, clear=False):
+                capacity = runner.async_dispatch_capacity(root)
+                selected = runner.next_async_item(root)
+        self.assertEqual(capacity["active_ids"], [first["id"]])
+        self.assertEqual(selected["id"], second["id"])
+
     def test_async_runner_parent_timeout_covers_full_7800_second_claude_contract(self):
         runner = load_runner_module()
 
@@ -1700,6 +1796,224 @@ class AosQueueTest(unittest.TestCase):
             if original_jsonschema is not None:
                 sys.modules["jsonschema"] = original_jsonschema
 
+    def test_task_delete_physically_removes_record_and_writes_exact_minimal_tombstone(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            module = load_tool_module()
+            item = self._create_contract_item(root, "Disposable fixture with a deliberately long but safe title")
+            items = module.load_items(root)
+            stored = module.find_item(items, item["id"])
+            stored.update({
+                "context": "FORBIDDEN_CONTEXT_SENTINEL prompt body source material",
+                "sources": ["FORBIDDEN_SOURCE_SENTINEL"],
+                "definition_of_done": "FORBIDDEN_DEFINITION_SENTINEL",
+                "brain_context_used": [{"content": "FORBIDDEN_BRAIN_SENTINEL"}],
+                "model_output": "FORBIDDEN_MODEL_OUTPUT_SENTINEL",
+                "credentials": "FORBIDDEN_CREDENTIAL_SENTINEL",
+                "workbench": "codex",
+            })
+            module.save_items(root, items)
+            before_count = len(items)
+            result = self._delete_item(module, root, stored)
+
+            self.assertNotIn(stored["id"], {row["id"] for row in module.load_items(root)})
+            self.assertEqual(before_count - 1, result["total_count"])
+            tombstone_path = root / result["tombstone_reference"]
+            tombstone = json.loads(tombstone_path.read_text(encoding="utf-8"))
+            self.assertEqual(
+                {
+                    "item_id", "title", "previous_status", "owner", "workbench", "created_at",
+                    "deleted_at", "deleted_by", "deletion_reason", "record_sha256",
+                },
+                set(tombstone),
+            )
+            self.assertEqual(module.queue_record_hash(stored), tombstone["record_sha256"])
+            self.assertEqual("Liam", tombstone["deleted_by"])
+            serialized = json.dumps(tombstone, sort_keys=True)
+            for sentinel in (
+                "FORBIDDEN_CONTEXT_SENTINEL", "FORBIDDEN_SOURCE_SENTINEL", "FORBIDDEN_DEFINITION_SENTINEL",
+                "FORBIDDEN_BRAIN_SENTINEL", "FORBIDDEN_MODEL_OUTPUT_SENTINEL", "FORBIDDEN_CREDENTIAL_SENTINEL",
+            ):
+                self.assertNotIn(sentinel, serialized)
+            self.assertEqual(1, len(list((root / "queue/receipts").glob("task-deletion-*.json"))))
+
+    def test_task_delete_rejects_stale_record_hash_without_mutation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            module = load_tool_module()
+            item = self._create_contract_item(root, "Stale deletion fixture")
+            stale_hash = module.queue_record_hash(item)
+            module.update_status(root, item["id"], "blocked")
+            with self.assertRaises(module.DeletionRefusedError) as ctx:
+                module.delete_item(
+                    root, item["id"], expected_record_hash=stale_hash,
+                    deletion_reason="Stale proof", request_id="delete-stale-0001",
+                )
+            self.assertEqual("stale_queue_state", ctx.exception.code)
+            self.assertEqual("blocked", module.find_item(module.load_items(root), item["id"])["status"])
+            self.assertEqual([], list((root / "queue/receipts").glob("task-deletion-*.json")))
+
+    def test_task_delete_rejects_running_claimed_and_detached_executor_states(self):
+        scenarios = (
+            ("running", "agent_working", {"claimed_by": None, "claimed_at": None}, "agent_working", None),
+            ("claimed", "blocked", {"claimed_by": "codex", "claimed_at": "2026-08-04T10:00:00Z"}, "active_claim", None),
+            ("executor", "blocked", {"claimed_by": None, "claimed_at": None}, "active_executor", "executor"),
+        )
+        for label, status, claim, expected_code, executor in scenarios:
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                module = load_tool_module()
+                item = self._create_contract_item(root, f"{label} deletion fixture")
+                items = module.load_items(root)
+                stored = module.find_item(items, item["id"])
+                stored["status"] = status
+                stored["claim"] = claim
+                module.save_items(root, items)
+                patcher = patch.object(module, "_detached_executor_item_ids", return_value={item["id"]}) if executor else contextlib.nullcontext()
+                with patcher, self.assertRaises(module.DeletionRefusedError) as ctx:
+                    self._delete_item(module, root, stored, request_id=f"delete-{label}-0001")
+                self.assertEqual(expected_code, ctx.exception.code)
+                self.assertEqual(1, len(module.load_items(root)))
+
+    def test_task_delete_rejects_nonterminal_dependent_and_names_it(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            module = load_tool_module()
+            target = self._create_contract_item(root, "Dependency target")
+            dependent = run_cli(
+                root, "create", "--title", "Nonterminal dependent", "--owner", "codex",
+                "--depends-on", target["id"], *self.COMPLETION_ARGS,
+            )
+            self.assertEqual(0, dependent.returncode, dependent.stderr)
+            dependent_item = parse_json(dependent.stdout)
+            current_target = module.find_item(module.load_items(root), target["id"])
+            with self.assertRaises(module.DeletionRefusedError) as ctx:
+                self._delete_item(module, root, current_target, request_id="delete-dependent-0001")
+            self.assertEqual("active_dependents", ctx.exception.code)
+            self.assertEqual([dependent_item["id"]], ctx.exception.details["dependent_ids"])
+            self.assertEqual(2, len(module.load_items(root)))
+
+    def test_task_delete_permanently_refuses_immutable_item_without_touching_bytes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            module = load_tool_module()
+            (root / "queue/receipts").mkdir(parents=True)
+            item = {
+                "id": "AOS-2026-0071", "title": "Protected fixture", "status": "done", "owner": "hermes",
+                "claim": {"claimed_by": None, "claimed_at": None}, "created_at": "2026-07-01T00:00:00Z",
+                "updated_at": "2026-07-01T00:00:00Z",
+            }
+            queue_path = root / "queue/work_items.jsonl"
+            queue_path.write_text(module.serialize_items([item]), encoding="utf-8")
+            before = queue_path.read_bytes()
+            with self.assertRaises(module.DeletionRefusedError) as ctx:
+                self._delete_item(module, root, item, request_id="delete-protected-0001")
+            self.assertEqual("immutable_item", ctx.exception.code)
+            self.assertEqual(before, queue_path.read_bytes())
+            self.assertEqual([], list((root / "queue/receipts").iterdir()))
+
+    def test_task_delete_idempotent_replay_and_independent_second_request(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            module = load_tool_module()
+            item = self._create_contract_item(root, "Replay deletion fixture")
+            first = self._delete_item(module, root, item, request_id="delete-replay-0001")
+            replay = self._delete_item(module, root, item, request_id="delete-replay-0001")
+            self.assertFalse(first["idempotency"]["replayed"])
+            self.assertTrue(replay["idempotency"]["replayed"])
+            self.assertEqual(first["tombstone_reference"], replay["tombstone_reference"])
+            self.assertEqual(1, len(list((root / "queue/receipts").glob("task-deletion-*.json"))))
+            with self.assertRaises(module.DeletionRefusedError) as ctx:
+                self._delete_item(module, root, item, request_id="delete-replay-0002")
+            self.assertEqual("already_deleted", ctx.exception.code)
+            self.assertEqual(1, len(list((root / "queue/receipts").glob("task-deletion-*.json"))))
+
+    def test_task_delete_tombstone_permanently_reserves_removed_aos_id(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            module = load_tool_module()
+            deleted = self._create_contract_item(root, "ID reservation fixture")
+            self._delete_item(module, root, deleted, request_id="delete-reserve-0001")
+            replacement = self._create_contract_item(root, "Post-deletion fixture")
+            self.assertNotEqual(deleted["id"], replacement["id"])
+            self.assertGreater(int(replacement["id"].rsplit("-", 1)[1]), int(deleted["id"].rsplit("-", 1)[1]))
+
+    def test_task_delete_queue_replace_failure_recovers_same_request_without_duplicate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            module = load_tool_module()
+            item = self._create_contract_item(root, "Atomic recovery fixture")
+            original_replace = module.durable_replace_text
+
+            def fail_queue_replace(path, text):
+                if Path(path) == root / module.WORK_ITEMS_PATH:
+                    raise OSError("fixture queue replace failure")
+                return original_replace(path, text)
+
+            with patch.object(module, "durable_replace_text", side_effect=fail_queue_replace):
+                with self.assertRaises(OSError):
+                    self._delete_item(module, root, item, request_id="delete-recover-0001")
+            self.assertEqual(1, len(module.load_items(root)))
+            self.assertEqual([], list((root / "queue/receipts").glob("task-deletion-*.json")))
+            self.assertEqual(1, len(list((root / "queue/receipts").glob(".task-deletion-*.pending"))))
+
+            recovered = self._delete_item(module, root, item, request_id="delete-recover-0001")
+            self.assertFalse(recovered["idempotency"]["replayed"])
+            self.assertEqual([], module.load_items(root))
+            self.assertEqual(1, len(list((root / "queue/receipts").glob("task-deletion-*.json"))))
+            self.assertEqual([], list((root / "queue/receipts").glob(".task-deletion-*.pending")))
+
+    def test_task_delete_refuses_lock_contention_without_mutation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            module = load_tool_module()
+            item = self._create_contract_item(root, "Lock contention fixture")
+            entered = threading.Event()
+            release = threading.Event()
+
+            def hold_lock():
+                with storage.queue_write_lock(root):
+                    entered.set()
+                    release.wait(5)
+
+            thread = threading.Thread(target=hold_lock, daemon=True)
+            thread.start()
+            self.assertTrue(entered.wait(2))
+            try:
+                with self.assertRaisesRegex(Exception, "queue write lock is live"):
+                    module.delete_item(
+                        root, item["id"], expected_record_hash=module.queue_record_hash(item),
+                        deletion_reason="Lock proof", request_id="delete-lock-0001", lock_wait_seconds=0,
+                    )
+            finally:
+                release.set()
+                thread.join(2)
+            self.assertEqual([item["id"]], [row["id"] for row in module.load_items(root)])
+            self.assertEqual([], list((root / "queue/receipts").glob("task-deletion-*.json")))
+
+    def test_task_delete_removes_runner_eligibility_and_missing_dependency_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            module = load_tool_module()
+            runner = load_runner_module()
+            item = run_cli(
+                root, "create", "--title", "Runner deletion fixture", "--owner", "codex",
+                "--status", "agent_todo", "--tags", "async_dispatch", *self.COMPLETION_ARGS,
+            )
+            self.assertEqual(0, item.returncode, item.stderr)
+            deleted = parse_json(item.stdout)
+            self.assertEqual(deleted["id"], runner.next_async_item(root)["id"])
+            self._delete_item(module, root, deleted, request_id="delete-runner-0001")
+            self.assertIsNone(runner.next_async_item(root))
+            self.assertEqual(0, runner.async_dispatch_capacity(root)["active"])
+            missing_dependency = {
+                "id": "AOS-2026-9999", "title": "Must not run", "status": "agent_todo", "owner_type": "agent",
+                "owner": "codex", "priority": 100, "tags": ["async_dispatch"], "depends_on": [deleted["id"]],
+                "claim": {"claimed_by": None, "claimed_at": None},
+            }
+            (root / "queue/work_items.jsonl").write_text(module.serialize_items([missing_dependency]), encoding="utf-8")
+            self.assertIsNone(runner.next_async_item(root))
+
     def test_receipt_and_rollup_cost_use_model_confirmed_for_orchestrator(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -1730,10 +2044,12 @@ class AosQueueTest(unittest.TestCase):
             rolled = rollup.rollup_week(week, [ledger_line], prices)
 
             self.assertEqual(ledger_line["model_confirmed"], "claude-sonnet-5")
-            self.assertEqual(receipt_usage["est_cost_usd"], 3.8)
-            self.assertEqual(ledger_line["token_usage"]["est_cost_usd"], 3.8)
-            self.assertEqual(rolled["totals"]["est_cost_usd"], 3.8)
-            self.assertEqual(rolled["by_model"]["claude-sonnet-5"]["est_cost_usd"], 3.0)
+            # August 4 effective rates: Sonnet 5 introductory input $2/MTok
+            # plus Haiku 4.5 input $1/MTok.
+            self.assertEqual(receipt_usage["est_cost_usd"], 3.0)
+            self.assertEqual(ledger_line["token_usage"]["est_cost_usd"], 3.0)
+            self.assertEqual(rolled["totals"]["est_cost_usd"], 3.0)
+            self.assertEqual(rolled["by_model"]["claude-sonnet-5"]["est_cost_usd"], 2.0)
 
     def test_rollup_exact_invocation_outranks_same_item_placeholders(self):
         rollup = load_rollup_module()

@@ -1,6 +1,7 @@
 import importlib.util
 import asyncio
 import datetime
+import hashlib
 import json
 import re
 import sys
@@ -28,6 +29,7 @@ class _FastAPI:
         return lambda function: function
 
     post = get
+    delete = get
     middleware = get
 
 
@@ -166,7 +168,8 @@ class HermesComposioTests(unittest.TestCase):
     def test_installed_claude_wrapper_is_linux_root_bound(self):
         wrapper = Path("/home/liam/.local/bin/aos-claude").read_text(encoding="utf-8")
         self.assertIn('CANONICAL_AOS_ROOT="/home/liam/agentic-os-live"', wrapper)
-        self.assertIn("/home/liam/.local/npm/bin/claude", wrapper)
+        self.assertIn("http://127.0.0.1:8010/api/wsl/claude", wrapper)
+        self.assertNotIn("exec /home/liam/.local/npm/bin/claude", wrapper)
         self.assertNotIn("/mnt/c/", wrapper)
 
     def test_installed_hermes_claude_router_is_linux_root_bound(self):
@@ -198,6 +201,107 @@ class HermesComposioTests(unittest.TestCase):
                 self.assertEqual(profile, metadata["profile_used"])
                 self.assertIn(f"--profile {profile}", command)
                 self.assertNotIn("profile use", command)
+
+    def test_permanent_executive_team_mapping_is_exact(self):
+        self.assertEqual(
+            {key: value["profile"] for key, value in backend._EXECUTIVE_TEAM.items()},
+            {
+                "hermes": "operator-lean",
+                "revenue": "aos-revenue",
+                "marketing": "aos-marketing",
+                "delivery": "aos-delivery",
+                "operations": "aos-ops",
+                "executive-team": "aos-orchestrator",
+            },
+        )
+
+    def test_executive_consultation_reports_profile_context_and_zero_queue_work(self):
+        run_result = {
+            **self.operator_result("Revenue-specific answer"),
+            "profile_used": "aos-revenue",
+            "profile_fallback": False,
+            "invocation_id": "fixture-invocation",
+        }
+        before = {"count": 4, "sha256": "same"}
+        context = {
+            "classification": "named_department_profile",
+            "sources": [{"label": "runtime_profile_selector", "profile": "aos-revenue", "available": True}],
+            "executive_header_included": False,
+            "executive_brief_included": False,
+            "stale": False,
+        }
+        with patch.object(backend, "_refresh_executive_context", return_value=(context, "")), \
+             patch.object(backend, "_executive_context_evidence", return_value=context), \
+             patch.object(backend, "_executive_queue_snapshot", side_effect=[before, before]), \
+             patch.object(backend, "_run_hermes_message", return_value=run_result) as run:
+            result = backend._execute_executive_consultation("revenue", "Find revenue", "request-1234")
+        self.assertTrue(result["success"])
+        self.assertEqual(result["requested_profile"], "aos-revenue")
+        self.assertEqual(result["actual_profile"], "aos-revenue")
+        self.assertFalse(result["fallback_occurred"])
+        self.assertTrue(result["queue_effect"]["unchanged"])
+        self.assertEqual(result["queue_effect"]["items_created"], 0)
+        self.assertEqual(run.call_args.kwargs["profile"], "aos-revenue")
+
+    def test_executive_consultation_blocks_silent_profile_fallback(self):
+        run_result = {
+            **self.operator_result("Generic fallback answer"),
+            "profile_used": "default",
+            "profile_fallback": True,
+        }
+        snapshot = {"count": 4, "sha256": "same"}
+        context = {"classification": "named_department_profile", "sources": [], "stale": False}
+        with patch.object(backend, "_refresh_executive_context", return_value=(context, "")), \
+             patch.object(backend, "_executive_context_evidence", return_value=context), \
+             patch.object(backend, "_executive_queue_snapshot", side_effect=[snapshot, snapshot]), \
+             patch.object(backend, "_run_hermes_message", return_value=run_result):
+            result = backend._execute_executive_consultation("marketing", "Plan a campaign", "request-1234")
+        self.assertFalse(result["success"])
+        self.assertTrue(result["fallback_occurred"])
+        self.assertEqual(result["error"]["code"], "silent_fallback_blocked")
+
+    def test_executive_consultation_classifies_profile_auth_failure(self):
+        code, message = backend._executive_failure({
+            "success": False,
+            "returncode": 1,
+            "stderr": "HTTP 401 Unauthorized for named profile",
+        })
+        self.assertEqual(code, "profile_authentication_failed")
+        self.assertIn("authentication failed", message)
+
+    def test_executive_consultation_idempotency_replays_without_second_invocation(self):
+        body = backend.ExecutiveConsultation(
+            executive_id="operations",
+            text="Prioritise operations",
+            request_id="request-idempotent-1234",
+        )
+        response = {
+            "success": True,
+            "status": "success",
+            "request_id": body.request_id,
+            "requested_profile": "aos-ops",
+            "actual_profile": "aos-ops",
+            "fallback_occurred": False,
+            "response": "Operations answer",
+        }
+        backend._EXECUTIVE_CONSULTATIONS.clear()
+        with patch.object(backend, "_execute_executive_consultation", return_value=response) as execute:
+            first = backend._consult_executive_idempotently(body)
+            second = backend._consult_executive_idempotently(body)
+        self.assertFalse(first["idempotency"]["replayed"])
+        self.assertTrue(second["idempotency"]["replayed"])
+        execute.assert_called_once()
+        backend._EXECUTIVE_CONSULTATIONS.clear()
+
+    def test_operator_lean_consultation_mode_disables_work_and_escalation(self):
+        launcher = (MAIN.parents[2] / "tools" / "aos-hermes-operator-lean.sh").read_text(encoding="utf-8")
+        tool_server = (MAIN.parents[2] / "tools" / "operator_lean_mcp.py").read_text(encoding="utf-8")
+        self.assertIn("--consultation", launcher)
+        self.assertIn('export AOS_OPERATOR_CONSULTATION="1"', launcher)
+        self.assertIn("Ordinary conversation cannot create work", tool_server)
+        self.assertIn("without nested escalation", tool_server)
+        self.assertNotIn("create_item(", tool_server)
+        self.assertNotIn("subprocess.run", tool_server)
 
     def test_inline_and_agent_timeout_configs_have_independent_defaults_and_overrides(self):
         with patch.dict(backend.os.environ, {}, clear=True):
@@ -237,7 +341,10 @@ class HermesComposioTests(unittest.TestCase):
                  patch.object(backend, "CODEX_TARGET", target), \
                  patch.object(backend, "AGENT_STARTUP_TIMEOUT_SECONDS", 5), \
                  patch.object(backend, "AGENT_TIMEOUT_SECONDS", 5):
-                result = backend._run_codex_local("full task FULL_PROMPT_SENTINEL")
+                result = backend._run_codex_local(backend.assemble_model_context(
+                    "full task FULL_PROMPT_SENTINEL", surface="test:codex",
+                    classification="technical_only", write_artifact=False,
+                ))
 
             route_rows = [
                 json.loads(line)
@@ -271,7 +378,10 @@ class HermesComposioTests(unittest.TestCase):
                      patch.object(backend, "CODEX_TARGET", target), \
                      patch.object(backend, "AGENT_STARTUP_TIMEOUT_SECONDS", 0.15), \
                      patch.object(backend, "AGENT_TIMEOUT_SECONDS", 0.15):
-                    return backend._run_codex_local("timeout fixture prompt")
+                    return backend._run_codex_local(backend.assemble_model_context(
+                        "timeout fixture prompt", surface="test:codex",
+                        classification="technical_only", write_artifact=False,
+                    ))
 
             startup = run_fixture(
                 "import sys, time\n"
@@ -1454,6 +1564,117 @@ class HermesComposioTests(unittest.TestCase):
         self.assertIn("total 14", result["token_usage_text"])
         self.assertEqual(result["timeout_seconds"], backend.HERMES_EXECUTION_TIMEOUT_SECONDS)
 
+    def test_multi_stage_message_files_one_executive_objective_and_starts_first_stage(self):
+        command = (
+            "Run the Revenue prospecting workflow using the approved no-send test scope. "
+            "When it finishes, prepare follow-up drafts and LinkedIn manual-action packages. "
+            "Then give the strongest opportunity and its evidence to Marketing for a campaign brief."
+        )
+        reply = """Plan ready.
+```json
+{"title":"No-send revenue to marketing objective","steps":[
+  {"title":"Run approved no-send prospecting","owner":"revenue","workbench":"lane","workflow_id":"prospecting_daily_run","context":"Use local fixtures only; no connector mutation.","definition_of_done":"No-send prospect package with evidence."},
+  {"title":"Prepare follow-up and LinkedIn manual packages","owner":"revenue","workbench":"lane","workflow_id":"revenue_linkedin_outreach","context":"Use upstream result; draft only.","definition_of_done":"Follow-up drafts and manual-action package."},
+  {"title":"Create campaign brief from strongest opportunity","owner":"marketing","workbench":"lane","workflow_id":"marketing_content","context":"Use upstream evidence.","definition_of_done":"Campaign brief cites opportunity evidence."}
+]}
+```"""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_queue_items(root, [])
+            run_result = self.operator_result(reply)
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_run_hermes_message", return_value=run_result), \
+                 patch.object(backend, "assemble_model_context", return_value=Mock(request="plan", session_id="fixture", provenance=[], blocks=[], total_bytes=0, total_tokens=0)), \
+                 patch.object(backend, "_append_hermes_decomposition_token_ledger"), \
+                 patch.object(backend, "_accept_async_queue_runner", return_value={"accepted": True, "mode": "fixture"}) as accept:
+                result = backend.hermes_message(backend.HermesMessage(
+                    text=command,
+                    source_refs=[],
+                    conversation_id="dashboard-proof",
+                ))
+                rows = backend._read_queue_items()
+
+        parent = next(row for row in rows if row.get("owner_type") == "workflow")
+        children = sorted((row for row in rows if row.get("parent_id") == parent["id"]), key=lambda row: row["step_index"])
+        self.assertTrue(result["accepted"])
+        self.assertEqual(result["objective"]["parent_id"], parent["id"])
+        self.assertEqual([row["owner"] for row in children], ["revenue", "revenue", "marketing"])
+        self.assertEqual([row["status"] for row in children], ["agent_todo", "inbox", "inbox"])
+        self.assertEqual(children[1]["depends_on"], [children[0]["id"]])
+        self.assertEqual(children[2]["depends_on"], [children[1]["id"]])
+        self.assertTrue(all("async_dispatch" in row["tags"] for row in children))
+        self.assertTrue(all(row["review"] == "model" for row in children))
+        self.assertEqual(parent["objective"]["conversation_id"], "dashboard-proof")
+        self.assertEqual(parent["objective"]["original_command"], command)
+        accept.assert_called_once_with(children[0])
+
+    def test_executive_objective_auto_continues_synthesizes_and_followup_reads_outcome(self):
+        command = "Run Revenue, then prepare manual follow-up packages, then have Marketing create a campaign brief."
+        proposal = {
+            "title": "Revenue to Marketing proof",
+            "context": command,
+            "steps": [
+                {"title": "Revenue prospect proof", "owner": "revenue", "workflow_id": "prospecting_daily_run", "context": "Local no-send fixture.", "definition_of_done": "Evidence package."},
+                {"title": "Revenue manual package", "owner": "revenue", "workflow_id": "revenue_linkedin_outreach", "context": "Use upstream evidence.", "definition_of_done": "Manual package."},
+                {"title": "Marketing campaign brief", "owner": "marketing", "workflow_id": "marketing_content", "context": "Use strongest upstream opportunity.", "definition_of_done": "Campaign brief."},
+            ],
+        }
+        worker_result = {
+            "success": True,
+            "output": "PASS\nSummary for operator:\n- Stage artifact completed from upstream evidence.\nFiles touched:\n- None\nValidation:\n- local no-send proof\nArtifacts:\n- None\nBlockers:\n- None\nNext action:\n- None",
+            "returncode": 0,
+            "token_usage": {"available": False},
+            "token_usage_text": "Token usage: unavailable from current CLI output",
+        }
+        review_result = {
+            "success": True, "output": "PASS", "returncode": 0,
+            "token_usage": {"available": False},
+            "token_usage_text": "Token usage: unavailable from current CLI output",
+        }
+        synthesis = {
+            **self.operator_result("Strongest opportunity: Fixture Co. Marketing now has a sourced campaign brief; no external action occurred."),
+            "profile_used": "aos-orchestrator",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_queue_items(root, [])
+            self.write_queue_templates(root)
+            self.write_queue_references(root)
+            queue_tool = backend._load_queue_tool()
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_load_queue_tool", return_value=queue_tool), \
+                 patch.object(queue_tool, "finalize_done", return_value={}), \
+                 patch.object(backend, "_queue_run_worker", return_value=worker_result), \
+                 patch.object(backend, "_queue_run_hermes_review", return_value=review_result), \
+                 patch.object(backend, "_run_hermes_message", return_value=synthesis), \
+                 patch.object(backend, "assemble_model_context", return_value=Mock(request="synthesis", session_id="fixture", provenance=[], blocks=[], total_bytes=0, total_tokens=0)), \
+                 patch.object(backend, "_queue_resolve_route_metadata", side_effect=lambda owner: self.route_metadata_fixture(owner)), \
+                 patch.object(backend, "_notify_queue_completion", return_value=None), \
+                 patch.object(backend, "_accept_async_queue_runner", return_value={"accepted": True, "mode": "fixture"}):
+                parent, children, created = backend._create_executive_objective(
+                    proposal, conversation_id="dashboard-proof",
+                )
+                results = []
+                for child in children:
+                    refreshed = backend._queue_find_item(child["id"])
+                    self.assertEqual(refreshed["status"], "agent_todo")
+                    results.append(backend.run_queue_item(child["id"]))
+                completed = backend._queue_find_item(parent["id"])
+                outcome_path = completed["objective"]["outcome_artifact"]
+                outcome = (root / outcome_path).read_text(encoding="utf-8")
+                followup_prompt = backend._hermes_decomposition_prompt(
+                    "Use the result from that work and have Operations turn it into my priorities for tomorrow.",
+                    conversation_id="dashboard-proof",
+                )
+
+        self.assertTrue(created)
+        self.assertTrue(all(result["status"] == "done" for result in results))
+        self.assertEqual(completed["status"], "done")
+        self.assertIn("Strongest opportunity: Fixture Co", outcome)
+        self.assertIn("no external action occurred", outcome)
+        self.assertIn(outcome_path, followup_prompt)
+        self.assertIn("Strongest opportunity: Fixture Co", followup_prompt)
+
     def test_queue_hermes_worker_uses_hermes_specific_timeout_and_supervision(self):
         item = {"id": "AOS-2026-0999", "title": "Bound Hermes", "owner": "hermes"}
         run_result = {
@@ -1472,6 +1693,31 @@ class HermesComposioTests(unittest.TestCase):
         self.assertEqual(run.call_args.kwargs["timeout"], backend.HERMES_EXECUTION_TIMEOUT_SECONDS)
         self.assertEqual(run.call_args.kwargs["role"], "implementer")
         self.assertEqual(run.call_args.kwargs["item_id"], item["id"])
+        self.assertIn("on_process_start", run.call_args.kwargs)
+
+    def test_department_queue_worker_uses_retained_exact_usage_path_and_named_profile(self):
+        item = {"id": "AOS-2026-0998", "title": "Bound Revenue", "owner": "revenue"}
+        route = self.route_metadata_fixture("revenue")
+        route.update({"profile_requested": "aos-revenue", "profile_used": "aos-revenue", "profile": "aos-revenue"})
+        run_result = {
+            "success": True,
+            "output": "PASS\nFiles touched: None\nValidation: bounded",
+            "stdout": "PASS\nFiles touched: None\nValidation: bounded",
+            "stderr": "",
+            "returncode": 0,
+            "token_usage": {"available": True, "input_tokens": 11, "output_tokens": 7},
+        }
+        with patch.object(backend, "_queue_resolve_route_metadata", return_value=route), \
+             patch.object(backend, "_run_hermes_message", return_value=run_result) as run, \
+             patch.object(backend, "_run_wsl_prompt_command") as legacy_run, \
+             patch.object(backend, "_compact_agent_closeout", side_effect=lambda result, *_args: result):
+            result = backend._queue_run_worker("revenue", "bounded prompt", item)
+
+        self.assertTrue(result["success"])
+        legacy_run.assert_not_called()
+        self.assertEqual(run.call_args.kwargs["profile"], "aos-revenue")
+        self.assertEqual(run.call_args.kwargs["item_id"], item["id"])
+        self.assertEqual(run.call_args.kwargs["role"], "implementer")
         self.assertIn("on_process_start", run.call_args.kwargs)
 
     def test_simple_token_ledger_writes_one_entry_per_run_with_exact_or_unavailable_usage(self):
@@ -1850,7 +2096,7 @@ class HermesComposioTests(unittest.TestCase):
             token_tasks = []
 
             def codex_capture(prompt, item=None):
-                prompts.append(prompt)
+                prompts.append(prompt.request)
                 artifact = root / "workflows" / "queue_artifacts" / "AOS-2026-0099_output.md"
                 artifact.parent.mkdir(parents=True, exist_ok=True)
                 artifact.write_text("fixture output\n", encoding="utf-8")
@@ -2180,7 +2426,11 @@ class HermesComposioTests(unittest.TestCase):
             self.assertIn("Provider confirmed: unavailable from current CLI output", receipt)
             self.assertIn("Escalation rule: Escalate for direct prospect-facing copy", receipt)
             self.assertIn("Token usage:", receipt)
-            self.assertIn("- Attempt 1 worker (role=implementer; session=unavailable): unavailable from current CLI output", receipt)
+            invocation_id = result["worker_result"]["token_usage"]["invocation_id"]
+            self.assertIn(
+                f"- Attempt 1 worker (role=implementer; session={invocation_id}): unavailable from current CLI output",
+                receipt,
+            )
 
             records = [json.loads(line) for line in token_file.read_text(encoding="utf-8").splitlines()]
             self.assertEqual(len(records), 1)
@@ -2213,28 +2463,22 @@ class HermesComposioTests(unittest.TestCase):
         self.assertTrue(all(result["selected_route"] == "hermes_operator_lean" for result in results))
         self.assertEqual(rows, [])
 
-    def test_queue_intent_creates_local_queue_item_without_wsl(self):
+    def test_legacy_queue_prefix_is_conversation_and_creates_no_item(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
+            self.write_queue_items(root, [])
             with patch.object(backend, "BASE_DIR", root), \
-                 patch.object(backend, "_run_wsl") as run:
+                 patch.object(backend, "_run_wsl") as run, \
+                 patch.object(backend, "_run_hermes_message", return_value=self.operator_result()) as hermes:
                 result = backend.wsl_hermes(backend.TaskRun(task="Add this to the queue: Have Codex inspect the dashboard route"))
+                rows = backend._read_queue_items()
 
             run.assert_not_called()
-            self.assertEqual(result["selected_route"], "local_queue")
-            self.assertEqual(result["owner"], "codex")
-            self.assertEqual(result["status"], "inbox")
-            self.assertIn("Work item ID: AOS-", result["output"])
-            self.assertIn("Owner: codex", result["output"])
-            self.assertIn("Status: inbox", result["output"])
-            self.assertIn("Next action: Review or claim the local queue item", result["output"])
-
-            lines = (root / "queue" / "work_items.jsonl").read_text(encoding="utf-8").splitlines()
-            self.assertEqual(len(lines), 1)
-            item = json.loads(lines[0])
-            self.assertEqual(item["id"], result["work_item_id"])
-            self.assertEqual(item["owner"], "codex")
-            self.assertEqual(item["title"], "Have Codex inspect the dashboard route")
+            hermes.assert_called_once()
+            self.assertEqual(result["selected_route"], "hermes_operator_lean")
+            self.assertFalse(result["created"])
+            self.assertEqual(result["queue_delta"], 0)
+            self.assertEqual(rows, [])
 
     def test_queue_owner_inference_is_explicit_only(self):
         cases = (
@@ -2245,14 +2489,10 @@ class HermesComposioTests(unittest.TestCase):
             ("Add this to the queue: operations SOP cleanup", "operations"),
             ("Add this to the queue: review the plan", "unassigned"),
         )
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            with patch.object(backend, "BASE_DIR", root), \
-                 patch.object(backend, "_run_wsl") as run:
-                results = [backend.wsl_hermes(backend.TaskRun(task=task)) for task, _ in cases]
-
-            run.assert_not_called()
-            self.assertEqual([result["owner"] for result in results], [owner for _, owner in cases])
+        self.assertEqual(
+            [backend._infer_queue_owner(task) for task, _ in cases],
+            [owner for _, owner in cases],
+        )
 
     def test_non_prefix_queue_language_falls_through_to_operator_lean(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -2903,6 +3143,7 @@ class HermesComposioTests(unittest.TestCase):
             self.assertEqual(result["item"]["status"], "agent_todo")
             self.assertEqual(result["item"]["source"], "dashboard/cockpit_command")
             self.assertEqual(result["item"]["context"], "Prep the fit call")
+            self.assertIn("async_dispatch", result["item"]["tags"])
             self.assertIn("cockpit_command", result["item"]["tags"])
             self.assertEqual(result["route"]["workflow"], "fit_call_prep")
 
@@ -2919,7 +3160,9 @@ class HermesComposioTests(unittest.TestCase):
             run.assert_not_called()
             self.assertEqual(codex["item"]["owner"], "codex")
             self.assertEqual(codex["item"]["workbench"], "codex")
+            self.assertIn("async_dispatch", codex["item"]["tags"])
             self.assertEqual(fallback["item"]["owner"], "hermes")
+            self.assertIn("async_dispatch", fallback["item"]["tags"])
             self.assertEqual(fallback["route"]["confidence"], "fallback")
 
     def test_verbose_cockpit_command_uses_readable_title_and_preserves_full_context(self):
@@ -4204,7 +4447,7 @@ class HermesComposioTests(unittest.TestCase):
                 result = backend.run_queue_item("AOS-2026-0002")
 
         run.assert_called_once()
-        self.assertIn("Required local artifact path", run.call_args.args[0])
+        self.assertIn("Required local artifact path", run.call_args.args[0].request)
         self.assertEqual(run.call_args.args[1]["id"], "AOS-2026-0002")
         claude.assert_not_called()
         hermes.assert_not_called()
@@ -4898,6 +5141,76 @@ class HermesComposioTests(unittest.TestCase):
         self.assertIn("review-close", detail["summary_for_operator"])
         self.assertNotEqual("Queue refresh repair", detail["summary_for_operator"])
 
+    def test_queue_delete_api_returns_only_bounded_result_and_replays_idempotently(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            item = {
+                "id": "AOS-2026-9910",
+                "title": "Disposable API fixture",
+                "status": "blocked",
+                "owner": "operations",
+                "workbench": "codex",
+                "context": "FORBIDDEN_API_CONTEXT_SENTINEL",
+                "definition_of_done": "FORBIDDEN_API_DEFINITION_SENTINEL",
+                "claim": {"claimed_by": None, "claimed_at": None},
+                "receipts": [],
+                "created_at": "2026-08-04T10:00:00Z",
+                "updated_at": "2026-08-04T10:00:00Z",
+            }
+            self.write_queue_items(root, [item])
+            expected_hash = hashlib.sha256(
+                json.dumps(item, sort_keys=True, separators=(",", ":")).encode("utf-8")
+            ).hexdigest()
+            body = backend.QueueDeleteRequest(
+                expected_record_hash=expected_hash,
+                deletion_reason="Safe API fixture cleanup",
+                request_id="delete-api-9910",
+            )
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend.latitude_telemetry, "trace"):
+                first = backend.delete_queue_item(item["id"], body)
+                replay = backend.delete_queue_item(item["id"], body)
+                summary = backend.queue_summary()
+                listed = backend.queue_items("all")
+                cockpit = backend.dashboard_cockpit()
+            self.assertTrue(first["success"])
+            self.assertFalse(first["idempotency"]["replayed"])
+            self.assertTrue(replay["idempotency"]["replayed"])
+            self.assertEqual(item["id"], first["deleted_item_id"])
+            self.assertNotIn("item", first)
+            self.assertNotIn("tombstone", first)
+            self.assertEqual(0, summary["totalCount"])
+            self.assertEqual([], listed["items"])
+            self.assertEqual([], cockpit["queue_items"])
+            self.assertEqual("", (root / "queue/work_items.jsonl").read_text(encoding="utf-8"))
+            tombstones = list((root / "queue/receipts").glob("task-deletion-*.json"))
+            self.assertEqual(1, len(tombstones))
+            persisted = tombstones[0].read_text(encoding="utf-8")
+            self.assertNotIn("FORBIDDEN_API_CONTEXT_SENTINEL", persisted)
+            self.assertNotIn("FORBIDDEN_API_DEFINITION_SENTINEL", persisted)
+
+    def test_queue_delete_api_maps_stale_state_to_honest_conflict(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            item = {
+                "id": "AOS-2026-9911", "title": "Stale API fixture", "status": "blocked", "owner": "operations",
+                "claim": {"claimed_by": None, "claimed_at": None}, "receipts": [],
+                "created_at": "2026-08-04T10:00:00Z", "updated_at": "2026-08-04T10:01:00Z",
+            }
+            self.write_queue_items(root, [item])
+            body = backend.QueueDeleteRequest(
+                expected_record_hash="0" * 64,
+                deletion_reason="Stale API proof",
+                request_id="delete-api-9911",
+            )
+            with patch.object(backend, "BASE_DIR", root), self.assertRaises(backend.HTTPException) as ctx:
+                backend.delete_queue_item(item["id"], body)
+            self.assertEqual(409, ctx.exception.status_code)
+            self.assertEqual("stale_queue_state", ctx.exception.detail["code"])
+            self.assertIn("refresh", ctx.exception.detail["message"].lower())
+            rows = [json.loads(line) for line in (root / "queue/work_items.jsonl").read_text(encoding="utf-8").splitlines()]
+            self.assertEqual([item["id"]], [row["id"] for row in rows])
+
     def test_compacted_worker_closeout_gets_meaningful_safe_operator_summary(self):
         item = {"id": "AOS-2026-0165", "title": "Dashboard recovery proof"}
         result = {
@@ -4995,9 +5308,8 @@ class HermesComposioTests(unittest.TestCase):
             "/" + r"home/[^/\s]+",
         )
         with tempfile.TemporaryDirectory() as tmp:
-            with patch.object(backend, "BASE_DIR", Path(tmp)), \
-                 patch.object(backend, "_run_wsl"):
-                result = backend.wsl_hermes(backend.TaskRun(task="Add this to the queue: review the plan"))
+            with patch.object(backend, "BASE_DIR", Path(tmp)):
+                result = backend._queue_create_closeout(backend._create_queue_item("review the plan"))
 
         self.assertRegex(result["output"], r"Work item ID: AOS-\d{4}-\d{4}")
         self.assertIn("Owner: unassigned", result["output"])
@@ -5020,7 +5332,8 @@ class HermesComposioTests(unittest.TestCase):
             codex = backend.wsl_codex(backend.TaskRun(task="inspect files"))
             claude = backend.wsl_claude(backend.TaskRun(task="polish UI"))
             claude_command = run.call_args.args[0]
-        codex_run.assert_called_once_with("inspect files")
+        codex_run.assert_called_once()
+        self.assertEqual(codex_run.call_args.args[0].request, "inspect files")
         startup.assert_called_once()
         self.assertTrue(claude_command.startswith('aos-hermes claude "$(<'))
         self.assertNotIn("polish UI", claude_command)
@@ -5049,7 +5362,8 @@ class HermesComposioTests(unittest.TestCase):
         with patch.object(backend, "_run_codex_local", return_value=run_result) as run, \
              patch.object(backend, "_log_token_usage"):
             result = backend.wsl_codex(body)
-        run.assert_called_once_with("inspect files")
+        run.assert_called_once()
+        self.assertEqual(run.call_args.args[0].request, "inspect files")
         self.assertEqual("danger-full-access", result["invocation"]["sandbox"])
         self.assertEqual("never", result["invocation"]["approval_policy"])
 

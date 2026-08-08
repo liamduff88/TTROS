@@ -1,5 +1,5 @@
 # Agentic OS Work Queue v0
-> Revisit: when queue storage, receipt promotion, or rollup ownership changes. · Last touched: 2026-07-28.
+> Revisit: when queue storage, deletion receipts, receipt promotion, or rollup ownership changes. · Last touched: 2026-08-04.
 
 Minimal local work movement layer for Agentic OS.
 
@@ -38,6 +38,7 @@ Access behavior should reference `context/ACCESS_MODEL.md` instead of repeating 
   end). Ordinary capture polling writes its live metrics under ignored
   `capture/runtime/rollups/` and must not rewrite these snapshots.
 - `queue/receipts/` stores optional receipt artifacts; the coordinator writes a `<id>.token_usage.json` sidecar and, when a markdown receipt exists, a fenced `token_usage` block.
+- `queue/receipts/task-deletion-<request-id>.json` is the one minimal tombstone for a physically removed task. It contains no task context, prompt, source, output, raw receipt, artifact, or ledger content.
 - `queue/locks/` is reserved for future local lock files.
 - `queue/schemas/` documents the JSON shapes.
 
@@ -81,6 +82,8 @@ python3 tools/aos-queue.py status AOS-2026-0001 human_review
 # Receipt attach syntax: positional receipt path; optional --status updates the item at the same time.
 python3 tools/aos-queue.py receipt AOS-2026-0001 queue/receipts/AOS-2026-0001.md --status done
 python3 tools/aos-queue.py next codex
+# Permanent deletion is compare-and-swap protected and writes one minimal tombstone.
+python3 tools/aos-queue.py delete AOS-2026-0001 --expected-record-hash SHA256 --reason "Duplicate fixture" --request-id delete-local-0001
 # Coordinator close: resolve lane->profile, write run+token ledgers, meter tokens.
 # Token numbers come from a harness usage source (never estimated); omit them to record "unavailable".
 python3 tools/aos-queue.py done AOS-2026-0001 --receipt queue/receipts/AOS-2026-0001.md --usage-file /tmp/hermes_usage.json

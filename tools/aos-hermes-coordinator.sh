@@ -1,14 +1,19 @@
 #!/usr/bin/env bash
-# Revisit: when Hermes per-invocation profile selection changes. · Last touched: 2026-07-31.
+# Revisit: when Hermes profile selection or Step 6 usage changes. · Last touched: 2026-08-04.
 set -euo pipefail
 
 export PATH="$HOME/.local/bin:$HOME/.local/npm/bin:$PATH"
+export AOS_ROOT="${AOS_ROOT:-/home/liam/agentic-os-live}"
 
 profile="aos-orchestrator"
 prompt_file=""
 provider_requested=""
 model_requested=""
 usage_file=""
+scope_type=""
+scope_id=""
+cost_dial=""
+invocation_id=""
 while (($# > 0)); do
   case "${1:-}" in
     --profile)
@@ -56,6 +61,20 @@ while (($# > 0)); do
       usage_file="$2"
       shift 2
       ;;
+    --scope-type|--scope-id|--cost-dial|--invocation-id)
+      if (($# < 2)); then
+        echo "NEEDS ATTENTION"
+        echo "Blockers: $1 requires a value"
+        exit 2
+      fi
+      case "$1" in
+        --scope-type) scope_type="$2" ;;
+        --scope-id) scope_id="$2" ;;
+        --cost-dial) cost_dial="$2" ;;
+        --invocation-id) invocation_id="$2" ;;
+      esac
+      shift 2
+      ;;
     *)
       break
       ;;
@@ -63,7 +82,7 @@ while (($# > 0)); do
 done
 
 case "$profile" in
-  aos-orchestrator|aos-revenue|aos-marketing|aos-delivery|aos-ops) ;;
+  aos-orchestrator|aos-revenue|aos-marketing|aos-delivery|aos-ops|david) ;;
   *)
     echo "NEEDS ATTENTION"
     echo "Blockers: Profile '${profile}' is not an Agentic OS runtime profile"
@@ -92,30 +111,40 @@ else
   prompt="$*"
 fi
 
-if [[ "$profile" == "aos-orchestrator" ]]; then
-  script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-  aos_root="${AOS_ROOT:-$(dirname -- "$script_dir")}"
-  brief_generator="${aos_root}/tools/aos_executive_brief.py"
-  executive_brief_file="${aos_root}/context/EXECUTIVE_BRIEF.md"
-  if ! python3 "$brief_generator"; then
-    # Continue only with the generator's retained last-good stale brief.
-    :
+if [[ -z "$scope_id" ]]; then
+  if [[ "$prompt" =~ TTROS\ sticky\ session\ key:\ ([A-Za-z0-9_-]{8,128}) ]]; then
+    scope_type="session"
+    scope_id="${BASH_REMATCH[1]}"
+  elif [[ "$prompt" =~ (AOS-[0-9]{4}-[0-9]{4}) ]]; then
+    scope_type="work_item"
+    scope_id="${BASH_REMATCH[1]}"
+  else
+    scope_type="session"
+    scope_id="${profile}-direct"
   fi
-  if [[ ! -f "$executive_brief_file" ]]; then
-    echo "NEEDS ATTENTION"
-    echo "Blockers: Executive brief is unavailable"
-    exit 78
-  fi
-  executive_brief="$(<"$executive_brief_file")"
-  prompt="Executive brief (read-only situational awareness; do not auto-escalate):
-${executive_brief}
-
-Coordinator task:
-${prompt}"
 fi
+[[ "$scope_type" == "work_item" || "$scope_type" == "session" ]] || { echo "Blockers: invalid Step 6 scope type"; exit 2; }
+invocation_id="${invocation_id:-hermes-${profile}-$(date -u +%Y%m%dT%H%M%SZ)-$$}"
+python_bin="${HOME}/.hermes/hermes-agent/venv/bin/python3"
+if [[ ! -x "$python_bin" ]]; then python_bin="python3"; fi
+preflight_args=(--root "$AOS_ROOT" preflight --scope-type "$scope_type" --scope-id "$scope_id")
+if [[ -n "$cost_dial" ]]; then preflight_args+=(--cost-dial "$cost_dial"); fi
+"$python_bin" "$AOS_ROOT/tools/step6_cost_control.py" "${preflight_args[@]}" >/dev/null || exit 78
+export AOS_STEP6_WRAPPED="1"
+export AOS_STEP6_SCOPE_TYPE="$scope_type"
+export AOS_STEP6_SCOPE_ID="$scope_id"
+export AOS_STEP6_INVOCATION_ID="$invocation_id"
 
-# Native Hermes owns tool choice and delegation. Web/search, scrape,
-# Firecrawl, and Composio requests are not pre-routed around Hermes.
+internal_usage_file=""
+if [[ -z "$usage_file" ]]; then
+  internal_usage_file="$(mktemp "${AOS_ROOT}/queue/run_prompts/coordinator_usage.XXXXXX.json")"
+  usage_file="$internal_usage_file"
+fi
+cleanup_step6_usage() { rm -f -- "$internal_usage_file"; }
+trap cleanup_step6_usage EXIT
+
+# Native Hermes owns tool choice and delegation. Its pre-LLM hook supplies
+# mandatory assembled One Brain context and the runtime fails closed without it.
 if [[ -n "$provider_requested" && -n "$model_requested" ]]; then
   route_pair="${provider_requested}|${model_requested}"
   if [[ "$route_pair" =~ \<[^\>]+\>|[Ee][Xx][Aa][Cc][Tt][_[:space:]-]*(provider|model)|[Ff][Aa][Kk][Ee]|[Pp][Ll][Aa][Cc][Ee][Hh][Oo][Ll][Dd][Ee][Rr]|[Uu][Nn][Ii][Tt][_[:space:]-]*(provider|model) ]]; then
@@ -123,12 +152,20 @@ if [[ -n "$provider_requested" && -n "$model_requested" ]]; then
     echo "Blockers: Refusing placeholder provider/model route; using explicit flags requires real configured values"
     exit 2
   fi
-  if [[ -n "$usage_file" ]]; then
-    exec hermes -p "$profile" --provider "$provider_requested" --model "$model_requested" --usage-file "$usage_file" --oneshot "$prompt"
-  fi
-  exec hermes -p "$profile" --provider "$provider_requested" --model "$model_requested" --oneshot "$prompt"
 fi
-if [[ -n "$usage_file" ]]; then
-  exec hermes -p "$profile" --usage-file "$usage_file" --oneshot "$prompt"
+set +e
+if [[ -n "$provider_requested" && -n "$model_requested" ]]; then
+  hermes -p "$profile" --provider "$provider_requested" --model "$model_requested" --usage-file "$usage_file" --oneshot "$prompt"
+else
+  hermes -p "$profile" --usage-file "$usage_file" --oneshot "$prompt"
 fi
-exec hermes -p "$profile" --oneshot "$prompt"
+hermes_status=$?
+set -e
+record_args=(--root "$AOS_ROOT" record-usage --scope-type "$scope_type" --scope-id "$scope_id" --invocation-id "$invocation_id" --usage-file "$usage_file" --surface "hermes:${profile}")
+if [[ -n "$cost_dial" ]]; then record_args+=(--cost-dial "$cost_dial"); fi
+if ! "$python_bin" "$AOS_ROOT/tools/step6_cost_control.py" "${record_args[@]}" >/dev/null 2>&1; then
+  "$python_bin" "$AOS_ROOT/tools/step6_cost_control.py" --root "$AOS_ROOT" record-unavailable --scope-type "$scope_type" --scope-id "$scope_id" --invocation-id "$invocation_id" --reason "Hermes usage report missing or corrupt" --surface "hermes:${profile}" >/dev/null 2>&1 || true
+  echo "NEEDS ATTENTION: exact Hermes usage unavailable; Step 6 scope paused" >&2
+  exit 78
+fi
+exit "$hermes_status"
