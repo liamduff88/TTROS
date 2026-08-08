@@ -1,5 +1,7 @@
 import axios from 'axios'
 
+// Revisit: when dashboard backend route or timeout contracts change. · Last touched: 2026-08-07.
+
 const api = axios.create({ baseURL: '/api', timeout: 5000 })
 // Longer timeout for WSL commands that may take up to 2 minutes
 const apiWsl = axios.create({ baseURL: '/api', timeout: 130000 })
