@@ -11,6 +11,27 @@
     "session_id": {"type": "string", "minLength": 1, "description": "Codex session/thread identity for invocation-level deduplication when available."},
     "invocation_id": {"type": "string", "minLength": 1},
     "event": {"type": "string"},
+    "scope_type": {"type": "string", "enum": ["work_item", "session"]},
+    "scope_id": {"type": "string", "minLength": 1},
+    "scope_key": {"type": "string", "pattern": "^(work_item|session):"},
+    "surface": {"type": "string"},
+    "provider": {"type": "string"},
+    "actual_model": {"type": "string"},
+    "cost_dial": {
+      "type": "object",
+      "required": ["value", "source"],
+      "properties": {
+        "value": {"type": "string", "enum": ["light", "standard", "heavy"]},
+        "source": {"type": "string", "enum": ["scope_override", "global_config", "documented_default"]}
+      }
+    },
+    "exact_usage": {"type": "object"},
+    "fuse": {"type": "object"},
+    "cost": {"type": "object"},
+    "pricing_version": {"type": ["string", "null"]},
+    "pricing_effective_date": {"type": ["string", "null"]},
+    "no_agent_invocation": {"type": "boolean"},
+    "override_reason": {"type": "string"},
     "lane": {"type": "string", "enum": ["revenue", "marketing", "delivery", "operations", "ops", "orchestrator", "hermes", "codex", "claude", "unassigned"]},
     "profile": {"type": "string", "enum": ["aos-orchestrator", "aos-revenue", "aos-marketing", "aos-delivery", "aos-ops", "default"]},
     "timestamp": {"type": "string", "format": "date-time"},
@@ -92,7 +113,7 @@
           "required": ["input", "output"],
           "properties": {"input": {"type": "integer", "minimum": 0}, "output": {"type": "integer", "minimum": 0}}
         },
-        "est_cost_usd": {"type": "number", "minimum": 0},
+        "est_cost_usd": {"type": ["number", "null"], "minimum": 0},
         "unavailable": {"type": "array", "items": {"type": "string"}}
       }
     }

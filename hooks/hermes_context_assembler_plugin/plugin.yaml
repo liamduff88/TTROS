@@ -1,0 +1,9 @@
+# Revisit: when Hermes changes plugin manifests or lifecycle hook names. · Last touched: 2026-08-05.
+name: ttros-context-assembler
+version: 1.0.0
+description: "TTROS native pre/post LLM lifecycle adapter for the repository Context Assembler."
+author: TTROS
+kind: standalone
+hooks:
+  - pre_llm_call
+  - post_llm_call

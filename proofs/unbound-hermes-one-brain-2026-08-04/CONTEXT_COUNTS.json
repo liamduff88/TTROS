@@ -1,0 +1,88 @@
+{
+  "as_of": "2026-08-04",
+  "tokenizer": "o200k_base for fixed-preamble snapshots; Context Assembler estimator for assembled blocks",
+  "operator_live_final": {
+    "assembled_bytes": 111285,
+    "assembled_tokens": 23702,
+    "conversation_block_bytes": 20225,
+    "conversation_block_tokens": 4194,
+    "truncation_warnings": 0
+  },
+  "aos_2026_0482_worker_payload": {
+    "selected_context_bytes": 39223,
+    "selected_context_tokens": 8573,
+    "request_bytes": 3750,
+    "request_tokens": 733,
+    "assembled_bytes": 42973,
+    "assembled_tokens": 9306,
+    "pack_file_bytes": 44570,
+    "pack_file_lines": 576,
+    "codex": {
+      "assembler_framing_bytes": 1380,
+      "rendered_bytes": 44353,
+      "rendered_tokens": 9564,
+      "provider_hidden_preamble": "unavailable from local CLI output"
+    },
+    "claude_code": {
+      "assembler_framing_bytes": 1386,
+      "rendered_bytes": 44359,
+      "rendered_tokens": 9566,
+      "provider_hidden_preamble": "unavailable from local CLI output"
+    },
+    "aos_revenue": {
+      "assembler_framing_bytes": 1382,
+      "rendered_bytes": 44355,
+      "rendered_tokens": 9564
+    }
+  },
+  "native_fixed_preamble_snapshot": {
+    "operator_lean": {
+      "system_bytes": 3933,
+      "system_tokens": 848,
+      "tool_count": 9,
+      "tool_schema_compact_json_bytes": 3638,
+      "tool_schema_tokens": 801,
+      "native_memory_bytes": 0
+    },
+    "aos_orchestrator": {
+      "system_bytes": 15648,
+      "system_tokens": 3357,
+      "tool_count": 30,
+      "tool_schema_compact_json_bytes": 48945,
+      "tool_schema_tokens": 10662,
+      "native_memory_bytes": 0
+    },
+    "aos_revenue": {
+      "system_bytes": 17260,
+      "system_tokens": 3801,
+      "tool_count": 30,
+      "tool_schema_compact_json_bytes": 48935,
+      "tool_schema_tokens": 10660,
+      "native_memory_bytes": 0
+    },
+    "aos_marketing": {
+      "system_bytes": 16397,
+      "system_tokens": 3569,
+      "tool_count": 30,
+      "tool_schema_compact_json_bytes": 48939,
+      "tool_schema_tokens": 10660,
+      "native_memory_bytes": 0
+    },
+    "aos_delivery": {
+      "system_bytes": 16603,
+      "system_tokens": 3629,
+      "tool_count": 30,
+      "tool_schema_compact_json_bytes": 48937,
+      "tool_schema_tokens": 10660,
+      "native_memory_bytes": 0
+    },
+    "aos_ops": {
+      "system_bytes": 16760,
+      "system_tokens": 3666,
+      "tool_count": 30,
+      "tool_schema_compact_json_bytes": 48927,
+      "tool_schema_tokens": 10660,
+      "native_memory_bytes": 0
+    }
+  }
+}

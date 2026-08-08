@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail-closed Hermes oneshot entrypoint for the seven-tool operator profile.
+"""Fail-closed Hermes oneshot entrypoint for the bounded operator profile.
 
 Revisit: when Hermes oneshot or MCP startup semantics change. · Last touched: 2026-08-01.
 """
@@ -23,6 +23,8 @@ EXPECTED_TOOLS = frozenset(
         "mcp__operator__get_token_ledger",
         "mcp__operator__create_task",
         "mcp__operator__escalate_to_executive",
+        "mcp__brain__remember_brain_knowledge",
+        "mcp__brain__brain_memory_status",
     }
 )
 TOOL_UNAVAILABLE_EXIT = 78
@@ -62,21 +64,27 @@ def run_operator_oneshot(
         require_operator_tools(discover)
     except Exception as exc:
         print(
-            f"TOOL_UNAVAILABLE: operator-lean requires exactly seven bounded tools ({exc}). "
+            f"TOOL_UNAVAILABLE: operator-lean requires its exact bounded tool set ({exc}). "
             "No model was called and no task was queued.",
             file=sys.stderr,
         )
         return TOOL_UNAVAILABLE_EXIT
 
     if runner is None:
+        # This scoped entrypoint calls the oneshot API directly rather than
+        # CLI main, so production must register profile shell hooks here. The
+        # native turn boundary fails closed if the marker is absent.
+        from agent.shell_hooks import register_from_config
+        from hermes_cli.config import load_config
         from hermes_cli.oneshot import run_oneshot
 
+        register_from_config(load_config())
         runner = run_oneshot
-    return runner(prompt, toolsets=["operator"], usage_file=usage_file or None)
+    return runner(prompt, toolsets=["operator", "brain"], usage_file=usage_file or None)
 
 
 def inspect_loaded_preamble() -> dict[str, Any]:
-    """Return the real post-discovery system prompt and seven schemas; no API call."""
+    """Return the real post-discovery system prompt and schemas; no API call."""
     names = require_operator_tools()
     from agent.system_prompt import build_system_prompt
     from hermes_cli.prompt_size import _build_inspection_agent

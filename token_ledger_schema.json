@@ -55,7 +55,7 @@
           "required": ["input", "output"],
           "properties": {"input": {"type": "integer", "minimum": 0}, "output": {"type": "integer", "minimum": 0}}
         },
-        "est_cost_usd": {"type": "number", "minimum": 0},
+        "est_cost_usd": {"type": ["number", "null"], "minimum": 0},
         "unavailable": {"type": "array", "items": {"type": "string"}}
       }
     }

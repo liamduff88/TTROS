@@ -1,6 +1,12 @@
 {
   "$comment": "TTROS notification config + recipient allowlist. Internal sends unrestricted within allowlist; third-party sends gated with typed confirmation. Bridge FILES frozen — sends use the existing bridge send path only. Last touched: 2026-07-09.",
-  "version": 1,
+  "version": 2,
+  "operator_controls": {
+    "cost_dial": "standard",
+    "allowed_values": ["light", "standard", "heavy"],
+    "precedence": ["work_item_or_session_override", "global_config", "documented_default"],
+    "documented_default": "standard"
+  },
   "escalation": {
     "channels_immediate": ["originating_channel", "needs_me_rail"],
     "unanswered_minutes": 10,

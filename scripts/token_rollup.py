@@ -106,14 +106,14 @@ def cost_for(
     *,
     fresh_input: int | None = None,
     cached_input: int | None = None,
-) -> float:
+) -> float | None:
     """Charge provider-total input once; use cache-read price for its cached part."""
     rate = prices.get(model) if model else None
     if not isinstance(rate, dict):
-        return 0.0
+        return None
     if fresh_input is not None and cached_input is not None:
         if fresh_input + cached_input != inp or "cache_read_per_mtok" not in rate:
-            return 0.0
+            return None
         input_cost = (
             fresh_input / 1_000_000 * rate.get("input_per_mtok", 0.0)
             + cached_input / 1_000_000 * rate["cache_read_per_mtok"]
@@ -155,9 +155,9 @@ def rollup_week(week: str, lines: list[dict], prices: dict) -> dict:
     escalated_cost = 0.0
     items: list[dict] = []
     cache_sessions: list[dict] = []
-    context_ceiling_breaches: list[dict] = []
     warnings: list[str] = []
     unavailable: dict[str, int] = {}
+    unpriced_lines = 0
 
     for line in lines:
         usage = line.get("token_usage", {})
@@ -200,30 +200,22 @@ def rollup_week(week: str, lines: list[dict], prices: dict) -> dict:
                         f"cache_ratio > 20: {work.get('tool', 'unknown')} session "
                         f"{work.get('session_id') or line.get('session_id') or 'unavailable'} ratio={ratio}"
                     )
-            context_pct = work.get("context_pct_at_close")
-            if isinstance(context_pct, (int, float)) and not isinstance(context_pct, bool) and context_pct > 50:
-                context_ceiling_breaches.append({
-                    "item_id": line.get("item_id"),
-                    "session_id": work.get("session_id") or line.get("session_id") or "unavailable",
-                    "tool": work.get("tool", "unknown"),
-                    "context_pct_at_close": context_pct,
-                })
-                warnings.append(
-                    f"context_pct_at_close > 50: {work.get('tool', 'unknown')} session "
-                    f"{work.get('session_id') or line.get('session_id') or 'unavailable'} "
-                    f"context_pct_at_close={context_pct}"
-                )
-        line_cost = round(sum(cost_for(
+        component_costs = [cost_for(
             c["model"], c["input"], c["output"], prices,
             fresh_input=c["fresh_input"], cached_input=c["cached_input"],
-        ) for c in components), 6)
+        ) for c in components]
+        line_cost = None if any(value is None for value in component_costs) else round(sum(component_costs), 6)
+        if line_cost is None:
+            unpriced_lines += 1
+            warnings.append(f"unpriced model invocation: {line.get('item_id') or 'unattributed'}")
         line_fresh = sum(c["fresh_input"] or 0 for c in components)
         line_cached = sum(c["cached_input"] or 0 for c in components)
 
         totals["input"] += line_in
         totals["output"] += line_out
-        totals["est_cost_usd"] = round(totals["est_cost_usd"] + line_cost, 6)
-        if line.get("escalated"):
+        if line_cost is not None:
+            totals["est_cost_usd"] = round(totals["est_cost_usd"] + line_cost, 6)
+        if line.get("escalated") and line_cost is not None:
             escalated_cost = round(escalated_cost + line_cost, 6)
 
         lane_b = _bucket(by_lane, line.get("lane", "unknown"))
@@ -231,7 +223,7 @@ def rollup_week(week: str, lines: list[dict], prices: dict) -> dict:
         lane_b["fresh_input"] += line_fresh
         lane_b["cached_input"] += line_cached
         lane_b["output"] += line_out
-        lane_b["est_cost_usd"] = round(lane_b["est_cost_usd"] + line_cost, 6)
+        lane_b["est_cost_usd"] = round(lane_b["est_cost_usd"] + (line_cost or 0), 6)
         lane_b["count"] += 1
 
         profile_b = _bucket(by_profile, line.get("profile", "unknown"))
@@ -239,7 +231,7 @@ def rollup_week(week: str, lines: list[dict], prices: dict) -> dict:
         profile_b["fresh_input"] += line_fresh
         profile_b["cached_input"] += line_cached
         profile_b["output"] += line_out
-        profile_b["est_cost_usd"] = round(profile_b["est_cost_usd"] + line_cost, 6)
+        profile_b["est_cost_usd"] = round(profile_b["est_cost_usd"] + (line_cost or 0), 6)
         profile_b["count"] += 1
 
         budget_b = _bucket(by_budget, line.get("budget_class", "unknown"))
@@ -247,7 +239,7 @@ def rollup_week(week: str, lines: list[dict], prices: dict) -> dict:
         budget_b["fresh_input"] += line_fresh
         budget_b["cached_input"] += line_cached
         budget_b["output"] += line_out
-        budget_b["est_cost_usd"] = round(budget_b["est_cost_usd"] + line_cost, 6)
+        budget_b["est_cost_usd"] = round(budget_b["est_cost_usd"] + (line_cost or 0), 6)
         budget_b["count"] += 1
 
         # by_model: attribute each component's tokens to its model; cost is
@@ -258,10 +250,14 @@ def rollup_week(week: str, lines: list[dict], prices: dict) -> dict:
             mb["fresh_input"] += comp["fresh_input"] or 0
             mb["cached_input"] += comp["cached_input"] or 0
             mb["output"] += comp["output"]
-            mb["est_cost_usd"] = round(mb["est_cost_usd"] + cost_for(
+            component_cost = cost_for(
                 comp["model"], comp["input"], comp["output"], prices,
                 fresh_input=comp["fresh_input"], cached_input=comp["cached_input"],
-            ), 6)
+            )
+            if component_cost is not None:
+                mb["est_cost_usd"] = round(mb["est_cost_usd"] + component_cost, 6)
+            else:
+                mb["cost_status"] = "unpriced"
             mb["count"] += 1
 
         # by_workbench: one bucket per tool, across every workbench entry on
@@ -272,13 +268,15 @@ def rollup_week(week: str, lines: list[dict], prices: dict) -> dict:
             wb["fresh_input"] += _observed_int(work.get("fresh_input")) or 0
             wb["cached_input"] += _observed_int(work.get("cached_input")) or 0
             wb["output"] += int(work.get("output", 0))
-            wb["est_cost_usd"] = round(
-                wb["est_cost_usd"] + cost_for(
+            workbench_cost = cost_for(
                     work.get("model", "unavailable"), int(work.get("input", 0)), int(work.get("output", 0)), prices,
                     fresh_input=_observed_int(work.get("fresh_input")),
                     cached_input=_observed_int(work.get("cached_input")),
-                ), 6
-            )
+                )
+            if workbench_cost is not None:
+                wb["est_cost_usd"] = round(wb["est_cost_usd"] + workbench_cost, 6)
+            else:
+                wb["cost_status"] = "unpriced"
             wb["count"] += 1
 
         for name in usage.get("unavailable", []):
@@ -291,15 +289,16 @@ def rollup_week(week: str, lines: list[dict], prices: dict) -> dict:
             "escalated": bool(line.get("escalated")),
             "input": line_in,
             "output": line_out,
-            "est_cost_usd": round(line_cost, 6),
+            "est_cost_usd": line_cost,
+            "cost_status": "priced" if line_cost is not None else "unpriced",
         })
 
-    top_items = sorted(items, key=lambda i: (i["est_cost_usd"], i["input"] + i["output"]), reverse=True)[:10]
+    top_items = sorted(items, key=lambda i: (i["est_cost_usd"] is not None, i["est_cost_usd"] or 0, i["input"] + i["output"]), reverse=True)[:10]
     total_cost = totals["est_cost_usd"]
     return {
         "week": week,
         "generated_from": "queue/token_ledger.jsonl",
-        "model_prices": "scripts/model_prices.json (placeholder rates until filled)",
+        "model_prices": "scripts/model_prices.json (effective-dated verified rates; unknown models unpriced)",
         "line_count": len(lines),
         "totals": totals,
         "by_lane": by_lane,
@@ -318,11 +317,7 @@ def rollup_week(week: str, lines: list[dict], prices: dict) -> dict:
             key=lambda row: (row["cache_ratio"], row["cached_input"], str(row["session_id"])),
             reverse=True,
         )[:5],
-        "context_ceiling_breaches": sorted(
-            context_ceiling_breaches,
-            key=lambda row: (row["context_pct_at_close"], str(row["session_id"])),
-            reverse=True,
-        ),
+        "unpriced_invocation_count": unpriced_lines,
         "warnings": sorted(set(warnings)),
         "unavailable_components": unavailable,
     }

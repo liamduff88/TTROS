@@ -1,14 +1,50 @@
 {
-  "$comment": "Deterministic est_cost source for the token ledger (TOKEN_POLICY.md). Rates are USD per 1,000,000 tokens. THESE ARE PLACEHOLDERS — Liam fills real provider rates. Placeholder prices are sanctioned; token COUNTS are never invented (never.md #7).",
-  "revisit": "Monthly provider pricing check, or on any provider price change or model-generation jump. Last touched: 2026-07-19.",
+  "$comment": "Effective-dated deterministic cost source for the token ledger. Rates are standard global API USD per 1,000,000 tokens. Unknown models are unpriced; the runtime never falls back to a zero-dollar default.",
+  "version": "2026-08-04",
+  "revisit": "Monthly provider pricing check, or on any provider price change or model-generation jump. Last touched: 2026-08-04.",
   "currency": "USD",
   "unit": "per_million_tokens",
-  "rates_are_placeholders": true,
+  "rates_are_placeholders": false,
   "models": {
-    "default": {"input_per_mtok": 0.0, "cache_read_per_mtok": 0.0, "output_per_mtok": 0.0, "note": "placeholder — used when a model has no explicit rate"},
-    "gpt-5.5": {"input_per_mtok": 2.50, "cache_read_per_mtok": 0.25, "output_per_mtok": 10.00, "note": "PLACEHOLDER rate"},
-    "claude-opus-4-8": {"input_per_mtok": 15.00, "cache_read_per_mtok": 1.50, "output_per_mtok": 75.00, "note": "PLACEHOLDER rate"},
-    "claude-sonnet-5": {"input_per_mtok": 3.00, "cache_read_per_mtok": 0.30, "output_per_mtok": 15.00, "note": "PLACEHOLDER rate"},
-    "claude-haiku-4-5": {"input_per_mtok": 0.80, "cache_read_per_mtok": 0.08, "output_per_mtok": 4.00, "note": "PLACEHOLDER rate"}
+    "default": {"priced": false, "note": "Unknown models remain visibly unpriced."},
+    "gpt-5.5": {
+      "priced": true,
+      "provider": "openai",
+      "effective_from": "2026-04-23",
+      "input_per_mtok": 5.0,
+      "cache_read_per_mtok": 0.5,
+      "output_per_mtok": 30.0,
+      "long_context": {"input_tokens_above": 272000, "input_multiplier": 2.0, "cache_read_multiplier": 2.0, "output_multiplier": 1.5},
+      "source": "https://developers.openai.com/api/docs/models/gpt-5.5"
+    },
+    "claude-opus-4-8": {
+      "priced": true,
+      "provider": "anthropic",
+      "effective_from": "2026-05-27",
+      "input_per_mtok": 5.0,
+      "cache_read_per_mtok": 0.5,
+      "output_per_mtok": 25.0,
+      "source": "https://platform.claude.com/docs/en/about-claude/pricing"
+    },
+    "claude-sonnet-5": {
+      "priced": true,
+      "provider": "anthropic",
+      "effective_from": "2026-06-01",
+      "effective_through": "2026-08-31",
+      "input_per_mtok": 2.0,
+      "cache_read_per_mtok": 0.2,
+      "output_per_mtok": 10.0,
+      "future_rate": {"effective_from": "2026-09-01", "input_per_mtok": 3.0, "cache_read_per_mtok": 0.3, "output_per_mtok": 15.0},
+      "source": "https://platform.claude.com/docs/en/about-claude/pricing"
+    },
+    "claude-haiku-4-5": {
+      "priced": true,
+      "provider": "anthropic",
+      "effective_from": "2025-10-01",
+      "input_per_mtok": 1.0,
+      "cache_read_per_mtok": 0.1,
+      "output_per_mtok": 5.0,
+      "source": "https://platform.claude.com/docs/en/about-claude/pricing"
+    }
   }
 }

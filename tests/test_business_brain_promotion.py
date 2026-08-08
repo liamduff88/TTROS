@@ -110,6 +110,42 @@ class BusinessBrainPromotionTest(unittest.TestCase):
             unknown = self.candidate(target, change_class="new_unknown_class")
             self.assertEqual(evaluate_promotion(unknown, registry=make_registry())["tier"], REVIEW_TIER)
 
+    def test_consequential_classes_require_review_and_protected_inputs_are_never_written(self):
+        review_classes = (
+            "pricing", "client_commitment", "strategy", "legal_conclusion",
+            "financial_conclusion", "authority_change", "conflict", "deletion",
+            "communications_fact",
+        )
+        never_classes = (
+            "secrets", "credentials", "raw_communications", "raw_queue_state",
+            "runtime_state", "transient_logs", "raw_graphify_output",
+        )
+        with tempfile.TemporaryDirectory() as temp:
+            _repo, _vault, target, writer = self.fixture(Path(temp))
+            before = target.read_bytes()
+            for change_class in review_classes:
+                with self.subTest(change_class=change_class):
+                    candidate = self.candidate(target, change_class=change_class)
+                    result = evaluate_promotion(
+                        candidate, registry=make_registry()
+                    )
+                    self.assertEqual(REVIEW_TIER, result["tier"])
+                    self.assertFalse(result["writable"])
+                    with self.assertRaises(PromotionError):
+                        writer.apply(candidate)
+            for change_class in never_classes:
+                with self.subTest(change_class=change_class):
+                    candidate = self.candidate(target, change_class=change_class)
+                    result = evaluate_promotion(
+                        candidate, registry=make_registry()
+                    )
+                    self.assertEqual(NEVER_TIER, result["tier"])
+                    self.assertFalse(result["writable"])
+                    self.assertIsNone(result["candidate_diff"])
+                    with self.assertRaises(PromotionError):
+                        writer.apply(candidate)
+            self.assertEqual(before, target.read_bytes())
+
     def test_malformed_marker_refuses_text_outside_boundary(self):
         with tempfile.TemporaryDirectory() as temp:
             _repo, _vault, target, writer = self.fixture(Path(temp))

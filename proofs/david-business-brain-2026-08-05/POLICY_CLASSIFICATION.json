@@ -1,0 +1,31 @@
+{
+  "revisit": "Supersede when the Business Brain promotion class contract changes.",
+  "captured_at": "2026-08-05",
+  "fixture": "tests.test_business_brain_promotion.BusinessBrainPromotionTest.test_consequential_classes_require_review_and_protected_inputs_are_never_written",
+  "status": "PASS",
+  "review_required": [
+    "pricing",
+    "client_commitment",
+    "strategy",
+    "legal_conclusion",
+    "financial_conclusion",
+    "authority_change",
+    "conflict",
+    "deletion",
+    "communications_fact"
+  ],
+  "never_write": [
+    "secrets",
+    "credentials",
+    "raw_communications",
+    "raw_queue_state",
+    "runtime_state",
+    "transient_logs",
+    "raw_graphify_output"
+  ],
+  "review_candidates_writable_without_approval": false,
+  "never_candidates_writable": false,
+  "never_candidate_diff_exposed": false,
+  "fixture_target_unchanged": true,
+  "token_usage": "no agent invocation"
+}
