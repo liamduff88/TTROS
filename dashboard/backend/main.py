@@ -77,6 +77,7 @@ from context_assembler import (
 from step6_cost_control import (
     CostControlError,
     Scope as Step6Scope,
+    append_canonical_row,
     derive_scope as derive_step6_scope,
     fuse_status as step6_fuse_status,
     format_threshold_alert as format_step6_alert,
@@ -115,6 +116,9 @@ BACKUP_RECEIPTS_FILE = QUEUE_DIR / "receipts" / "backups.jsonl"
 LINUX_BACKUP_RECEIPTS_FILE = QUEUE_DIR / "receipts" / "linux-backups.jsonl"
 NOTIFICATIONS_FILE = QUEUE_DIR / "notifications.json"
 TOKEN_LEDGER_FILE = QUEUE_DIR / "token_ledger.jsonl"
+# Legacy historical state only.  It is preserved and readable, but nothing
+# writes to it and operational totals no longer merge it (see
+# _read_token_ledger_records).
 ROOT_TOKEN_LEDGER_FILE = BASE_DIR / "token_ledger.jsonl"
 _IMPORTED_BASE_DIR = BASE_DIR
 
@@ -133,6 +137,12 @@ def _authoritative_append_target(path: Path) -> tuple[Path, Path]:
     except ValueError:
         # A deliberately injected disposable ledger owns its own lock root.
         return path.parent, path
+
+
+def _canonical_ledger_append_target() -> tuple[Path, Path]:
+    """Resolve the canonical ledger as the (root, relative) pair its lock needs."""
+    append_root, append_path = _authoritative_append_target(TOKEN_LEDGER_FILE)
+    return append_root, append_path.relative_to(append_root)
 SKILL_TRUST_FILE = QUEUE_DIR / "skill_trust.jsonl"
 WORKFLOWS_DIR = BASE_DIR / "workflows"
 WORKFLOW_REGISTRY_FILE = WORKFLOWS_DIR / "workflow_registry.json"
@@ -1514,6 +1524,7 @@ def _run_wsl_prompt_command(
     startup_timeout: int | None = None,
     on_process_start=None,
     step6_record: bool = True,
+    item_id: str = "",
 ) -> dict:
     context = require_assembled_context(context)
     # The selected launcher owns the final model boundary: native Hermes uses
@@ -1521,7 +1532,11 @@ def _run_wsl_prompt_command(
     # here prevents callers from bypassing that boundary with a raw string.
     step6_invocation_id = f"model-{uuid.uuid4().hex}"
     prompt_path, prompt_wsl_path = _write_agent_prompt_file(context.request)
+    # A worker run belongs to its named work item, not to a per-invocation
+    # session; without the item id the 500K fuse never sees this invocation
+    # against the item that caused it.
     step6_scope = derive_step6_scope(
+        work_item_id=item_id,
         session_id=context.session_id or step6_invocation_id,
         prompt=context.request,
     )
@@ -1559,6 +1574,7 @@ def _run_wsl_prompt_command(
             observed, observed_text = _extract_token_usage(
                 str(wrapped.get("output") or ""), str(wrapped.get("stdout") or ""), str(wrapped.get("stderr") or "")
             )
+            observed.setdefault("invocation_id", step6_invocation_id)
             if observed.get("available"):
                 step6_result = record_step6_invocation(
                     step6_scope, invocation_id=step6_invocation_id,
@@ -1573,7 +1589,12 @@ def _run_wsl_prompt_command(
                     reason="Claude terminal usage unavailable", root=BASE_DIR,
                     surface=context.surface,
                 )
-            wrapped.update(token_usage=observed, token_usage_text=observed_text, cost_control=step6_result.get("status"))
+            wrapped.update(
+                token_usage=observed,
+                token_usage_text=observed_text,
+                cost_control=step6_result.get("status"),
+                invocation_id=step6_invocation_id,
+            )
         return wrapped
     finally:
         try:
@@ -2200,9 +2221,14 @@ def _effective_token_ledger_records(records: list[dict]) -> list[dict]:
 
 
 def _read_token_ledger_records() -> list[dict]:
-    records = _read_jsonl_file(TOKEN_LEDGER_FILE)
-    records.extend(_read_jsonl_file(ROOT_TOKEN_LEDGER_FILE))
-    return _effective_token_ledger_records(records)
+    """Read operational totals from the one authoritative ledger.
+
+    ``queue/token_ledger.jsonl`` is the sole production ledger and the only
+    file the Step 6 fuse reads.  The repo-root ``token_ledger.jsonl`` is legacy
+    historical state: it is preserved on disk and still readable, but merging it
+    here reported operational totals the fuse could never see.
+    """
+    return _effective_token_ledger_records(_read_jsonl_file(TOKEN_LEDGER_FILE))
 
 
 def _local_date_from_record(value: object, tz: datetime.tzinfo | None = None) -> datetime.date | None:
@@ -2926,13 +2952,35 @@ def _append_simple_token_ledger(task_id: str, component: str, token_usage: dict,
             tokens = int(str(input_tokens).replace(",", "")) + int(str(output_tokens).replace(",", ""))
         except (TypeError, ValueError):
             tokens = None
+    line = _simple_token_line(
+        task_id, component, tokens, "exact" if tokens is not None else "unavailable", token_usage, metadata
+    )
+    invocation_id = str(
+        token_usage.get("invocation_id")
+        or (metadata or {}).get("invocation_id")
+        or ((metadata or {}).get("invocation") or {}).get("invocation_id")
+        or ""
+    )
+    if invocation_id:
+        line["invocation_id"] = invocation_id
     try:
-        append_root, append_path = _authoritative_append_target(ROOT_TOKEN_LEDGER_FILE)
-        line = _simple_token_line(
-            task_id, component, tokens, "exact" if tokens is not None else "unavailable", token_usage, metadata
+        append_root, ledger_relative = _canonical_ledger_append_target()
+        # Step 6 owns the authoritative row for any invocation it recorded; this
+        # second parse of the same model call defers to it rather than adding a
+        # duplicate.  Routes Step 6 never saw still record here, so no
+        # accounting is dropped.
+        append_canonical_row(
+            append_root,
+            line,
+            effect_id=f"backend_token_usage:{invocation_id}" if invocation_id else None,
+            defer_to_invocation_id=invocation_id,
+            ledger_path=ledger_relative,
         )
-        durable_append_text(append_root, append_path, json.dumps(line, separators=(",", ":")) + "\n")
-    except OSError:
+    except (OSError, CostControlError):
+        # An unwritable or corrupt canonical ledger must not abort a closeout
+        # after the model has already run.  _log_token_usage has already
+        # persisted this usage to logs/token_usage.jsonl, and the corrupt
+        # ledger still fails the scope closed at the next Step 6 preflight.
         return
 
 
@@ -4469,6 +4517,12 @@ def _normalize_chain_proposal(text: str, original_text: str, source_refs: list[s
 
 
 def _append_hermes_decomposition_token_ledger(result: dict, item_id: str = "AOS-2026-0000") -> None:
+    """Record the decomposition call only when Step 6 did not already record it.
+
+    ``_run_hermes_message`` already writes the authoritative invocation row for
+    this same model call, so this path defers to it; it remains as accounting
+    for a decomposition that reached no Step 6 recorder.
+    """
     usage = result.get("token_usage") if isinstance(result, dict) else {}
     available = bool(isinstance(usage, dict) and usage.get("available"))
     input_tokens = int(usage.get("input_tokens") or 0) if available else 0
@@ -4494,8 +4548,20 @@ def _append_hermes_decomposition_token_ledger(result: dict, item_id: str = "AOS-
         "basis": "exact" if available else "unavailable",
         "event": "hermes_decomposition",
     }
-    append_root, append_path = _authoritative_append_target(TOKEN_LEDGER_FILE)
-    durable_append_text(append_root, append_path, json.dumps(record, sort_keys=True, separators=(",", ":")) + "\n")
+    invocation_id = str(
+        (result.get("invocation_id") if isinstance(result, dict) else "")
+        or (usage.get("invocation_id") if isinstance(usage, dict) else "")
+        or ""
+    )
+    record["invocation_id"] = invocation_id
+    append_root, ledger_relative = _canonical_ledger_append_target()
+    append_canonical_row(
+        append_root,
+        record,
+        effect_id=f"hermes_decomposition:{invocation_id}" if invocation_id else None,
+        defer_to_invocation_id=invocation_id,
+        ledger_path=ledger_relative,
+    )
 
 
 def _create_hermes_question_item(question: str, source_refs: list[str]) -> dict:
@@ -8705,6 +8771,7 @@ def _queue_run_worker(owner: str, prompt: str, item: dict, attempt: int = 1) -> 
             QUEUE_WORKER_TIMEOUT_SECONDS,
             startup_timeout=AGENT_STARTUP_TIMEOUT_SECONDS,
             on_process_start=register_runtime,
+            item_id=item_id,
         )
         invocation = {
             "executable": "/home/liam/.local/npm/bin/claude",

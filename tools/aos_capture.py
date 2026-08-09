@@ -29,14 +29,17 @@ try:
     from aos_queue_storage import durable_append_text, durable_replace_text, fsync_directory, queue_write_lock
     from business_brain_context import BrainContextError, ScopedBrainLoader
     from business_brain_scope import CaptureIdentityResolution, ClientScopeError, ClientScopeRegistry, load_registry
+    from step6_cost_control import append_canonical_row
 except ModuleNotFoundError:  # package import in unittest/IDE contexts
     from tools.aos_paths import aos_root, assert_authoritative_root
     from tools.aos_queue_storage import durable_append_text, durable_replace_text, fsync_directory, queue_write_lock
     from tools.business_brain_context import BrainContextError, ScopedBrainLoader
     from tools.business_brain_scope import CaptureIdentityResolution, ClientScopeError, ClientScopeRegistry, load_registry
+    from tools.step6_cost_control import append_canonical_row
 
 
 REPO_ROOT = aos_root()
+CANONICAL_TOKEN_LEDGER_PATH = Path("queue/token_ledger.jsonl")
 DEFAULT_RUNTIME_ROOT = REPO_ROOT / "capture" / "runtime"
 STAGE2_EVENT = "capture.stage2.local_deterministic_stub"
 STAGE3_EVENT = "capture.stage3.deterministic_proposer"
@@ -662,6 +665,14 @@ class CaptureLedgerWriter:
                     continue
         schema = json.loads((self.root / schema_path).read_text(encoding="utf-8"))
         jsonschema.validate(row, schema)
+        if Path(relative_path) == CANONICAL_TOKEN_LEDGER_PATH:
+            # The canonical ledger is append-only under its own flock; the
+            # read-modify-replace commit below would discard a Step 6 row that
+            # lands in this window.
+            recorded, _ = append_canonical_row(
+                self.root, row, effect_id=effect_id, ledger_path=CANONICAL_TOKEN_LEDGER_PATH,
+            )
+            return recorded
         row = {**row, "effect_id": effect_id}
         durable_append_text(self.root, target, json.dumps(row, sort_keys=True) + "\n")
         return True

@@ -24,6 +24,7 @@ if str(TOOLS_DIR) not in sys.path:
 
 from aos_paths import aos_root, assert_authoritative_root
 from aos_queue_storage import durable_create_directory, durable_replace_text, fsync_directory, queue_write_lock
+from step6_cost_control import append_canonical_row
 
 QUEUE_DIR = Path("queue")
 WORK_ITEMS_PATH = QUEUE_DIR / "work_items.jsonl"
@@ -385,12 +386,18 @@ def no_agent_token_usage() -> dict:
 
 
 def append_no_agent_token_line(root: Path, item: dict, event: str, *, effect_id: str | None = None) -> None:
+    """Record a deterministic no-agent row on the canonical ledger's own lock.
+
+    This is bookkeeping, not a model invocation, so it never reaches the fuse
+    total; it still shares the canonical ledger and therefore its write
+    boundary.
+    """
     lane = str(item.get("owner") or "unassigned").strip().lower() or "unassigned"
     if lane == "ops":
         lane = "operations"
     if lane not in {"revenue", "marketing", "delivery", "operations", "hermes", "codex", "claude", "unassigned"}:
         lane = "unassigned"
-    append_jsonl(root / TOKEN_LEDGER_PATH, {
+    append_canonical_row(assert_authoritative_root(root), {
         "item_id": item.get("id"),
         "lane": lane,
         "profile": "default",
@@ -410,8 +417,7 @@ def append_no_agent_token_line(root: Path, item: dict, event: str, *, effect_id:
         "reasoning": "unavailable from current CLI output",
         "largest_tool_result_bytes": "unavailable from current CLI output",
         "event": event,
-        "effect_id": f"{effect_id}:tokens" if effect_id else None,
-    })
+    }, effect_id=f"{effect_id}:tokens" if effect_id else None, ledger_path=TOKEN_LEDGER_PATH)
 
 
 def _attach_effect_receipt(item: dict, path: str, status: str, created_at: str) -> None:

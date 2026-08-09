@@ -48,6 +48,7 @@ from business_brain_context import BrainContextError, validate_completion_contex
 from step6_cost_control import (
     CostControlError as Step6CostControlError,
     Scope as Step6Scope,
+    append_canonical_row as append_step6_canonical_row,
     preflight as step6_preflight,
     record_invocation as record_step6_invocation,
     record_unavailable_invocation as record_step6_unavailable,
@@ -1991,7 +1992,15 @@ def finalize_done(
     )
     stable_effect = effect_id or f"done:{item['id']}:{timestamp}"
     _append_jsonl(root, root / RUN_LEDGER_PATH, run_line, effect_id=f"{stable_effect}:run")
-    _append_jsonl(root, root / TOKEN_LEDGER_PATH, token_line, effect_id=f"{stable_effect}:tokens")
+    # Per-item completion summary, not a per-invocation row, so it is always
+    # recorded.  The canonical token ledger is append-only under its own flock;
+    # a read-modify-replace commit here would discard a concurrent Step 6 row.
+    append_step6_canonical_row(
+        root,
+        token_line,
+        effect_id=f"{stable_effect}:tokens",
+        ledger_path=TOKEN_LEDGER_PATH,
+    )
     if skill_trust_line is not None:
         _append_jsonl(
             root,

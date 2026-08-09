@@ -1721,9 +1721,14 @@ class HermesComposioTests(unittest.TestCase):
         self.assertIn("on_process_start", run.call_args.kwargs)
 
     def test_simple_token_ledger_writes_one_entry_per_run_with_exact_or_unavailable_usage(self):
+        # The canonical ledger is the only write target; the repo-root ledger is
+        # legacy historical state that nothing writes to.
         with tempfile.TemporaryDirectory() as tmp:
             ledger = Path(tmp) / "token_ledger.jsonl"
-            with patch.object(backend, "ROOT_TOKEN_LEDGER_FILE", ledger):
+            legacy = Path(tmp) / "legacy_token_ledger.jsonl"
+            legacy.write_text("", encoding="utf-8")
+            with patch.object(backend, "TOKEN_LEDGER_FILE", ledger), \
+                 patch.object(backend, "ROOT_TOKEN_LEDGER_FILE", legacy):
                 backend._append_simple_token_ledger(
                     "AOS-2026-0101",
                     "codex",
@@ -1740,6 +1745,7 @@ class HermesComposioTests(unittest.TestCase):
                     {"available": True, "total_tokens": "1,205"},
                 )
 
+            self.assertEqual(legacy.read_text(encoding="utf-8"), "")
             rows = [json.loads(line) for line in ledger.read_text(encoding="utf-8").splitlines()]
             self.assertEqual([row["task_id"] for row in rows], ["AOS-2026-0101", "AOS-2026-0102", "AOS-2026-0103"])
             self.assertNotIn("tokens", rows[0])
@@ -1751,7 +1757,7 @@ class HermesComposioTests(unittest.TestCase):
     def test_simple_token_ledger_does_not_estimate_from_missing_usage(self):
         with tempfile.TemporaryDirectory() as tmp:
             ledger = Path(tmp) / "token_ledger.jsonl"
-            with patch.object(backend, "ROOT_TOKEN_LEDGER_FILE", ledger):
+            with patch.object(backend, "TOKEN_LEDGER_FILE", ledger):
                 backend._append_simple_token_ledger(
                     "AOS-2026-0104",
                     "codex",

@@ -18,9 +18,10 @@ import json
 import os
 import re
 import sys
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 
 ROOT = Path(os.environ.get("AOS_ROOT", Path(__file__).resolve().parents[1])).resolve()
@@ -400,13 +401,76 @@ def _zero_usage() -> dict[str, Any]:
     }
 
 
-def _append_row(root: Path, ledger_path: Path, row: dict[str, Any]) -> tuple[bool, dict[str, Any]]:
-    """Append under one ledger lock and assign threshold evidence atomically."""
+@contextmanager
+def canonical_ledger_lock(root: Path, ledger_path: Path = LEDGER_PATH) -> Iterator[Path]:
+    """Hold the one authoritative write boundary for the canonical token ledger.
+
+    Every production writer to ``queue/token_ledger.jsonl`` — Step 6 invocation
+    rows and the deterministic no-agent bookkeeping rows alike — must append
+    inside this lock.  A read-modify-replace writer holding a different lock can
+    silently discard an append that lands in its window, so this is the only
+    permitted mechanism.
+    """
     path = root / ledger_path
     path.parent.mkdir(parents=True, exist_ok=True)
     lock_path = path.with_suffix(path.suffix + ".lock")
     with lock_path.open("a+", encoding="utf-8") as lock:
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        try:
+            yield path
+        finally:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+
+
+def _write_row(path: Path, row: dict[str, Any]) -> None:
+    """Commit one row with an O_APPEND write so no concurrent writer is lost."""
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(row, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+
+
+def append_canonical_row(
+    root: Path,
+    row: dict[str, Any],
+    *,
+    effect_id: str | None = None,
+    defer_to_invocation_id: str = "",
+    ledger_path: Path = LEDGER_PATH,
+) -> tuple[bool, dict[str, Any] | None]:
+    """Append one non-invocation bookkeeping row to the canonical ledger.
+
+    ``defer_to_invocation_id`` makes Step 6 authoritative: when that invocation
+    already carries a ``model_invocation`` row, this caller's duplicate parse of
+    the same model call is dropped rather than recorded a second time.  Nothing
+    is deleted — the authoritative row remains and is returned.
+    """
+    with canonical_ledger_lock(root, ledger_path) as path:
+        rows = _ledger_rows(root, ledger_path)
+        identity = str(defer_to_invocation_id or "").strip()
+        if identity:
+            authoritative = next((
+                existing for existing in rows
+                if existing.get("event") == "model_invocation"
+                and str(existing.get("invocation_id") or "") == identity
+            ), None)
+            if authoritative is not None:
+                return False, authoritative
+        if effect_id:
+            duplicate = next((
+                existing for existing in rows
+                if str(existing.get("effect_id") or "") == str(effect_id)
+            ), None)
+            if duplicate is not None:
+                return False, duplicate
+            row = {**row, "effect_id": str(effect_id)}
+        _write_row(path, row)
+    return True, row
+
+
+def _append_row(root: Path, ledger_path: Path, row: dict[str, Any]) -> tuple[bool, dict[str, Any]]:
+    """Append under one ledger lock and assign threshold evidence atomically."""
+    with canonical_ledger_lock(root, ledger_path) as path:
         rows = _ledger_rows(root, ledger_path)
         if row.get("event") == "model_invocation":
             identity = str(row.get("invocation_id") or "")
@@ -417,7 +481,6 @@ def _append_row(root: Path, ledger_path: Path, row: dict[str, Any]) -> tuple[boo
                 and existing.get("invocation_id") == identity
             ), None)
             if duplicate is not None:
-                fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
                 return False, duplicate
 
             prior_total = 0
@@ -469,11 +532,7 @@ def _append_row(root: Path, ledger_path: Path, row: dict[str, Any]) -> tuple[boo
                     "accounting_status": "unknown",
                 })
                 row["fuse"] = current_fuse
-        with path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(row, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n")
-            handle.flush()
-            os.fsync(handle.fileno())
-        fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+        _write_row(path, row)
     return True, row
 
 

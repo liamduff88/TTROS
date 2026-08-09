@@ -1,7 +1,12 @@
 """Shared Linux/POSIX locking and durable replacement for authoritative state.
 
-Lock order is package-operation lock first, then this queue write lock.  Code
-holding this lock must never acquire a package-operation lock.
+This queue write lock is the only lock these helpers take; the
+package-operation lock this docstring once named does not exist in source.
+The canonical token ledger is deliberately outside this boundary: it is
+append-only under ``queue/token_ledger.jsonl.lock``
+(``step6_cost_control.canonical_ledger_lock``), because the read-modify-replace
+commit used here would discard a concurrent flock append.  Never route a
+``queue/token_ledger.jsonl`` write through ``durable_append_text``.
 """
 from __future__ import annotations
 
