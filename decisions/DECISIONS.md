@@ -1,6 +1,54 @@
 # DECISIONS.md — log of decisions that change system behavior
-> Revisit: when a behavior-affecting system decision is made. · Last touched: 2026-08-07.
+> Revisit: when a behavior-affecting system decision is made. · Last touched: 2026-08-09.
 > One entry per behavior-affecting change. Newest first.
+
+## 2026-08-09 — One canonical token ledger, one lock, one row per invocation
+
+`queue/token_ledger.jsonl` is the sole authoritative production token ledger. The repo-root
+`token_ledger.jsonl` is legacy historical state: preserved on disk and readable, but nothing
+writes to it and operational totals no longer merge it.
+
+`queue/token_ledger.jsonl.lock` (`step6_cost_control.canonical_ledger_lock`, an `fcntl.flock`)
+is the single write boundary for that file. All appends are `O_APPEND` + `fsync`. A
+`queue/token_ledger.jsonl` write must never go through `durable_append_text` — that helper's
+read-modify-replace commit holds a different lock and will silently discard a concurrent
+append. This was demonstrated, not theorised: a staged interleaving showed a Step 6 row
+written and then erased by a bookkeeping writer rebuilding the file from a stale snapshot.
+
+Step 6 is authoritative for token recording. One model invocation produces exactly one
+authoritative row; a second, independently-parsed record of the same invocation defers to it
+rather than writing a duplicate. Routes Step 6 never saw still record, so no accounting is
+lost. A single work item may legitimately produce many invocation rows.
+
+Worker invocations are scoped to their named work item. Previously the claude worker route
+derived a per-invocation `session:<uuid>` scope, so no amount of claude worker usage could
+ever count against the item's 500K fuse.
+
+Consequence: displayed all-time totals fall from ~78.1M to ~25.7M tokens. The removed rows
+counted cached input as fresh usage — cache reads are re-reads of context already paid for,
+which `canonical_usage` deliberately excludes — and at least one row was a malformed parse
+carrying an entire prompt in its `task_id` field. The lower figure is the accurate one.
+
+Findings F1, F5, F9, F10. Superseded: the review-era assumption that the double-write was
+codex-specific; all four worker routes wrote twice, via two distinct mechanisms.
+
+## 2026-08-09 — max-2 is runner dispatch capacity, not a global execution ceiling
+
+`AOS_MAX_CONCURRENT_EXECUTORS` (default 2) governs the automatic recurring runner's dispatch
+loop. It is not a system-wide cap and does not restrict manually initiated execution through
+the dashboard or CLI. This is intended behaviour, not a missing guard. Finding F4 closed.
+
+Dependency satisfaction is a separate matter and is *not* closed: `depends_on` is honoured
+only in the runner's tick-driven candidate selection, and remains unenforced at the execution
+boundary. Tracked as F3.
+
+## 2026-08-09 — Codex auto-compaction is session hygiene, not a cost control
+
+`AUTO_COMPACT_TOKEN_LIMIT = 75_000` (`tools/aos_codex_policy.py`) is Codex's native
+session-hygiene threshold and is retained deliberately. It is unrelated to the removed 75K
+forced-handoff spend control despite sharing a figure, and does not violate the one-dial /
+one-fuse contract. Finding F7 closed. Recorded here because two unrelated meanings of the same
+number have now caused one review to re-raise it.
 
 ## 2026-08-07 — Cockpit leads with Ask David; specialists and profile names demoted
 
