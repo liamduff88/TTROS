@@ -5946,6 +5946,211 @@ class HermesComposioTests(unittest.TestCase):
             note="actual", event_id=None, root=backend.BASE_DIR,
         )
 
+    def _passing_worker(self, root, artifact_path):
+        """Worker that leaves the canonical artifact behind, so review reaches PASS."""
+        def worker(*args):
+            target = root / artifact_path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text("POST_COMPLETION_FIXTURE_OK\n", encoding="utf-8")
+            return {
+                "success": True,
+                "output": f"PASS\nFiles touched: {artifact_path}\nValidation: disposable fixture\nBlockers: None\nNext action: Review",
+                "returncode": 0,
+                "token_usage_text": "Token usage: unavailable from current CLI output",
+                "token_usage": {"available": False},
+            }
+        return worker
+
+    def _passing_review(self):
+        return {
+            "success": True, "output": "PASS", "returncode": 0,
+            "token_usage_text": "Token usage: unavailable from current CLI output",
+            "token_usage": {"available": False},
+        }
+
+    def test_post_completion_bookkeeping_failure_does_not_downgrade_resolved_item(self):
+        work = self.approval_item("AOS-2026-0801", "agent_todo", title="Post-completion bookkeeping fixture")
+        work.update({"owner": "claude", "source": "unit", "tags": ["async_dispatch"]})
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_queue_items(root, [work])
+            self.write_queue_templates(root)
+            with patch.object(backend, "BASE_DIR", root):
+                artifact_path = backend._queue_default_artifact_path(work)
+                with patch.object(backend, "_queue_run_worker", side_effect=self._passing_worker(root, artifact_path)), \
+                     patch.object(backend, "_queue_run_hermes_review", return_value=self._passing_review()), \
+                     patch.object(backend, "_queue_resolve_route_metadata", return_value=self.route_metadata_fixture("claude")), \
+                     patch.object(backend, "_notify_queue_completion", side_effect=RuntimeError("notification transport down")):
+                    with self.assertRaises(backend.HTTPException) as ctx:
+                        backend.run_queue_item(work["id"])
+                    saved = backend._queue_find_item(work["id"])
+        # The run itself passed; only the notification after it failed.
+        self.assertEqual(saved["status"], "human_review")
+        self.assertEqual(saved["claim"], {"claimed_by": None, "claimed_at": None})
+        self.assertEqual(ctx.exception.status_code, 500)
+        self.assertIn("human_review", str(ctx.exception.detail))
+        self.assertIn("notification transport down", str(ctx.exception.detail))
+
+    def test_release_failure_after_the_status_is_written_does_not_downgrade_it(self):
+        work = self.approval_item("AOS-2026-0805", "agent_todo", title="Release failure fixture")
+        work.update({"owner": "claude", "source": "unit", "tags": ["async_dispatch"]})
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_queue_items(root, [work])
+            self.write_queue_templates(root)
+            with patch.object(backend, "BASE_DIR", root):
+                artifact_path = backend._queue_default_artifact_path(work)
+                real_tool = backend._load_queue_tool()
+
+                class _ReleaseFails:
+                    """attach_receipt still commits the status; release_item then fails."""
+                    def __getattr__(self, name):
+                        return getattr(real_tool, name)
+
+                    def release_item(self, *args, **kwargs):
+                        raise OSError("queue write lock timed out")
+
+                with patch.object(backend, "_queue_run_worker", side_effect=self._passing_worker(root, artifact_path)), \
+                     patch.object(backend, "_queue_run_hermes_review", return_value=self._passing_review()), \
+                     patch.object(backend, "_queue_resolve_route_metadata", return_value=self.route_metadata_fixture("claude")), \
+                     patch.object(backend, "_notify_queue_completion", return_value=None), \
+                     patch.object(backend, "_load_queue_tool", return_value=_ReleaseFails()):
+                    with self.assertRaises(backend.HTTPException) as ctx:
+                        backend.run_queue_item(work["id"])
+                    saved = backend._queue_find_item(work["id"])
+        # attach_receipt committed human_review to disk before release_item blew
+        # up; the catch-all must not rewrite it to blocked.
+        self.assertEqual(saved["status"], "human_review")
+        self.assertEqual(ctx.exception.status_code, 500)
+        self.assertIn("human_review", str(ctx.exception.detail))
+        self.assertIn("queue write lock timed out", str(ctx.exception.detail))
+
+    def test_failure_before_resolution_still_releases_the_item_to_blocked(self):
+        work = self.approval_item("AOS-2026-0802", "agent_todo", title="Pre-resolution failure fixture")
+        work.update({"owner": "claude", "source": "unit", "tags": ["async_dispatch"]})
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_queue_items(root, [work])
+            self.write_queue_templates(root)
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_queue_run_worker", side_effect=RuntimeError("worker route exploded")), \
+                 patch.object(backend, "_queue_resolve_route_metadata", return_value=self.route_metadata_fixture("claude")), \
+                 patch.object(backend, "_notify_queue_completion", return_value=None):
+                with self.assertRaises(backend.HTTPException) as ctx:
+                    backend.run_queue_item(work["id"])
+                saved = backend._queue_find_item(work["id"])
+        self.assertEqual(ctx.exception.status_code, 400)
+        self.assertEqual(saved["status"], "blocked")
+        self.assertEqual(saved["claim"], {"claimed_by": None, "claimed_at": None})
+
+    def _dependency_pair(self, dependency_status, receipt_status):
+        blocker = self.approval_item("AOS-2026-0803", dependency_status, title="Dependency fixture")
+        blocker.update({"owner": "claude", "source": "unit", "tags": ["async_dispatch"]})
+        if receipt_status is not None:
+            blocker["receipts"] = [{"path": "queue/receipts/AOS-2026-0803-fixture.md", "status": receipt_status, "created_at": "2026-07-17T10:05:00Z"}]
+        dependent = self.approval_item("AOS-2026-0804", "agent_todo", title="Dependent fixture")
+        dependent.update({"owner": "claude", "source": "unit", "tags": ["async_dispatch"], "depends_on": ["AOS-2026-0803"]})
+        return blocker, dependent
+
+    def test_run_refuses_item_whose_dependency_is_not_done(self):
+        blocker, dependent = self._dependency_pair("agent_todo", None)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_queue_items(root, [blocker, dependent])
+            self.write_queue_templates(root)
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_queue_run_worker") as worker, \
+                 patch.object(backend, "_queue_resolve_route_metadata", return_value=self.route_metadata_fixture("claude")), \
+                 patch.object(backend, "_notify_queue_completion", return_value=None):
+                with self.assertRaises(backend.HTTPException) as ctx:
+                    backend.run_queue_item(dependent["id"])
+                saved = backend._queue_find_item(dependent["id"])
+        worker.assert_not_called()
+        self.assertEqual(ctx.exception.status_code, 409)
+        self.assertIn("AOS-2026-0803", str(ctx.exception.detail))
+        self.assertEqual(saved["status"], "agent_todo")
+        self.assertEqual(saved["claim"], {"claimed_by": None, "claimed_at": None})
+
+    def test_run_refuses_item_whose_dependency_is_done_without_a_done_receipt(self):
+        blocker, dependent = self._dependency_pair("done", "blocked")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_queue_items(root, [blocker, dependent])
+            self.write_queue_templates(root)
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_queue_run_worker") as worker, \
+                 patch.object(backend, "_queue_resolve_route_metadata", return_value=self.route_metadata_fixture("claude")), \
+                 patch.object(backend, "_notify_queue_completion", return_value=None):
+                with self.assertRaises(backend.HTTPException) as ctx:
+                    backend.run_queue_item(dependent["id"])
+        worker.assert_not_called()
+        self.assertEqual(ctx.exception.status_code, 409)
+        self.assertIn("AOS-2026-0803", str(ctx.exception.detail))
+
+    def test_run_admits_item_whose_dependency_is_done_with_a_done_receipt(self):
+        blocker, dependent = self._dependency_pair("done", "done")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_queue_items(root, [blocker, dependent])
+            self.write_queue_templates(root)
+            with patch.object(backend, "BASE_DIR", root):
+                artifact_path = backend._queue_default_artifact_path(dependent)
+                with patch.object(backend, "_queue_run_worker", side_effect=self._passing_worker(root, artifact_path)) as worker, \
+                     patch.object(backend, "_queue_run_hermes_review", return_value=self._passing_review()), \
+                     patch.object(backend, "_queue_resolve_route_metadata", return_value=self.route_metadata_fixture("claude")), \
+                     patch.object(backend, "_notify_queue_completion", return_value=None):
+                    result = backend.run_queue_item(dependent["id"])
+        self.assertEqual(worker.call_count, 1)
+        self.assertTrue(result["success"])
+        self.assertEqual(result["status"], "human_review")
+
+    def test_runner_execute_item_path_hits_the_same_dependency_refusal(self):
+        runner_path = MAIN.parents[2] / "tools" / "aos-orchestration-runner.py"
+        spec = importlib.util.spec_from_file_location("aos_dependency_runner_fixture", runner_path)
+        runner = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(runner)
+        blocker, dependent = self._dependency_pair("agent_todo", None)
+        loaded_paths = []
+
+        class _Loader:
+            def exec_module(self, module):
+                return None
+
+        class _Spec:
+            loader = _Loader()
+
+        real_spec_from_file_location = importlib.util.spec_from_file_location
+        real_module_from_spec = importlib.util.module_from_spec
+
+        def fake_spec_from_file_location(name, path):
+            # Intercept only the backend load; run_queue_item still loads the
+            # real queue tool through the same importlib entry point.
+            if Path(path).name != "main.py":
+                return real_spec_from_file_location(name, path)
+            loaded_paths.append(Path(path))
+            return _Spec()
+
+        def fake_module_from_spec(spec):
+            return backend if isinstance(spec, _Spec) else real_module_from_spec(spec)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_queue_items(root, [blocker, dependent])
+            self.write_queue_templates(root)
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_queue_run_worker") as worker, \
+                 patch.object(backend, "_queue_resolve_route_metadata", return_value=self.route_metadata_fixture("claude")), \
+                 patch.object(backend, "_notify_queue_completion", return_value=None), \
+                 patch.object(runner.importlib.util, "spec_from_file_location", side_effect=fake_spec_from_file_location), \
+                 patch.object(runner.importlib.util, "module_from_spec", side_effect=fake_module_from_spec):
+                with self.assertRaises(backend.HTTPException) as ctx:
+                    runner.execute_item(root, dependent["id"])
+        # execute_item is the runner's only entry into the engine, and it loads main.py.
+        self.assertEqual(loaded_paths, [root / "dashboard" / "backend" / "main.py"])
+        worker.assert_not_called()
+        self.assertEqual(ctx.exception.status_code, 409)
+        self.assertIn("AOS-2026-0803", str(ctx.exception.detail))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,6 +1,6 @@
 """Agentic OS dashboard backend.
 
-Revisit: when operator routing, queue deletion safety, local-agent CLI contracts, or runtime health changes. · Last touched: 2026-08-04.
+Revisit: when operator routing, queue deletion safety, local-agent CLI contracts, or runtime health changes. · Last touched: 2026-08-08.
 """
 
 from fastapi import FastAPI, HTTPException, Request
@@ -4976,6 +4976,9 @@ class _QueueToolFallback:
             return item
 
     def update_status(self, root: Path, item_id: str, status: str):
+        # Diverges from aos-queue.py update_status, which clears the claim when a
+        # transition leaves agent_working; unreachable under the launcher, which
+        # hard-fails startup without jsonschema (tools/aos-linux-runtime.sh:302).
         with queue_write_lock(root):
             self._refuse_done_transition(status)
             items = self.load_items(root)
@@ -9778,6 +9781,15 @@ def run_queue_item(item_id: str):
     """Run one selected queue item through its assigned worker, then Hermes review."""
     heartbeat_stop: threading.Event | None = None
     heartbeat_thread: threading.Thread | None = None
+    # Set the moment the item's terminal status reaches disk — that is
+    # attach_receipt, not the release_item that follows it. Everything after
+    # that point is bookkeeping about other items and other systems, so the
+    # catch-all below must never force this item back to blocked once it is
+    # set; a resolved run that succeeded was being recorded as a failure.
+    # A release_item failure after this point strands the claim, which is loud
+    # and recoverable (the next claim_item raises ClaimConflictError); a
+    # downgraded terminal status is silent and permanent. Take the loud one.
+    resolved_status: str | None = None
     try:
         item = _queue_find_item(item_id)
         owner = _queue_worker_owner(item)
@@ -9815,6 +9827,22 @@ def run_queue_item(item_id: str):
                 "notification": notification,
                 "item": _queue_detail_item(updated),
             }
+
+        # The execution boundary, not the scheduler, is where depends_on has to
+        # hold: the dashboard Run button and the runner's --execute-item both
+        # funnel through here, and only the async scheduler consults
+        # next_async_item. Refused before the claim, so the item is untouched.
+        unmet_dependencies = aos_orchestration.unsatisfied_dependencies(
+            item, {str(row.get("id") or ""): row for row in _read_queue_items()},
+        )
+        if unmet_dependencies:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "queue item has unsatisfied dependencies and cannot run: "
+                    f"{', '.join(unmet_dependencies)}; each must be done with a done receipt"
+                ),
+            )
 
         claim_owner = owner if owner != "unassigned" else "hermes"
         try:
@@ -9947,6 +9975,7 @@ def run_queue_item(item_id: str):
         )
         receipt_path = _queue_write_run_receipt(item_id, receipt_text)
         updated = _load_queue_tool().attach_receipt(BASE_DIR, item_id, receipt_path, final_status)
+        resolved_status = str(updated.get("status") or final_status)
         updated = _load_queue_tool().release_item(BASE_DIR, item_id, final_status)
         orchestration_event = None
         orchestration_parent = None
@@ -9969,6 +9998,20 @@ def run_queue_item(item_id: str):
     except HTTPException:
         raise
     except Exception as exc:
+        if resolved_status is not None:
+            # The item already carries its true terminal status; only the
+            # post-completion bookkeeping failed. Surface that as a distinct
+            # server-side failure rather than rewriting a resolved outcome.
+            latitude_telemetry.trace(
+                "runner.queue_run_post_completion_failed", "deterministic_runner", resolved_status,
+                item_id=item_id, error=f"{type(exc).__name__}: {exc}",
+            )
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    f"queue item resolved to {resolved_status}; post-completion bookkeeping failed: {exc}"
+                ),
+            )
         try:
             failed_item = _queue_find_item(item_id)
             failed_owner = _queue_worker_owner(failed_item)

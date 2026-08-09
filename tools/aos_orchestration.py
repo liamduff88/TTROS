@@ -332,6 +332,26 @@ def is_step_complete(item: dict) -> bool:
     return item.get("status") == DONE_STATUS and latest_receipt_status(item) == DONE_STATUS
 
 
+def unsatisfied_dependencies(item: dict, by_id: dict[str, dict]) -> list[str]:
+    """Return the depends_on ids that do not yet count as complete.
+
+    One definition of "satisfied" for every admission point: the async runner's
+    scheduler and the dashboard/runner execution boundary in run_queue_item.
+    A dependency id with no matching item stays unsatisfied — an unresolvable
+    reference fails closed rather than admitting the work. A bare string is one
+    id, matching _dependency_values in tools/aos-queue.py; iterating it as a
+    sequence would refuse on characters that can never resolve.
+    """
+    value = item.get("depends_on")
+    values = [value] if isinstance(value, str) else list(value or [])
+    unsatisfied = []
+    for value in values:
+        dependency_id = str(value).strip()
+        if dependency_id and not is_step_complete(by_id.get(dependency_id) or {}):
+            unsatisfied.append(dependency_id)
+    return unsatisfied
+
+
 def clean_ref(path: str) -> str | None:
     text = str(path or "").strip().strip(".,);]")
     if not text.startswith(ALLOWED_ARTIFACT_PREFIXES):

@@ -2,6 +2,31 @@
 > Revisit: when a behavior-affecting system decision is made. · Last touched: 2026-08-09.
 > One entry per behavior-affecting change. Newest first.
 
+## 2026-08-09 — A resolved item keeps its status; depends_on binds at execution; status changes release the claim
+
+`run_queue_item` records the terminal status the moment `release_item` writes it. Everything
+after that point — Hermes parent finalization, executive-objective continuation, completion
+notification — is bookkeeping about other items and other systems, and its catch-all handler
+may no longer force the item to `blocked`. A failure there is now a distinct HTTP 500 naming
+the status that stands, plus a `runner.queue_run_post_completion_failed` trace; a failure
+before resolution still releases to `blocked` as an HTTP 400, unchanged. Successful work was
+being recorded as failed whenever a notification transport hiccuped.
+
+`depends_on` binds at the execution boundary, not only in the scheduler. `run_queue_item`
+refuses an item with unmet dependencies with a 409, reaching the UI through the same mapping
+as the existing claim conflict; this covers both the dashboard Run button and the runner's
+`--execute-item`, because both funnel through that one function. The definition of satisfied
+is unchanged and now has one home, `aos_orchestration.unsatisfied_dependencies`: the
+dependency item is `done` and its latest receipt is `done`, with an unresolvable dependency id
+failing closed. The `aos-queue.py codex-run` CLI stays deliberately unguarded as the operator
+escape hatch.
+
+A status transition that leaves `agent_working` clears the claim, its heartbeat, and its
+worker runtime, exactly as `release_item` does. `update_status` previously left `claimed_by`
+pointing at an agent that no longer owned the item, so the next `claim_item` raised
+`ClaimConflictError` against a claim with no live worker behind it. Transitions that stay in
+`agent_working` keep the claim, which `renew_claim` and `register_worker_runtime` require.
+
 ## 2026-08-09 — One canonical token ledger, one lock, one row per invocation
 
 `queue/token_ledger.jsonl` is the sole authoritative production token ledger. The repo-root
@@ -38,9 +63,10 @@ codex-specific; all four worker routes wrote twice, via two distinct mechanisms.
 loop. It is not a system-wide cap and does not restrict manually initiated execution through
 the dashboard or CLI. This is intended behaviour, not a missing guard. Finding F4 closed.
 
-Dependency satisfaction is a separate matter and is *not* closed: `depends_on` is honoured
-only in the runner's tick-driven candidate selection, and remains unenforced at the execution
-boundary. Tracked as F3.
+Dependency satisfaction is a separate matter, closed as of the 2026-08-09 execution-boundary
+entry above: `depends_on` is now enforced in `run_queue_item`, covering both the dashboard Run
+button and the runner's `--execute-item`. The `aos-queue.py codex-run` CLI and the runner's
+`dispatch_item` remain deliberately unguarded as the operator escape hatch. Was tracked as F3.
 
 ## 2026-08-09 — Codex auto-compaction is session hygiene, not a cost control
 

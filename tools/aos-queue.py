@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Local Agentic OS work queue and explicit workbench launch boundary.
 
-Revisit: when queue lifecycle, deletion safety, receipt completeness, Codex supervision, or token reconciliation changes. · Last touched: 2026-08-04.
+Revisit: when queue lifecycle, deletion safety, receipt completeness, Codex supervision, or token reconciliation changes. · Last touched: 2026-08-08.
 
 Queue mutations stay local. The ``codex-run`` command is the one bounded
 exception: it launches the installed Codex CLI for an explicit work-item ID,
@@ -2224,6 +2224,18 @@ def register_worker_runtime(
     return item
 
 
+def _clear_worker_claim(item: dict) -> None:
+    """Drop the claim and every field that asserts a live worker behind it.
+
+    Leaving any of these set after the worker stops owning the item makes the
+    next claim_item raise ClaimConflictError against a claim with nothing
+    running behind it.
+    """
+    item["claim"] = {"claimed_by": None, "claimed_at": None}
+    item["worker_heartbeat_at"] = None
+    item.pop("worker_runtime", None)
+
+
 @locked_queue_mutation
 def release_item(root: Path, item_id: str, status: str) -> dict:
     """Release a claim, setting the requested status. A transition into `done`
@@ -2238,15 +2250,11 @@ def release_item(root: Path, item_id: str, status: str) -> dict:
         effect_id = _done_effect_id(item, None, "release")
         intent = _prepare_done_intent(root, items, item, effect_id, None)
         finalize_done(root, item, effect_id=effect_id, effect_timestamp=intent["created_at"])
-        item["claim"] = {"claimed_by": None, "claimed_at": None}
-        item["worker_heartbeat_at"] = None
-        item.pop("worker_runtime", None)
+        _clear_worker_claim(item)
         _finish_done(root, items, item, effect_id, intent, None)
         return item
     timestamp = now_iso()
-    item["claim"] = {"claimed_by": None, "claimed_at": None}
-    item["worker_heartbeat_at"] = None
-    item.pop("worker_runtime", None)
+    _clear_worker_claim(item)
     item["status"] = status
     item["updated_at"] = timestamp
     save_items(root, items)
@@ -2258,17 +2266,27 @@ def update_status(root: Path, item_id: str, status: str) -> dict:
     """Update an item's status. A transition into `done` runs finalize_done
     first: if the token_usage block can't be built or fails schema validation,
     finalize_done raises and this function propagates it without saving —
-    the item's prior status stands (hooks/token_budget_check.md)."""
+    the item's prior status stands (hooks/token_budget_check.md).
+
+    A transition that leaves agent_working clears the claim exactly as
+    release_item does, so this route cannot strand a claim on an item no agent
+    is working any more. A transition that stays in agent_working keeps it:
+    renew_claim and register_worker_runtime require the live claim record."""
     validate_status(status)
     items = load_items(root)
     item = find_item(items, item_id)
     previous_status = item.get("status")
+    leaving_agent_working = previous_status == "agent_working" and status != "agent_working"
     if status == DONE_STATUS and previous_status != DONE_STATUS:
         effect_id = _done_effect_id(item, None, "status")
         intent = _prepare_done_intent(root, items, item, effect_id, None)
         finalize_done(root, item, effect_id=effect_id, effect_timestamp=intent["created_at"])
+        if leaving_agent_working:
+            _clear_worker_claim(item)
         _finish_done(root, items, item, effect_id, intent, None)
         return item
+    if leaving_agent_working:
+        _clear_worker_claim(item)
     item["status"] = status
     item["updated_at"] = now_iso()
     save_items(root, items)

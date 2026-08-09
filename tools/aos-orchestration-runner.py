@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Run deterministic queue transitions and tagged asynchronous dispatch work.
 
-Revisit: when queue claim, capacity, dependency, or backend agent-timeout contracts change. · Last touched: 2026-08-03.
+Revisit: when queue claim, capacity, dependency, or backend agent-timeout contracts change. · Last touched: 2026-08-08.
 """
 
 from __future__ import annotations
@@ -34,6 +34,7 @@ from aos_orchestration import (
     record_telegram_send_result,
     save_items,
     tick,
+    unsatisfied_dependencies,
 )
 from aos_queue_storage import queue_write_lock
 
@@ -85,17 +86,9 @@ def _working_item_is_live(item: dict, now: datetime.datetime, lease_seconds: int
     return _worker_runtime_live(item) or (age is not None and age < lease_seconds)
 
 
-def _completed_dependency(item: dict) -> bool:
-    if item.get("status") != "done":
-        return False
-    receipts = item.get("receipts") or []
-    latest = receipts[-1] if receipts else None
-    return isinstance(latest, dict) and latest.get("status") == "done"
-
-
 def _dependencies_satisfied(item: dict, by_id: dict[str, dict]) -> bool:
-    dependencies = [str(value) for value in item.get("depends_on") or [] if str(value).strip()]
-    return all(_completed_dependency(by_id.get(dependency, {})) for dependency in dependencies)
+    """Scheduler side of the one dependency rule shared with run_queue_item."""
+    return not unsatisfied_dependencies(item, by_id)
 
 
 def _pending_executor_item_ids(root: Path) -> set[str]:

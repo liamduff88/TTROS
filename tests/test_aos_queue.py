@@ -1416,11 +1416,59 @@ class AosQueueTest(unittest.TestCase):
             root = Path(tmp)
             item = parse_json(run_cli(root, "create", "--title", "Sticky claim", "--owner", "codex").stdout)
             self.assertEqual(run_cli(root, "claim", item["id"], "codex").returncode, 0)
-            # update_status intentionally leaves the claim record in place.
-            self.assertEqual(run_cli(root, "status", item["id"], "agent_todo").returncode, 0)
+            # A claim record left behind by any path blocks a later claim, so
+            # write one directly rather than relying on a status transition.
+            items = tool.load_items(root)
+            items[0]["status"] = "agent_todo"
+            items[0]["claim"] = {"claimed_by": "codex", "claimed_at": "2026-07-17T10:00:00Z"}
+            tool.save_items(root, items)
             for agent in ("codex", "claude"):
                 with self.assertRaises(tool.ClaimConflictError):
                     tool.claim_item(root, item["id"], agent)
+
+    def test_update_status_out_of_agent_working_clears_the_claim(self):
+        tool = load_tool_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            item = parse_json(run_cli(root, "create", "--title", "Stale claim repair", "--owner", "codex").stdout)
+            tool.claim_item(root, item["id"], "codex")
+            tool.register_worker_runtime(
+                root, item["id"], "codex", os.getpid(), storage.process_start_identity(), "fixture",
+            )
+
+            moved = tool.update_status(root, item["id"], "agent_todo")
+            self.assertEqual(moved["status"], "agent_todo")
+            self.assertEqual(moved["claim"], {"claimed_by": None, "claimed_at": None})
+            self.assertIsNone(moved["worker_heartbeat_at"])
+            self.assertNotIn("worker_runtime", moved)
+            # No live worker owns it any more, so the next agent can claim it.
+            self.assertEqual(tool.claim_item(root, item["id"], "claude")["claim"]["claimed_by"], "claude")
+
+    def test_update_status_to_done_from_agent_working_clears_the_claim(self):
+        tool = load_tool_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            item = self._create_contract_item(root, "Status close")
+            self.assertEqual(run_cli(root, "claim", item["id"], "codex").returncode, 0)
+            receipt_path = self._write_complete_receipt(root, "status-close.md")
+            attached = run_cli(root, "receipt", item["id"], receipt_path)
+            self.assertEqual(0, attached.returncode, attached.stderr)
+
+            closed = tool.update_status(root, item["id"], "done")
+            self.assertEqual(closed["status"], "done")
+            self.assertEqual(closed["claim"], {"claimed_by": None, "claimed_at": None})
+            self.assertIsNone(closed["worker_heartbeat_at"])
+
+    def test_update_status_within_agent_working_keeps_the_claim_renew_needs(self):
+        tool = load_tool_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            item = parse_json(run_cli(root, "create", "--title", "Heartbeat survives", "--owner", "codex").stdout)
+            tool.claim_item(root, item["id"], "codex")
+            unchanged = tool.update_status(root, item["id"], "agent_working")
+            self.assertEqual(unchanged["claim"]["claimed_by"], "codex")
+            self.assertIsNotNone(unchanged["worker_heartbeat_at"])
+            self.assertEqual(tool.renew_claim(root, item["id"], "codex")["claim"]["claimed_by"], "codex")
 
     def test_release_to_done_runs_finalize_and_writes_both_ledgers(self):
         with tempfile.TemporaryDirectory() as tmp:
