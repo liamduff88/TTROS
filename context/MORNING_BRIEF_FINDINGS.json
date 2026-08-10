@@ -12,13 +12,13 @@
       "output_tokens": 0
     }
   },
-  "finding_count": 91,
+  "finding_count": 93,
   "findings": [
     {
       "calculated_age": {
-        "days": 15,
-        "display": "15d",
-        "seconds": 1353774
+        "days": 17,
+        "display": "17d",
+        "seconds": 1535417
       },
       "category": "prospect",
       "current_state": {
@@ -46,7 +46,7 @@
         "reference": "queue/receipts/AOS-2026-0175-notification-456681b251096a2e.md"
       },
       "next_permitted_action": "Inspect the existing draft, confirm CASL, role, and prior-contact/opt-out state, then either approve the external send or close with a recorded outcome.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "liam_judgment",
       "reason": "Prospect remains in human review with no recorded outcome since the latest relevant activity.",
       "rule": "prospect_review_without_outcome",
@@ -71,9 +71,9 @@
     },
     {
       "calculated_age": {
-        "days": 15,
-        "display": "15d",
-        "seconds": 1353774
+        "days": 17,
+        "display": "17d",
+        "seconds": 1535417
       },
       "category": "prospect",
       "current_state": {
@@ -101,7 +101,7 @@
         "reference": "queue/receipts/AOS-2026-0174-notification-e412a527be1f38c1.md"
       },
       "next_permitted_action": "Confirm role and prior-contact/opt-out state, then either approve the external invitation or close with a recorded outcome.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "liam_judgment",
       "reason": "Prospect remains in human review with no recorded outcome since the latest relevant activity.",
       "rule": "prospect_review_without_outcome",
@@ -126,9 +126,9 @@
     },
     {
       "calculated_age": {
-        "days": 29,
-        "display": "29d",
-        "seconds": 2566533
+        "days": 31,
+        "display": "31d",
+        "seconds": 2748176
       },
       "category": "queue",
       "current_state": {
@@ -150,7 +150,7 @@
         "reference": "queue/receipts/AOS-2026-0022-telegram-escalation-20260709T084117Z.md"
       },
       "next_permitted_action": "Review the linked evidence and use an existing queue transition to accept/close it, return it for revision, or cancel it with the outcome preserved.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "liam_judgment",
       "reason": "Queue item is in human_review; prepared evidence exists and the remaining state is review/decision.",
       "rule": "decision_awaiting_confirmation",
@@ -169,9 +169,9 @@
     },
     {
       "calculated_age": {
-        "days": 29,
-        "display": "29d",
-        "seconds": 2566533
+        "days": 31,
+        "display": "31d",
+        "seconds": 2748176
       },
       "category": "queue",
       "current_state": {
@@ -193,7 +193,7 @@
         "reference": "queue/receipts/AOS-2026-0030-telegram-escalation-20260709T084117Z.md"
       },
       "next_permitted_action": "Review the linked evidence and use an existing queue transition to accept/close it, return it for revision, or cancel it with the outcome preserved.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "liam_judgment",
       "reason": "Queue item is in human_review; prepared evidence exists and the remaining state is review/decision.",
       "rule": "decision_awaiting_confirmation",
@@ -212,9 +212,9 @@
     },
     {
       "calculated_age": {
-        "days": 26,
-        "display": "26d",
-        "seconds": 2249093
+        "days": 28,
+        "display": "28d",
+        "seconds": 2430736
       },
       "category": "queue",
       "current_state": {
@@ -236,7 +236,7 @@
         "reference": "queue/receipts/AOS-2026-0070-telegram-escalation-87d2a03161a52723.md"
       },
       "next_permitted_action": "Review the linked evidence and use an existing queue transition to accept/close it, return it for revision, or cancel it with the outcome preserved.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "liam_judgment",
       "reason": "Queue item is in human_review; prepared evidence exists and the remaining state is review/decision.",
       "rule": "decision_awaiting_confirmation",
@@ -255,9 +255,9 @@
     },
     {
       "calculated_age": {
-        "days": 25,
-        "display": "25d",
-        "seconds": 2227192
+        "days": 27,
+        "display": "27d",
+        "seconds": 2408835
       },
       "category": "queue",
       "current_state": {
@@ -279,7 +279,7 @@
         "reference": "queue/receipts/AOS-2026-0087-resume-20260712.md"
       },
       "next_permitted_action": "Review the linked evidence and use an existing queue transition to accept/close it, return it for revision, or cancel it with the outcome preserved.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "liam_judgment",
       "reason": "Queue item is in needs_input; prepared evidence exists and the remaining state is review/decision.",
       "rule": "decision_awaiting_confirmation",
@@ -299,9 +299,9 @@
     },
     {
       "calculated_age": {
-        "days": 21,
-        "display": "21d",
-        "seconds": 1865529
+        "days": 23,
+        "display": "23d",
+        "seconds": 2047172
       },
       "category": "queue",
       "current_state": {
@@ -323,7 +323,7 @@
         "reference": "queue/receipts/AOS-2026-0127-notification-6a804ce821e6fde1.md"
       },
       "next_permitted_action": "Review the linked evidence and use an existing queue transition to accept/close it, return it for revision, or cancel it with the outcome preserved.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "liam_judgment",
       "reason": "Queue item is in human_review; prepared evidence exists and the remaining state is review/decision.",
       "rule": "decision_awaiting_confirmation",
@@ -343,9 +343,9 @@
     },
     {
       "calculated_age": {
-        "days": 21,
-        "display": "21d",
-        "seconds": 1865529
+        "days": 23,
+        "display": "23d",
+        "seconds": 2047172
       },
       "category": "queue",
       "current_state": {
@@ -367,7 +367,7 @@
         "reference": "queue/receipts/AOS-2026-0128-notification-49d04e98013d59f6.md"
       },
       "next_permitted_action": "Review the linked evidence and use an existing queue transition to accept/close it, return it for revision, or cancel it with the outcome preserved.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "liam_judgment",
       "reason": "Queue item is in human_review; prepared evidence exists and the remaining state is review/decision.",
       "rule": "decision_awaiting_confirmation",
@@ -387,9 +387,9 @@
     },
     {
       "calculated_age": {
-        "days": 21,
-        "display": "21d",
-        "seconds": 1865529
+        "days": 23,
+        "display": "23d",
+        "seconds": 2047172
       },
       "category": "queue",
       "current_state": {
@@ -411,7 +411,7 @@
         "reference": "queue/receipts/AOS-2026-0129-notification-a38e7674469d434a.md"
       },
       "next_permitted_action": "Review the linked evidence and use an existing queue transition to accept/close it, return it for revision, or cancel it with the outcome preserved.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "liam_judgment",
       "reason": "Queue item is in human_review; prepared evidence exists and the remaining state is review/decision.",
       "rule": "decision_awaiting_confirmation",
@@ -431,9 +431,9 @@
     },
     {
       "calculated_age": {
-        "days": 21,
-        "display": "21d",
-        "seconds": 1865529
+        "days": 23,
+        "display": "23d",
+        "seconds": 2047172
       },
       "category": "queue",
       "current_state": {
@@ -455,7 +455,7 @@
         "reference": "queue/receipts/AOS-2026-0130-notification-ff8fa287cf82adb8.md"
       },
       "next_permitted_action": "Review the linked evidence and use an existing queue transition to accept/close it, return it for revision, or cancel it with the outcome preserved.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "liam_judgment",
       "reason": "Queue item is in human_review; prepared evidence exists and the remaining state is review/decision.",
       "rule": "decision_awaiting_confirmation",
@@ -475,9 +475,9 @@
     },
     {
       "calculated_age": {
-        "days": 21,
-        "display": "21d",
-        "seconds": 1843500
+        "days": 23,
+        "display": "23d",
+        "seconds": 2025143
       },
       "category": "queue",
       "current_state": {
@@ -499,7 +499,7 @@
         "reference": "queue/receipts/AOS-2026-0133-notification-fe7a3266286682fd.md"
       },
       "next_permitted_action": "Review the linked evidence and use an existing queue transition to accept/close it, return it for revision, or cancel it with the outcome preserved.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "liam_judgment",
       "reason": "Queue item is in needs_input; prepared evidence exists and the remaining state is review/decision.",
       "rule": "decision_awaiting_confirmation",
@@ -519,9 +519,9 @@
     },
     {
       "calculated_age": {
-        "days": 21,
-        "display": "21d",
-        "seconds": 1843500
+        "days": 23,
+        "display": "23d",
+        "seconds": 2025143
       },
       "category": "queue",
       "current_state": {
@@ -543,7 +543,7 @@
         "reference": "queue/receipts/AOS-2026-0136-notification-fbd861b92c1c4e11.md"
       },
       "next_permitted_action": "Review the linked evidence and use an existing queue transition to accept/close it, return it for revision, or cancel it with the outcome preserved.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "liam_judgment",
       "reason": "Queue item is in human_review; prepared evidence exists and the remaining state is review/decision.",
       "rule": "decision_awaiting_confirmation",
@@ -563,9 +563,9 @@
     },
     {
       "calculated_age": {
-        "days": 21,
-        "display": "21d",
-        "seconds": 1843500
+        "days": 23,
+        "display": "23d",
+        "seconds": 2025143
       },
       "category": "queue",
       "current_state": {
@@ -587,7 +587,7 @@
         "reference": "queue/receipts/AOS-2026-0139-notification-b3677983d852ef0d.md"
       },
       "next_permitted_action": "Review the linked evidence and use an existing queue transition to accept/close it, return it for revision, or cancel it with the outcome preserved.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "liam_judgment",
       "reason": "Queue item is in human_review; prepared evidence exists and the remaining state is review/decision.",
       "rule": "decision_awaiting_confirmation",
@@ -607,9 +607,9 @@
     },
     {
       "calculated_age": {
-        "days": 21,
-        "display": "21d",
-        "seconds": 1843500
+        "days": 23,
+        "display": "23d",
+        "seconds": 2025143
       },
       "category": "queue",
       "current_state": {
@@ -631,7 +631,7 @@
         "reference": "queue/receipts/AOS-2026-0141-notification-7259da699fb2c7a8.md"
       },
       "next_permitted_action": "Review the linked evidence and use an existing queue transition to accept/close it, return it for revision, or cancel it with the outcome preserved.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "liam_judgment",
       "reason": "Queue item is in needs_input; prepared evidence exists and the remaining state is review/decision.",
       "rule": "decision_awaiting_confirmation",
@@ -651,9 +651,9 @@
     },
     {
       "calculated_age": {
-        "days": 21,
-        "display": "21d",
-        "seconds": 1843499
+        "days": 23,
+        "display": "23d",
+        "seconds": 2025142
       },
       "category": "queue",
       "current_state": {
@@ -675,7 +675,7 @@
         "reference": "queue/receipts/AOS-2026-0146-notification-edb75db96d4653da.md"
       },
       "next_permitted_action": "Review the linked evidence and use an existing queue transition to accept/close it, return it for revision, or cancel it with the outcome preserved.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "liam_judgment",
       "reason": "Queue item is in human_review; prepared evidence exists and the remaining state is review/decision.",
       "rule": "decision_awaiting_confirmation",
@@ -695,9 +695,9 @@
     },
     {
       "calculated_age": {
-        "days": 15,
-        "display": "15d",
-        "seconds": 1351658
+        "days": 17,
+        "display": "17d",
+        "seconds": 1533301
       },
       "category": "queue",
       "current_state": {
@@ -719,7 +719,7 @@
         "reference": "queue/receipts/AOS-2026-0179-notification-93632264d394062d.md"
       },
       "next_permitted_action": "Review the linked evidence and use an existing queue transition to accept/close it, return it for revision, or cancel it with the outcome preserved.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "liam_judgment",
       "reason": "Queue item is in human_review; prepared evidence exists and the remaining state is review/decision.",
       "rule": "decision_awaiting_confirmation",
@@ -739,9 +739,9 @@
     },
     {
       "calculated_age": {
-        "days": 7,
-        "display": "7d",
-        "seconds": 625728
+        "days": 9,
+        "display": "9d",
+        "seconds": 807371
       },
       "category": "queue",
       "current_state": {
@@ -763,7 +763,7 @@
         "reference": "queue/receipts/AOS-2026-0184-notification-35072a21957d876c.md"
       },
       "next_permitted_action": "Review the linked evidence and use an existing queue transition to accept/close it, return it for revision, or cancel it with the outcome preserved.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "liam_judgment",
       "reason": "Queue item is in human_review; prepared evidence exists and the remaining state is review/decision.",
       "rule": "decision_awaiting_confirmation",
@@ -783,9 +783,9 @@
     },
     {
       "calculated_age": {
-        "days": 7,
-        "display": "7d",
-        "seconds": 625728
+        "days": 9,
+        "display": "9d",
+        "seconds": 807371
       },
       "category": "queue",
       "current_state": {
@@ -807,7 +807,7 @@
         "reference": "queue/receipts/AOS-2026-0185-notification-cc36ffd16596d24a.md"
       },
       "next_permitted_action": "Review the linked evidence and use an existing queue transition to accept/close it, return it for revision, or cancel it with the outcome preserved.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "liam_judgment",
       "reason": "Queue item is in human_review; prepared evidence exists and the remaining state is review/decision.",
       "rule": "decision_awaiting_confirmation",
@@ -826,9 +826,9 @@
     },
     {
       "calculated_age": {
-        "days": 7,
-        "display": "7d",
-        "seconds": 625728
+        "days": 9,
+        "display": "9d",
+        "seconds": 807371
       },
       "category": "queue",
       "current_state": {
@@ -850,7 +850,7 @@
         "reference": "queue/receipts/AOS-2026-0186-notification-8c760b853b7b481e.md"
       },
       "next_permitted_action": "Review the linked evidence and use an existing queue transition to accept/close it, return it for revision, or cancel it with the outcome preserved.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "liam_judgment",
       "reason": "Queue item is in human_review; prepared evidence exists and the remaining state is review/decision.",
       "rule": "decision_awaiting_confirmation",
@@ -870,9 +870,9 @@
     },
     {
       "calculated_age": {
-        "days": 7,
-        "display": "7d",
-        "seconds": 625728
+        "days": 9,
+        "display": "9d",
+        "seconds": 807371
       },
       "category": "queue",
       "current_state": {
@@ -894,7 +894,7 @@
         "reference": "queue/receipts/AOS-2026-0187-notification-a708f4a5ed1531e9.md"
       },
       "next_permitted_action": "Review the linked evidence and use an existing queue transition to accept/close it, return it for revision, or cancel it with the outcome preserved.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "liam_judgment",
       "reason": "Queue item is in human_review; prepared evidence exists and the remaining state is review/decision.",
       "rule": "decision_awaiting_confirmation",
@@ -914,9 +914,9 @@
     },
     {
       "calculated_age": {
-        "days": 7,
-        "display": "7d",
-        "seconds": 625490
+        "days": 9,
+        "display": "9d",
+        "seconds": 807133
       },
       "category": "queue",
       "current_state": {
@@ -938,7 +938,7 @@
         "reference": "queue/receipts/AOS-2026-0190-notification-c226b2eab2e94e53.md"
       },
       "next_permitted_action": "Review the linked evidence and use an existing queue transition to accept/close it, return it for revision, or cancel it with the outcome preserved.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "liam_judgment",
       "reason": "Queue item is in human_review; prepared evidence exists and the remaining state is review/decision.",
       "rule": "decision_awaiting_confirmation",
@@ -958,9 +958,9 @@
     },
     {
       "calculated_age": {
-        "days": 7,
-        "display": "7d",
-        "seconds": 612277
+        "days": 9,
+        "display": "9d",
+        "seconds": 793920
       },
       "category": "queue",
       "current_state": {
@@ -982,7 +982,7 @@
         "reference": "queue/receipts/AOS-2026-0428-notification-95c98370ea104050.md"
       },
       "next_permitted_action": "Review the linked evidence and use an existing queue transition to accept/close it, return it for revision, or cancel it with the outcome preserved.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "liam_judgment",
       "reason": "Queue item is in human_review; prepared evidence exists and the remaining state is review/decision.",
       "rule": "decision_awaiting_confirmation",
@@ -1001,9 +1001,9 @@
     },
     {
       "calculated_age": {
-        "days": 7,
-        "display": "7d",
-        "seconds": 610540
+        "days": 9,
+        "display": "9d",
+        "seconds": 792183
       },
       "category": "queue",
       "current_state": {
@@ -1025,7 +1025,7 @@
         "reference": "queue/receipts/AOS-2026-0429-notification-e78b19ac1855dd8a.md"
       },
       "next_permitted_action": "Review the linked evidence and use an existing queue transition to accept/close it, return it for revision, or cancel it with the outcome preserved.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "liam_judgment",
       "reason": "Queue item is in human_review; prepared evidence exists and the remaining state is review/decision.",
       "rule": "decision_awaiting_confirmation",
@@ -1044,9 +1044,9 @@
     },
     {
       "calculated_age": {
-        "days": 7,
-        "display": "7d",
-        "seconds": 609670
+        "days": 9,
+        "display": "9d",
+        "seconds": 791313
       },
       "category": "queue",
       "current_state": {
@@ -1068,7 +1068,7 @@
         "reference": "queue/receipts/AOS-2026-0430-notification-aec052d975644a7f.md"
       },
       "next_permitted_action": "Review the linked evidence and use an existing queue transition to accept/close it, return it for revision, or cancel it with the outcome preserved.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "liam_judgment",
       "reason": "Queue item is in human_review; prepared evidence exists and the remaining state is review/decision.",
       "rule": "decision_awaiting_confirmation",
@@ -1087,9 +1087,9 @@
     },
     {
       "calculated_age": {
-        "days": 6,
-        "display": "6d",
-        "seconds": 592565
+        "days": 8,
+        "display": "8d",
+        "seconds": 774208
       },
       "category": "queue",
       "current_state": {
@@ -1111,7 +1111,7 @@
         "reference": "queue/receipts/AOS-2026-0431-notification-a196694938c6c03a.md"
       },
       "next_permitted_action": "Review the linked evidence and use an existing queue transition to accept/close it, return it for revision, or cancel it with the outcome preserved.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "liam_judgment",
       "reason": "Queue item is in human_review; prepared evidence exists and the remaining state is review/decision.",
       "rule": "decision_awaiting_confirmation",
@@ -1130,9 +1130,9 @@
     },
     {
       "calculated_age": {
-        "days": 6,
-        "display": "6d",
-        "seconds": 561953
+        "days": 8,
+        "display": "8d",
+        "seconds": 743596
       },
       "category": "queue",
       "current_state": {
@@ -1154,7 +1154,7 @@
         "reference": "queue/receipts/AOS-2026-0432-notification-dc08235c7ce79ca7.md"
       },
       "next_permitted_action": "Review the linked evidence and use an existing queue transition to accept/close it, return it for revision, or cancel it with the outcome preserved.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "liam_judgment",
       "reason": "Queue item is in human_review; prepared evidence exists and the remaining state is review/decision.",
       "rule": "decision_awaiting_confirmation",
@@ -1173,9 +1173,9 @@
     },
     {
       "calculated_age": {
-        "days": 6,
-        "display": "6d",
-        "seconds": 560152
+        "days": 8,
+        "display": "8d",
+        "seconds": 741795
       },
       "category": "queue",
       "current_state": {
@@ -1197,7 +1197,7 @@
         "reference": "queue/receipts/AOS-2026-0433-notification-c2bcd4bbf351ab8b.md"
       },
       "next_permitted_action": "Review the linked evidence and use an existing queue transition to accept/close it, return it for revision, or cancel it with the outcome preserved.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "liam_judgment",
       "reason": "Queue item is in human_review; prepared evidence exists and the remaining state is review/decision.",
       "rule": "decision_awaiting_confirmation",
@@ -1216,9 +1216,9 @@
     },
     {
       "calculated_age": {
-        "days": 6,
-        "display": "6d",
-        "seconds": 556033
+        "days": 8,
+        "display": "8d",
+        "seconds": 737676
       },
       "category": "queue",
       "current_state": {
@@ -1240,7 +1240,7 @@
         "reference": "queue/receipts/AOS-2026-0434-notification-a93f6bd405d6845e.md"
       },
       "next_permitted_action": "Review the linked evidence and use an existing queue transition to accept/close it, return it for revision, or cancel it with the outcome preserved.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "liam_judgment",
       "reason": "Queue item is in human_review; prepared evidence exists and the remaining state is review/decision.",
       "rule": "decision_awaiting_confirmation",
@@ -1259,9 +1259,9 @@
     },
     {
       "calculated_age": {
-        "days": 6,
-        "display": "6d",
-        "seconds": 547415
+        "days": 8,
+        "display": "8d",
+        "seconds": 729058
       },
       "category": "queue",
       "current_state": {
@@ -1283,7 +1283,7 @@
         "reference": "queue/receipts/AOS-2026-0435-notification-da8ffb58bc6b1c99.md"
       },
       "next_permitted_action": "Review the linked evidence and use an existing queue transition to accept/close it, return it for revision, or cancel it with the outcome preserved.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "liam_judgment",
       "reason": "Queue item is in human_review; prepared evidence exists and the remaining state is review/decision.",
       "rule": "decision_awaiting_confirmation",
@@ -1302,9 +1302,9 @@
     },
     {
       "calculated_age": {
-        "days": 6,
-        "display": "6d",
-        "seconds": 547557
+        "days": 8,
+        "display": "8d",
+        "seconds": 729200
       },
       "category": "queue",
       "current_state": {
@@ -1326,7 +1326,7 @@
         "reference": "queue/receipts/AOS-2026-0436-notification-14e0c67f7f9b4dea.md"
       },
       "next_permitted_action": "Review the linked evidence and use an existing queue transition to accept/close it, return it for revision, or cancel it with the outcome preserved.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "liam_judgment",
       "reason": "Queue item is in human_review; prepared evidence exists and the remaining state is review/decision.",
       "rule": "decision_awaiting_confirmation",
@@ -1345,9 +1345,9 @@
     },
     {
       "calculated_age": {
-        "days": 6,
-        "display": "6d",
-        "seconds": 547608
+        "days": 8,
+        "display": "8d",
+        "seconds": 729251
       },
       "category": "queue",
       "current_state": {
@@ -1369,7 +1369,7 @@
         "reference": "queue/receipts/AOS-2026-0437-notification-a9bfe61d404d8e01.md"
       },
       "next_permitted_action": "Review the linked evidence and use an existing queue transition to accept/close it, return it for revision, or cancel it with the outcome preserved.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "liam_judgment",
       "reason": "Queue item is in human_review; prepared evidence exists and the remaining state is review/decision.",
       "rule": "decision_awaiting_confirmation",
@@ -1388,9 +1388,9 @@
     },
     {
       "calculated_age": {
-        "days": 6,
-        "display": "6d",
-        "seconds": 551186
+        "days": 8,
+        "display": "8d",
+        "seconds": 732829
       },
       "category": "queue",
       "current_state": {
@@ -1412,7 +1412,7 @@
         "reference": "queue/receipts/AOS-2026-0438-notification-bc36965fbc85ef16.md"
       },
       "next_permitted_action": "Review the linked evidence and use an existing queue transition to accept/close it, return it for revision, or cancel it with the outcome preserved.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "liam_judgment",
       "reason": "Queue item is in human_review; prepared evidence exists and the remaining state is review/decision.",
       "rule": "decision_awaiting_confirmation",
@@ -1431,9 +1431,9 @@
     },
     {
       "calculated_age": {
-        "days": 6,
-        "display": "6d",
-        "seconds": 555784
+        "days": 8,
+        "display": "8d",
+        "seconds": 737427
       },
       "category": "queue",
       "current_state": {
@@ -1455,7 +1455,7 @@
         "reference": "queue/receipts/AOS-2026-0439-notification-24fed585e306b6f9.md"
       },
       "next_permitted_action": "Review the linked evidence and use an existing queue transition to accept/close it, return it for revision, or cancel it with the outcome preserved.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "liam_judgment",
       "reason": "Queue item is in human_review; prepared evidence exists and the remaining state is review/decision.",
       "rule": "decision_awaiting_confirmation",
@@ -1474,9 +1474,9 @@
     },
     {
       "calculated_age": {
-        "days": 6,
-        "display": "6d",
-        "seconds": 555652
+        "days": 8,
+        "display": "8d",
+        "seconds": 737295
       },
       "category": "queue",
       "current_state": {
@@ -1498,7 +1498,7 @@
         "reference": "queue/receipts/AOS-2026-0440-notification-b4ec10cf16416f43.md"
       },
       "next_permitted_action": "Review the linked evidence and use an existing queue transition to accept/close it, return it for revision, or cancel it with the outcome preserved.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "liam_judgment",
       "reason": "Queue item is in human_review; prepared evidence exists and the remaining state is review/decision.",
       "rule": "decision_awaiting_confirmation",
@@ -1517,9 +1517,9 @@
     },
     {
       "calculated_age": {
-        "days": 6,
-        "display": "6d",
-        "seconds": 553845
+        "days": 8,
+        "display": "8d",
+        "seconds": 735488
       },
       "category": "queue",
       "current_state": {
@@ -1541,7 +1541,7 @@
         "reference": "queue/receipts/AOS-2026-0441-notification-e5464c7595901265.md"
       },
       "next_permitted_action": "Review the linked evidence and use an existing queue transition to accept/close it, return it for revision, or cancel it with the outcome preserved.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "liam_judgment",
       "reason": "Queue item is in human_review; prepared evidence exists and the remaining state is review/decision.",
       "rule": "decision_awaiting_confirmation",
@@ -1560,9 +1560,9 @@
     },
     {
       "calculated_age": {
-        "days": 6,
-        "display": "6d",
-        "seconds": 543945
+        "days": 8,
+        "display": "8d",
+        "seconds": 725588
       },
       "category": "queue",
       "current_state": {
@@ -1584,7 +1584,7 @@
         "reference": "queue/receipts/AOS-2026-0442-notification-906bdadbc977ecf7.md"
       },
       "next_permitted_action": "Review the linked evidence and use an existing queue transition to accept/close it, return it for revision, or cancel it with the outcome preserved.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "liam_judgment",
       "reason": "Queue item is in human_review; prepared evidence exists and the remaining state is review/decision.",
       "rule": "decision_awaiting_confirmation",
@@ -1603,9 +1603,9 @@
     },
     {
       "calculated_age": {
-        "days": 6,
-        "display": "6d",
-        "seconds": 537642
+        "days": 8,
+        "display": "8d",
+        "seconds": 719285
       },
       "category": "queue",
       "current_state": {
@@ -1627,7 +1627,7 @@
         "reference": "queue/receipts/AOS-2026-0443-notification-bebf5bd95a26fb94.md"
       },
       "next_permitted_action": "Review the linked evidence and use an existing queue transition to accept/close it, return it for revision, or cancel it with the outcome preserved.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "liam_judgment",
       "reason": "Queue item is in human_review; prepared evidence exists and the remaining state is review/decision.",
       "rule": "decision_awaiting_confirmation",
@@ -1646,9 +1646,9 @@
     },
     {
       "calculated_age": {
-        "days": 6,
-        "display": "6d",
-        "seconds": 532238
+        "days": 8,
+        "display": "8d",
+        "seconds": 713881
       },
       "category": "queue",
       "current_state": {
@@ -1670,7 +1670,7 @@
         "reference": "queue/receipts/AOS-2026-0444-notification-edc03794776f38fb.md"
       },
       "next_permitted_action": "Review the linked evidence and use an existing queue transition to accept/close it, return it for revision, or cancel it with the outcome preserved.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "liam_judgment",
       "reason": "Queue item is in human_review; prepared evidence exists and the remaining state is review/decision.",
       "rule": "decision_awaiting_confirmation",
@@ -1689,9 +1689,9 @@
     },
     {
       "calculated_age": {
-        "days": 6,
-        "display": "6d",
-        "seconds": 531343
+        "days": 8,
+        "display": "8d",
+        "seconds": 712986
       },
       "category": "queue",
       "current_state": {
@@ -1713,7 +1713,7 @@
         "reference": "queue/receipts/AOS-2026-0445-notification-ceaca6205d4a0770.md"
       },
       "next_permitted_action": "Review the linked evidence and use an existing queue transition to accept/close it, return it for revision, or cancel it with the outcome preserved.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "liam_judgment",
       "reason": "Queue item is in human_review; prepared evidence exists and the remaining state is review/decision.",
       "rule": "decision_awaiting_confirmation",
@@ -1732,9 +1732,9 @@
     },
     {
       "calculated_age": {
-        "days": 6,
-        "display": "6d",
-        "seconds": 530426
+        "days": 8,
+        "display": "8d",
+        "seconds": 712069
       },
       "category": "queue",
       "current_state": {
@@ -1756,7 +1756,7 @@
         "reference": "queue/receipts/AOS-2026-0446-notification-9942dd84a908b347.md"
       },
       "next_permitted_action": "Review the linked evidence and use an existing queue transition to accept/close it, return it for revision, or cancel it with the outcome preserved.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "liam_judgment",
       "reason": "Queue item is in human_review; prepared evidence exists and the remaining state is review/decision.",
       "rule": "decision_awaiting_confirmation",
@@ -1775,9 +1775,9 @@
     },
     {
       "calculated_age": {
-        "days": 6,
-        "display": "6d",
-        "seconds": 525936
+        "days": 8,
+        "display": "8d",
+        "seconds": 707579
       },
       "category": "queue",
       "current_state": {
@@ -1799,7 +1799,7 @@
         "reference": "queue/receipts/AOS-2026-0447-notification-f26454ac886ddb7a.md"
       },
       "next_permitted_action": "Review the linked evidence and use an existing queue transition to accept/close it, return it for revision, or cancel it with the outcome preserved.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "liam_judgment",
       "reason": "Queue item is in human_review; prepared evidence exists and the remaining state is review/decision.",
       "rule": "decision_awaiting_confirmation",
@@ -1818,9 +1818,9 @@
     },
     {
       "calculated_age": {
-        "days": 5,
-        "display": "5d",
-        "seconds": 506183
+        "days": 7,
+        "display": "7d",
+        "seconds": 687826
       },
       "category": "queue",
       "current_state": {
@@ -1842,7 +1842,7 @@
         "reference": "queue/receipts/AOS-2026-0448-notification-ae31f04ec174316f.md"
       },
       "next_permitted_action": "Review the linked evidence and use an existing queue transition to accept/close it, return it for revision, or cancel it with the outcome preserved.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "liam_judgment",
       "reason": "Queue item is in human_review; prepared evidence exists and the remaining state is review/decision.",
       "rule": "decision_awaiting_confirmation",
@@ -1861,9 +1861,9 @@
     },
     {
       "calculated_age": {
-        "days": 5,
-        "display": "5d",
-        "seconds": 476481
+        "days": 7,
+        "display": "7d",
+        "seconds": 658124
       },
       "category": "queue",
       "current_state": {
@@ -1885,7 +1885,7 @@
         "reference": "queue/receipts/AOS-2026-0449-notification-95ece781c651d477.md"
       },
       "next_permitted_action": "Review the linked evidence and use an existing queue transition to accept/close it, return it for revision, or cancel it with the outcome preserved.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "liam_judgment",
       "reason": "Queue item is in human_review; prepared evidence exists and the remaining state is review/decision.",
       "rule": "decision_awaiting_confirmation",
@@ -1904,9 +1904,9 @@
     },
     {
       "calculated_age": {
-        "days": 5,
-        "display": "5d",
-        "seconds": 475580
+        "days": 7,
+        "display": "7d",
+        "seconds": 657223
       },
       "category": "queue",
       "current_state": {
@@ -1928,7 +1928,7 @@
         "reference": "queue/receipts/AOS-2026-0450-notification-25c51ae656e73da2.md"
       },
       "next_permitted_action": "Review the linked evidence and use an existing queue transition to accept/close it, return it for revision, or cancel it with the outcome preserved.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "liam_judgment",
       "reason": "Queue item is in human_review; prepared evidence exists and the remaining state is review/decision.",
       "rule": "decision_awaiting_confirmation",
@@ -1947,9 +1947,9 @@
     },
     {
       "calculated_age": {
-        "days": 5,
-        "display": "5d",
-        "seconds": 472876
+        "days": 7,
+        "display": "7d",
+        "seconds": 654519
       },
       "category": "queue",
       "current_state": {
@@ -1971,7 +1971,7 @@
         "reference": "queue/receipts/AOS-2026-0451-notification-f50f029506dd8500.md"
       },
       "next_permitted_action": "Review the linked evidence and use an existing queue transition to accept/close it, return it for revision, or cancel it with the outcome preserved.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "liam_judgment",
       "reason": "Queue item is in human_review; prepared evidence exists and the remaining state is review/decision.",
       "rule": "decision_awaiting_confirmation",
@@ -1990,9 +1990,9 @@
     },
     {
       "calculated_age": {
-        "days": 5,
-        "display": "5d",
-        "seconds": 465674
+        "days": 7,
+        "display": "7d",
+        "seconds": 647317
       },
       "category": "queue",
       "current_state": {
@@ -2014,7 +2014,7 @@
         "reference": "queue/receipts/AOS-2026-0452-notification-831bb2331f3ae1ac.md"
       },
       "next_permitted_action": "Review the linked evidence and use an existing queue transition to accept/close it, return it for revision, or cancel it with the outcome preserved.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "liam_judgment",
       "reason": "Queue item is in human_review; prepared evidence exists and the remaining state is review/decision.",
       "rule": "decision_awaiting_confirmation",
@@ -2033,9 +2033,9 @@
     },
     {
       "calculated_age": {
-        "days": 5,
-        "display": "5d",
-        "seconds": 457574
+        "days": 7,
+        "display": "7d",
+        "seconds": 639217
       },
       "category": "queue",
       "current_state": {
@@ -2057,7 +2057,7 @@
         "reference": "queue/receipts/AOS-2026-0453-notification-ef20a8d4a83174ae.md"
       },
       "next_permitted_action": "Review the linked evidence and use an existing queue transition to accept/close it, return it for revision, or cancel it with the outcome preserved.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "liam_judgment",
       "reason": "Queue item is in human_review; prepared evidence exists and the remaining state is review/decision.",
       "rule": "decision_awaiting_confirmation",
@@ -2076,9 +2076,9 @@
     },
     {
       "calculated_age": {
-        "days": 5,
-        "display": "5d",
-        "seconds": 453971
+        "days": 7,
+        "display": "7d",
+        "seconds": 635614
       },
       "category": "queue",
       "current_state": {
@@ -2100,7 +2100,7 @@
         "reference": "queue/receipts/AOS-2026-0454-notification-d602914f9cb9dd57.md"
       },
       "next_permitted_action": "Review the linked evidence and use an existing queue transition to accept/close it, return it for revision, or cancel it with the outcome preserved.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "liam_judgment",
       "reason": "Queue item is in human_review; prepared evidence exists and the remaining state is review/decision.",
       "rule": "decision_awaiting_confirmation",
@@ -2119,9 +2119,9 @@
     },
     {
       "calculated_age": {
-        "days": 5,
-        "display": "5d",
-        "seconds": 446746
+        "days": 7,
+        "display": "7d",
+        "seconds": 628389
       },
       "category": "queue",
       "current_state": {
@@ -2143,7 +2143,7 @@
         "reference": "queue/receipts/AOS-2026-0455-notification-bcf8cb95473f2ca0.md"
       },
       "next_permitted_action": "Review the linked evidence and use an existing queue transition to accept/close it, return it for revision, or cancel it with the outcome preserved.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "liam_judgment",
       "reason": "Queue item is in human_review; prepared evidence exists and the remaining state is review/decision.",
       "rule": "decision_awaiting_confirmation",
@@ -2162,9 +2162,9 @@
     },
     {
       "calculated_age": {
-        "days": 5,
-        "display": "5d",
-        "seconds": 439582
+        "days": 7,
+        "display": "7d",
+        "seconds": 621225
       },
       "category": "queue",
       "current_state": {
@@ -2186,7 +2186,7 @@
         "reference": "queue/receipts/AOS-2026-0456-notification-47a8422a4a912ab4.md"
       },
       "next_permitted_action": "Review the linked evidence and use an existing queue transition to accept/close it, return it for revision, or cancel it with the outcome preserved.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "liam_judgment",
       "reason": "Queue item is in human_review; prepared evidence exists and the remaining state is review/decision.",
       "rule": "decision_awaiting_confirmation",
@@ -2205,9 +2205,9 @@
     },
     {
       "calculated_age": {
-        "days": 4,
-        "display": "4d",
-        "seconds": 412832
+        "days": 6,
+        "display": "6d",
+        "seconds": 594475
       },
       "category": "queue",
       "current_state": {
@@ -2229,7 +2229,7 @@
         "reference": "queue/receipts/AOS-2026-0457-notification-f5c411c75537f07a.md"
       },
       "next_permitted_action": "Review the linked evidence and use an existing queue transition to accept/close it, return it for revision, or cancel it with the outcome preserved.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "liam_judgment",
       "reason": "Queue item is in human_review; prepared evidence exists and the remaining state is review/decision.",
       "rule": "decision_awaiting_confirmation",
@@ -2248,9 +2248,9 @@
     },
     {
       "calculated_age": {
-        "days": 4,
-        "display": "4d",
-        "seconds": 399373
+        "days": 6,
+        "display": "6d",
+        "seconds": 581016
       },
       "category": "queue",
       "current_state": {
@@ -2272,7 +2272,7 @@
         "reference": "queue/receipts/AOS-2026-0458-notification-a19982e6eb72fb22.md"
       },
       "next_permitted_action": "Review the linked evidence and use an existing queue transition to accept/close it, return it for revision, or cancel it with the outcome preserved.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "liam_judgment",
       "reason": "Queue item is in human_review; prepared evidence exists and the remaining state is review/decision.",
       "rule": "decision_awaiting_confirmation",
@@ -2291,9 +2291,9 @@
     },
     {
       "calculated_age": {
-        "days": 4,
-        "display": "4d",
-        "seconds": 392300
+        "days": 6,
+        "display": "6d",
+        "seconds": 573943
       },
       "category": "queue",
       "current_state": {
@@ -2315,7 +2315,7 @@
         "reference": "queue/receipts/AOS-2026-0459-notification-f10ac39987b26e9e.md"
       },
       "next_permitted_action": "Review the linked evidence and use an existing queue transition to accept/close it, return it for revision, or cancel it with the outcome preserved.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "liam_judgment",
       "reason": "Queue item is in human_review; prepared evidence exists and the remaining state is review/decision.",
       "rule": "decision_awaiting_confirmation",
@@ -2334,9 +2334,9 @@
     },
     {
       "calculated_age": {
-        "days": 4,
-        "display": "4d",
-        "seconds": 390081
+        "days": 6,
+        "display": "6d",
+        "seconds": 571724
       },
       "category": "queue",
       "current_state": {
@@ -2358,7 +2358,7 @@
         "reference": "queue/receipts/AOS-2026-0460-notification-e72e271ad9c9cd90.md"
       },
       "next_permitted_action": "Review the linked evidence and use an existing queue transition to accept/close it, return it for revision, or cancel it with the outcome preserved.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "liam_judgment",
       "reason": "Queue item is in human_review; prepared evidence exists and the remaining state is review/decision.",
       "rule": "decision_awaiting_confirmation",
@@ -2377,9 +2377,9 @@
     },
     {
       "calculated_age": {
-        "days": 4,
-        "display": "4d",
-        "seconds": 386472
+        "days": 6,
+        "display": "6d",
+        "seconds": 568115
       },
       "category": "queue",
       "current_state": {
@@ -2401,7 +2401,7 @@
         "reference": "queue/receipts/AOS-2026-0461-notification-9a831019b5430e81.md"
       },
       "next_permitted_action": "Review the linked evidence and use an existing queue transition to accept/close it, return it for revision, or cancel it with the outcome preserved.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "liam_judgment",
       "reason": "Queue item is in human_review; prepared evidence exists and the remaining state is review/decision.",
       "rule": "decision_awaiting_confirmation",
@@ -2420,9 +2420,9 @@
     },
     {
       "calculated_age": {
-        "days": 4,
-        "display": "4d",
-        "seconds": 384680
+        "days": 6,
+        "display": "6d",
+        "seconds": 566323
       },
       "category": "queue",
       "current_state": {
@@ -2444,7 +2444,7 @@
         "reference": "queue/receipts/AOS-2026-0462-notification-b8d0536337aba458.md"
       },
       "next_permitted_action": "Review the linked evidence and use an existing queue transition to accept/close it, return it for revision, or cancel it with the outcome preserved.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "liam_judgment",
       "reason": "Queue item is in human_review; prepared evidence exists and the remaining state is review/decision.",
       "rule": "decision_awaiting_confirmation",
@@ -2463,9 +2463,9 @@
     },
     {
       "calculated_age": {
-        "days": 4,
-        "display": "4d",
-        "seconds": 373323
+        "days": 6,
+        "display": "6d",
+        "seconds": 554966
       },
       "category": "queue",
       "current_state": {
@@ -2487,7 +2487,7 @@
         "reference": "queue/receipts/AOS-2026-0463-notification-da86792e67cf5b9b.md"
       },
       "next_permitted_action": "Review the linked evidence and use an existing queue transition to accept/close it, return it for revision, or cancel it with the outcome preserved.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "liam_judgment",
       "reason": "Queue item is in human_review; prepared evidence exists and the remaining state is review/decision.",
       "rule": "decision_awaiting_confirmation",
@@ -2506,9 +2506,9 @@
     },
     {
       "calculated_age": {
-        "days": 4,
-        "display": "4d",
-        "seconds": 371175
+        "days": 6,
+        "display": "6d",
+        "seconds": 552818
       },
       "category": "queue",
       "current_state": {
@@ -2530,7 +2530,7 @@
         "reference": "queue/receipts/AOS-2026-0468-notification-e3af969a4fc27ebd.md"
       },
       "next_permitted_action": "Review the linked evidence and use an existing queue transition to accept/close it, return it for revision, or cancel it with the outcome preserved.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "liam_judgment",
       "reason": "Queue item is in human_review; prepared evidence exists and the remaining state is review/decision.",
       "rule": "decision_awaiting_confirmation",
@@ -2549,9 +2549,9 @@
     },
     {
       "calculated_age": {
-        "days": 4,
-        "display": "4d",
-        "seconds": 367573
+        "days": 6,
+        "display": "6d",
+        "seconds": 549216
       },
       "category": "queue",
       "current_state": {
@@ -2573,7 +2573,7 @@
         "reference": "queue/receipts/AOS-2026-0469-notification-ab3ffecd318d42d7.md"
       },
       "next_permitted_action": "Review the linked evidence and use an existing queue transition to accept/close it, return it for revision, or cancel it with the outcome preserved.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "liam_judgment",
       "reason": "Queue item is in human_review; prepared evidence exists and the remaining state is review/decision.",
       "rule": "decision_awaiting_confirmation",
@@ -2592,9 +2592,9 @@
     },
     {
       "calculated_age": {
-        "days": 4,
-        "display": "4d",
-        "seconds": 357681
+        "days": 6,
+        "display": "6d",
+        "seconds": 539324
       },
       "category": "queue",
       "current_state": {
@@ -2616,7 +2616,7 @@
         "reference": "queue/receipts/AOS-2026-0470-notification-e1a028cfc1f2ed1d.md"
       },
       "next_permitted_action": "Review the linked evidence and use an existing queue transition to accept/close it, return it for revision, or cancel it with the outcome preserved.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "liam_judgment",
       "reason": "Queue item is in human_review; prepared evidence exists and the remaining state is review/decision.",
       "rule": "decision_awaiting_confirmation",
@@ -2635,9 +2635,9 @@
     },
     {
       "calculated_age": {
-        "days": 4,
-        "display": "4d",
-        "seconds": 352280
+        "days": 6,
+        "display": "6d",
+        "seconds": 533923
       },
       "category": "queue",
       "current_state": {
@@ -2659,7 +2659,7 @@
         "reference": "queue/receipts/AOS-2026-0472-notification-cd366930674b409a.md"
       },
       "next_permitted_action": "Review the linked evidence and use an existing queue transition to accept/close it, return it for revision, or cancel it with the outcome preserved.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "liam_judgment",
       "reason": "Queue item is in human_review; prepared evidence exists and the remaining state is review/decision.",
       "rule": "decision_awaiting_confirmation",
@@ -2678,9 +2678,9 @@
     },
     {
       "calculated_age": {
-        "days": 4,
-        "display": "4d",
-        "seconds": 350479
+        "days": 6,
+        "display": "6d",
+        "seconds": 532122
       },
       "category": "queue",
       "current_state": {
@@ -2702,7 +2702,7 @@
         "reference": "queue/receipts/AOS-2026-0480-notification-a74c32f4f6010f44.md"
       },
       "next_permitted_action": "Review the linked evidence and use an existing queue transition to accept/close it, return it for revision, or cancel it with the outcome preserved.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "liam_judgment",
       "reason": "Queue item is in human_review; prepared evidence exists and the remaining state is review/decision.",
       "rule": "decision_awaiting_confirmation",
@@ -2721,9 +2721,9 @@
     },
     {
       "calculated_age": {
-        "days": 4,
-        "display": "4d",
-        "seconds": 349578
+        "days": 6,
+        "display": "6d",
+        "seconds": 531221
       },
       "category": "queue",
       "current_state": {
@@ -2745,7 +2745,7 @@
         "reference": "queue/receipts/AOS-2026-0481-notification-22ac29d88b05368d.md"
       },
       "next_permitted_action": "Review the linked evidence and use an existing queue transition to accept/close it, return it for revision, or cancel it with the outcome preserved.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "liam_judgment",
       "reason": "Queue item is in human_review; prepared evidence exists and the remaining state is review/decision.",
       "rule": "decision_awaiting_confirmation",
@@ -2764,9 +2764,9 @@
     },
     {
       "calculated_age": {
-        "days": 4,
-        "display": "4d",
-        "seconds": 345830
+        "days": 6,
+        "display": "6d",
+        "seconds": 527473
       },
       "category": "queue",
       "current_state": {
@@ -2788,7 +2788,7 @@
         "reference": "queue/receipts/AOS-2026-0482-notification-f6437b95854b5e2d.md"
       },
       "next_permitted_action": "Review the linked evidence and use an existing queue transition to accept/close it, return it for revision, or cancel it with the outcome preserved.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "liam_judgment",
       "reason": "Queue item is in human_review; prepared evidence exists and the remaining state is review/decision.",
       "rule": "decision_awaiting_confirmation",
@@ -2808,9 +2808,9 @@
     },
     {
       "calculated_age": {
-        "days": 4,
-        "display": "4d",
-        "seconds": 345984
+        "days": 6,
+        "display": "6d",
+        "seconds": 527627
       },
       "category": "queue",
       "current_state": {
@@ -2832,7 +2832,7 @@
         "reference": "queue/receipts/AOS-2026-0483-notification-af6f2bdafca93a52.md"
       },
       "next_permitted_action": "Review the linked evidence and use an existing queue transition to accept/close it, return it for revision, or cancel it with the outcome preserved.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "liam_judgment",
       "reason": "Queue item is in human_review; prepared evidence exists and the remaining state is review/decision.",
       "rule": "decision_awaiting_confirmation",
@@ -2851,9 +2851,9 @@
     },
     {
       "calculated_age": {
-        "days": 23,
-        "display": "23d",
-        "seconds": 1993010
+        "days": 25,
+        "display": "25d",
+        "seconds": 2174653
       },
       "category": "prospect",
       "current_state": {
@@ -2875,9 +2875,9 @@
         "reference": "queue/prospects.jsonl#2026-07-club-hub-ilan-puterman"
       },
       "next_permitted_action": "Use the existing prospecting workflow to prepare and route review, or record the supported rejected/do-not-contact outcome.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "system_work",
-      "reason": "Prospect remains drafted for 23 days with no sent or rejected transition; the existing >3-day integrity window is exceeded.",
+      "reason": "Prospect remains drafted for 25 days with no sent or rejected transition; the existing >3-day integrity window is exceeded.",
       "rule": "prospect_no_recent_activity",
       "supporting_references": [
         "business_brain:prospects/2026-07-club-hub-ilan-puterman.md",
@@ -2892,9 +2892,9 @@
     },
     {
       "calculated_age": {
-        "days": 23,
-        "display": "23d",
-        "seconds": 1993010
+        "days": 25,
+        "display": "25d",
+        "seconds": 2174653
       },
       "category": "prospect",
       "current_state": {
@@ -2916,9 +2916,9 @@
         "reference": "queue/prospects.jsonl#2026-07-cyborg-nicolas-dupont"
       },
       "next_permitted_action": "Use the existing prospecting workflow to prepare and route review, or record the supported rejected/do-not-contact outcome.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "system_work",
-      "reason": "Prospect remains drafted for 23 days with no sent or rejected transition; the existing >3-day integrity window is exceeded.",
+      "reason": "Prospect remains drafted for 25 days with no sent or rejected transition; the existing >3-day integrity window is exceeded.",
       "rule": "prospect_no_recent_activity",
       "supporting_references": [
         "business_brain:prospects/2026-07-cyborg-nicolas-dupont.md",
@@ -2933,9 +2933,9 @@
     },
     {
       "calculated_age": {
-        "days": 22,
-        "display": "22d",
-        "seconds": 1906610
+        "days": 24,
+        "display": "24d",
+        "seconds": 2088253
       },
       "category": "prospect",
       "current_state": {
@@ -2957,9 +2957,9 @@
         "reference": "queue/prospects.jsonl#2026-07-deepinspect-ai-parminder-singh"
       },
       "next_permitted_action": "Use the existing prospecting workflow to prepare and route review, or record the supported rejected/do-not-contact outcome.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "system_work",
-      "reason": "Prospect remains drafted for 22 days with no sent or rejected transition; the existing >3-day integrity window is exceeded.",
+      "reason": "Prospect remains drafted for 24 days with no sent or rejected transition; the existing >3-day integrity window is exceeded.",
       "rule": "prospect_no_recent_activity",
       "supporting_references": [
         "business_brain:prospects/2026-07-deepinspect-ai-parminder-singh.md",
@@ -2974,9 +2974,9 @@
     },
     {
       "calculated_age": {
-        "days": 23,
-        "display": "23d",
-        "seconds": 1993010
+        "days": 25,
+        "display": "25d",
+        "seconds": 2174653
       },
       "category": "prospect",
       "current_state": {
@@ -2998,9 +2998,9 @@
         "reference": "queue/prospects.jsonl#2026-07-flox-ron-efroni"
       },
       "next_permitted_action": "Use the existing prospecting workflow to prepare and route review, or record the supported rejected/do-not-contact outcome.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "system_work",
-      "reason": "Prospect remains drafted for 23 days with no sent or rejected transition; the existing >3-day integrity window is exceeded.",
+      "reason": "Prospect remains drafted for 25 days with no sent or rejected transition; the existing >3-day integrity window is exceeded.",
       "rule": "prospect_no_recent_activity",
       "supporting_references": [
         "business_brain:prospects/2026-07-flox-ron-efroni.md",
@@ -3015,9 +3015,9 @@
     },
     {
       "calculated_age": {
-        "days": 22,
-        "display": "22d",
-        "seconds": 1906610
+        "days": 24,
+        "display": "24d",
+        "seconds": 2088253
       },
       "category": "prospect",
       "current_state": {
@@ -3039,9 +3039,9 @@
         "reference": "queue/prospects.jsonl#2026-07-manufex-anush-sridhar"
       },
       "next_permitted_action": "Use the existing prospecting workflow to prepare and route review, or record the supported rejected/do-not-contact outcome.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "system_work",
-      "reason": "Prospect remains drafted for 22 days with no sent or rejected transition; the existing >3-day integrity window is exceeded.",
+      "reason": "Prospect remains drafted for 24 days with no sent or rejected transition; the existing >3-day integrity window is exceeded.",
       "rule": "prospect_no_recent_activity",
       "supporting_references": [
         "business_brain:prospects/2026-07-manufex-anush-sridhar.md",
@@ -3056,9 +3056,9 @@
     },
     {
       "calculated_age": {
-        "days": 23,
-        "display": "23d",
-        "seconds": 1993010
+        "days": 25,
+        "display": "25d",
+        "seconds": 2174653
       },
       "category": "prospect",
       "current_state": {
@@ -3080,9 +3080,9 @@
         "reference": "queue/prospects.jsonl#2026-07-ollama-jeffrey-morgan"
       },
       "next_permitted_action": "Use the existing prospecting workflow to prepare and route review, or record the supported rejected/do-not-contact outcome.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "system_work",
-      "reason": "Prospect remains drafted for 23 days with no sent or rejected transition; the existing >3-day integrity window is exceeded.",
+      "reason": "Prospect remains drafted for 25 days with no sent or rejected transition; the existing >3-day integrity window is exceeded.",
       "rule": "prospect_no_recent_activity",
       "supporting_references": [
         "business_brain:prospects/2026-07-ollama-jeffrey-morgan.md",
@@ -3097,9 +3097,9 @@
     },
     {
       "calculated_age": {
-        "days": 23,
-        "display": "23d",
-        "seconds": 1993010
+        "days": 25,
+        "display": "25d",
+        "seconds": 2174653
       },
       "category": "prospect",
       "current_state": {
@@ -3121,9 +3121,9 @@
         "reference": "queue/prospects.jsonl#2026-07-punttai-ronnie-coleman"
       },
       "next_permitted_action": "Use the existing prospecting workflow to prepare and route review, or record the supported rejected/do-not-contact outcome.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "system_work",
-      "reason": "Prospect remains drafted for 23 days with no sent or rejected transition; the existing >3-day integrity window is exceeded.",
+      "reason": "Prospect remains drafted for 25 days with no sent or rejected transition; the existing >3-day integrity window is exceeded.",
       "rule": "prospect_no_recent_activity",
       "supporting_references": [
         "business_brain:prospects/2026-07-punttai-ronnie-coleman.md",
@@ -3138,9 +3138,9 @@
     },
     {
       "calculated_age": {
-        "days": 22,
-        "display": "22d",
-        "seconds": 1906610
+        "days": 24,
+        "display": "24d",
+        "seconds": 2088253
       },
       "category": "prospect",
       "current_state": {
@@ -3162,9 +3162,9 @@
         "reference": "queue/prospects.jsonl#2026-07-zunesha-labs-omar-alani"
       },
       "next_permitted_action": "Use the existing prospecting workflow to prepare and route review, or record the supported rejected/do-not-contact outcome.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "system_work",
-      "reason": "Prospect remains drafted for 22 days with no sent or rejected transition; the existing >3-day integrity window is exceeded.",
+      "reason": "Prospect remains drafted for 24 days with no sent or rejected transition; the existing >3-day integrity window is exceeded.",
       "rule": "prospect_no_recent_activity",
       "supporting_references": [
         "business_brain:prospects/2026-07-zunesha-labs-omar-alani.md",
@@ -3179,9 +3179,9 @@
     },
     {
       "calculated_age": {
-        "days": 25,
-        "display": "25d",
-        "seconds": 2225788
+        "days": 27,
+        "display": "27d",
+        "seconds": 2407431
       },
       "category": "queue",
       "current_state": {
@@ -3203,7 +3203,7 @@
         "reference": "queue/receipts/AOS-2026-0088-notification-e667dc63a4c4a02b.md"
       },
       "next_permitted_action": "The existing owner diagnoses the blocker and records a supported status/outcome transition.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "system_work",
       "reason": "Queue item remains in the active blocked state.",
       "rule": "open_commitment_blocked",
@@ -3222,9 +3222,9 @@
     },
     {
       "calculated_age": {
-        "days": 21,
-        "display": "21d",
-        "seconds": 1843500
+        "days": 23,
+        "display": "23d",
+        "seconds": 2025143
       },
       "category": "queue",
       "current_state": {
@@ -3246,7 +3246,7 @@
         "reference": "queue/receipts/AOS-2026-0140-notification-8f8a718af794ef7e.md"
       },
       "next_permitted_action": "The existing owner diagnoses the blocker and records a supported status/outcome transition.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "system_work",
       "reason": "Queue item remains in the active blocked state.",
       "rule": "open_commitment_blocked",
@@ -3266,9 +3266,9 @@
     },
     {
       "calculated_age": {
-        "days": 21,
-        "display": "21d",
-        "seconds": 1843500
+        "days": 23,
+        "display": "23d",
+        "seconds": 2025143
       },
       "category": "queue",
       "current_state": {
@@ -3290,7 +3290,7 @@
         "reference": "queue/receipts/AOS-2026-0142-notification-32df04f5b46cef00.md"
       },
       "next_permitted_action": "The existing owner diagnoses the blocker and records a supported status/outcome transition.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "system_work",
       "reason": "Queue item remains in the active blocked state.",
       "rule": "open_commitment_blocked",
@@ -3310,9 +3310,9 @@
     },
     {
       "calculated_age": {
-        "days": 21,
-        "display": "21d",
-        "seconds": 1843500
+        "days": 23,
+        "display": "23d",
+        "seconds": 2025143
       },
       "category": "queue",
       "current_state": {
@@ -3334,7 +3334,7 @@
         "reference": "queue/receipts/AOS-2026-0144-notification-72da027539a58e14.md"
       },
       "next_permitted_action": "The existing owner diagnoses the blocker and records a supported status/outcome transition.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "system_work",
       "reason": "Queue item remains in the active blocked state.",
       "rule": "open_commitment_blocked",
@@ -3354,9 +3354,9 @@
     },
     {
       "calculated_age": {
-        "days": 21,
-        "display": "21d",
-        "seconds": 1843499
+        "days": 23,
+        "display": "23d",
+        "seconds": 2025142
       },
       "category": "queue",
       "current_state": {
@@ -3378,7 +3378,7 @@
         "reference": "queue/receipts/AOS-2026-0147-notification-e9593a9c8f2bcb77.md"
       },
       "next_permitted_action": "The existing owner diagnoses the blocker and records a supported status/outcome transition.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "system_work",
       "reason": "Queue item remains in the active blocked state.",
       "rule": "open_commitment_blocked",
@@ -3398,9 +3398,9 @@
     },
     {
       "calculated_age": {
-        "days": 21,
-        "display": "21d",
-        "seconds": 1843499
+        "days": 23,
+        "display": "23d",
+        "seconds": 2025142
       },
       "category": "queue",
       "current_state": {
@@ -3422,7 +3422,7 @@
         "reference": "queue/receipts/AOS-2026-0148-notification-9c5b1fa4452e7135.md"
       },
       "next_permitted_action": "The existing owner diagnoses the blocker and records a supported status/outcome transition.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "system_work",
       "reason": "Queue item remains in the active blocked state.",
       "rule": "open_commitment_blocked",
@@ -3442,9 +3442,9 @@
     },
     {
       "calculated_age": {
-        "days": 21,
-        "display": "21d",
-        "seconds": 1843499
+        "days": 23,
+        "display": "23d",
+        "seconds": 2025142
       },
       "category": "queue",
       "current_state": {
@@ -3466,7 +3466,7 @@
         "reference": "queue/receipts/AOS-2026-0149-notification-c49812c8d6f2d671.md"
       },
       "next_permitted_action": "The existing owner diagnoses the blocker and records a supported status/outcome transition.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "system_work",
       "reason": "Queue item remains in the active blocked state.",
       "rule": "open_commitment_blocked",
@@ -3486,9 +3486,9 @@
     },
     {
       "calculated_age": {
-        "days": 21,
-        "display": "21d",
-        "seconds": 1822324
+        "days": 23,
+        "display": "23d",
+        "seconds": 2003967
       },
       "category": "queue",
       "current_state": {
@@ -3510,7 +3510,7 @@
         "reference": "queue/receipts/AOS-2026-0154-notification-8c46fb1e19b6f128.md"
       },
       "next_permitted_action": "The existing owner diagnoses the blocker and records a supported status/outcome transition.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "system_work",
       "reason": "Queue item remains in the active blocked state.",
       "rule": "open_commitment_blocked",
@@ -3529,9 +3529,9 @@
     },
     {
       "calculated_age": {
-        "days": 21,
-        "display": "21d",
-        "seconds": 1818179
+        "days": 23,
+        "display": "23d",
+        "seconds": 1999822
       },
       "category": "queue",
       "current_state": {
@@ -3553,7 +3553,7 @@
         "reference": "queue/receipts/AOS-2026-0161-notification-c47643b0380603e0.md"
       },
       "next_permitted_action": "The existing owner diagnoses the blocker and records a supported status/outcome transition.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "system_work",
       "reason": "Queue item remains in the active blocked state.",
       "rule": "open_commitment_blocked",
@@ -3574,9 +3574,9 @@
     },
     {
       "calculated_age": {
-        "days": 21,
-        "display": "21d",
-        "seconds": 1818514
+        "days": 23,
+        "display": "23d",
+        "seconds": 2000157
       },
       "category": "queue",
       "current_state": {
@@ -3598,7 +3598,7 @@
         "reference": "queue/receipts/AOS-2026-0162-notification-58a031a138b135fd.md"
       },
       "next_permitted_action": "The existing owner diagnoses the blocker and records a supported status/outcome transition.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "system_work",
       "reason": "Queue item remains in the active blocked state.",
       "rule": "open_commitment_blocked",
@@ -3619,9 +3619,9 @@
     },
     {
       "calculated_age": {
-        "days": 3,
-        "display": "3d",
-        "seconds": 274727
+        "days": 5,
+        "display": "5d",
+        "seconds": 456370
       },
       "category": "queue",
       "current_state": {
@@ -3643,7 +3643,7 @@
         "reference": "queue/receipts/AOS-2026-0484-notification-89b69c146ce06350.md"
       },
       "next_permitted_action": "The existing owner diagnoses the blocker and records a supported status/outcome transition.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "system_work",
       "reason": "Queue item remains in the active blocked state.",
       "rule": "open_commitment_blocked",
@@ -3662,9 +3662,9 @@
     },
     {
       "calculated_age": {
-        "days": 3,
-        "display": "3d",
-        "seconds": 274727
+        "days": 5,
+        "display": "5d",
+        "seconds": 456370
       },
       "category": "queue",
       "current_state": {
@@ -3686,7 +3686,7 @@
         "reference": "queue/receipts/AOS-2026-0485-notification-b9d76a4b1b850a92.md"
       },
       "next_permitted_action": "The existing owner diagnoses the blocker and records a supported status/outcome transition.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "system_work",
       "reason": "Queue item remains in the active blocked state.",
       "rule": "open_commitment_blocked",
@@ -3705,9 +3705,52 @@
     },
     {
       "calculated_age": {
-        "days": 29,
-        "display": "29d",
-        "seconds": 2544578
+        "days": 0,
+        "display": "0d",
+        "seconds": 10170
+      },
+      "category": "queue",
+      "current_state": {
+        "decision_waiting_on_liam": false,
+        "external_action_gate": "not_applicable",
+        "queue_status": "blocked",
+        "system_work": "work_already_done"
+      },
+      "discovery": {
+        "reason": "entity path came from an authoritative source",
+        "route": "direct_authority"
+      },
+      "entity_id": "AOS-2026-0496",
+      "entity_path": "queue/work_items.jsonl#AOS-2026-0496",
+      "external_action_boundary": "No external action is required or performed by the morning brief.",
+      "finding_id": "morning-f1023ef7998944681825",
+      "last_relevant_activity": {
+        "at": "2026-08-10T01:14:43Z",
+        "reference": "queue/receipts/AOS-2026-0496-notification-686db62e1cc68f8e.md"
+      },
+      "next_permitted_action": "The existing owner diagnoses the blocker and records a supported status/outcome transition.",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
+      "owner_class": "system_work",
+      "reason": "Queue item remains in the active blocked state.",
+      "rule": "open_commitment_blocked",
+      "supporting_references": [
+        "queue/receipts/AOS-2026-0496-notification-16573226cd3f73a3.md",
+        "queue/receipts/AOS-2026-0496-notification-686db62e1cc68f8e.md",
+        "queue/receipts/AOS-2026-0496.md",
+        "queue/work_items.jsonl#AOS-2026-0496"
+      ],
+      "supporting_rules": [
+        "open_commitment",
+        "open_commitment_blocked"
+      ],
+      "title": "AOS-gate-test-20260810",
+      "waits_on": "The recorded system blocker to be diagnosed or resolved by the owning lane."
+    },
+    {
+      "calculated_age": {
+        "days": 31,
+        "display": "31d",
+        "seconds": 2726221
       },
       "category": "queue",
       "current_state": {
@@ -3729,7 +3772,7 @@
         "reference": "queue/receipts/AOS-2026-0065-telegram-escalation-20260709T144712Z.md"
       },
       "next_permitted_action": "Continue through the existing queue runner and receipt path; no new queue item is needed.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "system_work",
       "reason": "Queue item remains in the active agent_todo state.",
       "rule": "open_commitment",
@@ -3745,9 +3788,9 @@
     },
     {
       "calculated_age": {
-        "days": 25,
-        "display": "25d",
-        "seconds": 2244198
+        "days": 28,
+        "display": "28d",
+        "seconds": 2425841
       },
       "category": "queue",
       "current_state": {
@@ -3769,7 +3812,7 @@
         "reference": "queue/receipts/AOS-2026-0076-20260713T021332Z.md"
       },
       "next_permitted_action": "Continue through the existing queue runner and receipt path; no new queue item is needed.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "system_work",
       "reason": "Queue item remains in the active inbox state.",
       "rule": "open_commitment",
@@ -3788,9 +3831,9 @@
     },
     {
       "calculated_age": {
-        "days": 25,
-        "display": "25d",
-        "seconds": 2245981
+        "days": 28,
+        "display": "28d",
+        "seconds": 2427624
       },
       "category": "queue",
       "current_state": {
@@ -3812,7 +3855,7 @@
         "reference": "queue/work_items.jsonl#AOS-2026-0086"
       },
       "next_permitted_action": "Continue through the existing queue runner and receipt path; no new queue item is needed.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "system_work",
       "reason": "Queue item remains in the active agent_todo state.",
       "rule": "open_commitment",
@@ -3827,9 +3870,9 @@
     },
     {
       "calculated_age": {
-        "days": 25,
-        "display": "25d",
-        "seconds": 2223541
+        "days": 27,
+        "display": "27d",
+        "seconds": 2405184
       },
       "category": "queue",
       "current_state": {
@@ -3851,7 +3894,7 @@
         "reference": "queue/work_items.jsonl#AOS-2026-0090"
       },
       "next_permitted_action": "Continue through the existing queue runner and receipt path; no new queue item is needed.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "system_work",
       "reason": "Queue item remains in the active agent_todo state.",
       "rule": "open_commitment",
@@ -3866,9 +3909,9 @@
     },
     {
       "calculated_age": {
-        "days": 3,
-        "display": "3d",
-        "seconds": 274943
+        "days": 5,
+        "display": "5d",
+        "seconds": 456586
       },
       "category": "queue",
       "current_state": {
@@ -3890,7 +3933,7 @@
         "reference": "queue/work_items.jsonl#AOS-2026-0486"
       },
       "next_permitted_action": "Continue through the existing queue runner and receipt path; no new queue item is needed.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "system_work",
       "reason": "Queue item remains in the active inbox state.",
       "rule": "open_commitment",
@@ -3905,9 +3948,9 @@
     },
     {
       "calculated_age": {
-        "days": 3,
-        "display": "3d",
-        "seconds": 274943
+        "days": 5,
+        "display": "5d",
+        "seconds": 456586
       },
       "category": "queue",
       "current_state": {
@@ -3929,7 +3972,7 @@
         "reference": "queue/work_items.jsonl#AOS-2026-0487"
       },
       "next_permitted_action": "Continue through the existing queue runner and receipt path; no new queue item is needed.",
-      "observation_timestamp": "2026-08-08T01:36:50Z",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
       "owner_class": "system_work",
       "reason": "Queue item remains in the active inbox state.",
       "rule": "open_commitment",
@@ -3941,13 +3984,52 @@
       ],
       "title": "Create Marketing campaign brief from strongest opportunity",
       "waits_on": "The existing owner (marketing) to complete the queued work."
+    },
+    {
+      "calculated_age": {
+        "days": 0,
+        "display": "0d",
+        "seconds": 22707
+      },
+      "category": "queue",
+      "current_state": {
+        "decision_waiting_on_liam": false,
+        "external_action_gate": "not_applicable",
+        "queue_status": "agent_todo",
+        "system_work": "outstanding"
+      },
+      "discovery": {
+        "reason": "entity path came from an authoritative source",
+        "route": "direct_authority"
+      },
+      "entity_id": "AOS-2026-0494",
+      "entity_path": "queue/work_items.jsonl#AOS-2026-0494",
+      "external_action_boundary": "No external action is required or performed by the morning brief.",
+      "finding_id": "morning-2815dbf60fe47fc6e2e6",
+      "last_relevant_activity": {
+        "at": "2026-08-09T21:45:46Z",
+        "reference": "queue/work_items.jsonl#AOS-2026-0494"
+      },
+      "next_permitted_action": "Continue through the existing queue runner and receipt path; no new queue item is needed.",
+      "observation_timestamp": "2026-08-10T04:04:13Z",
+      "owner_class": "system_work",
+      "reason": "Queue item remains in the active agent_todo state.",
+      "rule": "open_commitment",
+      "supporting_references": [
+        "queue/work_items.jsonl#AOS-2026-0494"
+      ],
+      "supporting_rules": [
+        "open_commitment"
+      ],
+      "title": "Describe aos-linux runtime behavior",
+      "waits_on": "The existing owner (operations) to complete the queued work."
     }
   ],
   "generated_artifact_is_authoritative": false,
   "generated_artifact_used_as_input": false,
-  "observed_at": "2026-08-08T01:36:50Z",
+  "observed_at": "2026-08-10T04:04:13Z",
   "schema_version": 1,
-  "source_state_sha256": "b5d5bd1547b39d1f144892117c01339d87e15e0d164095c03a88942115547cb8",
+  "source_state_sha256": "7d59779d54d57c30f7376d6277b796be557721ba1f207c33156a68612940cbb3",
   "token_usage": {
     "input_tokens": 0,
     "model_invocations": 0,
