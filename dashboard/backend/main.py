@@ -9868,7 +9868,21 @@ def run_queue_item(item_id: str):
         revision_instructions = None
         prior_worker_result: dict | None = None
         max_attempts = 3 if orchestration_child else 2
-        passing_status = "done" if orchestration_child or executive_objective_child else "human_review"
+        # A passing run closes to done. It parks for Liam only when the item
+        # itself asked for a gate (on_complete) or carries an external-effect
+        # tag. Failures/timeouts still route to blocked, and a review that
+        # never passes still routes to needs_input, both handled below.
+        _requested_gate = str(item.get("on_complete") or "").strip()
+        _external_effect = bool(
+            {"external", "outbound", "send", "client_facing", "payment"}
+            & {str(tag).strip().lower() for tag in (item.get("tags") or [])}
+        )
+        if _requested_gate in {"human_review", "needs_input"}:
+            passing_status = _requested_gate
+        elif _external_effect:
+            passing_status = "human_review"
+        else:
+            passing_status = "done"
         final_review = {"decision": "REVISE", "instructions": "No review completed."}
         final_status = "needs_input"
         reason = "The configured review gate did not pass the worker result."
