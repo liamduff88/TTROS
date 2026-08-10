@@ -15,6 +15,9 @@ BACKEND_PID="${RUNTIME_DIR}/backend.pid"
 FRONTEND_PID="${RUNTIME_DIR}/frontend.pid"
 RUNNER_PID="${RUNTIME_DIR}/runner.pid"
 RUNNER_SCRIPT="${ROOT}/tools/aos-orchestration-runner.py"
+BRIDGE_PID="${RUNTIME_DIR}/bridge.pid"
+BRIDGE_SCRIPT="${ROOT}/connectors/telegram_bridge/telegram_bridge.py"
+BRIDGE_LOCK="${RUNTIME_DIR}/telegram_bridge.lock"
 BACKEND_URL="http://127.0.0.1:8010/api/health"
 FRONTEND_URL="http://127.0.0.1:3010/"
 RUNNER_INTERVAL="${AOS_RUNNER_INTERVAL_SECONDS:-5}"
@@ -353,6 +356,63 @@ start_runner() {
   fi
 }
 
+# --- Telegram bridge (inbound receiver) ------------------------------------
+# The bridge holds its own flock singleton, so discovery adopts a live poller
+# instead of starting a second one. Set AOS_SKIP_TELEGRAM_BRIDGE=1 to opt out.
+# Revisit: if the bridge gains its own supervisor. · Last touched: 2026-08-10.
+bridge_skipped() {
+  [[ "${AOS_SKIP_TELEGRAM_BRIDGE:-0}" == "1" ]]
+}
+
+canonical_bridge_pid() {
+  local pid
+  [[ -f "$BRIDGE_LOCK" ]] || return 1
+  pid="$(tr -d '[:space:]' <"$BRIDGE_LOCK" 2>/dev/null || true)"
+  [[ "$pid" =~ ^[0-9]+$ ]] || return 1
+  kill -0 "$pid" 2>/dev/null || return 1
+  tr '\0' ' ' <"/proc/${pid}/cmdline" 2>/dev/null | grep -F -- "$BRIDGE_SCRIPT" >/dev/null || return 1
+  printf '%s\n' "$pid"
+}
+
+start_bridge() {
+  local discovered
+  if bridge_skipped; then
+    return 0
+  fi
+  if pid_alive "$BRIDGE_PID"; then
+    return 0
+  fi
+  if discovered="$(canonical_bridge_pid)"; then
+    printf '%s\n' "$discovered" >"$BRIDGE_PID"
+    return 0
+  fi
+  (
+    cd "$ROOT"
+    [[ ! -e "/proc/$BASHPID/fd/9" ]] || exec 9>&-
+    exec nohup setsid "$PYTHON" "$BRIDGE_SCRIPT"
+  ) >>"${RUNTIME_DIR}/bridge.log" 2>&1 </dev/null &
+  echo "$!" >"$BRIDGE_PID"
+}
+
+status_bridge() {
+  local discovered
+  if bridge_skipped; then
+    echo "bridge=skipped root=$ROOT"
+    return 0
+  fi
+  if pid_alive "$BRIDGE_PID"; then
+    status_one bridge "$BRIDGE_PID"
+    return
+  fi
+  if discovered="$(canonical_bridge_pid)"; then
+    echo "bridge=running pid=$discovered root=$ROOT supervisor=external"
+    printf '%s\n' "$discovered" >"$BRIDGE_PID"
+    return 0
+  fi
+  echo "bridge=stopped root=$ROOT"
+  return 1
+}
+
 wait_dashboard() {
   if ! wait_http "$BACKEND_URL" backend; then
     stop
@@ -370,6 +430,7 @@ start() {
   start_backend
   start_frontend
   start_runner
+  start_bridge
   wait_dashboard
   status
 }
@@ -384,6 +445,7 @@ desktop_start() {
   start_backend
   start_frontend
   start_runner
+  start_bridge
   wait_dashboard
   pid_alive "$BACKEND_PID"
   pid_alive "$FRONTEND_PID"
@@ -391,6 +453,7 @@ desktop_start() {
   status_one backend "$BACKEND_PID"
   status_one frontend "$FRONTEND_PID"
   status_one runner "$RUNNER_PID"
+  status_bridge || true
 }
 
 stop_one() {
@@ -415,6 +478,7 @@ stop_one() {
 
 stop() {
   authority_check
+  stop_one bridge "$BRIDGE_PID"
   stop_one runner "$RUNNER_PID"
   stop_one frontend "$FRONTEND_PID"
   stop_one backend "$BACKEND_PID"
@@ -469,6 +533,7 @@ status() {
   status_one backend "$BACKEND_PID" || result=1
   status_frontend || result=1
   status_runner || result=1
+  status_bridge || result=1
   curl --noproxy '*' -fsS --max-time 2 "$BACKEND_URL" >/dev/null 2>&1 && echo "backend_ready=yes" || { echo "backend_ready=no"; result=1; }
   curl --noproxy '*' -fsS --max-time 2 "$FRONTEND_URL" >/dev/null 2>&1 && echo "frontend_ready=yes" || { echo "frontend_ready=no"; result=1; }
   return "$result"
@@ -503,5 +568,8 @@ case "${1:-}" in
   stop) stop ;;
   restart) stop || true; start ;;
   status) status ;;
-  *) echo "Usage: $0 {start|desktop-start|desktop-cleanup|stop|restart|status}" >&2; exit 2 ;;
+  bridge-start) authority_check; start_bridge; status_bridge ;;
+  bridge-stop) authority_check; stop_one bridge "$BRIDGE_PID" ;;
+  bridge-status) status_bridge ;;
+  *) echo "Usage: $0 {start|desktop-start|desktop-cleanup|stop|restart|status|bridge-start|bridge-stop|bridge-status}" >&2; exit 2 ;;
 esac
