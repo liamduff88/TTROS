@@ -32,6 +32,17 @@ TIMEOUT_SECONDS = 60
 PERMITTED_ACTIONS = ("local_read", "local_edit", "local_test")
 DEFAULT_ACTIONS = "local_read,local_edit,local_test"
 
+# The done-transition is refused by hooks/receipt_completeness_check.md when an item
+# carries no stop_conditions, and the item lands in `blocked`. Since items auto-close,
+# that is now a silent stall rather than something you would notice in human_review.
+# David writes good stop_conditions when he remembers; this covers when he does not.
+DEFAULT_STOP_CONDITIONS = (
+    "Stop and escalate to the operator if: the definition of done cannot be reached using "
+    "local_read, local_edit and local_test alone; an external action, git operation, network "
+    "send or credential would be required; the same failure occurs twice in a row; or the work "
+    "would expand materially beyond the stated title and context."
+)
+
 ITEM_ID_RE = re.compile(r"^AOS-\d{4}-\d{4}$")
 
 # Who work can be handed to. Keys are what David says; values are the queue's
@@ -187,8 +198,9 @@ def delegate_task(
 
     if depends_on.strip():
         args += ["--depends-on", depends_on.strip()]
-    if stop_conditions.strip():
-        args += ["--stop-conditions", stop_conditions.strip()]
+    # Always present. An item without stop_conditions cannot pass the receipt
+    # completeness check and would stall in `blocked` instead of closing.
+    args += ["--stop-conditions", stop_conditions.strip() or DEFAULT_STOP_CONDITIONS]
 
     outcome = _run(args)
     if not outcome.get("success"):
