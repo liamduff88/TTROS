@@ -70,6 +70,12 @@ class ExternalActionAdapterTests(unittest.TestCase):
         self.root = Path(self.holder.name)
         (self.root / "queue/receipts").mkdir(parents=True)
         (self.root / "queue/work_items.jsonl").write_text("", encoding="utf-8")
+        (self.root / "queue/notifications.json").write_text(json.dumps({
+            "allowlist": {
+                "telegram": [],
+                "agentmail_internal": ["liam@timetorevenue.com"],
+            }
+        }), encoding="utf-8")
 
     def tearDown(self):
         self.holder.cleanup()
@@ -153,6 +159,36 @@ class ExternalActionAdapterTests(unittest.TestCase):
         cli.assert_called_once()
         receipt = (self.root / "queue/receipts/external-action-gate.jsonl").read_text(encoding="utf-8")
         self.assertIn('"decision":"allowed"', receipt)
+
+    def test_standing_morning_brief_agentmail_send_is_narrow_and_allowlisted(self):
+        provider = {"ok": True, "data": {"successful": True, "data": {"message_id": "agentmail-fixture"}}}
+        with patch.object(composio_access_adapter, "cli", return_value=provider) as cli:
+            result = composio_access_adapter.send_authorized_morning_brief_agentmail(
+                root=self.root,
+                inbox_id="olmec1@agentmail.to",
+                recipient="liam@timetorevenue.com",
+                subject="David Morning Brief — 2026-08-18",
+                text="# David Morning Brief\n\nExact artifact.",
+            )
+        self.assertTrue(result["ok"])
+        cli.assert_called_once()
+        self.assertEqual(("execute", "AGENT_MAIL_SEND_EMAIL", "-d"), cli.call_args.args[:3])
+        payload = json.loads(cli.call_args.args[3])
+        self.assertEqual(["liam@timetorevenue.com"], payload["to"])
+        self.assertEqual("olmec1@agentmail.to", payload["inbox_id"])
+
+    def test_standing_morning_brief_agentmail_send_blocks_any_other_target(self):
+        with patch.object(composio_access_adapter, "cli") as cli:
+            result = composio_access_adapter.send_authorized_morning_brief_agentmail(
+                root=self.root,
+                inbox_id="olmec1@agentmail.to",
+                recipient="someone@example.com",
+                subject="David Morning Brief — 2026-08-18",
+                text="# David Morning Brief\n\nExact artifact.",
+            )
+        self.assertFalse(result["ok"])
+        self.assertFalse(result["transmitted"])
+        cli.assert_not_called()
 
 
 if __name__ == "__main__":

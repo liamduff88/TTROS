@@ -1,5 +1,5 @@
 # LOOP_POLICY.md — how work moves through the OS
-> Revisit: on a Hermes release, a routing change, or an escalation-trigger dispute. · Last touched: 2026-08-04.
+> Revisit: on a Hermes release, a routing change, or an escalation-trigger dispute. · Last touched: 2026-08-17.
 
 ## The loop
 ```
@@ -43,9 +43,12 @@ Cross-client or cross-lane contamination is a stop condition, not a merge point.
 ## Scheduled loops
 - `/morning-brief` — fresh zero-model-token attention query over queue,
   receipts, prospect state, scoped canonical notes, and Graphify discovery;
-  Hermes interprets afterward through Context Assembler. On-demand is active;
-  scheduled delivery is not activated and no automatic Telegram/email send is
-  part of this loop.
+  David interprets afterward through mandatory Context Assembler. Liam's
+  standing authorization activates the existing user timer at exactly 08:00
+  America/Vancouver; each run retains `context/DAVID_MORNING_BRIEF.md` and
+  sends that exact artifact only to Liam's Time to Revenue address through the
+  governed Composio AgentMail adapter and to the existing Telegram operator
+  account through the established send path.
 - `/maintain-os` — weekly scan (drift, unused skills, stale Revisit dates),
   monthly interview (walks due dates, asks refresh questions). Reports and
   recommends only; never deletes without Liam's okay (never.md #12).

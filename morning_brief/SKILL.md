@@ -1,10 +1,10 @@
 ---
 name: morning_brief
-description: Deterministic morning attention query plus optional Hermes interpretation. Detection reads live authority and spends zero model tokens.
+description: Deterministic morning attention query plus David interpretation and authorized operator delivery. Detection reads live authority and spends zero model tokens.
 when-to-use: Scheduled daily 8am, or on Liam's command any morning. Owner: orchestrator. Trust: earned.
 ---
 # /morning-brief
-> Revisit: if queue, prospect, Graphify, or canonical entity contracts change. · Last touched: 2026-08-04
+> Revisit: if queue, prospect, Graphify, canonical entity, or delivery contracts change. · Last touched: 2026-08-17
 
 ## Purpose
 Start the day from a fresh query of authoritative state. The detector decides
@@ -32,15 +32,21 @@ the exact findings enter the mandatory assembled-context path.
    boundary, observation time, and zero-token accounting.
 5. Pass the fresh deterministic JSON through Context Assembler. Hermes may
    propose priorities, but may not add/remove detector matches or act externally.
+6. The complete scheduled path is `python3 -m tools.aos_morning_brief --deliver`;
+   retain the exact local Markdown and send it only to Liam's authorized
+   address through the governed Composio AgentMail adapter and to the existing
+   Telegram operator account through the established path.
 
 ## Never
-- Write to the Brain, calendar, queue, or any external system.
+- Write to the Brain, calendar, queue, or any external system except the two
+  expressly authorized operator deliveries named above.
 - Launch other skills (suggest them by name instead).
 - Read the prior generated brief as evidence or require manual removal.
-- Open raw Gmail bodies or Graphify note bodies.
+- Open raw email bodies or Graphify note bodies.
 
 ## Done when
-Fresh findings are published atomically (or the complete prior artifact remains
-unchanged on failure), detector token use is exactly zero, and the assembled
-Hermes context includes the same findings. Resolution clears the next query by
-authoritative status/outcome transition while history remains intact.
+Fresh findings and the interpreted local artifact are published atomically,
+detector token use is exactly zero, the assembled context includes the same
+findings, and both authorized deliveries acknowledge the local artifact hash.
+Resolution clears the next query by authoritative status/outcome transition
+while history remains intact.

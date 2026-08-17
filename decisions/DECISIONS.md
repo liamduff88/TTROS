@@ -1,6 +1,35 @@
 # DECISIONS.md — log of decisions that change system behavior
-> Revisit: when a behavior-affecting system decision is made. · Last touched: 2026-08-09.
+> Revisit: when a behavior-affecting system decision is made. · Last touched: 2026-08-17.
 > One entry per behavior-affecting change. Newest first.
+
+## 2026-08-17 — Recurring morning email corrected to governed AgentMail
+
+After the authorized immediate run had already sent today's one-off through
+Gmail, Liam corrected the recurring email route to the existing Composio
+AgentMail capability. No duplicate was sent. Future 08:00 runs use the governed
+`AGENT_MAIL_SEND_EMAIL` helper, fixed sender `olmec1@agentmail.to`, fixed target
+`liam@timetorevenue.com`, the existing internal-recipient allowlist, and the
+exact local Markdown body. Telegram is unchanged.
+
+## 2026-08-17 — David morning briefing activated for two operator deliveries
+
+Liam explicitly authorized the existing morning service to run daily at 08:00
+America/Vancouver, retain the local David Markdown, and send that exact artifact
+only to `liam@timetorevenue.com` and to the existing allowlisted Telegram
+operator. Per-day delivery intents/results and an artifact hash make re-entry
+fail closed or suppress duplicates; receipts retain provider/model and actual
+usage/cost fields returned by the Ask David invocation. The email transport was
+subsequently corrected to AgentMail in the decision above.
+
+## 2026-08-17 — Morning interpretation has one disabled systemd-shaped local path
+
+The zero-token detector remains factual and independent. A complete morning run
+now refreshes it, invokes David only through the real Ask David API and mandatory
+Context Assembler, requires a zero-queue consultation plus authoritative usage,
+and atomically publishes one concise non-authoritative local artifact. The 8am
+user timer is installed but disabled pending explicit activation of recurring
+model calls. No Telegram, email, connector, or other external delivery is
+configured.
 
 ## 2026-08-17 — Recent outcomes omit absent model-facing fields
 

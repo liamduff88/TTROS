@@ -1,6 +1,6 @@
 # Agentic OS Connectors
 
-> Revisit: when connector authority or the live Composio catalog changes. · Last touched: 2026-07-17.
+> Revisit: when connector authority or the live Composio catalog changes. · Last touched: 2026-08-17.
 
 Composio is the primary connector spine. All connector work goes through `connectors/composio_access_adapter.py` first; do not build separate app APIs where Composio supplies the toolkit.
 
@@ -11,6 +11,10 @@ Mode: operator-command enabled.
   allowlists exactly `GMAIL_CREATE_EMAIL_DRAFT` and enforces idempotency.
 - Gmail send, reply, forward, schedule-send, draft deletion/update, and
   message/label mutation are forbidden to Agentic OS.
+- David's authorized morning brief is the narrow internal-send exception: the
+  shared adapter exposes `send_authorized_morning_brief_agentmail`, which fixes
+  `AGENT_MAIL_SEND_EMAIL` to the existing AgentMail inbox, Liam's internal
+  allowlisted address, the exact brief subject/body shape, and no other target.
 - Send/write/book/push/publish/delete/mutate may run only when Liam explicitly commands the specific action.
 - Use `prepare <toolkit> <intent>` to discover exact Composio actions, `execute ACTION --get-schema` to inspect inputs, and guarded adapter `run` for preview or execution.
 - `run` defaults to Composio dry-run. Actual execution requires `--execute --operator-command`.

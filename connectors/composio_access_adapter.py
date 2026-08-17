@@ -57,8 +57,16 @@ def emit(value: Any) -> None:
     print(json.dumps(value, indent=2, sort_keys=True))
 
 
-def _append_gate_receipt(*, work_item_id: str, action: str, target: str, decision: str, reason: str) -> None:
-    path = ROOT / "queue/receipts/external-action-gate.jsonl"
+def _append_gate_receipt(
+    *,
+    work_item_id: str,
+    action: str,
+    target: str,
+    decision: str,
+    reason: str,
+    root: Path | None = None,
+) -> None:
+    path = (root or ROOT) / "queue/receipts/external-action-gate.jsonl"
     path.parent.mkdir(parents=True, exist_ok=True)
     record = {
         "timestamp": now_utc(),
@@ -198,6 +206,56 @@ def cli(*args: str, timeout: int = TIMEOUT_SECONDS) -> dict[str, Any]:
     if result.returncode != 0:
         response["error"] = clean_error(stderr or stdout)
     return response
+
+
+def send_authorized_morning_brief_agentmail(
+    *,
+    root: Path,
+    inbox_id: str,
+    recipient: str,
+    subject: str,
+    text: str,
+) -> dict[str, Any]:
+    """Execute only Liam's standing internal morning-brief AgentMail send."""
+    from tools.aos_orchestration import load_notifications
+
+    action = "AGENT_MAIL_SEND_EMAIL"
+    target = str(recipient).strip()
+    allowed_recipients = set(load_notifications(root).get("agentmail_internal") or [])
+    checks = (
+        (target == "liam@timetorevenue.com", "recipient is not the authorized morning-brief target"),
+        (target in allowed_recipients, "recipient is not on the internal AgentMail allowlist"),
+        (str(inbox_id).strip().endswith("@agentmail.to"), "AgentMail inbox id is invalid"),
+        (subject.startswith("David Morning Brief — "), "subject is outside the morning-brief contract"),
+        (text.startswith("# David Morning Brief\n"), "body is not a David morning-brief artifact"),
+    )
+    failure = next((reason for passed, reason in checks if not passed), None)
+    payload = {
+        "inbox_id": str(inbox_id).strip(),
+        "to": [target],
+        "subject": subject,
+        "text": text,
+    }
+    if failure or _payload_contains_secret(payload):
+        reason = failure or "secret-exposure check failed"
+        _append_gate_receipt(
+            work_item_id="DAVID-MORNING-BRIEF",
+            action=action,
+            target=target,
+            decision="blocked",
+            reason=reason,
+            root=root,
+        )
+        return {"ok": False, "error": reason, "transmitted": False}
+    _append_gate_receipt(
+        work_item_id="DAVID-MORNING-BRIEF",
+        action=action,
+        target=target,
+        decision="allowed",
+        reason="standing internal morning-brief authorization and recipient allowlist matched",
+        root=root,
+    )
+    return cli("execute", action, "-d", json.dumps(payload, separators=(",", ":")), timeout=120)
 
 
 def load_registry() -> dict[str, Any]:
