@@ -69,6 +69,25 @@
             "type": "array",
             "items": {"type": "string", "pattern": "^capture:[a-z0-9][a-z0-9:_-]*:$"},
             "uniqueItems": true
+          },
+          "evidence_index_entries": {
+            "type": "array",
+            "description": "Rendered lines for the machine-maintained outcome index. Membership and order must equal evidence_identities exactly.",
+            "items": {
+              "type": "object",
+              "required": ["identity", "line"],
+              "additionalProperties": false,
+              "properties": {
+                "identity": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "line": {
+                  "type": "string",
+                  "pattern": "^- .+"
+                }
+              }
+            }
           }
         },
         "additionalProperties": false

@@ -43,6 +43,7 @@ logs/*token*
 dashboard/backend/*.log
 queue/receipts/*.md
 queue/receipts/*.json
+queue/receipts/*.patch
 !queue/receipts/.gitkeep
 !queue/receipts/AOS-2026-0125-phase-6b-capture-live.json
 !queue/receipts/gmail-draft-eaf7ea6500a619a6e2c05220.json

@@ -33,11 +33,13 @@ try:
     import brain_memory
     from business_brain_scope import ClientScopeError, ClientScopeRegistry, load_registry
     from morning_brief_detector import detect
+    import machine_outcome_index
     from validate_business_brain import analyze_vault
 except ModuleNotFoundError:
     from tools import aos_indexer, brain_memory
     from tools.business_brain_scope import ClientScopeError, ClientScopeRegistry, load_registry
     from tools.morning_brief_detector import detect
+    from tools import machine_outcome_index
     from tools.validate_business_brain import analyze_vault
 
 from dashboard.backend.business_brain_graph import BusinessBrainGraphError, BusinessBrainGraphService
@@ -551,6 +553,19 @@ def run(
     db_path = Path(search_db_path or (root / "search/os_index.db")).resolve()
     gate = registry or load_registry()
     service = BusinessBrainGraphService(graphify_root=graphify_root, vault_root=brain_root, registry=gate)
+    # Automatic Business Brain promotion. Runs BEFORE build_plan so the plan sees the
+    # changed MEMORY_INDEX.md, and BEFORE write_transaction so the vault lock is never
+    # nested - _transaction_lock() opens a fresh handle each call and flock would block
+    # on our own lock. Renders the FULL block every run: the marker holds exactly one
+    # block, so a partial render would erase approved lines.
+    promotion_result = None
+    if not dry_run:
+        try:
+            promotion_result = machine_outcome_index.promote(
+                gate, repo_root=root, brain_root=brain_root, client_scope=client_scope)
+        except Exception as exc:
+            raise NightlyHygieneError(f"machine outcome index promotion failed: {exc}") from exc
+
     plan = build_plan(root=root, brain_root=brain_root, client_scope=client_scope, registry=gate, graphify_root=graphify_root)
     graph_before = service._artifact_hashes(service.published) if service._published_is_usable() else {}
     search_before = _sha_bytes(db_path.read_bytes()) if db_path.is_file() else None
@@ -626,6 +641,13 @@ def run(
             commit_hash = None
         graph_after = service._artifact_hashes(service.published)
         search_after = _sha_bytes(db_path.read_bytes()) if db_path.is_file() else None
+        if promotion_result is not None:
+            try:
+                machine_outcome_index.close_refresh(
+                    gate, repo_root=root, brain_root=brain_root, result=promotion_result,
+                    search_reference=str(search_after), graphify_reference=str(graph_after))
+            except Exception as exc:
+                raise NightlyHygieneError(f"promotion refresh closure failed: {exc}") from exc
         return {
             **base,
             "status": "changed" if plan.documents else "refreshed",

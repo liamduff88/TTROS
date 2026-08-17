@@ -141,7 +141,8 @@
       "evidence_identities": [
         "proof:block-2:accepted-block-1",
         "proof:block-2:deterministic-write",
-        "proof:block-2:later-retrieval"
+        "proof:block-2:later-retrieval",
+        "proof:promotion-ignition:registry-render-contract"
       ],
       "capture_identities": [
         {
@@ -149,7 +150,25 @@
           "value_sha256": "61d78ca66f6ca6d1b522fda46c7298b266f1894dc2cb713e541c63b4180598af"
         }
       ],
-      "capture_evidence_prefixes": ["capture:global:"]
+      "capture_evidence_prefixes": ["capture:global:"],
+      "evidence_index_entries": [
+        {
+          "identity": "proof:block-2:accepted-block-1",
+          "line": "- Business Brain structure accepted at checkpoint 1 (2026-07-15). Source: `proofs/brain-reconciliation/block-1/BLOCK_1_CLOSEOUT_2026-07-15.md`."
+        },
+        {
+          "identity": "proof:block-2:deterministic-write",
+          "line": "- Block 2 deterministic promotion transaction: `proofs/brain-reconciliation/block-2/DETERMINISTIC_WRITE_RECORD_2026-07-15.json`."
+        },
+        {
+          "identity": "proof:block-2:later-retrieval",
+          "line": "- Block 2 later-retrieval verified (2026-07-15). Source: `proofs/brain-reconciliation/block-2/LATER_RETRIEVAL_RECEIPT_2026-07-15.md`."
+        },
+        {
+          "identity": "proof:promotion-ignition:registry-render-contract",
+          "line": "- Machine outcome index rendered from the registered evidence index and verified byte-identical, with membership and order drift guards (2026-08-14). Source: `proofs/promotion-ignition-2026-08-14/REGISTRY_RENDER_CONTRACT_2026-08-14.md`."
+        }
+      ]
     },
     "client:block-3-fixture-a": {
       "kind": "client",
