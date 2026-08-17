@@ -2,6 +2,14 @@
 > Revisit: when a behavior-affecting system decision is made. · Last touched: 2026-08-09.
 > One entry per behavior-affecting change. Newest first.
 
+## 2026-08-17 — Recent outcomes omit absent model-facing fields
+
+The Context Assembler keeps recent-outcome selection, order, derivation,
+records, sources, receipt paths, and retrieval routes unchanged. Its
+model-facing JSON projection now omits only dictionary entries whose derived
+value is Python `None`; false, zero, empty strings, lists, and dictionaries
+remain explicit values.
+
 ## 2026-08-17 — Matching skills/workflows use an operative source projection
 
 Context Assembler keeps the existing deterministic skill/workflow candidates,

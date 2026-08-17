@@ -5,6 +5,7 @@ Revisit: when the One Brain binding or Context Assembler contract changes. · La
 
 from __future__ import annotations
 
+import json
 import subprocess
 import tempfile
 import unittest
@@ -117,6 +118,52 @@ class BrainTransactionTests(unittest.TestCase):
 
 
 class ContextAssemblerTests(unittest.TestCase):
+    def test_recent_outcomes_projection_omits_only_none_values(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "queue").mkdir()
+            item = {
+                "id": "AOS-2026-9999",
+                "title": "Recent outcome fixture",
+                "status": "done",
+                "created_at": "2026-08-17T08:00:00Z",
+                "updated_at": None,
+                "source": "test",
+                "definition_of_done": "Preserve populated values.",
+                "client_scope": "global",
+                "receipts": [],
+                "outreach_review": {
+                    "primary_signal": "",
+                    "qualification": {},
+                    "readiness": [],
+                    "exact_action": None,
+                    "main_caution": "Keep falsey non-null values.",
+                    "last_event": False,
+                    "history_count": 0,
+                    "reconciliation": {"missing_record_is_not_clearance": False},
+                },
+            }
+            (root / "queue" / "work_items.jsonl").write_text(
+                json.dumps(item) + "\n", encoding="utf-8",
+            )
+
+            block = context_assembler._recent_outcomes_block(
+                "AOS-2026-9999 recent outcome fixture", client_scope="global", root=root,
+            )
+            projected = json.loads(block.content)
+
+        self.assertNotIn("updated_at", projected)
+        self.assertNotIn("exact_action", projected)
+        self.assertEqual("", projected["primary_signal"])
+        self.assertEqual({}, projected["qualification"])
+        self.assertEqual([], projected["readiness"])
+        self.assertIs(False, projected["last_event"])
+        self.assertEqual(0, projected["history_count"])
+        self.assertIs(False, projected["missing_record_is_not_clearance"])
+        self.assertEqual([], projected["receipt_paths"])
+        self.assertEqual(("queue/work_items.jsonl#AOS-2026-9999",), block.sources)
+        self.assertEqual("episodic_activity", block.actual_reads[0].retrieval_route)
+
     def test_matching_workflow_projection_keeps_selection_order_and_full_behavior_contract(self) -> None:
         block = context_assembler._matching_workflows_block("all and call liam live per work working")
 

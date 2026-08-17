@@ -506,7 +506,7 @@ def _recent_outcomes_block(
     actual: list[ActualRead] = []
     for item in selected:
         review = item.get("outreach_review") if isinstance(item.get("outreach_review"), dict) else {}
-        summaries.append(json.dumps({
+        projection = {
             "id": item.get("id"),
             "title": item.get("title"),
             "status": item.get("status"),
@@ -523,7 +523,12 @@ def _recent_outcomes_block(
             "history_count": review.get("history_count"),
             "missing_record_is_not_clearance": (review.get("reconciliation") or {}).get("missing_record_is_not_clearance") if isinstance(review.get("reconciliation"), dict) else None,
             "receipt_paths": [r.get("path") for r in item.get("receipts") or [] if isinstance(r, dict)],
-        }, ensure_ascii=False, sort_keys=True))
+        }
+        summaries.append(json.dumps(
+            {key: value for key, value in projection.items() if value is not None},
+            ensure_ascii=False,
+            sort_keys=True,
+        ))
         identity = f"queue/work_items.jsonl#{item.get('id')}"
         digest = _sha(json.dumps(item, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
         sources.append(identity)
