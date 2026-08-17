@@ -2,6 +2,16 @@
 > Revisit: when a behavior-affecting system decision is made. · Last touched: 2026-08-17.
 > One entry per behavior-affecting change. Newest first.
 
+## 2026-08-17 — Historical calls remain evidence behind existing retrieval
+
+The approved historical-call import stores byte-faithful source records under
+the canonical Business Brain, with one compact state-tagged candidate index.
+The existing global scope allowlist now admits those exact pointers to normal
+search, Graphify discovery, and direct reads. Raw speech is not canonicalized;
+pricing, commitments, legal/financial claims, authority changes, and final ICP
+or positioning conclusions remain review-tier. No queue, database, ingestion
+framework, memory system, or second index was added.
+
 ## 2026-08-17 — Recurring morning email corrected to governed AgentMail
 
 After the authorized immediate run had already sent today's one-off through
