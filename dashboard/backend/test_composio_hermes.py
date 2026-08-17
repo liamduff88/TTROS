@@ -2136,7 +2136,7 @@ class HermesComposioTests(unittest.TestCase):
                 result = backend.run_queue_item("AOS-2026-0099")
 
             self.assertTrue(result["success"])
-            self.assertEqual(result["status"], "human_review")
+            self.assertEqual(result["status"], "done")
             prompt_commands = [command for command in commands if "--prompt-file" in command]
             self.assertGreaterEqual(len(prompt_commands), 1)
             for command in prompt_commands:
@@ -2151,7 +2151,7 @@ class HermesComposioTests(unittest.TestCase):
             self.assertNotIn("multi-line\nmarkdown", token_tasks[0])
 
             item = json.loads((root / "queue" / "work_items.jsonl").read_text(encoding="utf-8").splitlines()[0])
-            self.assertEqual(item["status"], "human_review")
+            self.assertEqual(item["status"], "done")
             self.assertEqual(item["claim"], {"claimed_by": None, "claimed_at": None})
             receipt_path = root / item["receipts"][-1]["path"]
             receipt = receipt_path.read_text(encoding="utf-8")
@@ -4309,7 +4309,7 @@ class HermesComposioTests(unittest.TestCase):
         self.assertEqual(result["attempts_used"], 1)
         self.assertTrue(result["success"])
         self.assertEqual(result["hermes_review"]["decision"], "PASS")
-        self.assertEqual(saved["status"], "human_review")
+        self.assertEqual(saved["status"], "done")
         self.assertIn("AVAILABLE:", receipt)
         self.assertIn("sha256", receipt)
 
@@ -4810,7 +4810,7 @@ class HermesComposioTests(unittest.TestCase):
                  patch.object(backend, "_notify_queue_completion", return_value=None):
                 result = backend.run_queue_item(item["id"])
 
-        self.assertEqual(result["status"], "human_review")
+        self.assertEqual(result["status"], "done")
         model_review.assert_called_once()
         self.assertIn("FINAL ARTIFACT ONLY", captured["prompt"])
         self.assertNotIn("RAW WORKER TRANSCRIPT", captured["prompt"])
@@ -4877,7 +4877,7 @@ class HermesComposioTests(unittest.TestCase):
                  patch.object(backend, "_queue_run_hermes_review", return_value=review_result) as review:
                 result = backend.run_queue_item("AOS-2026-0002")
 
-            self.assertEqual(result["status"], "human_review")
+            self.assertEqual(result["status"], "done")
             self.assertEqual(result["receipt_path"], "queue/receipts/AOS-2026-0002.md")
             receipt_file = root / result["receipt_path"]
             self.assertTrue(receipt_file.exists())
@@ -4894,7 +4894,7 @@ class HermesComposioTests(unittest.TestCase):
             self.assertIn("Sandbox: danger-full-access", receipt_text)
             self.assertIn("Approval policy: never", receipt_text)
             self.assertEqual(result["item"]["receipts"][0]["path"], result["receipt_path"])
-            self.assertEqual(result["item"]["receipts"][0]["status"], "human_review")
+            self.assertEqual(result["item"]["receipts"][0]["status"], "done")
 
     def test_queue_item_run_revise_triggers_exactly_one_retry(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -5985,10 +5985,10 @@ class HermesComposioTests(unittest.TestCase):
                         backend.run_queue_item(work["id"])
                     saved = backend._queue_find_item(work["id"])
         # The run itself passed; only the notification after it failed.
-        self.assertEqual(saved["status"], "human_review")
+        self.assertEqual(saved["status"], "done")
         self.assertEqual(saved["claim"], {"claimed_by": None, "claimed_at": None})
         self.assertEqual(ctx.exception.status_code, 500)
-        self.assertIn("human_review", str(ctx.exception.detail))
+        self.assertIn("done", str(ctx.exception.detail))
         self.assertIn("notification transport down", str(ctx.exception.detail))
 
     def test_release_failure_after_the_status_is_written_does_not_downgrade_it(self):
@@ -6020,9 +6020,9 @@ class HermesComposioTests(unittest.TestCase):
                     saved = backend._queue_find_item(work["id"])
         # attach_receipt committed human_review to disk before release_item blew
         # up; the catch-all must not rewrite it to blocked.
-        self.assertEqual(saved["status"], "human_review")
+        self.assertEqual(saved["status"], "done")
         self.assertEqual(ctx.exception.status_code, 500)
-        self.assertIn("human_review", str(ctx.exception.detail))
+        self.assertIn("done", str(ctx.exception.detail))
         self.assertIn("queue write lock timed out", str(ctx.exception.detail))
 
     def test_failure_before_resolution_still_releases_the_item_to_blocked(self):
@@ -6102,7 +6102,7 @@ class HermesComposioTests(unittest.TestCase):
                     result = backend.run_queue_item(dependent["id"])
         self.assertEqual(worker.call_count, 1)
         self.assertTrue(result["success"])
-        self.assertEqual(result["status"], "human_review")
+        self.assertEqual(result["status"], "done")
 
     def test_runner_execute_item_path_hits_the_same_dependency_refusal(self):
         runner_path = MAIN.parents[2] / "tools" / "aos-orchestration-runner.py"
