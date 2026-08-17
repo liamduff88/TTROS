@@ -703,6 +703,84 @@ def _open_loops_block(
     )
 
 
+WORKFLOW_SECTION_LABELS = {
+    "purpose": "PURPOSE",
+    "trigger": "APPLY",
+    "inputs": "REQUIRES",
+    "stages": "PROCESS",
+    "run": "PROCESS",
+    "steps": "PROCESS",
+    "steps — prep": "PROCESS (PREP)",
+    "steps — follow-up (within 24h)": "PROCESS (FOLLOW-UP ≤24H)",
+    "playbook (common skeleton, blueprint v2 §6.2)": "PROCESS",
+    "the framework (ttr standard)": "METHOD",
+    "completion contract (default)": "COMPLETE",
+    "completion contract (default for this workflow)": "COMPLETE",
+    "completion contract (per month)": "COMPLETE",
+    "done when": "COMPLETE",
+    "never": "BOUNDARIES",
+    "verifier check": "VERIFY",
+}
+
+
+def _machine_frontmatter(text: str) -> tuple[dict[str, str], str]:
+    """Read the flat skill/workflow header even when its prose is not YAML-safe."""
+    if not text.startswith("---\n"):
+        return {}, text
+    end = text.find("\n---\n", 4)
+    if end < 0:
+        return {}, text
+    fields: dict[str, str] = {}
+    for raw in text[4:end].splitlines():
+        key, separator, value = raw.partition(":")
+        if separator and key.strip():
+            fields[key.strip()] = value.strip().strip('"')
+    return fields, text[end + 5 :]
+
+
+def _project_matching_source(index: int, relative: str, score: int, text: str) -> str:
+    """Render one selected source as a lossless operative Markdown projection.
+
+    Selection already happened before this function.  Raw frontmatter, lifecycle
+    stamps, duplicate H1 identities and Markdown emphasis are source-maintenance
+    syntax rather than model instructions.  All other source lines remain in their
+    original order and wording.
+    """
+    fields, body = _machine_frontmatter(text)
+    is_skill = relative.endswith("/SKILL.md")
+    identity = fields.get("name") or fields.get("workflow") or relative.rsplit("/", 1)[0]
+    metadata = [f"id={identity}"]
+    if is_skill and fields.get("when-to-use"):
+        applicability = re.split(r"\s+Owner:\s*", fields["when-to-use"], maxsplit=1)[0].strip()
+        metadata.append(f"apply={applicability}")
+    if not is_skill:
+        if fields.get("skill"):
+            metadata.append(f"declared_skill_target={fields['skill']}")
+        if fields.get("path"):
+            metadata.append(f"declared_workflow_target={fields['path']}")
+
+    lines = [
+        f"### {index}. READ_SOURCE={relative} · relevance={score} · route=repo_exact_file · {' · '.join(metadata)}",
+    ]
+    for raw in body.splitlines():
+        stripped = raw.strip()
+        if not stripped:
+            continue
+        if stripped.startswith(("> Revisit:", "> v0 use log:")):
+            continue
+        if stripped.startswith("# "):
+            title = stripped[2:].strip()
+            if not is_skill and " — " in title:
+                lines.append(f"PURPOSE: {title.split(' — ', 1)[1]}")
+            continue
+        if stripped.startswith("## "):
+            heading = stripped[3:].strip()
+            lines.append(f"{WORKFLOW_SECTION_LABELS.get(heading.casefold(), heading.upper())}:")
+            continue
+        lines.append(stripped.replace("**", "").replace("`", ""))
+    return "\n".join(lines)
+
+
 def _matching_workflows_block(query: str) -> ContextBlock:
     terms = _query_terms(query)
     candidates: list[tuple[int, str, str]] = []
@@ -719,18 +797,22 @@ def _matching_workflows_block(query: str) -> ContextBlock:
                 candidates.append((score, relative, text))
     candidates.sort(key=lambda row: (-row[0], row[1]))
     selected = candidates[:4]
-    omitted = [relative for _score, relative, _text in candidates[4:]]
     if not selected:
         return ContextBlock("matching skills/workflows", "N/A — no workflow matched.", ("skills:index#no-match",), False, "relevance search returned zero matches")
     sections = [
-        f"Selected {len(selected)} of {len(candidates)} matches."
-        + (f" Not loaded: {', '.join(omitted)}." if omitted else "")
+        f"Selected {len(selected)}/{len(candidates)}; order preserved. READ_SOURCE is the exact retrieved repo file; DECLARED_*_TARGET is source metadata, not an additional read. Hashes are in provenance/artifact.",
     ]
     sources = []
-    for score, relative, text in selected:
-        sections.extend(("", f"### {relative} · relevance={score}", text.strip()))
+    for index, (score, relative, text) in enumerate(selected, start=1):
+        sections.extend(("", _project_matching_source(index, relative, score, text)))
         sources.append(f"{relative}#sha256={_sha(text)}")
-    return ContextBlock("matching skills/workflows", "\n".join(sections), tuple(sources), False, "term/workflow relevance")
+    return ContextBlock(
+        "matching skills/workflows",
+        "\n".join(sections),
+        tuple(sources),
+        False,
+        "same term/workflow selection; deterministic operative projection",
+    )
 
 
 def _conversation_block(surface: str, session_key: str, *, client_scope: str = "global") -> ContextBlock:

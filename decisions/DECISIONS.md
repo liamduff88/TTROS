@@ -2,6 +2,18 @@
 > Revisit: when a behavior-affecting system decision is made. · Last touched: 2026-08-09.
 > One entry per behavior-affecting change. Newest first.
 
+## 2026-08-17 — Matching skills/workflows use an operative source projection
+
+Context Assembler keeps the existing deterministic skill/workflow candidates,
+scores, selected count, selected order, source hashes, and source files. Its
+model-facing block now distinguishes each exact repo-file read and retrieval
+route from any canonical skill/workflow target declared by that source, and
+renders the source's purpose, applicability, inputs, process, completion,
+verification, boundaries, and receipt requirements without the unselected-file
+inventory, YAML routing metadata, lifecycle stamps, duplicate titles, or
+Markdown emphasis. Raw sources and full hashes remain recoverable through the
+unchanged block provenance and assembly artifact.
+
 ## 2026-08-16 — Morning findings use a decision-facing projection
 
 The deterministic morning detector, selection, order, and raw JSON remain

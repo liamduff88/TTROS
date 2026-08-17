@@ -117,6 +117,52 @@ class BrainTransactionTests(unittest.TestCase):
 
 
 class ContextAssemblerTests(unittest.TestCase):
+    def test_matching_workflow_projection_keeps_selection_order_and_full_behavior_contract(self) -> None:
+        block = context_assembler._matching_workflows_block("all and call liam live per work working")
+
+        self.assertEqual(
+            [source.split("#sha256=", 1)[0] for source in block.sources],
+            [
+                "fit_call_prep/workflow.md",
+                "ai_operations_support/workflow.md",
+                "aoa_working_session/SKILL.md",
+                "fit_call_prep/SKILL.md",
+            ],
+        )
+        self.assertIn("Selected 4/29; order preserved", block.content)
+        self.assertIn("READ_SOURCE is the exact retrieved repo file", block.content)
+        self.assertNotIn("Not loaded:", block.content)
+        self.assertNotIn("> Revisit:", block.content)
+        self.assertNotIn("lane: revenue", block.content)
+        self.assertLess(block.byte_count, 8_000)
+
+        # Identity, purpose, applicability, inputs, operative process, completion,
+        # verification, boundaries, evidence/receipt, and exact retrieval route.
+        for required in (
+            "1. READ_SOURCE=fit_call_prep/workflow.md · relevance=",
+            "route=repo_exact_file · id=fit_call_prep",
+            "declared_skill_target=skills/fit_call_prep/SKILL.md",
+            "declared_workflow_target=workflows/fit_call_prep/workflow.md",
+            "PURPOSE: run a Fit Call prep for one named prospect",
+            "APPLY:\nQueue item exists",
+            "REQUIRES:\n- Prospect name, company, website/socials",
+            "Research — public signals only",
+            "COMPLETE:\n- Done = one-page brief artifact",
+            "VERIFY:\nBrief exists, every research claim sourced",
+            "BOUNDARIES:\n- Contact the prospect or touch their systems.",
+            "Write receipt to receipts/ with token breakdown",
+            "2. READ_SOURCE=ai_operations_support/workflow.md · relevance=",
+            "both sessions supported per the skill's monthly cycle",
+            "3. READ_SOURCE=aoa_working_session/SKILL.md · relevance=",
+            "Audit — map the current workflow",
+            "notes, takeaways, actions, and hub update exist within 24h",
+            "4. READ_SOURCE=fit_call_prep/SKILL.md · relevance=",
+            "apply=A System Fit Call is booked",
+            "Update prospect entity page with research only (facts, sourced)",
+        ):
+            with self.subTest(required=required):
+                self.assertIn(required, block.content)
+
     def test_compact_david_provenance_keeps_audit_evidence_without_model_hashes_or_duplicate_reads(self) -> None:
         digest = "a" * 64
         read = context_assembler.ActualRead(
