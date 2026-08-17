@@ -69,6 +69,7 @@ def evaluate(payload: dict) -> dict:
             surface=surface,
             session_id=session_id,
             session_key=sticky,
+            profile=profile,
             invocation_id=f"hermes-{session_id or 'session'}-{str(extra.get('turn_id') or 'turn')}",
         )
         return {"context": context.render(include_request=False)}

@@ -2,6 +2,14 @@
 > Revisit: when a behavior-affecting system decision is made. · Last touched: 2026-08-09.
 > One entry per behavior-affecting change. Newest first.
 
+## 2026-08-16 — David receives compact model-facing provenance
+
+David's provenance block keeps one row per selected source and its known
+retrieval route, without repeating actual-read rows or sending 64-character
+content hashes. Other profiles retain the prior rendering. The assembly
+artifact still preserves the unchanged selected sources plus complete
+actual-read routes, scopes, and hashes for audit.
+
 ## 2026-08-09 — A resolved item keeps its status; depends_on binds at execution; status changes release the claim
 
 `run_queue_item` records the terminal status the moment `release_item` writes it. Everything

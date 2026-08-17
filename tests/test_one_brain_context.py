@@ -117,6 +117,51 @@ class BrainTransactionTests(unittest.TestCase):
 
 
 class ContextAssemblerTests(unittest.TestCase):
+    def test_compact_david_provenance_keeps_audit_evidence_without_model_hashes_or_duplicate_reads(self) -> None:
+        digest = "a" * 64
+        read = context_assembler.ActualRead(
+            "business_brain:memory/company.md", "pointer", "global", digest,
+        )
+        selected = context_assembler.ContextBlock(
+            "identity/company",
+            "Fixture company.",
+            (
+                f"business_brain:memory/company.md#sha256={digest}#route=pointer",
+                f"context/MORNING_BRIEF_FINDINGS.json#sha256={digest}",
+            ),
+            actual_reads=(read,),
+        )
+
+        provenance = context_assembler._provenance_block((selected,), compact=True)
+
+        self.assertEqual(provenance.sources, selected.sources)
+        self.assertEqual(selected.actual_reads, (read,))
+        self.assertEqual(
+            provenance.content,
+            "\n".join((
+                "- identity/company: business_brain:memory/company.md · route=pointer",
+                "- identity/company: context/MORNING_BRIEF_FINDINGS.json",
+            )),
+        )
+        self.assertNotIn("sha256=", provenance.content)
+        self.assertNotIn("actual-read:", provenance.content)
+
+        full = context_assembler._provenance_block((selected,))
+        self.assertIn(f"sha256={digest}", full.content)
+        self.assertIn("actual-read:", full.content)
+
+        with mock.patch.object(context_assembler, "_deterministic_morning_brief", return_value=selected):
+            david = context_assembler.assemble(
+                "Run the Python unit tests.", surface="test", profile="david",
+                classification="technical_only", write_artifact=False,
+            )
+            other = context_assembler.assemble(
+                "Run the Python unit tests.", surface="test", profile="operator-lean",
+                classification="technical_only", write_artifact=False,
+            )
+        self.assertNotIn(f"sha256={digest}", david.blocks[-1].content)
+        self.assertIn(f"sha256={digest}", other.blocks[-1].content)
+
     def test_raw_prompt_is_rejected_at_model_boundary(self) -> None:
         with self.assertRaises(TypeError):
             context_assembler.require_assembled_context("raw prompt")

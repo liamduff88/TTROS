@@ -47,6 +47,8 @@ SOFT_BUDGET_TOKENS = 60_000
 TOKEN_RE = re.compile(r"\w+|[^\w\s]", re.UNICODE)
 TERM_RE = re.compile(r"[a-z0-9][a-z0-9&.'’-]+", re.IGNORECASE)
 ITEM_RE = re.compile(r"\bAOS-\d{4}-\d{4}\b", re.IGNORECASE)
+SOURCE_SHA256_RE = re.compile(r"#sha256=[0-9a-f]{64}", re.IGNORECASE)
+SOURCE_ROUTE_RE = re.compile(r"#route=([^#]+)")
 POINTER_RE = re.compile(r"business_brain:[A-Za-z0-9_./-]+\.md")
 RELATIONSHIP_RE = re.compile(
     r"\b(?:relationship|related|activity|touched|follow[- ]?up|owed|connected|connection|"
@@ -845,15 +847,37 @@ def _deterministic_morning_brief(classification: str, *, client_scope: str = "gl
         )
 
 
-def _provenance_block(blocks: Iterable[ContextBlock]) -> ContextBlock:
+def _provenance_block(blocks: Iterable[ContextBlock], *, compact: bool = False) -> ContextBlock:
+    selected = tuple(blocks)
     rows = []
-    for block in blocks:
+    for block in selected:
+        if compact:
+            routes = {read.identity: read.retrieval_route for read in block.actual_reads}
+            for source in block.sources:
+                model_source = SOURCE_SHA256_RE.sub("", source)
+                embedded_route = SOURCE_ROUTE_RE.search(model_source)
+                model_source = SOURCE_ROUTE_RE.sub("", model_source)
+                route = routes.get(model_source) or (embedded_route.group(1) if embedded_route else "")
+                route_suffix = f" · route={route}" if route else ""
+                rows.append(f"- {block.name}: {model_source}{route_suffix}")
+            continue
         rows.extend(f"- {block.name}: {source}" for source in block.sources)
         rows.extend(
             f"  - actual-read: {read.identity} · route={read.retrieval_route} · sha256={read.content_sha256} · scope={read.client_scope}"
             for read in block.actual_reads
         )
-    return ContextBlock("provenance", "\n".join(rows), tuple(source for block in blocks for source in block.sources), False, "all selected source identities, actual reads, routes, hashes, and scopes")
+    selection = (
+        "compact selected source identities and routes; full hashes, actual reads, and scopes remain in the assembly artifact"
+        if compact else
+        "all selected source identities, actual reads, routes, hashes, and scopes"
+    )
+    return ContextBlock(
+        "provenance",
+        "\n".join(rows),
+        tuple(source for block in selected for source in block.sources),
+        False,
+        selection,
+    )
 
 
 def assemble(
@@ -863,6 +887,7 @@ def assemble(
     session_id: str = "",
     session_key: str = "",
     client_scope: str = "global",
+    profile: str = "",
     classification: str | None = None,
     invocation_id: str | None = None,
     write_artifact: bool = True,
@@ -926,7 +951,7 @@ def assemble(
         conversation,
         _action_boundaries(),
     ]
-    blocks = tuple([*initial, _provenance_block(initial)])
+    blocks = tuple([*initial, _provenance_block(initial, compact=str(profile or "").strip().casefold() == "david")])
     invocation = invocation_id or f"ctx-{uuid.uuid4().hex}"
     total = sum(block.token_count for block in blocks) + estimate_tokens(query)
     warnings = (f"soft context budget exceeded: {total}>{SOFT_BUDGET_TOKENS}; no block was silently removed",) if total > SOFT_BUDGET_TOKENS else ()
