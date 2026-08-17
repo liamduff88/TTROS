@@ -1,5 +1,5 @@
 # NEVER
-> Revisit: monthly review pass. · Last touched: 2026-07-08.
+> Revisit: monthly review pass. · Last touched: 2026-08-17.
 
 Operator-approved hard prohibitions (pruned 2026-07-08). "Never send Telegram"
 and "no model calls on parse" style LLM-invented absolutes are removed —
@@ -20,8 +20,9 @@ internal sends are governed by rules/always.md #11–12; model spend by #5.
    mirrored in PROTECTED_PATHS.md).
 9. Never blend two clients' data in one output.
 10. Never contact a lead that failed the email-safe / CASL check.
-11. Never mutate CRM/Gmail/Calendar/Drive/LinkedIn/GitHub remote without
-    explicit per-action approval. Codex never pushes to git.
+11. Never mutate CRM/Gmail/Calendar/Drive/LinkedIn without explicit per-action
+    approval. Routine Git commits and normal pushes of completed, proven TTROS
+    source work follow CODEX.md's completion-boundary rule.
 12. Never delete during maintenance — report and recommend only.
 13. Never edit Telegram bridge FILES (read-only process/log status is fine;
     Phase B notifications use the existing send path only).

@@ -2,6 +2,19 @@
 > Revisit: when a behavior-affecting system decision is made. · Last touched: 2026-08-17.
 > One entry per behavior-affecting change. Newest first.
 
+## 2026-08-17 — Proven TTROS source work commits and pushes at completion
+
+Routine completed and proven TTROS source work is now logically committed and
+normally pushed to the authoritative existing Git remote at the completion
+boundary without separate Liam approval. Only proven task source changes may
+be staged; unrelated or unfinished work, credentials, secrets,
+generated/runtime data, and protected material stay out. Explicit do-not-commit
+or do-not-push instructions override the default. Force pushes, shared-history
+rewriting, and destructive clean/reset/stash remain prohibited; genuine
+unresolved divergence is a blocker. This supersedes older Codex no-push
+language and the local-Git-only clause in the 2026-08-04 One Brain decision
+without rewriting those historical entries.
+
 ## 2026-08-17 — Historical calls remain evidence behind existing retrieval
 
 The approved historical-call import stores byte-faithful source records under
