@@ -764,6 +764,63 @@ def _action_boundaries() -> ContextBlock:
     return ContextBlock("action boundaries", content, ("context:TTROS_ARCHITECTURE_UNBOUND_HERMES_ONE_MEMORY_2026-08-04#§5", "rules/never.md"), True, "required safety boundary")
 
 
+def _project_morning_finding(finding: dict[str, Any]) -> dict[str, Any]:
+    """Keep the decision-facing finding facts; leave detector bookkeeping raw."""
+    age = finding.get("calculated_age") if isinstance(finding.get("calculated_age"), dict) else {}
+    activity = (
+        finding.get("last_relevant_activity")
+        if isinstance(finding.get("last_relevant_activity"), dict)
+        else {}
+    )
+    discovery = finding.get("discovery") if isinstance(finding.get("discovery"), dict) else {}
+    return {
+        "finding_id": finding.get("finding_id"),
+        "category": finding.get("category"),
+        "rule": finding.get("rule"),
+        "supporting_rules": finding.get("supporting_rules") or [],
+        "entity_id": finding.get("entity_id"),
+        "title": finding.get("title"),
+        "entity_path": finding.get("entity_path"),
+        "current_state": finding.get("current_state") or {},
+        "age": age.get("display"),
+        "last_activity_at": activity.get("at"),
+        "last_activity_source": activity.get("reference"),
+        "reason": finding.get("reason"),
+        "owner_class": finding.get("owner_class"),
+        "waits_on": finding.get("waits_on"),
+        "next_permitted_action": finding.get("next_permitted_action"),
+        "supporting_references": finding.get("supporting_references") or [],
+        "retrieval_route": discovery.get("route"),
+    }
+
+
+def _render_morning_findings(payload: dict[str, Any], selected: list[dict[str, Any]]) -> str:
+    """Render selected findings as compact, deterministic model-facing records."""
+    selection = "broad executive attention" if payload.get("selection") == "broad executive attention" else "request relevance"
+    lines = [
+        f"Fresh deterministic snapshot {payload.get('observed_at') or 'unknown'}; "
+        f"{len(selected)} of {payload.get('total_finding_count', len(selected))} findings; "
+        f"selection={selection}."
+    ]
+    for finding in selected:
+        value = _project_morning_finding(finding)
+        state = json.dumps(value["current_state"], ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        predicates = ",".join(str(item) for item in value["supporting_rules"])
+        references = "; ".join(str(item) for item in value["supporting_references"])
+        lines.extend((
+            "",
+            f"- {value['finding_id']} | {value['category']}/{value['rule']} | predicates={predicates}",
+            f"  Subject: {value['entity_id']} | {value['title']} | target={value['entity_path']}",
+            f"  State: {state} | age={value['age'] or 'unknown'} | "
+            f"last_activity={value['last_activity_at'] or 'unknown'} @ {value['last_activity_source'] or 'unknown'}",
+            f"  Why: {value['reason']}",
+            f"  Owner/waits: {value['owner_class']} | {value['waits_on']}",
+            f"  Next: {value['next_permitted_action']}",
+            f"  Sources (route={value['retrieval_route'] or 'unknown'}): {references}",
+        ))
+    return "\n".join(lines) + "\n"
+
+
 def _deterministic_morning_brief(classification: str, *, client_scope: str = "global", query: str = "") -> ContextBlock:
     if classification == "technical_only":
         return ContextBlock(
@@ -813,17 +870,11 @@ def _deterministic_morning_brief(classification: str, *, client_scope: str = "gl
         ranked.sort(key=lambda row: (-row[0], str(row[1].get("finding_id") or "")))
         limit = 12 if broad_attention else 6
         selected = [finding for _score, finding in ranked[:limit]]
-        content = json.dumps({
-            "schema_version": payload.get("schema_version"),
+        content = _render_morning_findings({
             "observed_at": payload.get("observed_at"),
-            "selected_finding_count": len(selected),
             "total_finding_count": len(findings),
             "selection": "broad executive attention" if broad_attention else "request relevance",
-            "findings": selected,
-            "discovery": payload.get("discovery"),
-            "source_state_sha256": payload.get("source_state_sha256"),
-            "token_usage": payload.get("token_usage"),
-        }, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+        }, selected)
         return ContextBlock(
             "deterministic morning findings",
             content,

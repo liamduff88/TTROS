@@ -399,7 +399,11 @@ class Step5PublicationTests(Step5Fixture):
         self.assertEqual(0, value["token_usage"]["model_invocations"])
         self.assertFalse(value["generated_artifact_used_as_input"])
 
-    def test_assembled_context_receives_the_same_fresh_deterministic_artifact(self):
+    def test_assembled_context_projects_same_fresh_findings_and_decision_facts(self):
+        jsonl(self.root / "queue/work_items.jsonl", [
+            self.item("AOS-2026-9001", "agent_todo", "First outstanding fixture"),
+            self.item("AOS-2026-9002", "blocked", "Second blocked fixture"),
+        ])
         self.assertEqual(0, self.refresh().exit_code)
         expected = (self.root / generator.FINDINGS_REL).read_text(encoding="utf-8")
         success = generator.RefreshOutcome(0, "header", "brief")
@@ -412,10 +416,37 @@ class Step5PublicationTests(Step5Fixture):
             )
         self.assertEqual("deterministic morning findings", block.name)
         expected_value = json.loads(expected)
-        selected_value = json.loads(block.content)
-        self.assertEqual(expected_value["finding_count"], selected_value["total_finding_count"])
-        expected_ids = {row["finding_id"] for row in expected_value["findings"]}
-        self.assertTrue({row["finding_id"] for row in selected_value["findings"]}.issubset(expected_ids))
+        expected_by_id = {row["finding_id"]: row for row in expected_value["findings"]}
+        selected_ids = [line.split(" |", 1)[0][2:] for line in block.content.splitlines() if line.startswith("- morning-")]
+        self.assertEqual(2, len(selected_ids))
+        self.assertEqual(len(selected_ids), len(set(selected_ids)))
+        self.assertTrue(set(selected_ids).issubset(expected_by_id))
+        self.assertIn(f"{len(selected_ids)} of {expected_value['finding_count']} findings", block.content)
+        for finding_id in selected_ids:
+            finding = expected_by_id[finding_id]
+            projected = context_assembler._project_morning_finding(finding)
+            self.assertIn(projected["finding_id"], block.content)
+            self.assertIn(projected["category"], block.content)
+            self.assertIn(projected["rule"], block.content)
+            self.assertIn(projected["entity_id"], block.content)
+            self.assertIn(projected["title"], block.content)
+            self.assertIn(projected["entity_path"], block.content)
+            self.assertIn(projected["age"], block.content)
+            self.assertIn(projected["reason"], block.content)
+            self.assertIn(projected["owner_class"], block.content)
+            self.assertIn(projected["waits_on"], block.content)
+            self.assertIn(projected["next_permitted_action"], block.content)
+            self.assertIn(projected["last_activity_source"], block.content)
+            self.assertIn(projected["retrieval_route"], block.content)
+            for predicate in projected["supporting_rules"]:
+                self.assertIn(predicate, block.content)
+            state = json.dumps(projected["current_state"], ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+            self.assertIn(state, block.content)
+            for reference in projected["supporting_references"]:
+                self.assertIn(reference, block.content)
+        self.assertNotIn("source_state_sha256", block.content)
+        self.assertNotIn("observation_timestamp", block.content)
+        self.assertNotIn('"seconds"', block.content)
         self.assertIn(hashlib.sha256(expected.encode("utf-8")).hexdigest(), "\n".join(block.sources))
         self.assertIn("zero-model-token detector", block.selection)
         self.assertIn("queue/work_items.jsonl", block.sources)

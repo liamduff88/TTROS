@@ -2,6 +2,16 @@
 > Revisit: when a behavior-affecting system decision is made. · Last touched: 2026-08-09.
 > One entry per behavior-affecting change. Newest first.
 
+## 2026-08-16 — Morning findings use a decision-facing projection
+
+The deterministic morning detector, selection, order, and raw JSON remain
+unchanged. Context Assembler now renders each selected finding as a compact
+model-facing record containing its identity and predicates, subject and source
+target, current state, age and last activity, reason, owner/wait state, next
+permitted action, supporting references, and retrieval route. Repeated detector
+bookkeeping and redundant machine precision stay in the raw artifact rather
+than entering David's prompt.
+
 ## 2026-08-16 — David receives compact model-facing provenance
 
 David's provenance block keeps one row per selected source and its known
