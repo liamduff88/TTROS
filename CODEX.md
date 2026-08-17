@@ -40,6 +40,9 @@ department agent.
 ## Conventions
 - Report findings as PASS / NEEDS ATTENTION with exact file references.
 - Small diffs when editing. Behavior-affecting changes get a decisions-log line.
+- Apply `rules/always.md`'s efficient-operation doctrine: focused proof for a
+  first build or repair; narrow result verification for routine use. Do not
+  rediscover established platform invariants or load unrelated context.
 
 ## Token reporting
 Every unrelated task starts a separate fresh ephemeral session. Resume is never

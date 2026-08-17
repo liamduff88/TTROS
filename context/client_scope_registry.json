@@ -64,9 +64,13 @@
         ,"business_brain:sources/historical_calls/trent-first-call.md"
         ,"business_brain:sources/historical_calls/trent-july-9.md"
       ],
+      "brain_pointer_prefixes": [
+        "business_brain:sources/intake/records/"
+      ],
       "search_source_identities": [
         {"source": "agentic_os_live", "path_prefix": "agentic_os_live:"},
         {"source": "capture_metadata", "path_prefix": "capture:global:"},
+        {"source": "business_brain", "path_prefix": "business_brain:sources/intake/records/"},
         {
           "source": "business_brain",
           "paths": [
@@ -123,6 +127,7 @@
             ,"business_brain:sources/historical_calls/mike-knapp-july-21.md"
             ,"business_brain:sources/historical_calls/trent-first-call.md"
             ,"business_brain:sources/historical_calls/trent-july-9.md"
+            ,"business_brain:sources/intake/INDEX.md"
           ]
         }
       ],
@@ -183,6 +188,7 @@
             ,"business_brain:sources/historical_calls/mike-knapp-july-21.md"
             ,"business_brain:sources/historical_calls/trent-first-call.md"
             ,"business_brain:sources/historical_calls/trent-july-9.md"
+            ,"business_brain:sources/intake/INDEX.md"
           ]
         }
       ],

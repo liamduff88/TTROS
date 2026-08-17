@@ -176,7 +176,7 @@ class ContextAssemblerTests(unittest.TestCase):
                 "fit_call_prep/SKILL.md",
             ],
         )
-        self.assertIn("Selected 4/29; order preserved", block.content)
+        self.assertIn("Selected 4/30; order preserved", block.content)
         self.assertIn("READ_SOURCE is the exact retrieved repo file", block.content)
         self.assertNotIn("Not loaded:", block.content)
         self.assertNotIn("> Revisit:", block.content)

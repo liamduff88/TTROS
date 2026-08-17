@@ -2,6 +2,15 @@
 > Revisit: when a behavior-affecting system decision is made. · Last touched: 2026-08-17.
 > One entry per behavior-affecting change. Newest first.
 
+## 2026-08-17 — Routine operations spend reasoning only where judgment starts
+
+The practical outcome is the unit of work. First builds and repairs receive
+focused tests plus one representative end-to-end proof; routine use relies on
+established contracts and performs narrow integrity/result checks. Deterministic
+local capabilities now handle routine source capture with zero model calls,
+while interpretation and durable distillation remain explicit, scoped actions
+under existing client-isolation and promotion/review rules.
+
 ## 2026-08-17 — Proven TTROS source work commits and pushes at completion
 
 Routine completed and proven TTROS source work is now logically committed and

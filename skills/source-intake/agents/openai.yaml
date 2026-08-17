@@ -1,0 +1,4 @@
+interface:
+  display_name: "Source Intake"
+  short_description: "Capture historical context without model calls"
+  default_prompt: "Use $source-intake to import these files as historical business context."

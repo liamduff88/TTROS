@@ -92,7 +92,9 @@ class ClientScopeRegistry:
             raise ClientScopeError(str(exc)) from exc
         if canonical in set(self.data.get("denied_brain_pointers") or []):
             raise ClientScopeError(f"Business Brain pointer is explicitly unavailable: {canonical}")
-        if canonical not in set(record.get("brain_pointers") or []):
+        exact = set(record.get("brain_pointers") or [])
+        prefixes = tuple(str(value) for value in record.get("brain_pointer_prefixes") or [])
+        if canonical not in exact and not any(canonical.startswith(prefix) for prefix in prefixes):
             raise ClientScopeError(f"Business Brain pointer does not belong to {identity.scope_id}: {canonical}")
         return canonical
 

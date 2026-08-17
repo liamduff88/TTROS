@@ -1,5 +1,5 @@
 # ALWAYS
-> Revisit: monthly review pass. · Last touched: 2026-07-15.
+> Revisit: monthly review pass. · Last touched: 2026-08-17.
 
 Operator-approved rule set (pruned 2026-07-08). Absolutes an LLM invented and
 the operator never approved were removed; see rules/never.md for the hard
@@ -31,6 +31,23 @@ prohibitions.
 12. Review/blocked/needs_input items surface in the originating channel and
     the Needs Me rail immediately; unanswered after the configured window
     (default 10 min) escalates to Telegram via the existing bridge send path.
+
+## Efficient-operation doctrine
+
+The unit of work is the requested practical outcome, not maximum inspection or proof. For routine operations:
+
+1. Use deterministic/local mechanisms whenever they can correctly produce the answer or perform the operation.
+2. Call a model only for genuine interpretation, judgment, synthesis, or language reasoning.
+3. Do not repeatedly prove established platform invariants during normal use.
+4. Distinguish FIRST BUILD / REPAIR (focused tests plus representative end-to-end proof) from ROUTINE USE (narrow integrity/result verification only).
+5. Reuse existing evidence and live contracts instead of rediscovering repository history.
+6. Avoid broad repository reads, full suites, multi-agent investigation, and extensive proof artifacts unless failure evidence or change scope requires them.
+7. Optimize for useful outcome per token, not maximum context.
+8. Routine source/data operations use existing deterministic capabilities instead of invoking Codex to rediscover the system.
+9. Load only the smallest relevant knowledge into model context.
+10. Complete and proven source changes are logically committed and normally pushed automatically under the current Git rule.
+
+Protected boundaries and review-tier promotion rules remain unchanged.
 
 ## Pointers
 - Enforcement: hooks/receipt_completeness_check.md · hooks/token_budget_check.md
