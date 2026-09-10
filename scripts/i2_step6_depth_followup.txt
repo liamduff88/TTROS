@@ -1,0 +1,39 @@
+=== STEP I2 Part A step 6 -- depth/precision follow-up ===
+Calls already used before this script: 2 of 12
+DECLARED MAXIMUM for this script: 1 call(s).
+
+PREDICTION (written before running): the compact source card does not
+contain a GVR board count or Fraser Valley city names -- confirmed by
+reading the real card before this call. A correct, specific answer
+(a number close to '11 boards', and city names such as Langley, Surrey,
+Abbotsford) can only come from David actually reading the verbatim
+original (sources/intake/records/<sha256>.md) during this turn, not
+from the card alone. Expect a fresh hermes-*.json context assembly and
+a citation of the original record pointer.
+
+Call 3 of 12 (this script's call 1 of 1):
+  wall clock: 51.995s, returncode: 0
+  usage file: /tmp/i2_step6_depth_followup_david.usage.json
+  usage contents: {"estimated_cost_usd": 0.0, "cost_status": "included", "cost_source": "none", "input_tokens": 41162, "output_tokens": 1152, "cache_read_tokens": 102400, "cache_write_tokens": 0, "reasoning_tokens": 474, "total_tokens": 144714, "api_calls": 5, "model": "gpt-5.5", "provider": "openai-codex", "session_id": "20260909_175150_486fe1", "completed": true, "failed": false, "service_tier": null}
+
+David's real answer:
+Fred’s number was: “like, I think 11 boards.”
+
+Exact transcript quote:
+
+“Is the greater Vancouver realtors. There's like, I think 11 boards. There's a board that manages the Vancouver and a few other cities, and then there's Fraser Valley that looks at Surrey, Obisford. And then there's like a Vancouver Island board, northern DC board.”
+
+Then, when you asked about his API / MLS area, he added:
+
+“Yeah, but, I mean, I also have Fraser Valley, so they have some sort of data sharing. So I can look at Langley, Siri, their Fraser Valley, but it shows up on my MLS, so they are connected somehow.”
+
+So the named Fraser Valley cities/places in the transcript are:
+
+- Surrey — transcribed once as “Surrey” and once as “Siri”
+- “Obisford” — almost certainly Abbotsford, but the transcript says “Obisford”
+- Langley
+
+Source: business_brain:sources/intake/records/d9cb4668fd766474278e414bb53223f944342004f34be23020c161fa4160dd74.md, lines 229–234.
+
+CALLS USED THIS SCRIPT: 1 of 1 declared.
+RUNNING TOTAL: 3 of 12 declared.

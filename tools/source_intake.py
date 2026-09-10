@@ -162,10 +162,16 @@ def _searchable(item: SourceItem) -> str:
     lines = []
     for line in item.raw.decode("utf-8", errors="replace").splitlines():
         if not aos_indexer.SENSITIVE_LINE_RE.search(line):
+            # rstrip only: the vault's write_transaction runs `git diff --cached --check`,
+            # which fails a commit on trailing whitespace. This is a rendering-only
+            # normalization of the derived searchable copy -- exact original bytes are
+            # preserved unchanged in the BYTES_BEGIN/BYTES_END block below, untouched by
+            # this function. Trailing whitespace carries no semantic content.
             lines.append(
                 line.replace("[[", "[ [")
                 .replace("]]", "] ]")
                 .replace("<!-- TTROS:HERMES:", "< !-- TTROS:HERMES:")
+                .rstrip()
             )
     return "\n".join(lines).strip() or "[No safely indexable UTF-8 text; exact bytes remain preserved below.]"
 
@@ -255,12 +261,174 @@ def _configure_indexer(repo_root: Path, brain_root: Path, search_db: Path) -> di
     return previous
 
 
+def _run_semantic_intake(
+    input_path: Path, *, repo_root: Path, brain_root: Path, search_db: Path, graphify_root: Path,
+    client_scope: str, gate: "ClientScopeRegistry", commit: bool, now: Callable[[], str],
+    semantic_budget: "object | None",
+) -> IntakeResult:
+    """Backfill/production path for mode="semantic": one already-preserved
+    `type: historical_source` OR `type: source` (production capture) record in,
+    a compact source card (Business Brain, gated write_transaction + graph/FTS
+    refresh) and a structured claim receipt (system evidence,
+    queue/receipts/source_intake/, outside the vault, never indexed) out. Never
+    re-preserves the original.
+    STEP I1, 2026-09-09; see scripts/i1_source_intake_semantic_extraction_transcript.md.
+    Production-shape support added STEP I2, 2026-09-09; see
+    scripts/i2_source_intake_production_path_transcript.md.
+    """
+    from tools import source_intake_semantic as sis
+
+    source_path = Path(input_path).expanduser().resolve()
+    if source_path.is_symlink():
+        raise SourceIntakeError("symlink inputs are not supported")
+    if not source_path.is_file():
+        raise SourceIntakeError(f"semantic mode requires one existing historical_source record file: {source_path}")
+    if aos_indexer.is_excluded(source_path):
+        raise SourceIntakeError(f"protected, excluded, or symlink input: {source_path}")
+    try:
+        relative = source_path.relative_to(brain_root)
+    except ValueError as exc:
+        raise SourceIntakeError("semantic mode requires a source already preserved inside the Business Brain vault") from exc
+    relative_posix = relative.as_posix()
+    if relative.name in {"INDEX.md", "MANIFEST.md"}:
+        raise SourceIntakeError(f"semantic mode refuses navigation/manifest files as a source: {relative_posix}")
+
+    record_text = source_path.read_text(encoding="utf-8")
+    # extract_verbatim_source() itself enforces type: historical_source or
+    # type: source and raises SemanticExtractionError (a SourceIntakeError) for
+    # anything else -- no separate type check needed here.
+    header_fields, body = sis.extract_verbatim_source(record_text)
+
+    source_id = sis.slug_for(source_path)
+    source_sha256 = header_fields.get("source_sha256", "")
+    # Production-shape captures (type: source) get their own card/receipt tree
+    # and never touch the historical-only navigation index below -- that index
+    # is a curated table over the 15 pre-existing historical_source imports,
+    # not a general card registry. Legacy historical_source records keep the
+    # exact pre-existing behavior, unchanged (STEP I2, 2026-09-10).
+    is_production_shape = header_fields.get("type") == "source"
+    if is_production_shape:
+        card_relative = f"sources/intake/cards/{source_id}.card.md"
+        index_relative = None
+    else:
+        card_relative = f"sources/historical_calls/cards/{source_id}.card.md"
+        index_relative = "sources/historical_calls/INDEX.md"
+    # Structured claim records are system evidence, never Business Brain content:
+    # locked outside the vault, in the repo's own queue/receipts tree (never a
+    # brain_pointer, never search-indexed -- .claims.yaml is not in
+    # aos_indexer.INDEXABLE_EXTENSIONS).
+    if is_production_shape:
+        receipt_relative = f"queue/receipts/source_intake/claims/{source_id}.claims.yaml"
+    else:
+        receipt_relative = f"queue/receipts/source_intake/claims/historical/{source_id}.claims.yaml"
+    receipt_path = repo_root / receipt_relative
+
+    if (brain_root / card_relative).exists():
+        return IntakeResult(
+            "success", 1, 0, 1, 0, True, (), (f"business_brain:{card_relative}",),
+            "unchanged", "unchanged", None, True,
+        )
+
+    stamp = now()
+    prompt = sis.render_prompt(body)
+    budget = semantic_budget if semantic_budget is not None else sis.ModelCallBudget(maximum=30)
+    payload = sis.call_hermes_semantic(prompt, budget=budget, source_id=source_id)
+    kept, dropped = sis.validate_claims(payload.get("claims"), body)
+    card = payload.get("card") if isinstance(payload.get("card"), dict) else {}
+
+    receipt_text = sis.render_claim_receipt(
+        source_id=source_id, source_path=relative_posix, source_sha256=source_sha256,
+        generated_at=stamp, model=sis.DEFAULT_MODEL, kept=kept, dropped=dropped,
+    )
+    card_text = sis.render_source_card(
+        source_id=source_id, source_path=relative_posix, source_sha256=source_sha256,
+        source_date=header_fields.get("source_date_text", "unavailable"), ingested_at=stamp,
+        kind=header_fields.get("source_document_kind", ""), participants=header_fields.get("participants_text", ""),
+        card=card, receipt_relative=receipt_relative,
+    )
+
+    if is_production_shape:
+        documents = {card_relative: card_text}
+    else:
+        index_path = brain_root / index_relative
+        if not index_path.is_file():
+            raise SourceIntakeError(f"historical_calls navigation index is unavailable: {index_path}")
+        cards_dir = brain_root / "sources/historical_calls/cards"
+        existing_cards = {
+            path.name[: -len(".card.md")]: path.read_text(encoding="utf-8")
+            for path in (sorted(cards_dir.glob("*.card.md")) if cards_dir.is_dir() else [])
+        }
+        existing_cards[source_id] = card_text
+        new_index_text = sis.evolve_historical_calls_index(index_path.read_text(encoding="utf-8"), existing_cards)
+        documents = {card_relative: card_text, index_relative: new_index_text}
+
+    gate.validate_brain_pointer(client_scope, f"business_brain:{card_relative}")
+
+    # The receipt is not vault content -- written directly (atomically), never
+    # through the gated vault write_transaction, and written before the vault
+    # commit so a card's existence always implies its receipt already landed.
+    receipt_path.parent.mkdir(parents=True, exist_ok=True)
+    receipt_tmp = receipt_path.with_name(receipt_path.name + ".tmp")
+    receipt_tmp.write_text(receipt_text, encoding="utf-8")
+    receipt_tmp.replace(receipt_path)
+
+    expected = {relative: brain_memory.file_sha256(brain_root / relative) for relative in documents}
+    previous_indexer = _configure_indexer(repo_root, brain_root, search_db)
+    previous_brain_root, brain_memory.VAULT_ROOT = brain_memory.VAULT_ROOT, brain_root
+    refresh: dict[str, str] = {}
+    refresh_started = False
+    card_pointer = f"business_brain:{card_relative}"
+
+    def verify_and_refresh(_changed: tuple[str, ...]) -> None:
+        nonlocal refresh_started
+        refresh_started = True
+        graph = BusinessBrainGraphService(graphify_root=graphify_root, vault_root=brain_root, registry=gate).build()
+        search = aos_indexer.scan(search_db, roots=[brain_root], registry=gate)
+        if graph.get("status") != "success" or search.get("status") != "success" or not search.get("published"):
+            raise SourceIntakeError("existing retrieval refresh failed")
+        connection = aos_indexer.connect(search_db, readonly=True)
+        try:
+            indexed = {row[0] for row in connection.execute(
+                "SELECT path FROM documents WHERE client_scope=? AND path=?", (client_scope, card_pointer),
+            )}
+        finally:
+            connection.close()
+        if card_pointer not in indexed:
+            raise SourceIntakeError(f"card absent from exact search: {card_pointer}")
+        refresh.update(search="ready", graphify=str(graph.get("operation") or "build"))
+
+    try:
+        written = brain_memory.write_transaction(
+            documents, source=f"source-intake-semantic:{relative_posix}",
+            session_id=f"source-intake-semantic-{stamp.replace(':', '').replace('-', '')}-{source_id[:24]}",
+            expected_hashes=expected, commit=commit, post_write_validator=verify_and_refresh,
+        )
+    except Exception:
+        if refresh_started:
+            try:
+                BusinessBrainGraphService(graphify_root=graphify_root, vault_root=brain_root, registry=gate).build()
+                aos_indexer.scan(search_db, roots=[brain_root], registry=gate)
+            except Exception:
+                pass
+        raise
+    finally:
+        brain_memory.VAULT_ROOT = previous_brain_root
+        for name, value in previous_indexer.items():
+            setattr(aos_indexer, name, value)
+
+    return IntakeResult(
+        "success", 1, 2, 0, 1, True,
+        (card_pointer, receipt_relative), (), refresh["search"], refresh["graphify"],
+        written.commit, True,
+    )
+
+
 def run_intake(
     input_path: Path, *, repo_root: Path = ROOT, brain_root: Path = BUSINESS_BRAIN_ROOT,
     registry_path: Path | None = None, schema_path: Path | None = None, search_db: Path | None = None,
     graphify_root: Path = Path("/home/liam/graphify-brain"), client_scope: str = "global",
     content_type: str | None = None, mode: str = "capture", commit: bool = True,
-    now: Callable[[], str] = _utc_now,
+    now: Callable[[], str] = _utc_now, semantic_budget: "object | None" = None,
 ) -> IntakeResult:
     if client_scope != "global":
         raise SourceIntakeError("routine intake is global-only; client material requires its existing isolated workflow")
@@ -272,6 +440,12 @@ def run_intake(
     search_db = Path(search_db or repo_root / "search/os_index.db")
     gate = ClientScopeRegistry(registry_path=registry_path, schema_path=schema_path)
     gate.resolve_scope(client_scope)
+    if mode == "semantic":
+        return _run_semantic_intake(
+            input_path, repo_root=repo_root, brain_root=brain_root, search_db=search_db,
+            graphify_root=graphify_root, client_scope=client_scope, gate=gate, commit=commit,
+            now=now, semantic_budget=semantic_budget,
+        )
     items = inventory(input_path, content_type=content_type)
 
     unique: dict[str, SourceItem] = {}

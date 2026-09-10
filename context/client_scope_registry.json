@@ -65,7 +65,9 @@
         ,"business_brain:sources/historical_calls/trent-july-9.md"
       ],
       "brain_pointer_prefixes": [
-        "business_brain:sources/intake/records/"
+        "business_brain:sources/intake/records/",
+        "business_brain:sources/intake/cards/",
+        "business_brain:sources/historical_calls/cards/"
       ],
       "search_source_identities": [
         {"source": "agentic_os_live", "path_prefix": "agentic_os_live:"},
@@ -129,6 +131,14 @@
             ,"business_brain:sources/historical_calls/trent-july-9.md"
             ,"business_brain:sources/intake/INDEX.md"
           ]
+        },
+        {
+          "source": "business_brain",
+          "path_prefix": "business_brain:sources/historical_calls/cards/"
+        },
+        {
+          "source": "business_brain",
+          "path_prefix": "business_brain:sources/intake/cards/"
         }
       ],
       "graphify_targets": [
@@ -189,6 +199,21 @@
             ,"business_brain:sources/historical_calls/trent-first-call.md"
             ,"business_brain:sources/historical_calls/trent-july-9.md"
             ,"business_brain:sources/intake/INDEX.md"
+            ,"business_brain:sources/historical_calls/cards/andrea-roberts-june-26.card.md"
+            ,"business_brain:sources/historical_calls/cards/andrea-second-call-june-30.card.md"
+            ,"business_brain:sources/historical_calls/cards/call-dr-kenneth-after-second-cci.card.md"
+            ,"business_brain:sources/historical_calls/cards/call-kenneth-after-first-cci.card.md"
+            ,"business_brain:sources/historical_calls/cards/cci-second-call-june-15.card.md"
+            ,"business_brain:sources/historical_calls/cards/first-call-cci.card.md"
+            ,"business_brain:sources/historical_calls/cards/hermes-water-treatment-summary-trent.card.md"
+            ,"business_brain:sources/historical_calls/cards/kenneth-june-30.card.md"
+            ,"business_brain:sources/historical_calls/cards/kenneth-meeting-may-27.card.md"
+            ,"business_brain:sources/historical_calls/cards/kenneth-sme-june-18.card.md"
+            ,"business_brain:sources/historical_calls/cards/meeting-ken-stanick.card.md"
+            ,"business_brain:sources/historical_calls/cards/mike-knapp-gtm-context-july-22.card.md"
+            ,"business_brain:sources/historical_calls/cards/mike-knapp-july-21.card.md"
+            ,"business_brain:sources/historical_calls/cards/trent-first-call.card.md"
+            ,"business_brain:sources/historical_calls/cards/trent-july-9.card.md"
           ]
         }
       ],
