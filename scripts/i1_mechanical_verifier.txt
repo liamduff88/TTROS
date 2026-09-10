@@ -1,0 +1,24 @@
+STEP I1 Phase 5 mechanical verifier -- vault root: /mnt/c/Users/Admin/Documents/A-Time to revenue/TTROS Business Brain -- repo root: /home/liam/agentic-os-live
+
+PASSED: True
+cards_found=15 claim_records_found=15
+substantive_claim_count=198 quote_checks=198 attribution_checks=198 imprecise_attribution_count=36 imprecision_rate=18.2%
+
+No findings.
+
+CARD SIZES (informational only, not gating -- compact excludes hermes_last_write, on_disk includes it):
+- andrea-roberts-june-26: compact=2960 B on_disk=3210 B
+- andrea-second-call-june-30: compact=2658 B on_disk=2905 B
+- call-dr-kenneth-after-second-cci: compact=2795 B on_disk=3048 B
+- call-kenneth-after-first-cci: compact=2850 B on_disk=3099 B
+- cci-second-call-june-15: compact=2762 B on_disk=3005 B
+- first-call-cci: compact=2795 B on_disk=3020 B
+- hermes-water-treatment-summary-trent: compact=2804 B on_disk=3061 B
+- kenneth-june-30: compact=2508 B on_disk=2735 B
+- kenneth-meeting-may-27: compact=2749 B on_disk=2990 B
+- kenneth-sme-june-18: compact=2747 B on_disk=2982 B
+- meeting-ken-stanick: compact=2886 B on_disk=3121 B
+- mike-knapp-gtm-context-july-22: compact=2638 B on_disk=2889 B
+- mike-knapp-july-21: compact=2593 B on_disk=2826 B
+- trent-first-call: compact=2792 B on_disk=3021 B
+- trent-july-9: compact=2691 B on_disk=2912 B
