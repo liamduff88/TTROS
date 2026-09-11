@@ -1,6 +1,6 @@
 """Agentic OS dashboard backend.
 
-Revisit: when operator routing, queue deletion safety, local-agent CLI contracts, or runtime health changes. · Last touched: 2026-08-08.
+Revisit: when operator routing, queue deletion safety, local-agent CLI contracts, or runtime health changes. · Last touched: 2026-09-01.
 """
 
 from fastapi import FastAPI, HTTPException, Request
@@ -70,6 +70,7 @@ import latitude_telemetry
 from brain_memory import reset_session
 from context_assembler import (
     AssembledContext,
+    _load_deletion_tombstones,
     assemble as assemble_model_context,
     require_assembled_context,
     worker_context_pack,
@@ -3784,6 +3785,13 @@ class HermesMessage(BaseModel):
     text: str
     source_refs: list[str] = []
     conversation_id: str = "dashboard-operator"
+    # Set only by David's execution handoff: his semantic decision replaces the
+    # _looks_multi_step keyword heuristic. Guards downstream are unaffected.
+    force_objective: bool = False
+    # Set only by the David handoff path: Liam's literal words and the advisory
+    # scope hint, persisted for visibility. Empty on every other path.
+    operator_message: str = ""
+    handoff_scope_hint: str = ""
 
 
 class ExecutiveConsultation(BaseModel):
@@ -4112,13 +4120,8 @@ def _executive_file_evidence(path: Path, label: str) -> dict:
     }
 
 
-def _executive_context_evidence(profile: str) -> dict:
-    context = assemble_model_context(
-        "Executive consultation context readiness for Time to Revenue.",
-        surface=f"dashboard:executive-readiness:{profile}",
-        session_id="readiness",
-        write_artifact=False,
-    )
+def _executive_context_evidence_from_assembled(profile: str, context: AssembledContext) -> dict:
+    """Describe the context already assembled for this consultation."""
     return {
         "classification": "mandatory_assembled_context",
         "sources": [{"source": source, "available": True} for source in context.provenance],
@@ -4132,6 +4135,16 @@ def _executive_context_evidence(profile: str) -> dict:
     }
 
 
+def _executive_context_evidence(profile: str) -> dict:
+    context = assemble_model_context(
+        "Executive consultation context readiness for Time to Revenue.",
+        surface=f"dashboard:executive-readiness:{profile}",
+        session_id="readiness",
+        write_artifact=False,
+    )
+    return _executive_context_evidence_from_assembled(profile, context)
+
+
 def _refresh_executive_context(profile: str) -> tuple[dict, str]:
     try:
         evidence = _executive_context_evidence(profile)
@@ -4141,14 +4154,32 @@ def _refresh_executive_context(profile: str) -> tuple[dict, str]:
 
 
 def _executive_queue_snapshot() -> dict:
-    path = _queue_items_path()
+    """Identity of the queue's item SET, not the bytes of its file.
+
+    The consultation guard that consumes this exists to prove one thing: that a
+    zero-work consultation created no work. Hashing the whole file also detects
+    the orchestration runner writing status changes to unrelated items it is
+    already executing, which fails an innocent consultation with
+    unexpected_queue_mutation purely because the runner happened to be busy.
+
+    Observed live on 2026-08-11: a handoff queued work, that work began
+    executing, and the next consultation was refused mid-flight. Because a
+    successful handoff is itself what starts the runner, David reliably created
+    the condition that broke the next question put to him.
+
+    Hashing the sorted id set keeps "no item was created" exact — a new item
+    cannot appear without a new id — while ignoring the background status writes
+    this guard was never meant to catch. It is narrowed to its purpose, not
+    weakened. Residual: a concurrent orchestration that creates a genuinely new
+    item during a consultation will still trip it, and still fails closed.
+    """
     try:
-        payload = path.read_bytes()
-        count = len(_read_queue_items())
+        items = _read_queue_items()
     except OSError:
-        payload = b""
-        count = -1
-    return {"count": count, "sha256": hashlib.sha256(payload).hexdigest()}
+        return {"count": -1, "sha256": ""}
+    identities = sorted(str(item.get("id") or "") for item in items)
+    digest = hashlib.sha256("\n".join(identities).encode("utf-8")).hexdigest()
+    return {"count": len(identities), "sha256": digest}
 
 
 def _executive_failure(result: dict) -> tuple[str, str]:
@@ -4168,11 +4199,112 @@ def _executive_failure(result: dict) -> tuple[str, str]:
     return "invocation_failed", compact[:1200] or "The named profile returned no useful response."
 
 
+DAVID_THREAD_CONTRACT_PATH = BASE_DIR / "rules" / "david_thread_contract.md"
+
+
+def _david_thread_clause() -> str | None:
+    try:
+        return DAVID_THREAD_CONTRACT_PATH.read_text(encoding="utf-8").strip() or None
+    except OSError:
+        return None
+
+
+THREAD_OPEN = "<<<TTROS_THREAD"
+THREAD_CLOSE = "TTROS_THREAD>>>"
+
+
+def _thread_marks(lines: list[str]) -> tuple[list[int], list[int]]:
+    """Indices of lines that are a delimiter and nothing else.
+
+    A delimiter mentioned inside a sentence does not count, so David can discuss
+    this contract with Liam without breaking his own continuity.
+    """
+    opens, closes = [], []
+    for index, line in enumerate(lines):
+        bare = line.strip()
+        if bare == THREAD_OPEN:
+            opens.append(index)
+        elif bare == THREAD_CLOSE:
+            closes.append(index)
+    return opens, closes
+
+
+def _split_thread_block(answer: str) -> tuple[str, str, int]:
+    """Return (answer shown to the operator, thread body to save, valid block count).
+
+    Fail closed: anything but exactly one well-formed block saves nothing, leaves the
+    previous thread standing, and is reported to the operator by main.py.
+    """
+    lines = answer.splitlines()
+    opens, closes = _thread_marks(lines)
+    if len(opens) == 1 and len(closes) == 1 and opens[0] < closes[0]:
+        body = "\n".join(lines[opens[0] + 1:closes[0]]).strip()
+        cleaned = "\n".join(lines[:opens[0]] + lines[closes[0] + 1:]).strip()
+        return cleaned, body, 1
+    if len(opens) == 1 and not closes:
+        # Unambiguous. The contract puts the block at the very end, so everything after
+        # an unclosed opener is thread content: drop it rather than show it to Liam.
+        return "\n".join(lines[:opens[0]]).strip(), "", 0
+    # Ambiguous shape — two blocks, a stray closer, a close before an open. We cannot
+    # tell which side is answer and which is thread, so keep the prose (losing a real
+    # answer is worse than showing stray notes) and remove only the delimiter lines.
+    drop = set(opens + closes)
+    kept = [line for index, line in enumerate(lines) if index not in drop]
+    return "\n".join(kept).strip(), "", len(opens)
+
+
+def _david_thread_persisted(since: datetime.datetime) -> bool:
+    """Hermes swallows hook errors; this is the only synchronous proof the write landed."""
+    try:
+        text = (business_brain.BUSINESS_BRAIN_ROOT / "sessions" / "thread_david.md").read_text(encoding="utf-8")
+    except OSError:
+        return False
+    match = re.search(r'(?m)^\s+at:\s*"([^"]+)"', text)
+    if not match:
+        return False
+    try:
+        stamp = datetime.datetime.fromisoformat(match.group(1).replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    return stamp >= since
+
+
 def _execute_named_profile_consultation(name: str, profile: str, text: str, request_id: str) -> dict:
     """Run one zero-queue named-profile consultation. Shared by the permanent Executive Team and David."""
+    turn_started = datetime.datetime.now(datetime.timezone.utc)
     before = _executive_queue_snapshot()
-    context, context_error = _refresh_executive_context(profile)
-    if context_error:
+    handoff_clause = (
+        "You may emit exactly one execution handoff, in the form the execution handoff "
+        "contract in your context specifies. Emitting the handoff is not execution and is "
+        "permitted; it is how genuine work reaches Orchestration Hermes."
+    ) if profile == "david" else None
+    thread_clause = _david_thread_clause() if profile == "david" else None
+    consultation_prompt = "\n".join(part for part in (
+        "Dashboard executive consultation. Answer the operator directly and use the named profile's judgment.",
+        "Do not create queue work, delegate, call external services, or take any external action.",
+        "Return a useful answer only; do not claim that you executed anything.",
+        handoff_clause,
+        thread_clause,
+        "",
+        "Operator request:",
+        text,
+    ) if part is not None)
+    launcher = HERMES_OPERATOR_LEAN if profile == "operator-lean" else HERMES_COORDINATOR
+    # David is a continuing conversation, not a series of strangers: without a
+    # stable key his clarifying question and Liam's answer land in different
+    # sessions and the round trip cannot complete. Other profiles are unchanged.
+    consultation_session_key = (
+        _executive_conversation_id("dashboard-operator") if profile == "david" else request_id
+    )
+    try:
+        assembled = assemble_model_context(
+            consultation_prompt,
+            surface=f"dashboard:executive:{profile}",
+            session_id=request_id,
+            session_key=consultation_session_key,
+        )
+        context = _executive_context_evidence_from_assembled(profile, assembled)
+    except Exception as exc:
         after = _executive_queue_snapshot()
         return {
             "success": False,
@@ -4182,26 +4314,13 @@ def _execute_named_profile_consultation(name: str, profile: str, text: str, requ
             "requested_profile": profile,
             "actual_profile": None,
             "fallback_occurred": False,
-            "context": context,
-            "error": {"code": "executive_context_unavailable", "message": context_error},
+            "context": {"classification": "mandatory_assembled_context", "sources": []},
+            "error": {
+                "code": "executive_context_unavailable",
+                "message": f"Context assembly failed: {type(exc).__name__}.",
+            },
             "queue_effect": {"action": "none", "before": before, "after": after, "items_created": 0},
         }
-
-    consultation_prompt = "\n".join((
-        "Dashboard executive consultation. Answer the operator directly and use the named profile's judgment.",
-        "Do not create queue work, delegate, call external services, or take any external action.",
-        "Return a useful answer only; do not claim that you executed anything.",
-        "",
-        "Operator request:",
-        text,
-    ))
-    launcher = HERMES_OPERATOR_LEAN if profile == "operator-lean" else HERMES_COORDINATOR
-    assembled = assemble_model_context(
-        consultation_prompt,
-        surface=f"dashboard:executive:{profile}",
-        session_id=request_id,
-        session_key=request_id,
-    )
     result = _run_hermes_message(
         assembled,
         role="executive_consultation",
@@ -4213,7 +4332,7 @@ def _execute_named_profile_consultation(name: str, profile: str, text: str, requ
     )
     after = _executive_queue_snapshot()
     queue_changed = before != after
-    answer = str(result.get("reply") or result.get("output") or "").strip()
+    answer, thread_body, thread_blocks = _split_thread_block(str(result.get("reply") or result.get("output") or "").strip())
     fallback = bool(result.get("profile_fallback")) or str(result.get("profile_used") or profile) != profile
     success = bool(result.get("success")) and bool(answer) and not fallback and not queue_changed
     response = {
@@ -4225,7 +4344,7 @@ def _execute_named_profile_consultation(name: str, profile: str, text: str, requ
         "requested_profile": profile,
         "actual_profile": result.get("profile_used") or profile,
         "fallback_occurred": fallback,
-        "context": _executive_context_evidence(profile),
+        "context": context,
         "queue_effect": {
             "action": "none",
             "before": before,
@@ -4238,6 +4357,20 @@ def _execute_named_profile_consultation(name: str, profile: str, text: str, requ
         "elapsed_seconds": result.get("elapsed_seconds"),
     }
     if success:
+        if profile == "david":
+            warning = ""
+            # thread_body is the exact value the hook gates its write on, so this check
+            # cannot disagree with what actually happened. A count alone can be 1 for a
+            # malformed shape, which would have produced a self-contradicting message.
+            if not thread_body:
+                warning = ("[Continuity warning: this turn did not produce exactly one well-formed "
+                           f"working-thread block ({thread_blocks} opening delimiters found), so nothing "
+                           "was saved. Your previous thread is unchanged.]")
+            elif not _david_thread_persisted(turn_started):
+                warning = ("[Continuity warning: this turn's working thread was not saved. "
+                           "Your previous thread is unchanged.]")
+            if warning:
+                answer = f"{answer}\n\n{warning}"
         response["response"] = answer
         return response
     if fallback:
@@ -4473,6 +4606,106 @@ def _extract_json_objects(text: str) -> list[dict]:
     return objects
 
 
+def _is_explicit_command_phrase(text: str) -> bool:
+    """True only when the whole message IS a command, not prose containing one.
+
+    ``_match_command_route`` matches route patterns as substrings. That is correct
+    for the explicit cockpit command surface, and wrong in front of David: the
+    question "should we do a weekly review this quarter, or move to monthly?"
+    contains the pattern "weekly review" and would be filed as work before David
+    ever saw it — the exact keyword pre-emption the handoff exists to remove.
+
+    Whole-message equality keeps the zero-model fast path for a bare "weekly
+    review" (Boundary A, proven 2026-08-11) and sends all ordinary natural
+    language to David, whose decision is semantic rather than lexical.
+    """
+    normalized = " ".join(
+        re.sub(r"[^a-z0-9 ]+", " ", str(text or "").strip().lower().lstrip("/")).split()
+    )
+    if not normalized:
+        return False
+    for route in (_load_command_routes().get("routes") or []):
+        for pattern in route.get("patterns") or []:
+            clean = " ".join(re.sub(r"[^a-z0-9 ]+", " ", str(pattern).lower()).split())
+            if clean and clean == normalized:
+                return True
+    return False
+
+
+def _david_execution_handoff(reply_text: str) -> dict | None:
+    """David's structured execution handoff, or None for an ordinary reply.
+
+    Requires the literal ``execution_handoff`` key, so prose that merely contains
+    braces cannot route work. Reuses the fenced-JSON convention that
+    ``_normalize_chain_proposal`` already relies on.
+    """
+    for obj in _extract_json_objects(str(reply_text or "")):
+        payload = obj.get("execution_handoff")
+        if not isinstance(payload, dict):
+            continue
+        objective = str(payload.get("objective") or "").strip()
+        if not objective:
+            continue
+        scope_hint = str(payload.get("scope_hint") or "").strip().lower()
+        if scope_hint not in {"single_step", "multi_step"}:
+            scope_hint = "multi_step"
+        refs = payload.get("source_refs")
+        return {
+            "objective": objective[:2000],
+            "scope_hint": scope_hint,
+            "source_refs": [str(value) for value in refs][:8] if isinstance(refs, list) else [],
+        }
+    return None
+
+
+def _strip_execution_handoff(reply_text: str) -> str:
+    """Remove the fenced handoff so a raw JSON payload never reaches the operator."""
+    cleaned = re.sub(r"```(?:json)?\s*\{[\s\S]*?\}\s*```", "", str(reply_text or ""), flags=re.IGNORECASE)
+    return "\n".join(line for line in cleaned.splitlines() if line.strip()).strip()
+
+
+def _hermes_objective_from_handoff(handoff: dict, *, conversation_id: str, operator_message: str = "") -> dict:
+    """Hand one objective to the existing Operating Hermes objective path.
+
+    Calls the same endpoint function the dashboard already uses. Decomposition,
+    workflow selection, dependency order, worker assignment, the review loop and
+    retries all remain Hermes's; nothing is reimplemented here. ``force_objective``
+    replaces the ``_looks_multi_step`` keyword heuristic with David's semantic
+    decision — it does not bypass any guard downstream of it.
+    """
+    before = _executive_queue_snapshot()
+    body = HermesMessage(
+        text=handoff["objective"],
+        source_refs=list(handoff.get("source_refs") or []),
+        conversation_id=conversation_id,
+        force_objective=True,
+        operator_message=operator_message,
+        handoff_scope_hint=str(handoff.get("scope_hint") or ""),
+    )
+    try:
+        result = hermes_message(body)
+    except HTTPException as exc:
+        return {"success": False, "error": {
+            "code": "hermes_objective_failed",
+            "message": str(exc.detail)[:1200],
+        }}
+    objective = result.get("objective") if isinstance(result, dict) else None
+    after = _executive_queue_snapshot()
+    if not objective:
+        return {"success": False, "error": {
+            "code": "hermes_created_no_objective",
+            "message": "Orchestration Hermes answered without creating an objective; nothing was queued.",
+        }}
+    child_ids = [str(value) for value in (objective.get("child_ids") or [])]
+    first = _queue_find_item(child_ids[0]) if child_ids else None
+    return {
+        "success": True,
+        "objective": objective,
+        "item": _queue_detail_item(first) if first else None,
+        "queue_delta": max(0, int(after.get("count") or 0) - int(before.get("count") or 0)),
+    }
+
+
 def _normalize_chain_proposal(text: str, original_text: str, source_refs: list[str] | None = None) -> dict | None:
     for obj in _extract_json_objects(text):
         raw_steps = obj.get("steps")
@@ -4609,6 +4842,7 @@ def _create_executive_objective(
     *,
     conversation_id: str,
     source: str = "dashboard/hermes_message",
+    handoff_meta: dict | None = None,
 ) -> tuple[dict, list[dict], bool]:
     command = str(proposal.get("context") or "").strip()
     key = _executive_objective_key(conversation_id, command)
@@ -4687,6 +4921,7 @@ def _create_executive_objective(
             "version": 1,
             "conversation_id": conversation_id,
             "original_command": command,
+            "david_handoff": dict(handoff_meta) if handoff_meta else None,
             "plan": [{
                 "item_id": child["id"],
                 "step_index": child.get("step_index"),
@@ -4977,8 +5212,8 @@ class _QueueToolFallback:
 
     def update_status(self, root: Path, item_id: str, status: str):
         # Diverges from aos-queue.py update_status, which clears the claim when a
-        # transition leaves agent_working; unreachable under the launcher, which
-        # hard-fails startup without jsonschema (tools/aos-linux-runtime.sh:302).
+        # transition leaves agent_working. Services are systemd user units; the
+        # legacy launcher this note used to cite was retired 2026-08-15.
         with queue_write_lock(root):
             self._refuse_done_transition(status)
             items = self.load_items(root)
@@ -5708,7 +5943,52 @@ def _queue_unique_artifact_paths(paths: list[str]) -> list[str]:
     return unique
 
 
+def _queue_artifact_at_workspace_divergence(root_relative: str, *, not_before: datetime.datetime | None = None) -> dict | None:
+    """Fallback lookup for Hermes's own documented 'worktree-cwd' divergence (see
+    ``file_tools_paths._resolve_base_dir`` / ``_path_resolution_warning`` upstream): a worker's
+    terminal-tool cwd tracking can occasionally anchor a relative write one directory above the
+    workspace root even though the session's own ``cwd`` record is correct (STEP X3,
+    2026-09-11 — observed live: AOS-2026-0900's worker genuinely wrote and verified its claimed
+    artifact, but the write tool's own reported ``resolved_path`` landed at
+    ``BASE_DIR.parent / root_relative`` instead of ``BASE_DIR / root_relative``). ``root_relative``
+    has already passed ``_queue_normalize_artifact_path`` (allowlisted prefix, allowlisted
+    extension, no ``..`` components) by the time this is called, so the join below can only ever
+    reach the same narrow artifact directories one level up — never a credential or config path.
+    Checked only after the canonical workspace-root path is confirmed absent; a path missing at
+    BOTH locations still returns ``None`` and the caller still blocks on a genuinely absent claim.
+
+    ``not_before`` (STEP X4, 2026-09-11): the current attempt's own recorded start time
+    (``item["claim"]["claimed_at"]``). A candidate whose mtime falls before it is a stale leftover
+    — from an earlier attempt, an earlier item that happened to share a name, or a planted file —
+    and is rejected exactly like an absent file, not treated as this attempt's genuine artifact.
+    When no attempt-start time is available, the fallback is skipped entirely (fails closed to
+    "absent") rather than accepting an unbounded-age file.
+    """
+    candidate = BASE_DIR.parent / root_relative
+    if candidate.name == ".gitkeep" or not candidate.is_file():
+        return None
+    if not_before is None:
+        return None
+    try:
+        stat = candidate.stat()
+        if stat.st_size > _QUEUE_ARTIFACT_MAX_BYTES:
+            return None
+        candidate_mtime = datetime.datetime.fromtimestamp(stat.st_mtime, datetime.timezone.utc)
+        if candidate_mtime < not_before:
+            return None
+        return {
+            "size_bytes": stat.st_size,
+            "modified": candidate_mtime.isoformat().replace("+00:00", "Z"),
+            "sha256": hashlib.sha256(candidate.read_bytes()).hexdigest(),
+            "content": candidate.read_text(encoding="utf-8", errors="replace"),
+            "actual_path": str(candidate),
+        }
+    except OSError:
+        return None
+
+
 def _queue_verified_artifacts_from_worker_result(item: dict, worker_result: dict) -> list[dict]:
+    attempt_not_before = _parse_record_timestamp((item.get("claim") or {}).get("claimed_at"))
     paths = [_queue_default_artifact_path(item)]
     paths.extend(_queue_artifact_candidates_from_text(str(worker_result.get("output") or "")))
     verified = []
@@ -5729,7 +6009,18 @@ def _queue_verified_artifacts_from_worker_result(item: dict, worker_result: dict
                     "content_excerpt": _bounded_hermes_answer(artifact["content"], 900),
                 })
             except FileNotFoundError:
-                ref.update({"available": False, "reason": "artifact not found at workspace root-relative path"})
+                divergent = _queue_artifact_at_workspace_divergence(path, not_before=attempt_not_before)
+                if divergent:
+                    ref.update({
+                        "available": True,
+                        "size_bytes": divergent["size_bytes"],
+                        "modified": divergent["modified"],
+                        "sha256": divergent["sha256"],
+                        "content_excerpt": _bounded_hermes_answer(divergent["content"], 900),
+                        "workspace_divergence": divergent["actual_path"],
+                    })
+                else:
+                    ref.update({"available": False, "reason": "artifact not found at workspace root-relative path"})
             except ValueError as exc:
                 ref.update({"available": False, "reason": str(exc)})
             except OSError as exc:
@@ -7184,7 +7475,7 @@ def _workflow_contract(workflow_id: str) -> dict:
     steps = []
     for raw in text.splitlines():
         line = raw.strip().lstrip("-").strip()
-        if not definition and re.search(r"\bDone\b\s*=", line, re.IGNORECASE):
+        if not definition and re.search(r"\bDone\b\*{0,2}\s*=", line, re.IGNORECASE):
             definition = re.sub(r"^\*\*Done\*\*\s*=\s*", "", line).strip()
         elif not definition and line.lower().startswith("done ="):
             definition = line.split("=", 1)[1].strip()
@@ -7505,7 +7796,10 @@ def dashboard_ask_david(body: AskDavidRequest):
         local_lookup["kind"] = "deterministic_read"
         return local_lookup
 
-    routing = _match_command_route(text)
+    # Only an unambiguous whole-message command takes the zero-model fast path.
+    # Prose that merely contains a route pattern is David's decision, not the
+    # matcher's. See _is_explicit_command_phrase.
+    routing = _match_command_route(text) if _is_explicit_command_phrase(text) else {"matched": False}
     if routing.get("matched"):
         item, route = _create_cockpit_command_item(text)
         latitude_telemetry.trace(
@@ -7529,8 +7823,46 @@ def dashboard_ask_david(body: AskDavidRequest):
 
     request_id = uuid.uuid4().hex
     response = _execute_named_profile_consultation("David", "david", text, request_id)
-    response["kind"] = "david_reply"
-    return response
+    handoff = _david_execution_handoff(response.get("response") or "") if response.get("success") else None
+    if handoff is None:
+        # Conversation, or a single clarifying question. Zero queue either way.
+        response["kind"] = "david_reply"
+        return response
+
+    conversation_id = _executive_conversation_id("dashboard-operator")
+    routed = _hermes_objective_from_handoff(handoff, conversation_id=conversation_id, operator_message=text)
+    latitude_telemetry.trace(
+        "ask_david.execution_handoff",
+        "queue",
+        "ok" if routed.get("success") else "failed",
+        parent_id=(routed.get("objective") or {}).get("parent_id") if routed.get("success") else None,
+        scope_hint=handoff["scope_hint"],
+    )
+    if not routed.get("success"):
+        # Never present a failed handoff as a successful conversation.
+        response["kind"] = "david_reply"
+        response["success"] = False
+        response["response"] = _strip_execution_handoff(response.get("response") or "")
+        response["error"] = routed.get("error")
+        return response
+    return {
+        "success": True,
+        "kind": "queue_created",
+        "item": routed.get("item"),
+        "route": {
+            "matched": True,
+            "confidence": "david_execution_handoff",
+            "workflow": None,
+            "owner": "hermes",
+            "pattern": None,
+        },
+        "objective": routed.get("objective"),
+        "david_note": _strip_execution_handoff(response.get("response") or ""),
+        "handed_objective": handoff["objective"],
+        "scope_hint": handoff["scope_hint"],
+        "queue_delta": routed.get("queue_delta", 0),
+        "token_usage_text": response.get("token_usage_text") or "Token usage: unavailable from current CLI output",
+    }
 
 
 @app.post("/api/dashboard/capture")
@@ -10335,10 +10667,46 @@ def _try_existing_item_read_task(task: str, body: TaskRun | None = None) -> dict
     try:
         item = _queue_find_item(ids[0])
     except KeyError:
+        # No live row. Before answering "not found", consult the deletion
+        # tombstones - the same loader the context assembler uses, so the two
+        # current-state surfaces cannot drift apart. A purged item is a
+        # definite answer, not a gap.
+        #
+        # work_item_id is deliberately NOT set on either branch below: the
+        # Telegram inline-command caller passes it to _queue_find_item, which
+        # would raise for an item that no longer exists.
+        tombstone = (_load_deletion_tombstones(BASE_DIR) or {}).get(str(ids[0]).upper())
+        if tombstone is not None:
+            return {
+                "success": True,
+                "created": False,
+                "output": "\n".join((
+                    f"[{tombstone.get('title') or 'Untitled queue item'} - purged]",
+                    f"Work item: {ids[0]}",
+                    "Status: no current status - this item no longer exists.",
+                    f"What happened: deleted {tombstone.get('deleted_at') or 'date not recorded'}"
+                    f" by {tombstone.get('deleted_by') or 'unknown'}.",
+                    f"Status when deleted: {tombstone.get('previous_status') or 'not recorded'}"
+                    " - historical, not current.",
+                    f"Reason recorded: {tombstone.get('deletion_reason') or 'not recorded'}",
+                    "Action needed: none is implied by the deletion itself.",
+                    "Note: receipts, packs and notes elsewhere may still describe this item"
+                    " as live. They are historical evidence, not current state.",
+                    f"Tombstone: {tombstone.get('tombstone_path') or 'queue/receipts/'}",
+                    "No new work item was created.",
+                    "Lookup token usage: no agent invocation",
+                )),
+                "returncode": 0,
+                "requested_target": "queue",
+                "selected_route": "local_existing_item_read",
+                "delegation_reason": "bounded existing-item read intent; resolved from its deletion tombstone",
+                "token_usage": {"available": False, "no_agent_invocation": True},
+                "token_usage_text": "Token usage: no agent invocation",
+            }
         return {
             "success": False,
             "created": False,
-            "output": f"NEEDS ATTENTION\nExisting work item {ids[0]} was not found.\nNo new work item was created.",
+            "output": f"NEEDS ATTENTION\nExisting work item {ids[0]} was not found, and no deletion tombstone records it.\nIts status is unverified, which is not the same as clear.\nNo new work item was created.",
             "returncode": 2,
             "requested_target": "queue",
             "selected_route": "local_existing_item_read",
@@ -12410,7 +12778,7 @@ def hermes_message(body: HermesMessage):
         raise HTTPException(status_code=422, detail="text must not be empty")
     original_text = body.text.strip()
     conversation_id = _executive_conversation_id(getattr(body, "conversation_id", "dashboard-operator"))
-    objective_request = _looks_executive_objective(original_text)
+    objective_request = bool(getattr(body, "force_objective", False)) or _looks_executive_objective(original_text)
     prompt_text = (
         _hermes_decomposition_prompt(original_text, conversation_id=conversation_id)
         if objective_request else original_text
@@ -12435,10 +12803,18 @@ def hermes_message(body: HermesMessage):
                         *(proposal.get("source_refs") or []),
                         str(prior["artifact"]),
                     ])
+            handoff_meta = None
+            if str(getattr(body, "operator_message", "") or "").strip():
+                handoff_meta = {
+                    "operator_message": str(body.operator_message).strip()[:4000],
+                    "handed_objective": original_text,
+                    "scope_hint": str(getattr(body, "handoff_scope_hint", "") or "") or "multi_step",
+                }
             try:
                 parent, children, created = _create_executive_objective(
                     proposal,
                     conversation_id=conversation_id,
+                    handoff_meta=handoff_meta,
                 )
             except ValueError as exc:
                 raise HTTPException(status_code=400, detail=str(exc))
@@ -12455,6 +12831,7 @@ def hermes_message(body: HermesMessage):
                     "plan": (parent.get("objective") or {}).get("plan") or [],
                     "runner_accepted": bool(runner.get("accepted")),
                     "runner_mode": runner.get("mode"),
+                    "handed_objective": original_text,
                 },
                 "chain_proposal": {**proposal, "editable": False, "filed": True},
             })

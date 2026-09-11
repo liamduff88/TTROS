@@ -28,7 +28,30 @@ if str(TOOLS_DIR) not in sys.path:
     sys.path.insert(0, str(TOOLS_DIR))
 
 import business_brain
-from business_brain_scope import ClientScopeError, ClientScopeRegistry, load_registry
+try:
+    # Qualified first: TOOLS_DIR is unconditionally on sys.path by this point, so a bare-first
+    # try always succeeds and never falls through, which is what let this module's own
+    # `except ClientScopeError` bind to a second, distinct class from every other caller
+    # (STEP X3 root cause). Qualified succeeds whenever this runs as part of the `dashboard`
+    # package (repo root already on sys.path), matching that identity.
+    from tools.business_brain_scope import ClientScopeError, ClientScopeRegistry, load_registry
+except ModuleNotFoundError:
+    # Standalone CLI use (`python3 dashboard/backend/business_brain_graph.py ...`): repo root
+    # isn't on sys.path there, only TOOLS_DIR, so fall back to the bare name.
+    from business_brain_scope import ClientScopeError, ClientScopeRegistry, load_registry
+
+# A caller may still pass in an explicit ClientScopeRegistry built from the *other* spelling
+# (e.g. a test fixture bare-importing business_brain_scope directly) -- catch both identities
+# so add_candidate()'s scope-filter safety net works regardless of which one raised, without
+# weakening what counts as out-of-scope (STEP X4).
+try:
+    from business_brain_scope import ClientScopeError as _OtherSpellingClientScopeError
+except ModuleNotFoundError:
+    _OtherSpellingClientScopeError = ClientScopeError
+if _OtherSpellingClientScopeError is ClientScopeError:
+    _CLIENT_SCOPE_ERRORS: tuple[type, ...] = (ClientScopeError,)
+else:
+    _CLIENT_SCOPE_ERRORS = (ClientScopeError, _OtherSpellingClientScopeError)
 from validate_business_brain import WIKI_LINK_RE, canonical_markdown, parse_frontmatter, resolve_wiki_target
 
 
@@ -517,7 +540,7 @@ class BusinessBrainGraphService:
                 return
             try:
                 scoped_path = gate.validate_graph_target(identity.scope_id, self.namespace, str(node.get("source_path") or ""))
-            except ClientScopeError:
+            except _CLIENT_SCOPE_ERRORS:
                 return
             record = candidates.setdefault(scoped_path, {"path": scoped_path, "score": score, "relationship_reasons": []})
             record["score"] = max(float(record["score"]), float(score))
