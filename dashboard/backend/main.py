@@ -5963,6 +5963,16 @@ def _queue_artifact_at_workspace_divergence(root_relative: str, *, not_before: d
     and is rejected exactly like an absent file, not treated as this attempt's genuine artifact.
     When no attempt-start time is available, the fallback is skipped entirely (fails closed to
     "absent") rather than accepting an unbounded-age file.
+
+    STEP X5, 2026-09-11 (live post-repair use, AOS-2026-0913): accepting the fallback here is not
+    enough on its own — dashboard/artifact discovery only looks under the canonical
+    ``BASE_DIR``-relative workspace, so an accepted-but-never-copied fallback stayed invisible to
+    normal use even though this function reported it available. Once a candidate clears every
+    freshness/size check above, it is additively copied to the canonical ``BASE_DIR / root_relative``
+    path (parents created as needed, existing canonical files never overwritten, fallback source
+    never touched). If that copy cannot be made safely, this fails closed and returns ``None`` —
+    the caller then reports the artifact as unavailable rather than claiming a dashboard-visible
+    copy exists when it does not.
     """
     candidate = BASE_DIR.parent / root_relative
     if candidate.name == ".gitkeep" or not candidate.is_file():
@@ -5976,15 +5986,43 @@ def _queue_artifact_at_workspace_divergence(root_relative: str, *, not_before: d
         candidate_mtime = datetime.datetime.fromtimestamp(stat.st_mtime, datetime.timezone.utc)
         if candidate_mtime < not_before:
             return None
-        return {
-            "size_bytes": stat.st_size,
-            "modified": candidate_mtime.isoformat().replace("+00:00", "Z"),
-            "sha256": hashlib.sha256(candidate.read_bytes()).hexdigest(),
-            "content": candidate.read_text(encoding="utf-8", errors="replace"),
-            "actual_path": str(candidate),
-        }
+        candidate_bytes = candidate.read_bytes()
+        candidate_sha256 = hashlib.sha256(candidate_bytes).hexdigest()
     except OSError:
         return None
+
+    try:
+        canonical_target = resolve_root_relative(root_relative, root=BASE_DIR)
+    except (AosPathError, ValueError):
+        return None
+
+    try:
+        canonical_target.parent.mkdir(parents=True, exist_ok=True)
+        if canonical_target.is_file():
+            existing_sha256 = hashlib.sha256(canonical_target.read_bytes()).hexdigest()
+            if existing_sha256 != candidate_sha256:
+                return None
+        else:
+            tmp_target = canonical_target.with_name(
+                f"{canonical_target.name}.divergence-tmp-{os.getpid()}-{time.time_ns()}"
+            )
+            tmp_target.write_bytes(candidate_bytes)
+            os.replace(tmp_target, canonical_target)
+        canonical_stat = canonical_target.stat()
+    except OSError:
+        return None
+
+    return {
+        "size_bytes": canonical_stat.st_size,
+        "modified": datetime.datetime.fromtimestamp(
+            canonical_stat.st_mtime, datetime.timezone.utc
+        ).isoformat().replace("+00:00", "Z"),
+        "sha256": candidate_sha256,
+        "content": candidate_bytes.decode("utf-8", errors="replace"),
+        "actual_path": str(candidate),
+        "canonical_path": str(canonical_target),
+        "canonical_root_relative": root_relative,
+    }
 
 
 def _queue_verified_artifacts_from_worker_result(item: dict, worker_result: dict) -> list[dict]:
