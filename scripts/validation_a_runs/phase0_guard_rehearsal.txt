@@ -1,0 +1,21 @@
+=== PHASE 0.2 -- LIVE GUARD REHEARSAL (all three ways) ===
+
+CASE A (run active, SEALED path):
+  payload path: /mnt/c/Users/Admin/Documents/A-Time to revenue/TTROS Reviews/00_TTROS_CURRENT_STATE_v2026-09-01.md
+  result: {'action': 'block', 'message': 'validation-a seal guard denied a read of a sealed Validation A path'}
+  expected: action=block  -> PASS
+
+CASE B (run active, UNSEALED control path):
+  payload path: operating_context/current_priorities.md
+  result: {}
+  expected: {} (allow)  -> PASS
+
+CASE C (run INACTIVE -- env var absent, SEALED path):
+  payload path: /mnt/c/Users/Admin/Documents/A-Time to revenue/TTROS Reviews/00_TTROS_CURRENT_STATE_v2026-09-01.md
+  result: {}
+  expected: {} (inert)  -> PASS
+
+=== SUMMARY ===
+DENY direction exercised: True
+ALLOW direction exercised: True
+INERT-when-absent exercised: True

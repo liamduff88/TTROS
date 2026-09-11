@@ -1,0 +1,152 @@
+id: source-intake-claim-mike-knapp-july-21
+type: claim_record
+source_id: mike-knapp-july-21
+source_path: sources/historical_calls/mike-knapp-july-21.md
+source_sha256: 316f9908a9d7f0ac3c4c2cdd54a1b125088d3c1f86f9d622eff4cb0f921e6bbe
+generated_at: '2026-09-09T22:46:29.007470Z'
+model: gpt-5.5
+claim_count: 15
+dropped_count: 0
+canonical_truth: false
+claims:
+- claim: Liam said he set up an AI consultancy about six months earlier after seeing
+    how average businesses could use AI in workflows to save time and improve effectiveness.
+  type: liam_position
+  attribution: Liam
+  status: historical
+  evidence:
+    quote: And so I set up a kind of consultancy in this area. And yeah, I guess,
+      you know, my main issue has been that I haven't really been able to get in front
+      of that many people in terms of how to help them.
+    locator: Transcript, Me turn beginning 'And yeah, so and then about six months
+      ago'
+- claim: Liam said he could help and provide value but was not really a salesperson
+    and had not been trained in sales.
+  type: liam_position
+  attribution: Liam
+  status: historical
+  evidence:
+    quote: I know I can help them and provide a lot of value, but I guess I'm not
+      really a salesperson and that's never been something that I've been trained
+      in or focused at.
+    locator: Transcript, Me turn on current challenge
+- claim: Mike advised Liam to take the free Strategic Foundations course because it
+    would help clarify messaging, target customer, and the business story.
+  type: advice_received
+  attribution: Mike
+  status: historical
+  evidence:
+    quote: That course is free. Go take it. You'll probably be able to do better because
+      you're but it was created two years ago I think using GPT or claude.
+    locator: Transcript, Them turn after learning center
+- claim: Mike said the foundation of strategy is knowing the customer, the problems
+    solved, and what makes the business unique.
+  type: third_party_statement
+  attribution: Mike
+  status: historical
+  evidence:
+    quote: Strategic foundations because the foundation of strategy is knowing who
+      your customer is, what problems you solve for them and what makes you unique.
+    locator: Transcript, Them turn beginning 'Strategic foundations'
+- claim: Mike advised Liam to partner with an IT company or managed service provider
+    and white-label his AI consulting to access SMB customers.
+  type: advice_received
+  attribution: Mike
+  status: historical
+  evidence:
+    quote: If I were you, I would look at partnering with an IT company. So if you
+      could take your skills to a managed service provider or IT consulting firm that
+      deals with small to medium business and white labeled with them.
+    locator: Transcript, Them turn beginning 'So there, there's a couple of things'
+- claim: Mike offered to introduce Liam to Sanjay and said he had already sent Sanjay
+    a note.
+  type: offer_made
+  attribution: Mike
+  status: historical
+  evidence:
+    quote: Okay, I'm just sending Sanjay a note. Sanjay is an amazing guy. He's one
+      of the nicest people in the known universe.
+    locator: Transcript, Them turn mentioning Sanjay
+- claim: Mike said product portfolio management and governance around AI use cases
+    is not being done much in consulting and is weak across companies.
+  type: third_party_statement
+  attribution: Mike
+  status: historical
+  evidence:
+    quote: One element that's not being done a lot in the consulting world is. The
+      product portfolio management side of it.
+    locator: Transcript, Them turn beginning 'One element that's not being done'
+- claim: Mike distinguished being an AI-enabled CTO from being the person who implements
+    AI in a company.
+  type: third_party_statement
+  attribution: Mike
+  status: historical
+  evidence:
+    quote: But the idea of being the AI enabled CTO is different than being the guy
+      who implements AI in a company.
+    locator: Transcript, Them turn after random number clarification
+- claim: Liam said the strategic AI-enabled CTO direction was where he wanted to be.
+  type: liam_position
+  attribution: Liam
+  status: historical
+  evidence:
+    quote: I mean I'm definitely that's where I want to be. You know I guess. The
+      way that I naturally think and the way that I approach business is more from
+      a strategic point of view
+    locator: Transcript, Me turn responding to strategic vs implementation
+- claim: Mike advised Liam that strategic work is harder to get, while implementation
+    work is easier and can prove capability while building strategic elements.
+  type: advice_received
+  attribution: Mike
+  status: historical
+  evidence:
+    quote: So what you're going to find is that the strategic part is harder to get.
+    locator: Transcript, Them turn beginning 'So what you're going to find'
+- claim: Mike advised Liam that niching down would make sales easier and allow higher
+    rates.
+  type: advice_received
+  attribution: Mike
+  status: historical
+  evidence:
+    quote: The more you niche down and the easier it is to get sales for that niche.
+      The more the higher the rates you can charge. Plain and simple.
+    locator: Transcript, Them turn after Liam asks about niches
+- claim: Mike advised Liam to build a use-case library for a chosen vertical and write
+    SEO blogs around those use cases.
+  type: advice_received
+  attribution: Mike
+  status: historical
+  evidence:
+    quote: The next thing I would do is I would actually develop a library of use
+      cases. So I would go look on do research, find the top 100 use cases for AI
+      in those areas.
+    locator: Transcript, Them turn on niching and use cases
+- claim: Mike said tech startup prospects are weak because technical people can do
+    AI work themselves, and advised looking at Liam's own experience and niches with
+    money and administrative overhead.
+  type: advice_received
+  attribution: Mike
+  status: historical
+  evidence:
+    quote: So I would look at your own experience. And find niches that have money.
+      And have probably a lot of administrative overhead.
+    locator: Transcript, Them turn after tech startup concern
+- claim: Mike said smaller businesses are more likely to be better served by Claude
+    or GPT than Gemini or Copilot, while enterprise choices often reflect governance,
+    security, and IT control.
+  type: third_party_statement
+  attribution: Mike
+  status: historical
+  evidence:
+    quote: I would say the smaller the business, the more likely that cloud or GPT
+      is a better investment. Than, than Gemini. And then copilot.
+    locator: Transcript, Them turn comparing AI tools
+- claim: Mike advised Liam to come back in about a month after doing the coursework
+    and refining the pitch, before being considered for the speed-dating event.
+  type: advice_received
+  attribution: Mike
+  status: historical
+  evidence:
+    quote: So go do the course work at tweak it book me again in a month.
+    locator: Transcript, Them turn near end on speed dating event
+dropped: []

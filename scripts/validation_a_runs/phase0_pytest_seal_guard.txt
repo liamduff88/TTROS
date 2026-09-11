@@ -1,0 +1,21 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-9.1.1, pluggy-1.6.0 -- /home/liam/agentic-os-live/dashboard/backend/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /home/liam/agentic-os-live
+configfile: pytest.ini
+plugins: anyio-4.14.1
+collecting ... collected 9 items
+
+tests/test_validation_a_seal_guard.py::SealGuardActiveTests::test_empty_or_malformed_payload_does_not_crash PASSED [ 11%]
+tests/test_validation_a_seal_guard.py::SealGuardActiveTests::test_generic_tools_are_blocked_outright 
+tests/test_validation_a_seal_guard.py::SealGuardActiveTests::test_generic_tools_are_blocked_outright PASSED [ 22%]
+tests/test_validation_a_seal_guard.py::SealGuardActiveTests::test_legitimate_non_generic_tool_names_remain_available PASSED [ 33%]
+tests/test_validation_a_seal_guard.py::SealGuardActiveTests::test_sealed_adjudication_path_is_denied PASSED [ 44%]
+tests/test_validation_a_seal_guard.py::SealGuardActiveTests::test_sealed_path_denied_by_basename_even_if_differently_rooted PASSED [ 55%]
+tests/test_validation_a_seal_guard.py::SealGuardActiveTests::test_sealed_scorer_report_is_denied PASSED [ 66%]
+tests/test_validation_a_seal_guard.py::SealGuardActiveTests::test_unsealed_control_path_is_allowed PASSED [ 77%]
+tests/test_validation_a_seal_guard.py::SealGuardInertWhenInactiveTests::test_generic_tools_unaffected_when_inactive 
+tests/test_validation_a_seal_guard.py::SealGuardInertWhenInactiveTests::test_generic_tools_unaffected_when_inactive PASSED [ 88%]
+tests/test_validation_a_seal_guard.py::SealGuardInertWhenInactiveTests::test_guard_is_inactive_without_env_signal PASSED [100%]
+
+===================== 9 passed, 7 subtests passed in 0.04s =====================

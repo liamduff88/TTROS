@@ -1,0 +1,112 @@
+VALIDATION A — TRANSCRIPT (STOPPED AT PRECONDITION: NO LABELLED 12-ITEM ARTIFACT FOUND)
+Run date: 2026-09-08
+Operator: Claude Code session, delegated TTROS B7 Scoring + Fidelity Contract v2.1 Validation A task.
+
+=== STEP 1: CONTRACT FREEZE ===
+
+Contract path:
+  docs/ttros/TTROS_B7_SCORING_FIDELITY_CONTRACT_v2.1_2026-09-08.md
+
+Contract SHA-256 (computed this run):
+  b00e409e143f553ff6b10711a9c0aceff8b80bb2e8141884f8ea4e8d2a543af9
+
+SOURCE.sha256 entry (docs/ttros/SOURCE.sha256, line 6):
+  b00e409e143f553ff6b10711a9c0aceff8b80bb2e8141884f8ea4e8d2a543af9  TTROS_B7_SCORING_FIDELITY_CONTRACT_v2.1_2026-09-08.md
+
+Result: MATCH. Mirror validated. No competing v1/v2 file present in docs/ttros/ for this
+contract name — no two-revision collision.
+
+Sections read per task AUTHORITY instruction: §4, §5 (5.1-5.9), §6-§6.5, §11, §13, §14.
+No other sections read. §7-10, §12, §15 not read (not required for this task).
+
+=== STEP 2: LOCATE THE 12-ITEM HISTORICAL-CALL SET (MECHANICAL SEARCH) ===
+
+Search scope per task instructions: scripts/, docs/ttros/, context/, tools/, tests/, queue/,
+decisions/, and (as the Business Brain vault referenced by the contract's own "historical_calls"
+provenance) /mnt/c/Users/Admin/Documents/A-Time to revenue/TTROS Business Brain/sources/historical_calls/.
+connectors/ and workspaces/north_shore_sales_coach/ were NOT touched (protected, per header rule 1).
+
+Dispatched a read-only Explore subagent first (instructed not to print label values, only
+structure/paths). Its findings, corroborated below by direct mechanical checks:
+
+1. The contract file (docs/ttros/TTROS_B7_SCORING_FIDELITY_CONTRACT_v2.1_2026-09-08.md) is the
+   only place that DEFINES the 12-item Validation A schema (§6.1). It contains no populated
+   12-item data — it is a specification, not a dataset.
+
+2. docs/ttros/02_TTROS_ACTIVE_TASK_2026-09-08_rev7.md line 51 refers to "the known 12-item
+   historical-call set" as if it already exists, but does not itself enumerate it or point to a
+   file containing it.
+
+3. docs/ttros/00_TTROS_CURRENT_STATE_v2026-09-08_rev7.md line 355 states:
+   "MANIFEST.md (audit + 12 candidates, 8,688 B, ..." — referring to
+   sources/historical_calls/MANIFEST.md. This is the closest lead to a "12" figure.
+
+4. Direct inspection of sources/historical_calls/MANIFEST.md (SHA-256:
+   3fbf1cc46c7d011024c8585f42bd27f3d6afbf5c087d6d987eaa09353f87aa0e, current size 8,850 B,
+   differs slightly from the 8,688 B cited in 00 rev7 — file has been touched since that figure
+   was recorded, per its own directory listing mtime 2026-09-05) contains a "Compact durable
+   knowledge candidates" section with subsections:
+     - Liam intentions / preferences: 5 bullet candidates, each carrying a "Sources:" field.
+     - Third-party statements / opinions: 6 bullet candidates, each carrying a "Sources:" field.
+     - Interpretations / hypotheses / uncertainty: 5 items, no per-item Sources: field.
+   Plus, outside "Compact durable knowledge candidates":
+     - Review-tier holds: 3 items.
+     - Historical open loops — current status unverified: 4 items.
+   Total candidate-pool bullets across all five subsections: 23. Items carrying an explicit,
+   mechanically identifiable paired source-document mapping: 11 (5 + 6), not 12.
+
+5. MANIFEST.md was grepped for SUPPORTED / NOT SUPPORTED / VERIFIED / CORRECT keyword markers:
+   0 matches. MANIFEST.md carries NO per-item human verdict/label of any kind. It is candidate
+   pool + deterministic file inventory only (type: historical_source, canonical_truth: false per
+   its own header), consistent with §5.9's description of this file's role.
+
+6. No file under scripts/, docs/ttros/, context/, tools/, tests/, queue/, or decisions/ contains
+   a per-item SUPPORTED/NOT SUPPORTED table, adjudication record, or "human label" artifact keyed
+   to 12 historical-call candidates. Specifically checked and ruled out (contain adjacent but
+   NOT this content — verified by header/structure inspection, not by reading label values where
+   avoidable):
+     - scripts/step5_step6_b7_reconciliation_audit.md (B7 fact E5.4 provenance audit; not the
+       12-item candidate set)
+     - scripts/step6_b7_section_e_source_relevance_audit.md (same; B7 §E fact audit)
+     - scripts/b6_leak_scorer_mechanical_repair_report.md, b7_cleanup_pass_report.md,
+       b7_contamination_map_and_clean_subset.md, b7_honesty_fail_if_mechanical_test.md (B7 scorer
+       repair material, not a source->claim fidelity label set)
+     - decisions/DECISIONS.md (2026-08-17 entry describes the historical-call import policy in
+       general terms; no per-item labels, no "12-item" enumeration)
+     - canonical.manifest (repo-root file; contains no JSON keys matching a candidate/label
+       schema; not inspected further as it did not match the search pattern)
+   git history search (`git log --all` for filenames containing "validation_a" or
+   "fidelity_detector" or "12-item") returned no results — no artifact was built and later
+   removed.
+
+7. Aggregate 8-supported/4-unsupported figure appears ONLY inside the v2.1 contract itself
+   (§6.1, declared as the aggregate test-design statement, permitted per task instructions). No
+   other file in the searched scope repeats or corroborates this split against a concrete item
+   list.
+
+=== CONCLUSION ===
+
+The "12-item historical-call candidate set" that Validation A is specified to run against, and
+its item-level human-label artifact, could not be mechanically located as a discrete, already-
+existing evaluation artifact anywhere in the authorized search scope. The closest candidate
+(MANIFEST.md's candidate pool) has 23 items in five categories, only 11 of which carry an
+explicit per-item paired-source mapping, and it carries zero item-level SUPPORTED/NOT SUPPORTED
+or error-type labels.
+
+Per task instructions:
+  "If an item does not have an identifiable paired source under the original evaluation
+  contract, STOP NEEDS ATTENTION rather than altering the test."
+  "If no authoritative human label source covering all 12 can be identified, STOP NEEDS
+  ATTENTION."
+  "Do not create a new evaluation set."
+  "Do not infer the 12 items from B7."
+
+All four conditions are met against this session. STOPPING before detector construction, blind
+projection, rehearsal, or any real-item run. No detector code was written. No blind file was
+created. No labels were read at item level (verified: MANIFEST.md itself has none; other
+candidate files were checked structurally, not for content, and none matched the label-artifact
+search pattern).
+
+No model calls were made by any instrument (none was built). No David/Hermes/Codex/OpenAI/other
+provider calls were made. No git commit. No push. No edits to docs/ttros/** or any protected
+path. connectors/ and workspaces/north_shore_sales_coach/ were never opened.

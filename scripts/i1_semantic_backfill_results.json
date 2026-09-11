@@ -1,0 +1,339 @@
+{
+  "budget_used": 16,
+  "budget_maximum": 30,
+  "calls": [
+    {
+      "index": 1,
+      "source_id": "andrea-roberts-june-26",
+      "prior_process": true,
+      "note": "landed a card + claim record, committed to the vault (3485a54)",
+      "usage_file": "queue/context_assemblies/source-intake-semantic-andrea-roberts-june-26-8dfaefe0ea4a.usage.json"
+    },
+    {
+      "index": 2,
+      "source_id": "andrea-second-call-june-30",
+      "prior_process": true,
+      "note": "model call completed but the write never landed (no card, no claim) before the process died -- orphaned/wasted call",
+      "usage_file": "queue/context_assemblies/source-intake-semantic-andrea-second-call-june-30-a2d774c38a91.usage.json"
+    },
+    {
+      "index": 3,
+      "source_id": "andrea-second-call-june-30",
+      "prompt_sha256": "a2d774c38a91993759432564a8087cab6cab0eca1029d5081413182f35bcefdd",
+      "prompt_bytes": 48677,
+      "model": "gpt-5.5",
+      "reasoning": "medium",
+      "returncode": 0,
+      "usage_file": "/home/liam/agentic-os-live/queue/context_assemblies/source-intake-semantic-andrea-second-call-june-30-a2d774c38a91.usage.json"
+    },
+    {
+      "index": 4,
+      "source_id": "call-dr-kenneth-after-second-cci",
+      "prompt_sha256": "4cfbd690b8081fcf6a2568601947499c8f828a4752e63c76310afc394c2a86aa",
+      "prompt_bytes": 57776,
+      "model": "gpt-5.5",
+      "reasoning": "medium",
+      "returncode": 0,
+      "usage_file": "/home/liam/agentic-os-live/queue/context_assemblies/source-intake-semantic-call-dr-kenneth-after-second-cci-4cfbd690b808.usage.json"
+    },
+    {
+      "index": 5,
+      "source_id": "call-kenneth-after-first-cci",
+      "prompt_sha256": "81b69a08ecd72fe488f5688c147d4a5a05d6f53ab6c4ed55f149aaeec7961b73",
+      "prompt_bytes": 33639,
+      "model": "gpt-5.5",
+      "reasoning": "medium",
+      "returncode": 0,
+      "usage_file": "/home/liam/agentic-os-live/queue/context_assemblies/source-intake-semantic-call-kenneth-after-first-cci-81b69a08ecd7.usage.json"
+    },
+    {
+      "index": 6,
+      "source_id": "cci-second-call-june-15",
+      "prompt_sha256": "b16f9a206683b9fe59d1876331ea9cbabd7e49254bfdc0358a89c54a744444e3",
+      "prompt_bytes": 79203,
+      "model": "gpt-5.5",
+      "reasoning": "medium",
+      "returncode": 0,
+      "usage_file": "/home/liam/agentic-os-live/queue/context_assemblies/source-intake-semantic-cci-second-call-june-15-b16f9a206683.usage.json"
+    },
+    {
+      "index": 7,
+      "source_id": "first-call-cci",
+      "prompt_sha256": "0e4c63eb9cc14ea705a6faa58593902919d3ff5131f31cc53fdca4c9068ba4cf",
+      "prompt_bytes": 47038,
+      "model": "gpt-5.5",
+      "reasoning": "medium",
+      "returncode": 0,
+      "usage_file": "/home/liam/agentic-os-live/queue/context_assemblies/source-intake-semantic-first-call-cci-0e4c63eb9cc1.usage.json"
+    },
+    {
+      "index": 8,
+      "source_id": "hermes-water-treatment-summary-trent",
+      "prompt_sha256": "4e0d772187cabe64d76d65056e32255917d87d2feb4a04531f353ebf5ad4b443",
+      "prompt_bytes": 23233,
+      "model": "gpt-5.5",
+      "reasoning": "medium",
+      "returncode": 0,
+      "usage_file": "/home/liam/agentic-os-live/queue/context_assemblies/source-intake-semantic-hermes-water-treatment-summary-trent-4e0d772187ca.usage.json"
+    },
+    {
+      "index": 9,
+      "source_id": "kenneth-june-30",
+      "prompt_sha256": "00ecaf0bfbeaa4a323e2cb9c859a458cd3d6681b7247fb8cfebe76747b2a041a",
+      "prompt_bytes": 22819,
+      "model": "gpt-5.5",
+      "reasoning": "medium",
+      "returncode": 0,
+      "usage_file": "/home/liam/agentic-os-live/queue/context_assemblies/source-intake-semantic-kenneth-june-30-00ecaf0bfbea.usage.json"
+    },
+    {
+      "index": 10,
+      "source_id": "kenneth-meeting-may-27",
+      "prompt_sha256": "e742a9455b437f59bc3affc1d6f079a0ead42a665a52957d2a52a19a22b94de4",
+      "prompt_bytes": 58077,
+      "model": "gpt-5.5",
+      "reasoning": "medium",
+      "returncode": 0,
+      "usage_file": "/home/liam/agentic-os-live/queue/context_assemblies/source-intake-semantic-kenneth-meeting-may-27-e742a9455b43.usage.json"
+    },
+    {
+      "index": 11,
+      "source_id": "kenneth-sme-june-18",
+      "prompt_sha256": "8f77717b8608301d3bcf8a01da89410bd83781f7edbec92a959a1d8b28eb52de",
+      "prompt_bytes": 52129,
+      "model": "gpt-5.5",
+      "reasoning": "medium",
+      "returncode": 0,
+      "usage_file": "/home/liam/agentic-os-live/queue/context_assemblies/source-intake-semantic-kenneth-sme-june-18-8f77717b8608.usage.json"
+    },
+    {
+      "index": 12,
+      "source_id": "meeting-ken-stanick",
+      "prompt_sha256": "ab51f0f01d54e372d94bac0cb4d9d85a2285deee7834924d77f9e66a4ebf3c09",
+      "prompt_bytes": 37376,
+      "model": "gpt-5.5",
+      "reasoning": "medium",
+      "returncode": 0,
+      "usage_file": "/home/liam/agentic-os-live/queue/context_assemblies/source-intake-semantic-meeting-ken-stanick-ab51f0f01d54.usage.json"
+    },
+    {
+      "index": 13,
+      "source_id": "mike-knapp-gtm-context-july-22",
+      "prompt_sha256": "e5f58be2fbefa8283465f7737dd8a878628d950ed7a1f2f0fae1609c13f85db1",
+      "prompt_bytes": 48246,
+      "model": "gpt-5.5",
+      "reasoning": "medium",
+      "returncode": 0,
+      "usage_file": "/home/liam/agentic-os-live/queue/context_assemblies/source-intake-semantic-mike-knapp-gtm-context-july-22-e5f58be2fbef.usage.json"
+    },
+    {
+      "index": 14,
+      "source_id": "mike-knapp-july-21",
+      "prompt_sha256": "b439fdb1991750e08088e46d28e0656f0ac78656e4bd8bf58d010acde8742c88",
+      "prompt_bytes": 37276,
+      "model": "gpt-5.5",
+      "reasoning": "medium",
+      "returncode": 0,
+      "usage_file": "/home/liam/agentic-os-live/queue/context_assemblies/source-intake-semantic-mike-knapp-july-21-b439fdb19917.usage.json"
+    },
+    {
+      "index": 15,
+      "source_id": "trent-first-call",
+      "prompt_sha256": "2b339e238beee06fd0828858bede3dd351d630be31824e95b3017dbbe4aba051",
+      "prompt_bytes": 43540,
+      "model": "gpt-5.5",
+      "reasoning": "medium",
+      "returncode": 0,
+      "usage_file": "/home/liam/agentic-os-live/queue/context_assemblies/source-intake-semantic-trent-first-call-2b339e238bee.usage.json"
+    },
+    {
+      "index": 16,
+      "source_id": "trent-july-9",
+      "prompt_sha256": "91fd833457a6da75e8c76beca4e45a1b18c38be20952ac704576be5625e9bd34",
+      "prompt_bytes": 40306,
+      "model": "gpt-5.5",
+      "reasoning": "medium",
+      "returncode": 0,
+      "usage_file": "/home/liam/agentic-os-live/queue/context_assemblies/source-intake-semantic-trent-july-9-91fd833457a6.usage.json"
+    }
+  ],
+  "results": [
+    {
+      "slug": "andrea-roberts-june-26",
+      "status": "success",
+      "model_invocations": 0,
+      "imported": 0,
+      "duplicates": 1,
+      "imported_pointers": [],
+      "brain_commit": null
+    },
+    {
+      "slug": "andrea-second-call-june-30",
+      "status": "success",
+      "model_invocations": 1,
+      "imported": 2,
+      "duplicates": 0,
+      "imported_pointers": [
+        "business_brain:sources/historical_calls/cards/andrea-second-call-june-30.card.md",
+        "queue/receipts/source_intake/claims/historical/andrea-second-call-june-30.claims.yaml"
+      ],
+      "brain_commit": "43d385fdd50153fb753e102cb1236780c2e26d97"
+    },
+    {
+      "slug": "call-dr-kenneth-after-second-cci",
+      "status": "success",
+      "model_invocations": 1,
+      "imported": 2,
+      "duplicates": 0,
+      "imported_pointers": [
+        "business_brain:sources/historical_calls/cards/call-dr-kenneth-after-second-cci.card.md",
+        "queue/receipts/source_intake/claims/historical/call-dr-kenneth-after-second-cci.claims.yaml"
+      ],
+      "brain_commit": "72c5a27d9f91806f473790bf50762e1941738444"
+    },
+    {
+      "slug": "call-kenneth-after-first-cci",
+      "status": "success",
+      "model_invocations": 1,
+      "imported": 2,
+      "duplicates": 0,
+      "imported_pointers": [
+        "business_brain:sources/historical_calls/cards/call-kenneth-after-first-cci.card.md",
+        "queue/receipts/source_intake/claims/historical/call-kenneth-after-first-cci.claims.yaml"
+      ],
+      "brain_commit": "c2a060f3d3865a70983f9a0b67ead07e44d59847"
+    },
+    {
+      "slug": "cci-second-call-june-15",
+      "status": "success",
+      "model_invocations": 1,
+      "imported": 2,
+      "duplicates": 0,
+      "imported_pointers": [
+        "business_brain:sources/historical_calls/cards/cci-second-call-june-15.card.md",
+        "queue/receipts/source_intake/claims/historical/cci-second-call-june-15.claims.yaml"
+      ],
+      "brain_commit": "e33dcac0cb769ff0a007e4cebc2eb452dcc1d333"
+    },
+    {
+      "slug": "first-call-cci",
+      "status": "success",
+      "model_invocations": 1,
+      "imported": 2,
+      "duplicates": 0,
+      "imported_pointers": [
+        "business_brain:sources/historical_calls/cards/first-call-cci.card.md",
+        "queue/receipts/source_intake/claims/historical/first-call-cci.claims.yaml"
+      ],
+      "brain_commit": "59a9a783945a1b6c8b971183f2ad39443ffeca5d"
+    },
+    {
+      "slug": "hermes-water-treatment-summary-trent",
+      "status": "success",
+      "model_invocations": 1,
+      "imported": 2,
+      "duplicates": 0,
+      "imported_pointers": [
+        "business_brain:sources/historical_calls/cards/hermes-water-treatment-summary-trent.card.md",
+        "queue/receipts/source_intake/claims/historical/hermes-water-treatment-summary-trent.claims.yaml"
+      ],
+      "brain_commit": "169cd5f28a66810df8a597f0779b9fcb4b4056c4"
+    },
+    {
+      "slug": "kenneth-june-30",
+      "status": "success",
+      "model_invocations": 1,
+      "imported": 2,
+      "duplicates": 0,
+      "imported_pointers": [
+        "business_brain:sources/historical_calls/cards/kenneth-june-30.card.md",
+        "queue/receipts/source_intake/claims/historical/kenneth-june-30.claims.yaml"
+      ],
+      "brain_commit": "947ce4d6502112b806b2ccf4ee54a31b88d62f54"
+    },
+    {
+      "slug": "kenneth-meeting-may-27",
+      "status": "success",
+      "model_invocations": 1,
+      "imported": 2,
+      "duplicates": 0,
+      "imported_pointers": [
+        "business_brain:sources/historical_calls/cards/kenneth-meeting-may-27.card.md",
+        "queue/receipts/source_intake/claims/historical/kenneth-meeting-may-27.claims.yaml"
+      ],
+      "brain_commit": "cc6d8d83573fd6b529bb0e1ca546aaa21d7893c4"
+    },
+    {
+      "slug": "kenneth-sme-june-18",
+      "status": "success",
+      "model_invocations": 1,
+      "imported": 2,
+      "duplicates": 0,
+      "imported_pointers": [
+        "business_brain:sources/historical_calls/cards/kenneth-sme-june-18.card.md",
+        "queue/receipts/source_intake/claims/historical/kenneth-sme-june-18.claims.yaml"
+      ],
+      "brain_commit": "c305cf8d8434cf5204e12f905df30c8e67a7cf46"
+    },
+    {
+      "slug": "meeting-ken-stanick",
+      "status": "success",
+      "model_invocations": 1,
+      "imported": 2,
+      "duplicates": 0,
+      "imported_pointers": [
+        "business_brain:sources/historical_calls/cards/meeting-ken-stanick.card.md",
+        "queue/receipts/source_intake/claims/historical/meeting-ken-stanick.claims.yaml"
+      ],
+      "brain_commit": "35c45dc15f2ec3e93b2f6c39f5081e06ba974c40"
+    },
+    {
+      "slug": "mike-knapp-gtm-context-july-22",
+      "status": "success",
+      "model_invocations": 1,
+      "imported": 2,
+      "duplicates": 0,
+      "imported_pointers": [
+        "business_brain:sources/historical_calls/cards/mike-knapp-gtm-context-july-22.card.md",
+        "queue/receipts/source_intake/claims/historical/mike-knapp-gtm-context-july-22.claims.yaml"
+      ],
+      "brain_commit": "fa70d022a3b4c5f713d390e256caf738566ca5c2"
+    },
+    {
+      "slug": "mike-knapp-july-21",
+      "status": "success",
+      "model_invocations": 1,
+      "imported": 2,
+      "duplicates": 0,
+      "imported_pointers": [
+        "business_brain:sources/historical_calls/cards/mike-knapp-july-21.card.md",
+        "queue/receipts/source_intake/claims/historical/mike-knapp-july-21.claims.yaml"
+      ],
+      "brain_commit": "101bfab71e9fb168a6cb8baf24fbab0dcebb5905"
+    },
+    {
+      "slug": "trent-first-call",
+      "status": "success",
+      "model_invocations": 1,
+      "imported": 2,
+      "duplicates": 0,
+      "imported_pointers": [
+        "business_brain:sources/historical_calls/cards/trent-first-call.card.md",
+        "queue/receipts/source_intake/claims/historical/trent-first-call.claims.yaml"
+      ],
+      "brain_commit": "8fd67ae84ea23c4568985f9dc9c65c7ee2c570a3"
+    },
+    {
+      "slug": "trent-july-9",
+      "status": "success",
+      "model_invocations": 1,
+      "imported": 2,
+      "duplicates": 0,
+      "imported_pointers": [
+        "business_brain:sources/historical_calls/cards/trent-july-9.card.md",
+        "queue/receipts/source_intake/claims/historical/trent-july-9.claims.yaml"
+      ],
+      "brain_commit": "7833df6648dfbe7d0bd875858eacdaa69298ada7"
+    }
+  ]
+}

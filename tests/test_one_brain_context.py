@@ -1,6 +1,6 @@
 """Focused One Brain transaction and mandatory-context regression tests.
 
-Revisit: when the One Brain binding or Context Assembler contract changes. · Last touched: 2026-08-04.
+Revisit: when the One Brain binding or Context Assembler contract changes. · Last touched: 2026-08-17.
 """
 
 from __future__ import annotations
@@ -181,7 +181,10 @@ class ContextAssemblerTests(unittest.TestCase):
         self.assertNotIn("Not loaded:", block.content)
         self.assertNotIn("> Revisit:", block.content)
         self.assertNotIn("lane: revenue", block.content)
-        self.assertLess(block.byte_count, 8_000)
+        # STEP T1 Repair 1 (2026-09-09) added a fixed ~362 B disambiguation
+        # sentence to this block's preamble (skill_view/skill_manage/
+        # tool_search confusion fix); the budget line moves with it.
+        self.assertLess(block.byte_count, 8_500)
 
         # Identity, purpose, applicability, inputs, operative process, completion,
         # verification, boundaries, evidence/receipt, and exact retrieval route.

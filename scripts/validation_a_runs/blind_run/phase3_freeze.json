@@ -1,0 +1,14 @@
+{
+  "schema": "validation_a_phase3_freeze_v1",
+  "frozen_at_utc": "2026-09-09T08:03:58Z",
+  "frozen_files": [
+    {
+      "path": "scripts/validation_a_runs/blind_run/detector.py",
+      "sha256": "8fde986480f1129af2da0d7ff7e2f4e72035e06a74733ce7fb6ad7341375aa82",
+      "note": "sole rule/config file the deterministic detector reads -- all nine SS5 rules are embedded directly in this file; no external prompt template, no historical labels, no adjudication file, no prior report was read to author it."
+    }
+  ],
+  "rehearsal_evidence": "scripts/validation_a_runs/blind_run/phase2b_deterministic_rehearsal.txt",
+  "authoring_isolation_evidence": "scripts/validation_a_runs/phase2a_guard_extension_rehearsal.txt, scripts/validation_a_runs/phase2a_pytest_seal_guard_extension.txt",
+  "declaration": "Frozen before the 12 authoritative preimage items are read or scored, and before the Phase 2A 14-source-path guard extension is lifted. No model call has occurred (contract permits deterministic implementation; SS6.4 cap does not bind a zero-call instrument per operator ruling). No historical label, adjudication file, or prior report was read to design this detector."
+}

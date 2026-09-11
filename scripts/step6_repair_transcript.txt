@@ -1,0 +1,146 @@
+STEP 6 REPAIR -- corpus/vault behind tools -- exact change and rollback
+Written (UTC): 2026-09-07T18:44:35Z, BEFORE any edit, per CLAUDE.md rule 4.
+ZERO model calls used in this repair (diagnosis and fix only; no hermes -p david -z
+invocations). This is a repair of the Step 6 RED result recorded in scripts/step6_report.md,
+not Step 6b or Step 7.
+
+ROOT CAUSE (established by direct inspection, not memory, per CLAUDE.md
+"treat the instrument as the likeliest source of error"):
+
+tools/aos_indexer.py `document_from_path()` runs a whole-document veto,
+`SECRET_CONTENT_RE` (api_key|authorization|bearer|password|private_key|credential),
+against the ENTIRE raw file text before any frontmatter parsing. If that regex
+matches ANYWHERE in the file, the whole document is silently dropped from the
+FTS index (returns None -> counted as "skipped", no error, no log visible to
+an operator).
+
+This whole-document veto is redundant with -- and strictly more destructive
+than -- the line-level scrub the same function already performs on the
+retained body: `sanitize_text()` (called immediately after) drops any
+individual line matching `SENSITIVE_LINE_RE`, a strict superset of the same
+keywords (api_key|secret|token|credential|password|authorization|bearer|
+private_key|north_shore) plus more. That line-level scrub already prevents
+any secret-bearing line from reaching the index. The whole-document veto adds
+no additional protection over what line-level scrubbing already provides for
+the retained body; it only produces false-positive total data loss when a
+long-form conversational transcript happens to use one of these words in
+ordinary English (asking about a website "password", a user's recording
+"authorization") with no actual secret value nearby.
+
+CONFIRMED CONCRETE INSTANCES (business_brain vault, read-only inspection):
+- sources/historical_calls/andrea-roberts-june-26.md contains the word
+  "password" once (line 169, casual: "...if there is a, a password, you have
+  to put in to see anything..."). Zero actual secrets. This is the ONLY
+  Andrea Roberts call-transcript file with the Jun 26 call date; its total
+  exclusion from the search/os_index.db FTS index made the Jun 26 date
+  structurally unreachable by mcp__brain__search_calls/search_history for
+  every B7 pass so far, including Step 6's E5 pass.
+- sources/historical_calls/meeting-ken-stanick.md contains the word
+  "authorization" once (casual, about voice-recording consent), similarly
+  excluded wholesale.
+- Verified via direct query of the live index (search/os_index.db,
+  `select path from documents where path like '%historical_calls%'`): 14 of
+  17 files on disk under sources/historical_calls/ are indexed; the 3 missing
+  are MANIFEST.md (excluded on purpose by the existing client-scope registry
+  gate per F-BRAINNOTES-1 -- NOT touched by this repair), plus the two
+  SECRET_CONTENT_RE false positives above.
+- Traced David's actual E5 session (~/.hermes/profiles/david/state.db,
+  session 20260907_110402_96d8f5, read-only query, zero model calls): David
+  ran mcp__brain__search_history/search_calls three times with queries
+  including `"Andrea Roberts"` and "introduce OR introduction OR intro"; the
+  tool's own returned `matches` list never contained
+  andrea-roberts-june-26.md in any of the three calls -- confirming the miss
+  is in the tool's result set, not in David's search terms or his choice not
+  to open a file that was offered.
+
+PER-MISS CLASSIFICATION (all 10 of §E's 24-14=10 missing facts; ZERO model
+calls used to produce this table -- built entirely from the frozen
+scored.json, the frozen raw.json answers, and read-only session/index/vault
+queries):
+
+- E5.1 (Jun 26 + Jun 30 dates): RETRIEVAL MISS / WRONG RESULT SET. The Jun 26
+  half is unretrievable because its source file was never in the index (root
+  cause above). The Jun 30 half IS separately stated correctly in the answer
+  ("the Jun 30 call") but the fact requires both dates as one AND'd group, so
+  it still scores absent.
+- E2.1, E2.2, E2.4, E3.1, E3.2, E4.1, E4.3, E5.3 (8 facts): CORRECT EVIDENCE
+  RETURNED, DAVID OMITTED/UNDERUSED IT. Verified per-question via the David
+  session tool-call trace: in every one of these cases the exact source file
+  named in the question's source_docs was opened successfully via
+  mcp__brain__open_call/open_note in that question's own session (E2 opened
+  mike-knapp-july-21 + mike-knapp-gtm-context-july-22; E3 opened
+  first-call-cci + cci-second-call-june-15 + call-dr-kenneth-after-second-cci
+  + kenneth-sme-june-18 + kenneth-june-30; E4 opened trent-first-call +
+  trent-july-9 + hermes-water-treatment-summary-trent; E5 opened
+  andrea-second-call-june-30, which does contain "Vancouver" and "event"
+  language ("consultant happy hour" run by Mike, described as expanding
+  Liam's network "here in Vancouver")). David's answers are long, accurate,
+  source-attributed narrative syntheses that never restate the literal
+  calendar-date strings or the literal words "Vancouver"/"event" the frozen
+  keyword scorer requires, and never write the explicit "this is Mike's
+  advice, not Liam's stated intention" sentence for E2.4. This is a
+  narrative-answer-style vs. frozen-keyword-scorer mismatch, not a retrieval
+  or tool defect. Per the task's explicit instruction, this is NOT hardcoded
+  around -- no code change is made for these 8 facts.
+- E5.4 ("the parked candidate bullet understates this"): STRUCTURALLY
+  UNRETRIEVABLE BY DESIGN, NOT A STEP-6 DEFECT. The only vault text matching
+  "parked candidate bullet" language is MANIFEST.md's promotion-inbox bullet
+  ("Andrea encouraged network-building and offered introductions"), and
+  MANIFEST.md is intentionally excluded from `tools/aos_indexer.py` search
+  (its `client_scope` gate returns None for it) per the existing,
+  already-documented F-BRAINNOTES-1 filter recorded in MANIFEST.md's own
+  header ("Typed historical_source so the context assembler's F-BRAINNOTES-1
+  filter keeps it out of assembled context by design"). Reopening that filter
+  is out of this repair's scope (it is a deliberate candidate-inbox/context
+  boundary, not a Step-6 bug) and would risk exactly the contamination the
+  filter exists to prevent. No code change is made for this fact.
+
+SCOPE (verbatim intent, this repair only): fix the one confirmed genuine
+Step-6 retrieval defect (E5.1's Jun-26 half) with a general fix to the shared
+indexing instrument Step 6 already reuses (tools/aos_indexer.py), per the
+task's "prefer a general retrieval/result-shape fix" instruction. Do not
+touch B6, do not touch F-BRAINNOTES-1 gating, do not hardcode B7 wording, do
+not start Step 6b/7.
+
+EXACT CHANGE:
+tools/aos_indexer.py, function `document_from_path()`: delete the
+whole-document early-return gate
+    `if SECRET_CONTENT_RE.search(raw): return None`
+(the 2 lines immediately following the `raw = path.read_bytes()...decode(...)`
+read). No other line in the function changes. `sanitize_text()` (unchanged)
+continues to run against the post-frontmatter body via `SENSITIVE_LINE_RE`,
+which is a strict superset of `SECRET_CONTENT_RE`'s keyword set plus
+"secret"/"token"/"north_shore", and continues to drop any individual matching
+line before it reaches the index. `SECRET_CONTENT_RE` itself, `SECRET_PATH_RE`
+(filename-based exclusion) and `SENSITIVE_LINE_RE` are all left defined and
+unchanged; only the one redundant whole-document veto that duplicates and
+subsumes what line-level scrubbing already does is removed. No change to
+`is_excluded()`, `PROTECTED_SEGMENTS`, `PROTECTED_PATH_PARTS`, the
+client-scope registry, or any write path (this module has no write path).
+
+Backup (byte-for-byte preimage, taken before the edit):
+  /home/liam/ttros_backups/step6_repair_20260907T184435Z/aos_indexer.py
+
+POST-EDIT ACTION: rebuild the local derived search index
+(`search/os_index.db`) by calling the existing authoritative instrument's own
+`scan()` entry point (no new script), so the fix takes effect and can be
+verified with zero model calls. This rewrites only a local, untracked,
+fully-regenerable derived artifact under `search/`; it is not a Business
+Brain vault write (vault reads stay direct per header rule 2; this index is
+not part of the vault) and is reversible by re-running scan() again after
+rollback.
+
+EXACT ROLLBACK:
+  cp /home/liam/ttros_backups/step6_repair_20260907T184435Z/aos_indexer.py tools/aos_indexer.py
+  PYTHONPATH=/home/liam/ttros-testenv/pytest dashboard/backend/.venv/bin/python -c \
+    "import tools.aos_indexer as i; i.scan()"
+Equivalently `git checkout -- tools/aos_indexer.py` achieves the same file
+result since this session's only change to that file is the one described
+above; the backup path is stated as primary per header rule 6. Rolling back
+and re-running scan() restores search/os_index.db to excluding the same 2
+files it excluded before this repair (a purely local, reversible index
+rebuild either way).
+
+EXTERNAL ACTIONS: none. No git push, no network calls, no David/Hermes model
+calls, no vault write, no Composio, no Telegram/North Shore/connectors/auth
+access.

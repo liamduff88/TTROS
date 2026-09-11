@@ -1,0 +1,57 @@
+Step 6 -- fresh 25-call B7 verification, exact change and rollback
+Timestamp: 2026-09-07 (session continuation after operator-lean tool-scoping fix)
+
+AUTHORIZATION
+Liam, explicitly, this turn: "Approved: run exactly ONE fresh 25-call B7
+verification now. Use David on openai-codex / gpt-5.5. Use the frozen 25
+questions, scorer, fact lists and thresholds. Fresh David session per
+question; no follow-ups. Capture B6 CONTEXT-MISSING / IGNORED evidence. No
+repairs or edits during the run. Do not run Step 6b or Step 7. Do not change
+narrative-vs-literal scoring."
+
+INSTRUMENT
+Reusing the existing, already-validated instrument as-is, no code changes:
+scripts/step6_b7_tools_harness.py (imports the frozen 25 questions and
+score_pass from scripts/step3_b7_harness.py by path -- not re-implemented).
+MAX_CALLS = 25 hard-stop is already coded into the script. David profile
+config already has AOS_BRAIN_DEPTH_TOOLS=1 set (this session's earlier fix),
+so the 4 depth tools are live for this pass, as Step 6 requires.
+
+CHANGE #1 -- archive prior (pre-repair) RED-pass evidence, do not delete
+The prior pass (58.3% RED, run before this session's tool-exposure and
+snippet fixes) left scripts/step6_b7_pass.{raw,scored}.json,
+step6_b7_pass.transcript.txt, and 25 step6_b7_pass_<qid>.usage.json files at
+the harness's canonical output path. The harness refuses to overwrite these
+without --overwrite. Rather than pass --overwrite and destroy that prior
+evidence, moved (not deleted) all 28 files to:
+  /home/liam/ttros_backups/step6_b7_pass_RED_20260907T110500Z/
+Rollback: mv them back from that archive path to scripts/ to restore the
+pre-fresh-pass state exactly.
+
+CHANGE #2 -- run the fresh pass (external, costly, explicitly pre-authorized)
+  cd /home/liam/agentic-os-live
+  python3 scripts/step6_b7_tools_harness.py run-pass
+(no --dry-run: this is the live, money-costing pass Liam approved; no
+--overwrite needed since change #1 cleared the canonical path.)
+This makes up to 25 `hermes -p david -z "<question>"` subprocess calls
+in-process (fresh CLI session per call, no follow-ups -- one question, one
+hermes invocation, one exit). Writes scripts/step6_b7_pass.raw.json and
+scripts/step6_b7_pass.transcript.txt, plus one usage.json per question.
+Rollback: none possible for the model spend itself (irreversible by nature);
+the evidence files it writes can be deleted/restored from the change #1
+archive if this pass needs to be disregarded.
+
+CHANGE #3 -- score the fresh pass (no model call)
+  python3 scripts/step6_b7_tools_harness.py score-pass
+Writes scripts/step6_b7_pass.scored.json (frozen scorer, unmodified,
+imported from step3_b7_harness.py -- no narrative-vs-literal scoring change).
+Rollback: delete scripts/step6_b7_pass.scored.json (derived, reproducible
+from raw.json + the frozen scorer).
+
+WHAT WILL NOT HAPPEN
+No edits to tools/brain_memory_mcp.py, tools/aos_indexer.py,
+scripts/step3_b7_harness.py, or any other Step 6 code during or immediately
+after this run based on what the run shows. No Step 6b, no Step 7. If the
+pass fails (<70% on Section E), this repair stops and reports/diagnoses only,
+per Liam's explicit instruction -- no further model calls, no code changes,
+this turn.

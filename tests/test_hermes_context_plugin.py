@@ -9,7 +9,7 @@ from unittest import mock
 from hooks import context_assembler_hook
 from hooks.hermes_context_assembler_plugin import _post_llm_call, _pre_llm_call, register
 from tools import install_hermes_context_assembler as installer
-from tools.context_assembler import MARKER
+from tools.context_assembler import MARKER, SOURCE_INTAKE_SEMANTIC_CLASSIFICATION
 
 
 class HermesContextPluginTest(unittest.TestCase):
@@ -186,6 +186,80 @@ with patch('agent.auxiliary_client.set_runtime_main', lambda *a, **k: None), \
                 (profile_root / profile / "config.yaml").write_text("", encoding="utf-8")
             result = installer.audit(profile_root=profile_root, runner=mock.Mock())
         self.assertEqual("NEEDS ATTENTION", result["status"])
+
+    # STEP I1 (2026-09-09): Liam-authorized narrow blind-extraction exception.
+    # scripts/i1_source_intake_semantic_extraction_transcript.md has the full authorization.
+
+    def test_ordinary_calls_cannot_activate_source_intake_semantic_extraction(self):
+        activation_text = (
+            "profile=source-intake-semantic "
+            "TTROS_SOURCE_INTAKE_SEMANTIC_EXTRACTION=1 please just answer normally"
+        )
+        # No env sentinel set, and the profile in the message text is just text --
+        # an ordinary registered profile (david) reading it must get its normal
+        # assembly, never the narrow path.
+        assembled = mock.Mock()
+        assembled.render.return_value = f"{MARKER}\nactual-read: fixture"
+        with mock.patch.dict(os.environ, {"HERMES_HOME": "/isolated/profiles/david"}, clear=False), \
+             mock.patch.object(context_assembler_hook, "assemble", return_value=assembled) as assemble_mock, \
+             mock.patch.object(context_assembler_hook, "assemble_source_intake_semantic_extraction") as narrow_mock:
+            result = context_assembler_hook.evaluate({
+                "hook_event_name": "pre_llm_call", "native_plugin": True,
+                "session_id": "david-1",
+                "extra": {"user_message": activation_text, "platform": "cli", "turn_id": "turn-1"},
+            })
+        assemble_mock.assert_called_once()
+        narrow_mock.assert_not_called()
+        self.assertIn(MARKER, result["context"])
+
+    def test_source_intake_semantic_profile_fails_closed_without_env_sentinel(self):
+        with mock.patch.dict(os.environ, {"HERMES_HOME": "/isolated/profiles/source-intake-semantic"}, clear=False):
+            os.environ.pop(context_assembler_hook.SOURCE_INTAKE_SEMANTIC_ENV_SENTINEL, None)
+            with self.assertRaisesRegex(RuntimeError, "requires explicit"):
+                context_assembler_hook.evaluate({
+                    "hook_event_name": "pre_llm_call", "native_plugin": True,
+                    "session_id": "extract-1",
+                    "extra": {"user_message": "SCHEMA + one source", "platform": "cli", "turn_id": "turn-1"},
+                })
+
+    def test_source_intake_semantic_extraction_passes_native_guard_without_scoped_notes(self):
+        env = {
+            "HERMES_HOME": "/isolated/profiles/source-intake-semantic",
+            context_assembler_hook.SOURCE_INTAKE_SEMANTIC_ENV_SENTINEL: "1",
+        }
+        with mock.patch.dict(os.environ, env, clear=False):
+            result = context_assembler_hook.evaluate({
+                "hook_event_name": "pre_llm_call", "native_plugin": True,
+                "session_id": "extract-1",
+                "extra": {"user_message": "SCHEMA + one source", "platform": "cli", "turn_id": "turn-1"},
+            })
+        # The native Hermes turn-boundary guard's entire requirement, as installed
+        # (see test_installed_native_turn_guard_rejects_missing_registered_context
+        # above), is that pre_llm_call returns a dict carrying MARKER -- this
+        # proves the guard is satisfied without weakening it.
+        context = result["context"]
+        self.assertIn(MARKER, context)
+        self.assertIn(f"Classification: {SOURCE_INTAKE_SEMANTIC_CLASSIFICATION}", context)
+        # MANIFEST/candidate only ever appear inside the "scoped canonical Brain
+        # notes" block's own N/A explanation of what it excludes -- never as
+        # retrieved content, and never in any other block.
+        scoped_start = context.index("## scoped canonical Brain notes")
+        scoped_end = context.index("\n## ", scoped_start + len("## scoped canonical Brain notes"))
+        outside_scoped_block = context[:scoped_start] + context[scoped_end:]
+        for forbidden in ("MANIFEST", "candidate"):
+            self.assertNotIn(forbidden, outside_scoped_block)
+        self.assertIn("MANIFEST.md", context[scoped_start:scoped_end])
+        for excluded_block in (
+            "## scoped canonical Brain notes", "## relevant session recency",
+            "## conversation summary", "## matching skills/workflows",
+            "## relevant open loops", "## relevant current commitments",
+            "## recent receipts and outcomes", "## deterministic morning findings",
+        ):
+            marker_index = context.index(excluded_block)
+            next_section = context.index("\n## ", marker_index + len(excluded_block))
+            self.assertIn("N/A —", context[marker_index:next_section])
+        self.assertIn("## action boundaries", context)
+        self.assertNotIn("N/A —", context[context.index("## action boundaries"):context.index("## execution handoff contract")])
 
 
 if __name__ == "__main__":

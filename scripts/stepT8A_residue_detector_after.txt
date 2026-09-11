@@ -1,0 +1,237 @@
+=== STEP T8-A residue detector — phase: after ===
+
+PREDICTION (written before running, per Part D):
+  - residue probes: 0/5 found
+  - positive control: still returns Fred source record; rank not worse than before
+  - no sessions/ hit contains the Fred quote
+  - recency (i) and (ii) select none of the five timestamps
+  - '11 boards' absent from (i)'s rendered context
+
+--- Residue probes ---
+  turn 2026-09-10T00:15:18.194177Z: found=False rank=None phrase='ask Fred for the SnapStats sheet plus one anonymized example'
+  turn 2026-09-10T00:52:29.283079Z: found=False rank=None phrase='What number does he give, and which cities does he name'
+  turn 2026-09-10T22:54:12.282800Z: found=False rank=None phrase='Bottom line: do not build the MLS product first'
+  turn 2026-09-10T23:43:14.377494Z: found=False rank=None phrase='the assembled context here does not include the full quote'
+  turn 2026-09-10T23:44:01.549610Z: found=False rank=None phrase='what is the exact name of the MLS platform Fred said he uses'
+  TOTAL FOUND: 0/5
+
+--- Positive control: search_history('like, I think 11') ---
+  fred_source_returned=True rank=1
+  sessions/ hits: []
+
+--- Recency (i): T5/T6-D1 verbatim question ---
+  selected_turn_timestamps=['2026-08-17T22:28:44.384025Z', '2026-08-17T20:56:28.851213Z']
+  selected_session_files=['sessions/2026-08-17_hermes-cli_7cd4569d6fe3.md']
+  contaminating_timestamps_selected=[]
+  contains_11_boards=False
+
+--- Recency (ii): rephrased GVR-boards question ---
+  selected_turn_timestamps=['2026-09-09T16:47:23.274969Z', '2026-09-08T19:42:02.902008Z']
+  selected_session_files=['sessions/2026-09-08_hermes-cli_7cd4569d6fe3.md', 'sessions/2026-09-09_hermes-cli_7cd4569d6fe3.md']
+  contaminating_timestamps_selected=[]
+  contains_11_boards=False
+
+--- JSON summary ---
+{
+  "phase": "after",
+  "residue_probes": [
+    {
+      "turn_timestamp": "2026-09-10T00:15:18.194177Z",
+      "phrase": "ask Fred for the SnapStats sheet plus one anonymized example",
+      "success": true,
+      "found": false,
+      "rank": null,
+      "all_pointers": [
+        "business_brain:sources/intake/cards/d9cb4668fd766474278e414bb53223f944342004f34be23020c161fa4160dd74.card.md",
+        "business_brain:sources/intake/records/d9cb4668fd766474278e414bb53223f944342004f34be23020c161fa4160dd74.md",
+        "business_brain:sources/historical_calls/hermes-water-treatment-summary-trent.md",
+        "business_brain:sources/historical_calls/kenneth-meeting-may-27.md",
+        "business_brain:sources/historical_calls/trent-first-call.md",
+        "business_brain:sources/historical_calls/cci-second-call-june-15.md",
+        "business_brain:sources/historical_calls/kenneth-sme-june-18.md",
+        "business_brain:sources/historical_calls/mike-knapp-gtm-context-july-22.md",
+        "business_brain:sources/historical_calls/first-call-cci.md",
+        "business_brain:sources/historical_calls/meeting-ken-stanick.md",
+        "business_brain:sources/historical_calls/cards/trent-first-call.card.md",
+        "business_brain:sources/historical_calls/call-kenneth-after-first-cci.md",
+        "business_brain:memory/clients.md",
+        "business_brain:memory/positioning.md",
+        "business_brain:sources/historical_calls/kenneth-june-30.md",
+        "business_brain:sources/historical_calls/call-dr-kenneth-after-second-cci.md",
+        "business_brain:sources/historical_calls/cards/kenneth-meeting-may-27.card.md",
+        "business_brain:sources/historical_calls/mike-knapp-july-21.md",
+        "business_brain:sources/historical_calls/cards/meeting-ken-stanick.card.md",
+        "business_brain:sources/historical_calls/INDEX.md"
+      ]
+    },
+    {
+      "turn_timestamp": "2026-09-10T00:52:29.283079Z",
+      "phrase": "What number does he give, and which cities does he name",
+      "success": true,
+      "found": false,
+      "rank": null,
+      "all_pointers": [
+        "business_brain:sources/historical_calls/trent-first-call.md",
+        "business_brain:sources/historical_calls/trent-july-9.md",
+        "business_brain:sources/historical_calls/andrea-second-call-june-30.md",
+        "business_brain:sources/intake/records/d9cb4668fd766474278e414bb53223f944342004f34be23020c161fa4160dd74.md",
+        "business_brain:sources/historical_calls/kenneth-sme-june-18.md",
+        "business_brain:sources/historical_calls/andrea-roberts-june-26.md",
+        "business_brain:sources/historical_calls/cci-second-call-june-15.md",
+        "business_brain:sources/historical_calls/kenneth-meeting-may-27.md",
+        "business_brain:sources/historical_calls/call-dr-kenneth-after-second-cci.md",
+        "business_brain:sources/historical_calls/kenneth-june-30.md",
+        "business_brain:sources/historical_calls/cards/trent-july-9.card.md",
+        "business_brain:sources/historical_calls/mike-knapp-gtm-context-july-22.md",
+        "business_brain:sources/historical_calls/hermes-water-treatment-summary-trent.md",
+        "business_brain:sources/historical_calls/meeting-ken-stanick.md",
+        "business_brain:sources/historical_calls/first-call-cci.md",
+        "business_brain:sources/historical_calls/call-kenneth-after-first-cci.md",
+        "business_brain:sources/historical_calls/cards/first-call-cci.card.md",
+        "business_brain:sources/historical_calls/mike-knapp-july-21.md",
+        "business_brain:sources/historical_calls/cards/mike-knapp-july-21.card.md",
+        "business_brain:sources/historical_calls/cards/call-kenneth-after-first-cci.card.md"
+      ]
+    },
+    {
+      "turn_timestamp": "2026-09-10T22:54:12.282800Z",
+      "phrase": "Bottom line: do not build the MLS product first",
+      "success": true,
+      "found": false,
+      "rank": null,
+      "all_pointers": [
+        "business_brain:sources/historical_calls/andrea-roberts-june-26.md",
+        "business_brain:sources/intake/cards/d9cb4668fd766474278e414bb53223f944342004f34be23020c161fa4160dd74.card.md",
+        "business_brain:sources/intake/records/d9cb4668fd766474278e414bb53223f944342004f34be23020c161fa4160dd74.md",
+        "business_brain:memory/company.md",
+        "business_brain:sources/historical_calls/kenneth-meeting-may-27.md",
+        "business_brain:sources/historical_calls/hermes-water-treatment-summary-trent.md",
+        "business_brain:sources/historical_calls/first-call-cci.md",
+        "business_brain:sources/historical_calls/kenneth-sme-june-18.md",
+        "business_brain:sources/historical_calls/mike-knapp-gtm-context-july-22.md",
+        "business_brain:memory/delivery_model.md",
+        "business_brain:sources/intake/INDEX.md",
+        "business_brain:sources/historical_calls/meeting-ken-stanick.md",
+        "business_brain:memory/prospecting_scoring_contract.md",
+        "business_brain:sources/historical_calls/mike-knapp-july-21.md",
+        "business_brain:sources/historical_calls/cci-second-call-june-15.md",
+        "business_brain:prospects/2026-07-ollama-jeffrey-morgan.md",
+        "business_brain:operating_context/current_priorities.md",
+        "business_brain:memory/ideal_clients_B.md",
+        "business_brain:sources/historical_calls/kenneth-june-30.md",
+        "business_brain:memory/offers.md"
+      ]
+    },
+    {
+      "turn_timestamp": "2026-09-10T23:43:14.377494Z",
+      "phrase": "the assembled context here does not include the full quote",
+      "success": true,
+      "found": false,
+      "rank": null,
+      "all_pointers": [
+        "business_brain:sources/historical_calls/mike-knapp-gtm-context-july-22.md",
+        "business_brain:sources/historical_calls/hermes-water-treatment-summary-trent.md",
+        "business_brain:sources/historical_calls/andrea-roberts-june-26.md",
+        "business_brain:sources/historical_calls/trent-july-9.md",
+        "business_brain:inbox/README.md",
+        "business_brain:sources/historical_calls/trent-first-call.md",
+        "business_brain:sources/historical_calls/kenneth-meeting-may-27.md",
+        "business_brain:memory/sales_and_revenue.md",
+        "business_brain:sources/historical_calls/cci-second-call-june-15.md",
+        "business_brain:sources/historical_calls/andrea-second-call-june-30.md",
+        "business_brain:sources/historical_calls/meeting-ken-stanick.md",
+        "business_brain:sources/historical_calls/mike-knapp-july-21.md",
+        "business_brain:sources/intake/records/d9cb4668fd766474278e414bb53223f944342004f34be23020c161fa4160dd74.md",
+        "business_brain:memory/prospecting_query_bank.md",
+        "business_brain:sources/historical_calls/call-dr-kenneth-after-second-cci.md",
+        "business_brain:memory/ideal_clients_B.md",
+        "business_brain:sources/historical_calls/kenneth-sme-june-18.md",
+        "business_brain:memory/company.md",
+        "business_brain:sources/historical_calls/first-call-cci.md",
+        "business_brain:memory/website_and_content.md"
+      ]
+    },
+    {
+      "turn_timestamp": "2026-09-10T23:44:01.549610Z",
+      "phrase": "what is the exact name of the MLS platform Fred said he uses",
+      "success": true,
+      "found": false,
+      "rank": null,
+      "all_pointers": [
+        "business_brain:sources/intake/records/d9cb4668fd766474278e414bb53223f944342004f34be23020c161fa4160dd74.md",
+        "business_brain:sources/intake/cards/d9cb4668fd766474278e414bb53223f944342004f34be23020c161fa4160dd74.card.md",
+        "business_brain:sources/historical_calls/andrea-roberts-june-26.md",
+        "business_brain:sources/historical_calls/kenneth-meeting-may-27.md",
+        "business_brain:sources/historical_calls/andrea-second-call-june-30.md",
+        "business_brain:sources/historical_calls/trent-july-9.md",
+        "business_brain:sources/historical_calls/call-dr-kenneth-after-second-cci.md",
+        "business_brain:sources/historical_calls/cards/mike-knapp-july-21.card.md",
+        "business_brain:sources/historical_calls/kenneth-june-30.md",
+        "business_brain:sources/historical_calls/trent-first-call.md",
+        "business_brain:sources/historical_calls/meeting-ken-stanick.md",
+        "business_brain:sources/historical_calls/mike-knapp-july-21.md",
+        "business_brain:sources/historical_calls/cci-second-call-june-15.md",
+        "business_brain:sources/historical_calls/kenneth-sme-june-18.md",
+        "business_brain:sources/historical_calls/cards/kenneth-meeting-may-27.card.md",
+        "business_brain:sources/historical_calls/cards/cci-second-call-june-15.card.md",
+        "business_brain:sources/historical_calls/cards/andrea-roberts-june-26.card.md",
+        "business_brain:sources/historical_calls/cards/call-kenneth-after-first-cci.card.md",
+        "business_brain:sources/historical_calls/cards/kenneth-sme-june-18.card.md",
+        "business_brain:sources/historical_calls/cards/andrea-second-call-june-30.card.md"
+      ]
+    }
+  ],
+  "positive_control": {
+    "success": true,
+    "fred_source_returned": true,
+    "fred_source_rank": 1,
+    "sessions_hits": [],
+    "all_pointers": [
+      "business_brain:sources/intake/records/d9cb4668fd766474278e414bb53223f944342004f34be23020c161fa4160dd74.md",
+      "business_brain:sources/historical_calls/call-dr-kenneth-after-second-cci.md",
+      "business_brain:sources/historical_calls/meeting-ken-stanick.md",
+      "business_brain:sources/historical_calls/kenneth-meeting-may-27.md",
+      "business_brain:sources/historical_calls/cci-second-call-june-15.md",
+      "business_brain:sources/historical_calls/kenneth-sme-june-18.md",
+      "business_brain:sources/historical_calls/andrea-second-call-june-30.md",
+      "business_brain:sources/historical_calls/mike-knapp-july-21.md",
+      "business_brain:sources/historical_calls/call-kenneth-after-first-cci.md",
+      "business_brain:sources/historical_calls/kenneth-june-30.md",
+      "business_brain:sources/historical_calls/trent-july-9.md",
+      "business_brain:sources/historical_calls/first-call-cci.md",
+      "business_brain:sources/historical_calls/andrea-roberts-june-26.md",
+      "business_brain:sources/historical_calls/trent-first-call.md",
+      "business_brain:sources/historical_calls/hermes-water-treatment-summary-trent.md",
+      "business_brain:sources/historical_calls/mike-knapp-gtm-context-july-22.md",
+      "business_brain:sources/intake/cards/d9cb4668fd766474278e414bb53223f944342004f34be23020c161fa4160dd74.card.md",
+      "business_brain:sources/historical_calls/cards/kenneth-meeting-may-27.card.md",
+      "business_brain:memory/clients.md",
+      "business_brain:prospects/2026-07-punttai-ronnie-coleman.md"
+    ]
+  },
+  "recency_i": {
+    "query": "What happened in my meeting with Fred, and what did he say about MLS?",
+    "selected_turn_timestamps": [
+      "2026-08-17T22:28:44.384025Z",
+      "2026-08-17T20:56:28.851213Z"
+    ],
+    "selected_session_files": [
+      "sessions/2026-08-17_hermes-cli_7cd4569d6fe3.md"
+    ],
+    "contaminating_timestamps_selected": [],
+    "contains_11_boards": false
+  },
+  "recency_ii": {
+    "query": "In my meeting with Fred, what were his exact words about how many GVR boards there are?",
+    "selected_turn_timestamps": [
+      "2026-09-09T16:47:23.274969Z",
+      "2026-09-08T19:42:02.902008Z"
+    ],
+    "selected_session_files": [
+      "sessions/2026-09-08_hermes-cli_7cd4569d6fe3.md",
+      "sessions/2026-09-09_hermes-cli_7cd4569d6fe3.md"
+    ],
+    "contaminating_timestamps_selected": [],
+    "contains_11_boards": false
+  }
+}

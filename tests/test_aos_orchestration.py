@@ -274,19 +274,6 @@ class AosOrchestrationTests(unittest.TestCase):
             write_items(root, list(current.values()))
             runner.tick(root, allow_telegram_escalation=False)
             self.assertEqual("human_review", {row["id"]: row for row in read_items(root)}[parent["id"]]["status"])
-    def test_linux_launcher_uses_only_existing_runner_watch_mode(self):
-        root = Path(__file__).resolve().parents[1]
-        launcher = (root / "tools" / "aos-linux-runtime.sh").read_text(encoding="utf-8")
-        self.assertIn('RUNNER_SCRIPT="${ROOT}/tools/aos-orchestration-runner.py"', launcher)
-        self.assertIn("canonical_runner_pid", launcher)
-        self.assertIn("--watch --interval", launcher)
-        self.assertNotIn("while true", launcher)
-        self.assertIn("desktop-start) desktop_start", launcher)
-        self.assertIn("desktop_cleanup\n  preflight\n  start_backend\n  start_frontend\n  start_runner", launcher)
-        self.assertIn("if ! wait_http \"$BACKEND_URL\" backend; then\n    stop", launcher)
-        self.assertIn("if ! wait_http \"$FRONTEND_URL\" frontend; then\n    stop", launcher)
-        self.assertIn("grep -Ev 'grep|rg|codex|aos-linux-runtime\\.sh'", launcher)
-
     def test_existing_runner_watch_mode_is_bounded_for_validation(self):
         root_dir = Path(__file__).resolve().parents[1]
         with tempfile.TemporaryDirectory(dir="/tmp") as tmp:

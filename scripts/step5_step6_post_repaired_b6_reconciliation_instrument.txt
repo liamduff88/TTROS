@@ -1,0 +1,108 @@
+STEP 5 / STEP 6_POST -- COMPLIANT-ONLY B6 RECONCILIATION RECOMPUTE
+Zero model / Hermes / David / provider calls in this script.
+sqlite3.connect() monkeypatched to fail closed against state.db / .hermes / profiles paths.
+
+scripts/step3_b7_harness.py SHA-256: 2d2aef167321ae7bbf0ba639db027ab92320e0a3b9cd5ce3a46b2a061b1200d4
+scripts/step6_b7_pass.raw.json SHA-256: 9f1405baeeb2781f60731ca2138e59514dc5488a073e2796fac8efd6712c0dcd
+
+Rehearsal (negative case, before trusting the guard): calling the frozen extract_tool_reads() directly with a real stored session_id, to prove the guard actually intercepts a state.db open attempt rather than the run simply never reaching that code path.
+  extract_tool_reads('20260907_134442_11b488') returned frozenset() (its own fail-soft contract: 'Never writes. Returns an empty frozenset (not an error) for any missing db, missing session, or unparseable row' -- it catches ALL exceptions internally, including our ForbiddenAccess, and returns frozenset() rather than letting anything propagate. This means a caller cannot distinguish 'guard blocked it' from 'session genuinely had no reads' by exception alone -- confirmed directly here, recorded as a finding about extract_tool_reads()'s own swallow-all behavior, not a defect in this instrument.)
+  Guard invocation counter: before=0, after=1.
+  Guard rehearsal PASSED: the sqlite3.connect() interceptor fired (1 blocked call(s)) on a real state.db-opening attempt -- proven by the counter, not by exception propagation (which extract_tool_reads() swallows by design). The compliant-only recompute below never calls extract_tool_reads() at all (tool_reads is force-supplied as [] on every record via direct dict assignment), so this guard is a belt-and-suspenders check, not the primary compliance mechanism -- but it is now shown capable of actually firing, not just silently absent.
+
+Loaded 25 stored step6_post records (actual_calls=25, declared_max=25, aborted=False).
+
+Compliant-only coverage, ALL non-honesty sections A-E: 47/99 (47.5%). (present() does not depend on tool_reads/arrival evidence at all -- expected to match the original investigation's 47/99 exactly.)
+
+Per-question disposition summary, COMPLIANT-ONLY recompute (non-honesty questions):
+  A1: present=6 CONTEXT-MISSING=1 IGNORED=0 UNDECIDABLE=0
+  A2: present=0 CONTEXT-MISSING=4 IGNORED=0 UNDECIDABLE=0
+  A3: present=1 CONTEXT-MISSING=4 IGNORED=0 UNDECIDABLE=0
+  A4: present=0 CONTEXT-MISSING=6 IGNORED=0 UNDECIDABLE=0
+  A5: present=3 CONTEXT-MISSING=1 IGNORED=0 UNDECIDABLE=0
+  B1: present=2 CONTEXT-MISSING=3 IGNORED=0 UNDECIDABLE=0
+  B2: present=3 CONTEXT-MISSING=1 IGNORED=0 UNDECIDABLE=0
+  B3: present=0 CONTEXT-MISSING=7 IGNORED=0 UNDECIDABLE=0
+  B4: present=2 CONTEXT-MISSING=3 IGNORED=0 UNDECIDABLE=0
+  C1: present=3 CONTEXT-MISSING=0 IGNORED=0 UNDECIDABLE=0
+  C2: present=6 CONTEXT-MISSING=0 IGNORED=2 UNDECIDABLE=0
+  C3: present=1 CONTEXT-MISSING=0 IGNORED=1 UNDECIDABLE=0
+  C4: present=0 CONTEXT-MISSING=3 IGNORED=0 UNDECIDABLE=0
+  D1: present=1 CONTEXT-MISSING=0 IGNORED=4 UNDECIDABLE=0
+  D2: present=3 CONTEXT-MISSING=0 IGNORED=0 UNDECIDABLE=0
+  D3: present=1 CONTEXT-MISSING=0 IGNORED=1 UNDECIDABLE=0
+  D4: present=1 CONTEXT-MISSING=0 IGNORED=1 UNDECIDABLE=0
+  E1: present=9 CONTEXT-MISSING=0 IGNORED=0 UNDECIDABLE=0
+  E2: present=1 CONTEXT-MISSING=3 IGNORED=0 UNDECIDABLE=0
+  E3: present=2 CONTEXT-MISSING=2 IGNORED=0 UNDECIDABLE=0
+  E4: present=1 CONTEXT-MISSING=2 IGNORED=0 UNDECIDABLE=0
+  E5: present=1 CONTEXT-MISSING=3 IGNORED=0 UNDECIDABLE=0
+
+THREE-WAY TOTALS (compliant-only), ALL sections A-E, 52 unmet:
+  CONTEXT-MISSING: 43 (82.7%)
+  IGNORED: 9 (17.3%)
+  UNDECIDABLE: 0 (0.0%)
+
+THREE-WAY TOTALS (compliant-only), sections A-D only, 42 unmet:
+  CONTEXT-MISSING: 33 (78.6%)
+  IGNORED: 9 (21.4%)
+  UNDECIDABLE: 0 (0.0%)
+
+EVIDENCE-CLASS BREAKDOWN (compliant-only; depth_tool is structurally unreachable here since tool_reads is always empty -- any fact that would have needed it now falls to no_usable_evidence):
+  fact_level_override: total=24  CONTEXT-MISSING=24 IGNORED=0 UNDECIDABLE=0
+  manifest_provenance_or_actual_reads: total=9  CONTEXT-MISSING=0 IGNORED=9 UNDECIDABLE=0
+  depth_tool: total=0  CONTEXT-MISSING=0 IGNORED=0 UNDECIDABLE=0
+  no_usable_evidence: total=19  CONTEXT-MISSING=19 IGNORED=0 UNDECIDABLE=0
+
+Reconciliation: evidence-class totals sum to 52; three-way totals sum to 52. Match: True
+
+CROSS-REFERENCE vs. original investigation's published per-question table (scripts/step5_step6_post_repaired_b6_investigation.md, transcribed verbatim, not recomputed):
+  A1: original(present=6,CM=0,IG=1,UN=0) vs compliant(present=6,CM=1,IG=0,UN=0)  <-- DIFFERS
+  A2: original(present=0,CM=4,IG=0,UN=0) vs compliant(present=0,CM=4,IG=0,UN=0)
+  A3: original(present=1,CM=4,IG=0,UN=0) vs compliant(present=1,CM=4,IG=0,UN=0)
+  A4: original(present=0,CM=6,IG=0,UN=0) vs compliant(present=0,CM=6,IG=0,UN=0)
+  A5: original(present=3,CM=1,IG=0,UN=0) vs compliant(present=3,CM=1,IG=0,UN=0)
+  B1: original(present=2,CM=3,IG=0,UN=0) vs compliant(present=2,CM=3,IG=0,UN=0)
+  B2: original(present=3,CM=1,IG=0,UN=0) vs compliant(present=3,CM=1,IG=0,UN=0)
+  B3: original(present=0,CM=0,IG=7,UN=0) vs compliant(present=0,CM=7,IG=0,UN=0)  <-- DIFFERS
+  B4: original(present=2,CM=3,IG=0,UN=0) vs compliant(present=2,CM=3,IG=0,UN=0)
+  C1: original(present=3,CM=0,IG=0,UN=0) vs compliant(present=3,CM=0,IG=0,UN=0)
+  C2: original(present=6,CM=0,IG=2,UN=0) vs compliant(present=6,CM=0,IG=2,UN=0)
+  C3: original(present=1,CM=0,IG=1,UN=0) vs compliant(present=1,CM=0,IG=1,UN=0)
+  C4: original(present=0,CM=3,IG=0,UN=0) vs compliant(present=0,CM=3,IG=0,UN=0)
+  D1: original(present=1,CM=0,IG=4,UN=0) vs compliant(present=1,CM=0,IG=4,UN=0)
+  D2: original(present=3,CM=0,IG=0,UN=0) vs compliant(present=3,CM=0,IG=0,UN=0)
+  D3: original(present=1,CM=0,IG=1,UN=0) vs compliant(present=1,CM=0,IG=1,UN=0)
+  D4: original(present=1,CM=0,IG=1,UN=0) vs compliant(present=1,CM=0,IG=1,UN=0)
+  E1: original(present=9,CM=0,IG=0,UN=0) vs compliant(present=9,CM=0,IG=0,UN=0)
+  E2: original(present=1,CM=0,IG=3,UN=0) vs compliant(present=1,CM=3,IG=0,UN=0)  <-- DIFFERS
+  E3: original(present=2,CM=2,IG=0,UN=0) vs compliant(present=2,CM=2,IG=0,UN=0)
+  E4: original(present=1,CM=0,IG=0,UN=2) vs compliant(present=1,CM=2,IG=0,UN=0)  <-- DIFFERS
+  E5: original(present=1,CM=0,IG=1,UN=2) vs compliant(present=1,CM=3,IG=0,UN=0)  <-- DIFFERS
+
+Questions whose disposition breakdown differs from the original investigation: ['A1', 'B3', 'E2', 'E4', 'E5']
+
+PER-FACT detail for changed questions (compliant-only recompute):
+  A1.7: disposition_compliant=CONTEXT-MISSING evidence_class_compliant=no_usable_evidence
+  B3.1: disposition_compliant=CONTEXT-MISSING evidence_class_compliant=fact_level_override
+  B3.2: disposition_compliant=CONTEXT-MISSING evidence_class_compliant=fact_level_override
+  B3.3: disposition_compliant=CONTEXT-MISSING evidence_class_compliant=fact_level_override
+  B3.4: disposition_compliant=CONTEXT-MISSING evidence_class_compliant=fact_level_override
+  B3.5: disposition_compliant=CONTEXT-MISSING evidence_class_compliant=fact_level_override
+  B3.6: disposition_compliant=CONTEXT-MISSING evidence_class_compliant=no_usable_evidence
+  B3.7: disposition_compliant=CONTEXT-MISSING evidence_class_compliant=fact_level_override
+  E2.1: disposition_compliant=CONTEXT-MISSING evidence_class_compliant=fact_level_override
+  E2.2: disposition_compliant=CONTEXT-MISSING evidence_class_compliant=fact_level_override
+  E2.4: disposition_compliant=CONTEXT-MISSING evidence_class_compliant=fact_level_override
+  E4.1: disposition_compliant=CONTEXT-MISSING evidence_class_compliant=fact_level_override
+  E4.3: disposition_compliant=CONTEXT-MISSING evidence_class_compliant=no_usable_evidence
+  E5.1: disposition_compliant=CONTEXT-MISSING evidence_class_compliant=fact_level_override
+  E5.3: disposition_compliant=CONTEXT-MISSING evidence_class_compliant=fact_level_override
+  E5.4: disposition_compliant=CONTEXT-MISSING evidence_class_compliant=no_usable_evidence
+
+Facts identified as depth-tool-affected (no_usable_evidence under compliant-only recompute, within a question whose breakdown changed): ['A1.7', 'B3.6', 'E4.3', 'E5.4'] (n=4)
+Expected count from the original investigation's evidence-class table: 4 (depth_tool: total=4 CONTEXT-MISSING=0 IGNORED=2 UNDECIDABLE=2). Match: True
+
+==============================================================================
+DONE. Zero model/Hermes/David/provider calls made by this script. state.db never opened.
+==============================================================================

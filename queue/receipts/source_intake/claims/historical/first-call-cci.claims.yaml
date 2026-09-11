@@ -1,0 +1,168 @@
+id: source-intake-claim-first-call-cci
+type: claim_record
+source_id: first-call-cci
+source_path: sources/historical_calls/first-call-cci.md
+source_sha256: 94079fd55c0d1c8c524d119c8f9ca5f0e6ff1993c84c10cd7e0bc437dd818459
+generated_at: '2026-09-09T22:38:51.244065Z'
+model: gpt-5.5
+claim_count: 14
+dropped_count: 1
+canonical_truth: false
+claims:
+- claim: CCI's historical lead generation relied strongly on referrals from people
+    who had worked with customer companies, and the speaker said that channel was
+    not sustainable.
+  type: fact_asserted
+  attribution: speaker_unresolved
+  status: historical
+  evidence:
+    quote: typically CCI has been very, very strong in what we classify as follow
+      a friend where someone that has worked with a company that we've sold to has
+      moved to another organization and they say look you must buy the CCI product
+      offerings. And that isn't a sustainable channel.
+    locator: Them first turn, lead sources
+- claim: The speaker believed successful sales teams need multiple lead streams operating
+    at once.
+  type: third_party_statement
+  attribution: speaker_unresolved
+  status: historical
+  evidence:
+    quote: I believe in any successful sales team you need a mix of different lead
+      streams coming in.
+    locator: Them first turn, high level sales view
+- claim: CCI wanted to explore whether AI could make lead generation more successful
+    and improve opportunity volume and closing speed.
+  type: third_party_statement
+  attribution: speaker_unresolved
+  status: historical
+  evidence:
+    quote: if there's a way we can utilize AI to make the lead gen more successful
+      we always want to get more opportunities close them at a quicker more profitable
+      rate.
+    locator: Them first turn, AI technology
+- claim: CCI said it already had information about its ideal customer profile, sectors,
+    and messaging that it could provide to Liam.
+  type: offer_made
+  attribution: speaker_unresolved
+  status: historical
+  evidence:
+    quote: We've got quite a lot of the information Liam i.e what our ideal customer
+      profile is who our ICP is, what messaging is. We know. That sectors to go after
+      so we can provide all that information to you.
+    locator: Them third turn, information available
+- claim: Liam said the desired outcomes should be defined by CCI, while he could bring
+    suggestions.
+  type: liam_position
+  attribution: Liam
+  status: historical
+  evidence:
+    quote: what those outcomes look like and what you want is really something that
+      needs to be defined. By you guys. Obviously, I can bring suggestions
+    locator: Me presentation, outcomes
+- claim: Liam said a human-in-the-loop approach was necessary because the system involved
+    important and high-risk human psychology and outputs had to be checked.
+  type: liam_position
+  attribution: Liam
+  status: historical
+  evidence:
+    quote: I think it's very important to maintain the human in the loop because we're
+      dealing with very important aspects and it's human psychology and making sure
+      that, you know, it's high risk essentially.
+    locator: Me response to bot summary
+- claim: A speaker said CCI's bottleneck would be prospecting and generating leads
+    through its lead sources, not internal resistance to AI replacing jobs.
+  type: third_party_statement
+  attribution: speaker_unresolved
+  status: historical
+  evidence:
+    quote: So our bottleneck is going to be prospecting actually generating the leads
+      right through the six or seven lead sources that we've got today and that's
+      the bit we need to try and automate more
+    locator: Them, bottleneck discussion
+- claim: A speaker said the hard part was getting named target companies such as Coca-Cola
+    or Heineken to speak with CCI.
+  type: third_party_statement
+  attribution: speaker_unresolved
+  status: historical
+  evidence:
+    quote: The hard piece or the piece of the puzzle is how do we get them to speak
+      to us. When. There's thousands of other people trying to contact these guys
+      who are super super busy every day
+    locator: Them, target-company access
+- claim: A speaker identified account and market signals, especially early recruitment
+    signals for global operational excellence roles, as valuable because CCI often
+    finds out too late.
+  type: third_party_statement
+  attribution: speaker_unresolved
+  status: historical
+  evidence:
+    quote: So I think we always find out too late. You know we've missed the boats
+      you know that that's another six months 12 months at least before that person
+      settles into the role that they would be interested in talking to us.
+    locator: Them, account and market signals
+- claim: Liam suggested CCI revisit YouTube and produce videos or mini documentaries
+    showing client results or the accelerator program.
+  type: advice_received
+  attribution: Liam
+  status: historical
+  evidence:
+    quote: what I would suggest is maybe having another look at that. When you have
+      a client or just walking through the accelerator program you're talking about
+      saying, okay, this is a 12 week program, this is a client we're working with.
+    locator: Me, YouTube suggestion
+- claim: A speaker said CCI had been described internally as the best kept secret
+    and that the business had been secretive about posting because of IP concerns.
+  type: third_party_statement
+  attribution: speaker_unresolved
+  status: historical
+  evidence:
+    quote: when I started a year ago a number of senior people in the business said
+      we're like the best kept secret. And we've been very much of the case of like
+      well we can't post too much on what track is because we're scared to give in
+      the IP away.
+    locator: Them, best kept secret
+- claim: A speaker asked Liam to put social media consistency and AI-supported consistency
+    across platforms on a future discussion list.
+  type: commitment
+  attribution: speaker_unresolved
+  status: historical
+  evidence:
+    quote: Liam put that down on your list somewhere that you and I must talk about
+      it and now we use AI to generate and to create that consistency on different
+      platforms
+    locator: Them, social media consistency
+- claim: Liam said he would probably not be locked into Microsoft Copilot unless there
+    was a specific reason, and would prefer building a coded system specifically for
+    CCI.
+  type: liam_position
+  attribution: Liam
+  status: historical
+  evidence:
+    quote: I probably wouldn't be locked into the Microsoft side unless there was
+      a particular reason to do that.
+    locator: Me, technology choice
+- claim: The group agreed to book a follow-up meeting for Monday the 15th at four
+    o'clock, which was described as 8 a.m. for Liam.
+  type: decision
+  attribution: group_unattributed
+  status: historical
+  evidence:
+    quote: let's go for Monday if you want to send an invite for. Monday. At four
+      o'clock which is I think eight o'clock your time yeah 8 a.m. On the other side
+      then.
+    locator: Scheduling near end
+dropped:
+- claim:
+    claim: 'Liam presented two possible areas of work: attaching AI to current BD
+      workflows and building a precision system to improve the existing system.'
+    type: liam_position
+    attribution: Liam
+    status: historical
+    evidence:
+      quote: there's kind of two things that I wanted to talk about at the beginning
+        was one is this AI workflow and just attaching a I to your current workflows
+        inside the operations of the BD process. Which looking at which areas are
+        potentially take up a lot of time or can be partially automated or fully automated.
+        And then the second thing is a precision system in itself
+      locator: Me presentation, first page
+  reason: evidence quote does not resolve as an exact substring of the source

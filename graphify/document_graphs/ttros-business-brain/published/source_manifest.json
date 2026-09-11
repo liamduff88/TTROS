@@ -1,0 +1,355 @@
+{
+  "aggregate_sha256": "b4b312791666de11897e4cffb1083629ab93e869a1047338fcde79e9445d070b",
+  "excludes": [
+    "_backups/**"
+  ],
+  "files": [
+    {
+      "id": "ttros-brain-root",
+      "relative_path": "README.md",
+      "sha256": "65eec0b55a8ccda3e13d0b4c0d2b253be864b900f6bb96ffd2a7dc16e1adcb17",
+      "size_bytes": 2752,
+      "source_path": "business_brain:README.md",
+      "status": null,
+      "type": "navigation"
+    },
+    {
+      "id": "ttros-brain-decisions",
+      "relative_path": "decisions/DECISIONS.md",
+      "sha256": "f50e5fb4757723cc41c55cf145dc3d245d06da406c43a306ceef9b227500e887",
+      "size_bytes": 1506,
+      "source_path": "business_brain:decisions/DECISIONS.md",
+      "status": null,
+      "type": "decision_log"
+    },
+    {
+      "id": "ttros-brain-inbox",
+      "relative_path": "inbox/README.md",
+      "sha256": "a00494bee8177e2b3364591a0aa49b72507be02ed8e959361c6afdf9df3d87e5",
+      "size_bytes": 1850,
+      "source_path": "business_brain:inbox/README.md",
+      "status": null,
+      "type": "intake"
+    },
+    {
+      "id": "ttros-brain-contradictions",
+      "relative_path": "inbox/contradictions.md",
+      "sha256": "64526aa6d837e63e2902a254217742b776b59ed2adcbe25b47a13595525ab038",
+      "size_bytes": 935,
+      "source_path": "business_brain:inbox/contradictions.md",
+      "status": "active",
+      "type": "inbox"
+    },
+    {
+      "id": "ttros-brain-memory-index",
+      "relative_path": "index/MEMORY_INDEX.md",
+      "sha256": "1350518f5c7493bfd3838df2684089abebf6950b4184506d9a89201c936f69c7",
+      "size_bytes": 6662,
+      "source_path": "business_brain:index/MEMORY_INDEX.md",
+      "status": null,
+      "type": "index"
+    },
+    {
+      "id": "ttros-brain-agentic-os",
+      "relative_path": "memory/agentic_os.md",
+      "sha256": "068e0c46e194432491c20b54076255e341b19bc65f6847f9fc85f3e21fab4009",
+      "size_bytes": 1778,
+      "source_path": "business_brain:memory/agentic_os.md",
+      "status": null,
+      "type": "knowledge"
+    },
+    {
+      "id": "ttros-brain-clients",
+      "relative_path": "memory/clients.md",
+      "sha256": "cf0eb996cb25b7c8f8abb83dd78247274d64315b9f33adc5a783d2106fe8e424",
+      "size_bytes": 1214,
+      "source_path": "business_brain:memory/clients.md",
+      "status": null,
+      "type": "knowledge"
+    },
+    {
+      "id": "ttros-brain-company",
+      "relative_path": "memory/company.md",
+      "sha256": "472a930ed55dfd08cc05f69b8fe340edcf07e76a486df39302314b6e5330e3e9",
+      "size_bytes": 3274,
+      "source_path": "business_brain:memory/company.md",
+      "status": null,
+      "type": "knowledge"
+    },
+    {
+      "id": "ttros-brain-delivery-model",
+      "relative_path": "memory/delivery_model.md",
+      "sha256": "72a8b6051915e7324217e3949877251ac41ea2205ac5e86c728022b0b64eefe9",
+      "size_bytes": 1226,
+      "source_path": "business_brain:memory/delivery_model.md",
+      "status": null,
+      "type": "knowledge"
+    },
+    {
+      "id": "ttros-brain-ideal-clients",
+      "relative_path": "memory/ideal_clients.md",
+      "sha256": "86173f38f742de300cafdde9402a41c0b7e8e99a3b9efdcdce86aab95ac1e846",
+      "size_bytes": 1719,
+      "source_path": "business_brain:memory/ideal_clients.md",
+      "status": null,
+      "type": "knowledge"
+    },
+    {
+      "id": "ttros-brain-ideal-clients-a",
+      "relative_path": "memory/ideal_clients_A.md",
+      "sha256": "bff79e8a4b0a70e1494103811c62b68f4fa470c01d381d10f82b6d84ddd0cc54",
+      "size_bytes": 2561,
+      "source_path": "business_brain:memory/ideal_clients_A.md",
+      "status": "cycle-1-hypothesis",
+      "type": "knowledge"
+    },
+    {
+      "id": "ttros-brain-ideal-clients-b",
+      "relative_path": "memory/ideal_clients_B.md",
+      "sha256": "260b96bdff24ef1c8a1bdaf76446838059bec25e5547e8f958672aa62cb99637",
+      "size_bytes": 2359,
+      "source_path": "business_brain:memory/ideal_clients_B.md",
+      "status": "cycle-1-hypothesis",
+      "type": "knowledge"
+    },
+    {
+      "id": "ttros-brain-marketing-voice",
+      "relative_path": "memory/marketing_voice.md",
+      "sha256": "f02069517535ef0a08dffad412d8909bf5312dace59e42bafb51f846e1b1c732",
+      "size_bytes": 1391,
+      "source_path": "business_brain:memory/marketing_voice.md",
+      "status": null,
+      "type": "knowledge"
+    },
+    {
+      "id": "ttros-brain-offers",
+      "relative_path": "memory/offers.md",
+      "sha256": "612f407ef6628348f07e3169fca3cd06b580a7417e2165646ded0fe0f21ad9da",
+      "size_bytes": 2355,
+      "source_path": "business_brain:memory/offers.md",
+      "status": null,
+      "type": "knowledge"
+    },
+    {
+      "id": "ttros-brain-positioning",
+      "relative_path": "memory/positioning.md",
+      "sha256": "d1111b30cfc27186d07b868e1a28964751d2ae7a37533a97679d117ddaa57442",
+      "size_bytes": 2411,
+      "source_path": "business_brain:memory/positioning.md",
+      "status": null,
+      "type": "knowledge"
+    },
+    {
+      "id": "ttros-brain-prospecting-query-bank",
+      "relative_path": "memory/prospecting_query_bank.md",
+      "sha256": "128476dfd14e96e57c73228d5aa7e09f64f1dde43420086aa3d5bbc85c5d6d91",
+      "size_bytes": 2728,
+      "source_path": "business_brain:memory/prospecting_query_bank.md",
+      "status": "cycle-1-hypothesis",
+      "type": "knowledge"
+    },
+    {
+      "id": "ttros-brain-prospecting-rotation-plan",
+      "relative_path": "memory/prospecting_rotation_plan.md",
+      "sha256": "387c7290b42c0167446c0352fe56c05423976079582ee62b48b381abe3da9ab3",
+      "size_bytes": 1254,
+      "source_path": "business_brain:memory/prospecting_rotation_plan.md",
+      "status": "cycle-1",
+      "type": "operating_state"
+    },
+    {
+      "id": "ttros-brain-prospecting-scoring-contract",
+      "relative_path": "memory/prospecting_scoring_contract.md",
+      "sha256": "9562a44021b5026aa5724b132975a84909da5991e97a0757f2cb9d220a57b2ff",
+      "size_bytes": 1968,
+      "source_path": "business_brain:memory/prospecting_scoring_contract.md",
+      "status": "v0",
+      "type": "policy"
+    },
+    {
+      "id": "ttros-brain-sales-and-revenue",
+      "relative_path": "memory/sales_and_revenue.md",
+      "sha256": "506e44c619302296601586c5ad7ffb4f1e8d79d984573a1c9a7210471e481c37",
+      "size_bytes": 2065,
+      "source_path": "business_brain:memory/sales_and_revenue.md",
+      "status": null,
+      "type": "knowledge"
+    },
+    {
+      "id": "ttros-brain-website-and-content",
+      "relative_path": "memory/website_and_content.md",
+      "sha256": "97abacd5227d83e7cfbf05bee85602e301243b1b0b7d78c61588f5066eed2a29",
+      "size_bytes": 1408,
+      "source_path": "business_brain:memory/website_and_content.md",
+      "status": null,
+      "type": "knowledge"
+    },
+    {
+      "id": "ttros-brain-active-projects",
+      "relative_path": "operating_context/active_projects.md",
+      "sha256": "5f83b07f5e01f8a9fbbf7b519ab5af1194670e023ee90925923f0baa871c05af",
+      "size_bytes": 1231,
+      "source_path": "business_brain:operating_context/active_projects.md",
+      "status": null,
+      "type": "operating_state"
+    },
+    {
+      "id": "ttros-brain-current-priorities",
+      "relative_path": "operating_context/current_priorities.md",
+      "sha256": "e9e22d3c4cb5d1fa2417df3ebda54917824da1a109d14243314903573a003176",
+      "size_bytes": 2186,
+      "source_path": "business_brain:operating_context/current_priorities.md",
+      "status": null,
+      "type": "operating_state"
+    },
+    {
+      "id": "ttros-executive-view",
+      "relative_path": "operating_context/executive_view.md",
+      "sha256": "0efa03492684752c98b6f80bba3c7e425cc374fbd0212fb518ec3f371b1e079e",
+      "size_bytes": 1983,
+      "source_path": "business_brain:operating_context/executive_view.md",
+      "status": "active",
+      "type": "operating_context"
+    },
+    {
+      "id": "ttros-brain-old-vault-archive-plan",
+      "relative_path": "operating_context/old_vault_archive_plan.md",
+      "sha256": "60fc8a486005fa9210a495b6e622c1da3e3e180a068b4cf9788e2511e322eb60",
+      "size_bytes": 1064,
+      "source_path": "business_brain:operating_context/old_vault_archive_plan.md",
+      "status": null,
+      "type": "archive_record"
+    },
+    {
+      "id": "ttros-open-loops",
+      "relative_path": "operating_context/open_loops.md",
+      "sha256": "068b37ea2ac2105084dc924b8a97de019bf24ad0a09b65b47a620c598b1ce70c",
+      "size_bytes": 4925,
+      "source_path": "business_brain:operating_context/open_loops.md",
+      "status": "active",
+      "type": "operating_context"
+    },
+    {
+      "id": "ttros-brain-protected-paths",
+      "relative_path": "operating_context/protected_paths.md",
+      "sha256": "8fe11973e4460f3dd20b348415948b3bbc7e9a06738796c4f12af3e7be4d6107",
+      "size_bytes": 1088,
+      "source_path": "business_brain:operating_context/protected_paths.md",
+      "status": null,
+      "type": "policy"
+    },
+    {
+      "entity_type": "prospect",
+      "id": "ttros-prospect-2026-07-club-hub-ilan-puterman",
+      "relative_path": "prospects/2026-07-club-hub-ilan-puterman.md",
+      "sha256": "13b58ad127107dbfb2562e4d6a0899c19e9607ed6a377b0a77a3a924a3bd5620",
+      "size_bytes": 1190,
+      "source_path": "business_brain:prospects/2026-07-club-hub-ilan-puterman.md",
+      "status": "drafted",
+      "type": "prospect"
+    },
+    {
+      "entity_type": "prospect",
+      "id": "ttros-prospect-2026-07-cyborg-nicolas-dupont",
+      "relative_path": "prospects/2026-07-cyborg-nicolas-dupont.md",
+      "sha256": "cf18fa044e58ef1f7db6887e9d3e29085fb3503c959edb941abdf9b68e942821",
+      "size_bytes": 1149,
+      "source_path": "business_brain:prospects/2026-07-cyborg-nicolas-dupont.md",
+      "status": "drafted",
+      "type": "prospect"
+    },
+    {
+      "entity_type": "prospect",
+      "id": "ttros-prospect-2026-07-deepinspect-ai-parminder-singh",
+      "relative_path": "prospects/2026-07-deepinspect-ai-parminder-singh.md",
+      "sha256": "a20da0e99be7934a968d481fb044d5dc278a07f334750b81b4a7f2c8b6cb32e8",
+      "size_bytes": 1126,
+      "source_path": "business_brain:prospects/2026-07-deepinspect-ai-parminder-singh.md",
+      "status": "drafted",
+      "type": "prospect"
+    },
+    {
+      "entity_type": "prospect",
+      "id": "ttros-prospect-2026-07-flox-ron-efroni",
+      "relative_path": "prospects/2026-07-flox-ron-efroni.md",
+      "sha256": "353fa6ee84a995f710d32dda1a9f944142be4f9aa2e3c76606fdc1387e9fe47a",
+      "size_bytes": 1114,
+      "source_path": "business_brain:prospects/2026-07-flox-ron-efroni.md",
+      "status": "drafted",
+      "type": "prospect"
+    },
+    {
+      "date": "2026-07-22",
+      "entity_type": "prospect",
+      "id": "prospect-highway-99-evan-thompson",
+      "relative_path": "prospects/2026-07-highway-99-evan-thompson.md",
+      "sha256": "23197f6ce1bce384c59ea2cf6a62ff80f344ac13036009e9cd6f6c67e59a126f",
+      "size_bytes": 2908,
+      "source_path": "business_brain:prospects/2026-07-highway-99-evan-thompson.md",
+      "status": "human_review",
+      "type": "prospect"
+    },
+    {
+      "entity_type": "prospect",
+      "id": "ttros-prospect-2026-07-manufex-anush-sridhar",
+      "relative_path": "prospects/2026-07-manufex-anush-sridhar.md",
+      "sha256": "2f40d2366ba5f8be77b83db1f9996ef0c6862080263c7f8d57795f3382fddf9c",
+      "size_bytes": 1128,
+      "source_path": "business_brain:prospects/2026-07-manufex-anush-sridhar.md",
+      "status": "drafted",
+      "type": "prospect"
+    },
+    {
+      "entity_type": "prospect",
+      "id": "ttros-prospect-2026-07-ollama-jeffrey-morgan",
+      "relative_path": "prospects/2026-07-ollama-jeffrey-morgan.md",
+      "sha256": "255c4ffad527da02cb20429cdd183448c51358a8f523450b565284670a7aacbe",
+      "size_bytes": 1225,
+      "source_path": "business_brain:prospects/2026-07-ollama-jeffrey-morgan.md",
+      "status": "drafted",
+      "type": "prospect"
+    },
+    {
+      "entity_type": "prospect",
+      "id": "ttros-prospect-2026-07-punttai-ronnie-coleman",
+      "relative_path": "prospects/2026-07-punttai-ronnie-coleman.md",
+      "sha256": "bc4c211cd0b2da33f1d2dd569f6f785d72dcb10343a7705d892521a1bd4ce35a",
+      "size_bytes": 1061,
+      "source_path": "business_brain:prospects/2026-07-punttai-ronnie-coleman.md",
+      "status": "drafted",
+      "type": "prospect"
+    },
+    {
+      "date": "2026-07-22",
+      "entity_type": "prospect",
+      "id": "prospect-talent-harbour-loretta-davis",
+      "relative_path": "prospects/2026-07-talent-harbour-loretta-davis.md",
+      "sha256": "122343ea7a43dcc7529ddf2a5647b05faa19d21f9d5e79ed2480632644a2d01c",
+      "size_bytes": 2205,
+      "source_path": "business_brain:prospects/2026-07-talent-harbour-loretta-davis.md",
+      "status": "human_review",
+      "type": "prospect"
+    },
+    {
+      "entity_type": "prospect",
+      "id": "ttros-prospect-2026-07-zunesha-labs-omar-alani",
+      "relative_path": "prospects/2026-07-zunesha-labs-omar-alani.md",
+      "sha256": "7fb05b573f2553a368edf235ad67d09cf4db39587056a30fb8a08744d9bb73fa",
+      "size_bytes": 1187,
+      "source_path": "business_brain:prospects/2026-07-zunesha-labs-omar-alani.md",
+      "status": "drafted",
+      "type": "prospect"
+    },
+    {
+      "id": "ttros-brain-prospects-index",
+      "relative_path": "prospects/index.md",
+      "sha256": "3dd5dd8555483d7bba08856bc187b6c900b1ded0d926ad8a42cf0317a381624a",
+      "size_bytes": 1398,
+      "source_path": "business_brain:prospects/index.md",
+      "status": "live",
+      "type": "index"
+    }
+  ],
+  "schema_version": 1,
+  "source": "business_brain:README.md"
+}

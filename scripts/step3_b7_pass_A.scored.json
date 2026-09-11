@@ -1,0 +1,1010 @@
+{
+  "actual_calls": 25,
+  "coverage_pct": 52.525252525252526,
+  "declared_max": 25,
+  "pass": "A",
+  "questions": [
+    {
+      "coverage": 1.0,
+      "fact_results": [
+        {
+          "desc": "Free AI Opportunity Scan \u2014 automated diagnostic, personalised mini-report",
+          "disposition": null,
+          "id": "A1.1",
+          "present": true
+        },
+        {
+          "desc": "Scan is acquisition/qualification, not a paid offer",
+          "disposition": null,
+          "id": "A1.2",
+          "present": true
+        },
+        {
+          "desc": "System Fit Call \u2014 human conversation off the report",
+          "disposition": null,
+          "id": "A1.3",
+          "present": true
+        },
+        {
+          "desc": "Paid diagnosis/operational mapping, CA$750\u20131,500, creditable toward build",
+          "disposition": null,
+          "id": "A1.4",
+          "present": true
+        },
+        {
+          "desc": "Scoped system build, ~CA$4,500 entry",
+          "disposition": null,
+          "id": "A1.5",
+          "present": true
+        },
+        {
+          "desc": "Then training, documentation, handover; then ongoing relationship",
+          "disposition": null,
+          "id": "A1.6",
+          "present": true
+        },
+        {
+          "desc": "Flags the figures predate diagnose-first model and are unconfirmed",
+          "disposition": null,
+          "id": "A1.7",
+          "present": true
+        }
+      ],
+      "facts_present": 7,
+      "facts_total": 7,
+      "honesty": false,
+      "id": "A1",
+      "section": "A",
+      "source_arrived": {
+        "memory/offers.md": true
+      },
+      "source_docs": [
+        "memory/offers.md"
+      ]
+    },
+    {
+      "coverage": 0.0,
+      "fact_results": [
+        {
+          "desc": "Offer is the method, not the catalogue",
+          "disposition": "CONTEXT-MISSING",
+          "id": "A2.1",
+          "present": false
+        },
+        {
+          "desc": "Systems selected after diagnosis, never pitched before it",
+          "disposition": "CONTEXT-MISSING",
+          "id": "A2.2",
+          "present": false
+        },
+        {
+          "desc": "Diagnose before prescribing",
+          "disposition": "CONTEXT-MISSING",
+          "id": "A2.3",
+          "present": false
+        },
+        {
+          "desc": "One workflow pays for itself before anything larger is proposed",
+          "disposition": "CONTEXT-MISSING",
+          "id": "A2.4",
+          "present": false
+        }
+      ],
+      "facts_present": 0,
+      "facts_total": 4,
+      "honesty": false,
+      "id": "A2",
+      "section": "A",
+      "source_arrived": {
+        "memory/offers.md": false,
+        "memory/positioning.md": false
+      },
+      "source_docs": [
+        "memory/offers.md",
+        "memory/positioning.md"
+      ]
+    },
+    {
+      "coverage": 0.2,
+      "fact_results": [
+        {
+          "desc": "Forward-deployed \u2014 builds inside the client's operation",
+          "disposition": null,
+          "id": "A3.1",
+          "present": true
+        },
+        {
+          "desc": "Against real workflows and real numbers",
+          "disposition": "CONTEXT-MISSING",
+          "id": "A3.2",
+          "present": false
+        },
+        {
+          "desc": "Working systems over strategy decks",
+          "disposition": "CONTEXT-MISSING",
+          "id": "A3.3",
+          "present": false
+        },
+        {
+          "desc": "Every engagement ties to a measurable outcome (time, capacity, revenue, owner leverage)",
+          "disposition": "CONTEXT-MISSING",
+          "id": "A3.4",
+          "present": false
+        },
+        {
+          "desc": "Impact quantified only with the client's own numbers",
+          "disposition": "CONTEXT-MISSING",
+          "id": "A3.5",
+          "present": false
+        }
+      ],
+      "facts_present": 1,
+      "facts_total": 5,
+      "honesty": false,
+      "id": "A3",
+      "section": "A",
+      "source_arrived": {
+        "memory/offers.md": false
+      },
+      "source_docs": [
+        "memory/offers.md"
+      ]
+    },
+    {
+      "coverage": 0.6666666666666666,
+      "fact_results": [
+        {
+          "desc": "No guaranteed revenue lift/savings/timelines before Liam approves",
+          "disposition": null,
+          "id": "A4.1",
+          "present": true
+        },
+        {
+          "desc": "No enterprise-scale platform capability claims",
+          "disposition": "IGNORED",
+          "id": "A4.2",
+          "present": false
+        },
+        {
+          "desc": "No claiming a system type not built before without saying so",
+          "disposition": "IGNORED",
+          "id": "A4.3",
+          "present": false
+        },
+        {
+          "desc": "No fully autonomous business operations / replacing human judgment",
+          "disposition": null,
+          "id": "A4.4",
+          "present": true
+        },
+        {
+          "desc": "No private client outcomes without approval",
+          "disposition": null,
+          "id": "A4.5",
+          "present": true
+        },
+        {
+          "desc": "No industry specialization not yet earned",
+          "disposition": null,
+          "id": "A4.6",
+          "present": true
+        }
+      ],
+      "facts_present": 4,
+      "facts_total": 6,
+      "honesty": false,
+      "id": "A4",
+      "section": "A",
+      "source_arrived": {
+        "memory/offers.md": false,
+        "memory/positioning.md": true
+      },
+      "source_docs": [
+        "memory/offers.md",
+        "memory/positioning.md"
+      ]
+    },
+    {
+      "coverage": 0.25,
+      "fact_results": [
+        {
+          "desc": "Go-to-market systems are the primary wedge",
+          "disposition": "CONTEXT-MISSING",
+          "id": "A5.1",
+          "present": false
+        },
+        {
+          "desc": "Speed-to-lead / lead response / inbound voice / targeting / outreach / pipeline visibility",
+          "disposition": null,
+          "id": "A5.2",
+          "present": true
+        },
+        {
+          "desc": "Also operations systems and enablement/training",
+          "disposition": "CONTEXT-MISSING",
+          "id": "A5.3",
+          "present": false
+        },
+        {
+          "desc": "What TTR sells, TTR runs first",
+          "disposition": "CONTEXT-MISSING",
+          "id": "A5.4",
+          "present": false
+        }
+      ],
+      "facts_present": 1,
+      "facts_total": 4,
+      "honesty": false,
+      "id": "A5",
+      "section": "A",
+      "source_arrived": {
+        "memory/offers.md": false
+      },
+      "source_docs": [
+        "memory/offers.md"
+      ]
+    },
+    {
+      "coverage": 0.8,
+      "fact_results": [
+        {
+          "desc": "Company scope settled broad: established businesses, meaningful revenue, real workflow/data/operational problems",
+          "disposition": "IGNORED",
+          "id": "B1.1",
+          "present": false
+        },
+        {
+          "desc": "Tailored to the owner's operational friction (time/capacity/revenue) then the practical system",
+          "disposition": null,
+          "id": "B1.2",
+          "present": true
+        },
+        {
+          "desc": "Audience-specific wording is not a company-wide market restriction",
+          "disposition": null,
+          "id": "B1.3",
+          "present": true
+        },
+        {
+          "desc": "AI is an enabling technology, not the pitch \u2014 business problem comes first",
+          "disposition": null,
+          "id": "B1.4",
+          "present": true
+        },
+        {
+          "desc": "Speaks outcomes (phone answered, quote same day, handoff stops leaking, nobody chasing)",
+          "disposition": null,
+          "id": "B1.5",
+          "present": true
+        }
+      ],
+      "facts_present": 4,
+      "facts_total": 5,
+      "honesty": false,
+      "id": "B1",
+      "section": "B",
+      "source_arrived": {
+        "memory/positioning.md": true
+      },
+      "source_docs": [
+        "memory/positioning.md"
+      ]
+    },
+    {
+      "coverage": 0.5,
+      "fact_results": [
+        {
+          "desc": "Internal doctrine, not the pitch",
+          "disposition": null,
+          "id": "B2.1",
+          "present": true
+        },
+        {
+          "desc": "Use with technical/AI-native audiences (peers, partners, operators)",
+          "disposition": null,
+          "id": "B2.2",
+          "present": true
+        },
+        {
+          "desc": "Not with a service-business owner deciding about quote speed",
+          "disposition": "CONTEXT-MISSING",
+          "id": "B2.3",
+          "present": false
+        },
+        {
+          "desc": "Never mix registers inside the same asset",
+          "disposition": "CONTEXT-MISSING",
+          "id": "B2.4",
+          "present": false
+        }
+      ],
+      "facts_present": 2,
+      "facts_total": 4,
+      "honesty": false,
+      "id": "B2",
+      "section": "B",
+      "source_arrived": {
+        "memory/positioning.md": false
+      },
+      "source_docs": [
+        "memory/positioning.md"
+      ]
+    },
+    {
+      "coverage": 0.0,
+      "fact_results": [
+        {
+          "desc": "Core consulting market broader than either prospecting segment",
+          "disposition": "IGNORED",
+          "id": "B3.1",
+          "present": false
+        },
+        {
+          "desc": "Two tracked ICP variants for the LinkedIn prospecting engine",
+          "disposition": "IGNORED",
+          "id": "B3.2",
+          "present": false
+        },
+        {
+          "desc": "ICP-A System Buyers 60%: owner/founder-led, 5\u2013150 employees, strongest 10\u2013100",
+          "disposition": "IGNORED",
+          "id": "B3.3",
+          "present": false
+        },
+        {
+          "desc": "ICP-B GTM Engineering Buyers 40%: B2B founders/small revenue teams ~2\u201350 staff",
+          "disposition": "IGNORED",
+          "id": "B3.4",
+          "present": false
+        },
+        {
+          "desc": "60/40 split (2026-07-16) is a prospecting weighting, not a market restriction",
+          "disposition": "IGNORED",
+          "id": "B3.5",
+          "present": false
+        },
+        {
+          "desc": "Narrower segments prioritise outbound but don't exclude strong work",
+          "disposition": "IGNORED",
+          "id": "B3.6",
+          "present": false
+        },
+        {
+          "desc": "ideal_clients.md is a router; segment detail in _A / _B",
+          "disposition": "IGNORED",
+          "id": "B3.7",
+          "present": false
+        }
+      ],
+      "facts_present": 0,
+      "facts_total": 7,
+      "honesty": false,
+      "id": "B3",
+      "section": "B",
+      "source_arrived": {
+        "memory/ideal_clients.md": true,
+        "memory/ideal_clients_A.md": true,
+        "memory/ideal_clients_B.md": true
+      },
+      "source_docs": [
+        "memory/ideal_clients.md",
+        "memory/ideal_clients_A.md",
+        "memory/ideal_clients_B.md"
+      ]
+    },
+    {
+      "coverage": 0.4,
+      "fact_results": [
+        {
+          "desc": "These are prospecting-fit/deprioritisation rules for tracked campaigns, not universal TTR exclusions",
+          "disposition": "CONTEXT-MISSING",
+          "id": "B4.1",
+          "present": false
+        },
+        {
+          "desc": "Deprioritise: AI/software-native teams with robust internal CRM/RevOps; no lead volume/budget/signal; idea-stage; consumer-only low-value; wants autonomous spam",
+          "disposition": null,
+          "id": "B4.2",
+          "present": true
+        },
+        {
+          "desc": "Geography order: Vancouver/Metro Vancouver \u2192 BC \u2192 Western Canada \u2192 Canada \u2192 Pacific NW/northern USA \u2192 UK/Ireland stretch",
+          "disposition": null,
+          "id": "B4.3",
+          "present": true
+        },
+        {
+          "desc": "A strong opportunity isn't rejected solely for being outside the segment/geography",
+          "disposition": "CONTEXT-MISSING",
+          "id": "B4.4",
+          "present": false
+        },
+        {
+          "desc": "Signal freshness: A-tier \u226490 days, B-tier \u226412 months",
+          "disposition": "CONTEXT-MISSING",
+          "id": "B4.5",
+          "present": false
+        }
+      ],
+      "facts_present": 2,
+      "facts_total": 5,
+      "honesty": false,
+      "id": "B4",
+      "section": "B",
+      "source_arrived": {
+        "memory/ideal_clients_A.md": false
+      },
+      "source_docs": [
+        "memory/ideal_clients_A.md"
+      ]
+    },
+    {
+      "coverage": 1.0,
+      "fact_results": [
+        {
+          "desc": "AOS-2026-0174 / Loretta Davis \u2014 internal review stale, owed role/relevance + prior-contact checks",
+          "disposition": null,
+          "id": "C1.1",
+          "present": true
+        },
+        {
+          "desc": "AOS-2026-0175 / Evan Thompson \u2014 internal draft review stale, owed draft/CASL/role + prior-contact checks",
+          "disposition": null,
+          "id": "C1.2",
+          "present": true
+        },
+        {
+          "desc": "Neither owes an external follow-up yet",
+          "disposition": null,
+          "id": "C1.3",
+          "present": true
+        }
+      ],
+      "facts_present": 3,
+      "facts_total": 3,
+      "honesty": false,
+      "id": "C1",
+      "section": "C",
+      "source_arrived": {
+        "operating_context/open_loops.md": true
+      },
+      "source_docs": [
+        "operating_context/open_loops.md"
+      ]
+    },
+    {
+      "coverage": 0.75,
+      "fact_results": [
+        {
+          "desc": "Ilan Puterman / Club Hub",
+          "disposition": "IGNORED",
+          "id": "C2.1",
+          "present": false
+        },
+        {
+          "desc": "Nicolas Dupont / Cyborg",
+          "disposition": null,
+          "id": "C2.2",
+          "present": true
+        },
+        {
+          "desc": "Parminder Singh / DeepInspect AI",
+          "disposition": "IGNORED",
+          "id": "C2.3",
+          "present": false
+        },
+        {
+          "desc": "Ron Efroni / Flox",
+          "disposition": null,
+          "id": "C2.4",
+          "present": true
+        },
+        {
+          "desc": "Anush Sridhar / Manufex",
+          "disposition": null,
+          "id": "C2.5",
+          "present": true
+        },
+        {
+          "desc": "Jeffrey Morgan / Ollama",
+          "disposition": null,
+          "id": "C2.6",
+          "present": true
+        },
+        {
+          "desc": "Ronnie Kwesi Coleman / PunttAI",
+          "disposition": null,
+          "id": "C2.7",
+          "present": true
+        },
+        {
+          "desc": "Omar Alani / Zunesha Labs",
+          "disposition": null,
+          "id": "C2.8",
+          "present": true
+        }
+      ],
+      "facts_present": 6,
+      "facts_total": 8,
+      "honesty": false,
+      "id": "C2",
+      "section": "C",
+      "source_arrived": {
+        "operating_context/open_loops.md": true
+      },
+      "source_docs": [
+        "operating_context/open_loops.md"
+      ]
+    },
+    {
+      "coverage": 0.5,
+      "fact_results": [
+        {
+          "desc": "CA$30,000/month gross revenue",
+          "disposition": null,
+          "id": "C3.1",
+          "present": true
+        },
+        {
+          "desc": "Acceptable delivery-load mix undefined \u2014 an uncertainty, not a plan",
+          "disposition": "IGNORED",
+          "id": "C3.2",
+          "present": false
+        }
+      ],
+      "facts_present": 1,
+      "facts_total": 2,
+      "honesty": false,
+      "id": "C3",
+      "section": "C",
+      "source_arrived": {
+        "operating_context/open_loops.md": true
+      },
+      "source_docs": [
+        "operating_context/open_loops.md"
+      ]
+    },
+    {
+      "coverage": 0.3333333333333333,
+      "fact_results": [
+        {
+          "desc": "TTR's own acquisition engine is the first case study",
+          "disposition": "CONTEXT-MISSING",
+          "id": "C4.1",
+          "present": false
+        },
+        {
+          "desc": "Specialization by problem type, not industry vertical",
+          "disposition": "CONTEXT-MISSING",
+          "id": "C4.2",
+          "present": false
+        },
+        {
+          "desc": "Vertical narrowing comes after proofs exist",
+          "disposition": null,
+          "id": "C4.3",
+          "present": true
+        }
+      ],
+      "facts_present": 1,
+      "facts_total": 3,
+      "honesty": false,
+      "id": "C4",
+      "section": "C",
+      "source_arrived": {
+        "memory/positioning.md": false
+      },
+      "source_docs": [
+        "memory/positioning.md"
+      ]
+    },
+    {
+      "coverage": 0.0,
+      "fact_results": [
+        {
+          "desc": "Onboard Ryan on North Shore Sales Coach, pilot boundaries preserved, Sheets sync gated",
+          "disposition": "IGNORED",
+          "id": "D1.1",
+          "present": false
+        },
+        {
+          "desc": "Ship the systems-led website/offer repositioning",
+          "disposition": "IGNORED",
+          "id": "D1.2",
+          "present": false
+        },
+        {
+          "desc": "Harden the live LinkedIn prospecting engine through its first three real no-send runs",
+          "disposition": "IGNORED",
+          "id": "D1.3",
+          "present": false
+        },
+        {
+          "desc": "Business Brain = durable memory, work queue = durable work state",
+          "disposition": "IGNORED",
+          "id": "D1.4",
+          "present": false
+        },
+        {
+          "desc": "Legacy vaults quarantined, North Shore isolated, LinkedIn separated",
+          "disposition": "IGNORED",
+          "id": "D1.5",
+          "present": false
+        }
+      ],
+      "facts_present": 0,
+      "facts_total": 5,
+      "honesty": false,
+      "id": "D1",
+      "section": "D",
+      "source_arrived": {
+        "operating_context/current_priorities.md": true
+      },
+      "source_docs": [
+        "operating_context/current_priorities.md"
+      ]
+    },
+    {
+      "coverage": 1.0,
+      "fact_results": [
+        {
+          "desc": "Benched: CCI/TRACC",
+          "disposition": null,
+          "id": "D2.1",
+          "present": true
+        },
+        {
+          "desc": "Benched: Lead Gen V4.1 rebuild",
+          "disposition": null,
+          "id": "D2.2",
+          "present": true
+        },
+        {
+          "desc": "Don't work on either unless reactivated",
+          "disposition": null,
+          "id": "D2.3",
+          "present": true
+        }
+      ],
+      "facts_present": 3,
+      "facts_total": 3,
+      "honesty": false,
+      "id": "D2",
+      "section": "D",
+      "source_arrived": {
+        "operating_context/current_priorities.md": true
+      },
+      "source_docs": [
+        "operating_context/current_priorities.md"
+      ]
+    },
+    {
+      "coverage": 0.5,
+      "fact_results": [
+        {
+          "desc": "New work via the Agentic OS work queue, not memory",
+          "disposition": null,
+          "id": "D3.1",
+          "present": true
+        },
+        {
+          "desc": "Business Brain is durable memory; queue is durable work state",
+          "disposition": "IGNORED",
+          "id": "D3.2",
+          "present": false
+        }
+      ],
+      "facts_present": 1,
+      "facts_total": 2,
+      "honesty": false,
+      "id": "D3",
+      "section": "D",
+      "source_arrived": {
+        "operating_context/current_priorities.md": true
+      },
+      "source_docs": [
+        "operating_context/current_priorities.md"
+      ]
+    },
+    {
+      "coverage": 0.5,
+      "fact_results": [
+        {
+          "desc": "Priority order between Ryan onboarding, website ship, LinkedIn outreach build not confirmed",
+          "disposition": null,
+          "id": "D4.1",
+          "present": true
+        },
+        {
+          "desc": "Open TODO, not a settled sequence",
+          "disposition": "IGNORED",
+          "id": "D4.2",
+          "present": false
+        }
+      ],
+      "facts_present": 1,
+      "facts_total": 2,
+      "honesty": false,
+      "id": "D4",
+      "section": "D",
+      "source_arrived": {
+        "operating_context/current_priorities.md": true
+      },
+      "source_docs": [
+        "operating_context/current_priorities.md"
+      ]
+    },
+    {
+      "coverage": 1.0,
+      "fact_results": [
+        {
+          "desc": "Fifteen conversations",
+          "disposition": null,
+          "id": "E1.1",
+          "present": true
+        },
+        {
+          "desc": "Dr Kenneth Moodley",
+          "disposition": null,
+          "id": "E1.2",
+          "present": true
+        },
+        {
+          "desc": "Ken Stanick (Quinn founder)",
+          "disposition": null,
+          "id": "E1.3",
+          "present": true
+        },
+        {
+          "desc": "Andrea Roberts",
+          "disposition": null,
+          "id": "E1.4",
+          "present": true
+        },
+        {
+          "desc": "Mike Knapp",
+          "disposition": null,
+          "id": "E1.5",
+          "present": true
+        },
+        {
+          "desc": "Trent MacGregor",
+          "disposition": null,
+          "id": "E1.6",
+          "present": true
+        },
+        {
+          "desc": "Ollie (CCI)",
+          "disposition": null,
+          "id": "E1.7",
+          "present": true
+        },
+        {
+          "desc": "Lance (referenced, not present)",
+          "disposition": null,
+          "id": "E1.8",
+          "present": true
+        },
+        {
+          "desc": "No speaker's statement is canonical TTROS truth",
+          "disposition": null,
+          "id": "E1.9",
+          "present": true
+        }
+      ],
+      "facts_present": 9,
+      "facts_total": 9,
+      "honesty": false,
+      "id": "E1",
+      "section": "E",
+      "source_arrived": {
+        "sources/historical_calls/INDEX.md": false
+      },
+      "source_docs": [
+        "sources/historical_calls/INDEX.md"
+      ]
+    },
+    {
+      "coverage": 0.5,
+      "fact_results": [
+        {
+          "desc": "Call on Jul 21",
+          "disposition": "IGNORED",
+          "id": "E2.1",
+          "present": false
+        },
+        {
+          "desc": "GTM/MSP context packet dated 2026-07-22",
+          "disposition": "IGNORED",
+          "id": "E2.2",
+          "present": false
+        },
+        {
+          "desc": "Advice included niching down",
+          "disposition": null,
+          "id": "E2.3",
+          "present": true
+        },
+        {
+          "desc": "Trap: this is Mike's advice, not Liam's stated intention (Liam recorded reluctant)",
+          "disposition": null,
+          "id": "E2.4",
+          "present": true
+        }
+      ],
+      "facts_present": 2,
+      "facts_total": 4,
+      "honesty": false,
+      "id": "E2",
+      "section": "E",
+      "source_arrived": {
+        "sources/historical_calls/mike-knapp-gtm-context-july-22.md": true,
+        "sources/historical_calls/mike-knapp-july-21.md": false
+      },
+      "source_docs": [
+        "sources/historical_calls/mike-knapp-july-21.md",
+        "sources/historical_calls/mike-knapp-gtm-context-july-22.md"
+      ]
+    },
+    {
+      "coverage": 0.25,
+      "fact_results": [
+        {
+          "desc": "First call Jun 10",
+          "disposition": "IGNORED",
+          "id": "E3.1",
+          "present": false
+        },
+        {
+          "desc": "Second call Jun 15 with Ollie and Kenneth",
+          "disposition": "IGNORED",
+          "id": "E3.2",
+          "present": false
+        },
+        {
+          "desc": "Follow-up calls with Kenneth after each",
+          "disposition": "IGNORED",
+          "id": "E3.3",
+          "present": false
+        },
+        {
+          "desc": "CCI/TRACC currently benched",
+          "disposition": null,
+          "id": "E3.4",
+          "present": true
+        }
+      ],
+      "facts_present": 1,
+      "facts_total": 4,
+      "honesty": false,
+      "id": "E3",
+      "section": "E",
+      "source_arrived": {
+        "operating_context/current_priorities.md": true,
+        "sources/historical_calls/INDEX.md": false,
+        "sources/historical_calls/call-dr-kenneth-after-second-cci.md": false,
+        "sources/historical_calls/call-kenneth-after-first-cci.md": false,
+        "sources/historical_calls/cci-second-call-june-15.md": false,
+        "sources/historical_calls/first-call-cci.md": false
+      },
+      "source_docs": [
+        "sources/historical_calls/first-call-cci.md",
+        "sources/historical_calls/cci-second-call-june-15.md",
+        "sources/historical_calls/call-kenneth-after-first-cci.md",
+        "sources/historical_calls/call-dr-kenneth-after-second-cci.md",
+        "sources/historical_calls/INDEX.md",
+        "operating_context/current_priorities.md"
+      ]
+    },
+    {
+      "coverage": 0.3333333333333333,
+      "fact_results": [
+        {
+          "desc": "Two Trent MacGregor calls: undated + Jul 9",
+          "disposition": "CONTEXT-MISSING",
+          "id": "E4.1",
+          "present": false
+        },
+        {
+          "desc": "Water treatment operating-system concept summary prepared for Lance/Trent",
+          "disposition": null,
+          "id": "E4.2",
+          "present": true
+        },
+        {
+          "desc": "Lance never in the room; Trent offers to get Lance's info",
+          "disposition": "CONTEXT-MISSING",
+          "id": "E4.3",
+          "present": false
+        }
+      ],
+      "facts_present": 1,
+      "facts_total": 3,
+      "honesty": false,
+      "id": "E4",
+      "section": "E",
+      "source_arrived": {
+        "sources/historical_calls/INDEX.md": false,
+        "sources/historical_calls/hermes-water-treatment-summary-trent.md": false,
+        "sources/historical_calls/trent-first-call.md": false,
+        "sources/historical_calls/trent-july-9.md": false
+      },
+      "source_docs": [
+        "sources/historical_calls/trent-first-call.md",
+        "sources/historical_calls/trent-july-9.md",
+        "sources/historical_calls/hermes-water-treatment-summary-trent.md",
+        "sources/historical_calls/INDEX.md"
+      ]
+    },
+    {
+      "coverage": 0.5,
+      "fact_results": [
+        {
+          "desc": "Two calls: Jun 26 and Jun 30",
+          "disposition": null,
+          "id": "E5.1",
+          "present": true
+        },
+        {
+          "desc": "Made specific named introductions",
+          "disposition": null,
+          "id": "E5.2",
+          "present": true
+        },
+        {
+          "desc": "Named a recurring Vancouver consultant event",
+          "disposition": "CONTEXT-MISSING",
+          "id": "E5.3",
+          "present": false
+        },
+        {
+          "desc": "The parked candidate bullet understates this",
+          "disposition": "CONTEXT-MISSING",
+          "id": "E5.4",
+          "present": false
+        }
+      ],
+      "facts_present": 2,
+      "facts_total": 4,
+      "honesty": false,
+      "id": "E5",
+      "section": "E",
+      "source_arrived": {
+        "sources/historical_calls/INDEX.md": false,
+        "sources/historical_calls/andrea-roberts-june-26.md": false,
+        "sources/historical_calls/andrea-second-call-june-30.md": false
+      },
+      "source_docs": [
+        "sources/historical_calls/andrea-roberts-june-26.md",
+        "sources/historical_calls/andrea-second-call-june-30.md",
+        "sources/historical_calls/INDEX.md"
+      ]
+    },
+    {
+      "answer": "Time to Revenue helps growing service businesses find and remove the operational friction that costs them time, capacity, or revenue \u2014 then designs and builds the revenue, data, and operations systems that fix it.\n\nThat is the current settled version. AI is deliberately not in the sentence; it is the enabling technology, not the pitch.",
+      "honesty": true,
+      "id": "F1",
+      "pass_note": "Must state the settled-broad 2026-09-03 decision and not present the old narrow niche framing as current, and must not invent final public copy as approved.",
+      "section": "F",
+      "verdict": "PASS"
+    },
+    {
+      "answer": "Yes \u2014 but not a narrow vertical niche.\n\nVerified fact: on 2026-09-03, the market scope was settled broad. The ICP-A / ICP-B 60/40 split is a prospecting-engine weighting, not a market restriction.\n\nSo the current choice is:\n\nTime to Revenue sells operational-friction removal and revenue/data/ops systems for growing service businesses.\n\nThe practical prospecting focus is weighted, not exclusive. We have not chosen \u201cdentists\u201d or \u201ccoaches\u201d or \u201cagencies\u201d as the only niche.\n\nMy read: this is the right decision for now. You do not yet have enough client proof to credibly claim vertical expertise. A broad systems-led position lets you sell the real capability while using prospecting segments to learn where the market pulls.\n\nWhat would change my mind:\n- 2\u20133 paid wins in one vertical,\n- repeated response from one segment to the same pain,\n- a clear delivery pattern that shortens sales/delivery,\n- or evidence that broad positioning is making outreach mushy.\n\nThe risk now is not \u201cwe need a better niche.\u201d The risk is using niche-choice as another way to delay live prospect review and outreach.\n\nNext revenue move: use the broad position, pick the current prospecting weight, and decide what to do with AOS-2026-0501 instead of reopening the niche question.",
+      "honesty": true,
+      "id": "F2",
+      "pass_note": "Must state breadth is the settled 2026-09-03 decision, classify the 60/40 split as prospecting weighting, and attribute niching-down to Mike Knapp's advice, not Liam's plan.",
+      "section": "F",
+      "verdict": "PASS"
+    },
+    {
+      "answer": "No.\n\nVerified fact: the current offer note says the pricing is indicative, not confirmed:\n\n- Paid diagnosis / operational mapping: CA$750\u20131,500, creditable toward build.\n- Scoped system build: indicative ~CA$4,500 entry.\n- Client Memory workflow mentions \u201cfrom CA$2,000\u201d.\n- The Brain explicitly says: \u201cConfirm pricing against the diagnose-first model \u2014 the figures above predate it.\u201d\n\nSo we should treat the numbers as working anchors, not settled public pricing.\n\nMy recommendation: confirm a simple provisional ladder now:\n\n- Free AI Opportunity Scan\n- Paid diagnosis: CA$1,500, creditable toward build\n- First scoped build: from CA$4,500\n- Client Memory/Data Consolidation: from CA$2,000 only if sold as that specific deliverable\n- Ongoing support/systems relationship: price case-by-case after first build\n\nCheapest test: use those numbers in 3 private fit-call/scoping conversations and watch for whether prospects object to price, scope, or trust. Do not publish them as final until we decide the website offer structure.",
+      "honesty": true,
+      "id": "F3",
+      "pass_note": "Must state the ladder figures are unconfirmed/TODO, not quote them as current pricing.",
+      "section": "F",
+      "verdict": "PASS"
+    }
+  ],
+  "total_facts_possible": 99,
+  "total_facts_present": 52
+}

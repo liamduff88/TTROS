@@ -31,7 +31,11 @@ AOS_PROFILES = (
     "aos-ops",
 )
 PERSONAL_PROFILES = ("david",)
-SCOPED_PROFILES = (*AOS_PROFILES, *PERSONAL_PROFILES)
+# STEP I1 (2026-09-09): a dedicated, narrow profile for tools/source_intake.py
+# semantic extraction only -- not AOS, not personal. See
+# scripts/i1_source_intake_semantic_extraction_transcript.md.
+EXTRACTION_PROFILES = ("source-intake-semantic",)
+SCOPED_PROFILES = (*AOS_PROFILES, *PERSONAL_PROFILES, *EXTRACTION_PROFILES)
 BRAIN_MCP_NAME = "brain"
 BRAIN_MCP_PYTHON = "/home/liam/.hermes/hermes-agent/venv/bin/python"
 BRAIN_MCP_SCRIPT = str(ROOT / "tools" / "brain_memory_mcp.py")

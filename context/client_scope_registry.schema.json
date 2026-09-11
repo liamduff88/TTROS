@@ -3,14 +3,30 @@
   "$id": "https://agentic-os.local/schemas/client_scope_registry.schema.json",
   "title": "TTROS client scope registry",
   "type": "object",
-  "required": ["schema_version", "default_deny", "global_scope_id", "denied_brain_pointers", "scopes"],
+  "required": [
+    "schema_version",
+    "default_deny",
+    "global_scope_id",
+    "denied_brain_pointers",
+    "scopes"
+  ],
   "properties": {
-    "schema_version": {"const": 1},
-    "default_deny": {"const": true},
-    "global_scope_id": {"type": "string", "minLength": 1},
+    "schema_version": {
+      "const": 1
+    },
+    "default_deny": {
+      "const": true
+    },
+    "global_scope_id": {
+      "type": "string",
+      "minLength": 1
+    },
     "denied_brain_pointers": {
       "type": "array",
-      "items": {"type": "string", "pattern": "^business_brain:[^\\\\]+$"},
+      "items": {
+        "type": "string",
+        "pattern": "^business_brain:[^\\\\]+$"
+      },
       "uniqueItems": true
     },
     "scopes": {
@@ -18,30 +34,63 @@
       "minProperties": 1,
       "additionalProperties": {
         "type": "object",
-        "required": ["kind", "enabled", "brain_pointers", "search_source_identities", "graphify_targets", "evidence_identities"],
+        "required": [
+          "kind",
+          "enabled",
+          "brain_pointers",
+          "search_source_identities",
+          "graphify_targets",
+          "evidence_identities"
+        ],
         "properties": {
-          "kind": {"enum": ["global", "client"]},
-          "enabled": {"type": "boolean"},
+          "kind": {
+            "enum": [
+              "global",
+              "client"
+            ]
+          },
+          "enabled": {
+            "type": "boolean"
+          },
           "brain_pointers": {
             "type": "array",
-            "items": {"type": "string", "pattern": "^business_brain:[^\\\\]+$"},
+            "items": {
+              "type": "string",
+              "pattern": "^business_brain:[^\\\\]+$"
+            },
             "uniqueItems": true
           },
           "brain_pointer_prefixes": {
             "type": "array",
-            "items": {"type": "string", "pattern": "^business_brain:[^\\\\]+/$"},
+            "items": {
+              "type": "string",
+              "pattern": "^business_brain:[^\\\\]+/$"
+            },
             "uniqueItems": true
           },
-
           "search_source_identities": {
             "type": "array",
             "items": {
               "type": "object",
-              "required": ["source"],
+              "required": [
+                "source"
+              ],
               "properties": {
-                "source": {"type": "string", "minLength": 1},
-                "path_prefix": {"type": "string", "minLength": 1},
-                "paths": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}
+                "source": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "path_prefix": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "paths": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "uniqueItems": true
+                }
               },
               "additionalProperties": false
             }
@@ -50,30 +99,63 @@
             "type": "array",
             "items": {
               "type": "object",
-              "required": ["namespace", "paths"],
+              "required": [
+                "namespace",
+                "paths"
+              ],
               "properties": {
-                "namespace": {"type": "string", "minLength": 1},
-                "paths": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}
+                "namespace": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "paths": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "uniqueItems": true
+                }
               },
               "additionalProperties": false
             }
           },
-          "evidence_identities": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+          "evidence_identities": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "uniqueItems": true
+          },
           "capture_identities": {
             "type": "array",
             "items": {
               "type": "object",
-              "required": ["match_type", "value_sha256"],
+              "required": [
+                "match_type",
+                "value_sha256"
+              ],
               "properties": {
-                "match_type": {"enum": ["sender", "thread"]},
-                "value_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+                "match_type": {
+                  "enum": [
+                    "sender",
+                    "thread"
+                  ]
+                },
+                "value_sha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                }
               },
               "additionalProperties": false
             }
           },
           "capture_evidence_prefixes": {
             "type": "array",
-            "items": {"type": "string", "pattern": "^capture:[a-z0-9][a-z0-9:_-]*:$"},
+            "items": {
+              "type": "string",
+              "pattern": "^capture:[a-z0-9][a-z0-9:_-]*:$"
+            },
             "uniqueItems": true
           },
           "evidence_index_entries": {
@@ -81,7 +163,10 @@
             "description": "Rendered lines for the machine-maintained outcome index. Membership and order must equal evidence_identities exactly.",
             "items": {
               "type": "object",
-              "required": ["identity", "line"],
+              "required": [
+                "identity",
+                "line"
+              ],
               "additionalProperties": false,
               "properties": {
                 "identity": {

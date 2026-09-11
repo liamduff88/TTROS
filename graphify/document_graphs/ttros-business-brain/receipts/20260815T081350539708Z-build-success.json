@@ -1,0 +1,14 @@
+{
+  "artifact_hashes": {
+    "graph.json": "9e73c7c360d57ccf18599132c6d1c2749c7e1f4ca7734c7e72ebced55e7e05d5",
+    "projection_manifest.json": "1de1f58d4650c59c0ac3a1bf9f237e6c41e02a5dc44ce789f2ab50c8e5a0f7bd",
+    "source_manifest.json": "a6bcf444d2421e90eaa5f132199d3d1379ab541f84d4fea1986e2978b27bc4e8"
+  },
+  "namespace": "ttros-business-brain",
+  "operation": "build",
+  "published": "/home/liam/agentic-os-live/graphify/document_graphs/ttros-business-brain/published",
+  "source_manifest_sha256": "b4b312791666de11897e4cffb1083629ab93e869a1047338fcde79e9445d070b",
+  "status": "success",
+  "timestamp": "2026-08-15T08:13:50.539693Z",
+  "token_usage_text": "Token usage: no agent invocation"
+}

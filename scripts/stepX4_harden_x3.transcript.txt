@@ -1,0 +1,196 @@
+STEP X4 — transcript
+Session: single session, /home/liam/agentic-os-live, 2026-09-11. TTROS permission header and
+CLAUDE.md read and acknowledged at session start. Model calls: 0 (declared budget). Every
+recursive search this session excluded connectors/ and workspaces/north_shore_sales_coach/.
+
+== Preimages saved before any edit (header rule 4/6) ==
+/home/liam/ttros_backups/stepX4_2026-09-11/main.py.PREIMAGE
+  sha256 67de64d5b5a3a8893dc2f0d44bd87e1097528109893f0fd4b4d32d699e1d2797
+/home/liam/ttros_backups/stepX4_2026-09-11/business_brain_graph.py.PREIMAGE
+  sha256 6ce8879c6dc0db59ed12c3eaf35b3b1342d27939c02a7c96ffca2c66fea208cf
+/home/liam/ttros_backups/stepX4_2026-09-11/context_assembler_hook.py.PREIMAGE
+  sha256 a7a82ad2ed2c0798e0d0f24304342874d7df0e69ab456ee3b5d76c06e28093c7
+(main.py and context_assembler_hook.py preimage hashes match X3's own recorded "patched" hashes
+exactly, confirming the on-disk starting state for this step is exactly what X3 left.)
+Rollback for any of the three: cp the matching .PREIMAGE file back over the live path.
+
+== Part A — evidence read, zero model calls ==
+Read scripts/stepX3_operating_hermes_unblock.md and its transcript index in full. Neither
+document states explicitly, in prose, which location (primary vs fallback) satisfied the
+artifact check for attempt 2 (AOS-2026-0910) -- X3's own narrative only walks the defect-#2
+discovery through attempt 1 (AOS-2026-0900). Extended the read to the physical evidence X3's own
+live run left behind (still "reading the existing evidence", no new run):
+  - queue/receipts/AOS-2026-0910.md (X3's own receipt, read via the scratchpad copy
+    aos-2026-0910-final.json X3 saved): "Artifacts:\n- AVAILABLE:
+    workflows/queue_artifacts/AOS-2026-0910_Execute_local_echo_command_and_capture_exact_out.md
+    (697 bytes; sha256 f835c793b37bbc53f729b634be23e1401cb6322b2c57b84c879b5f45a2085c1e)"
+  - Filesystem check of the two candidate locations for that exact file:
+    primary  (BASE_DIR/workflows/queue_artifacts/..):      ABSENT (no match)
+    fallback (BASE_DIR.parent/workflows/queue_artifacts/..): PRESENT, 697 bytes,
+      /home/liam/workflows/queue_artifacts/AOS-2026-0910_Execute_local_echo_command_and_capture_exact_out.md
+ANSWER: the X3 fallback satisfied the artifact check for attempt 2 as well as attempt 1 -- the
+same worker-cwd divergence recurred. The primary workspace path never held the file; only the
+fallback (BASE_DIR.parent) did. This was not stated in X3's own prose report and had to be
+established from the receipt + on-disk state X3's run left behind.
+Fallback directory: BASE_DIR.parent (dashboard/backend/main.py,
+_queue_artifact_at_workspace_divergence, line ~5960: "candidate = BASE_DIR.parent /
+root_relative"). It is a single constant path, not parameterized by item id -- SHARED across
+every queue item, not per-item.
+
+== Part B — controls declared BEFORE running anything ==
+1. Stale seed: file at claimed name in fallback location, mtime BEFORE attempt start, primary
+   absent -> must BLOCK.
+2. Fresh file: same name, mtime at/after attempt start, primary absent -> must PASS.
+3. Nowhere-path: file absent at both locations -> must BLOCK.
+4. Primary hit: file present at primary path -> must PASS (unchanged behaviour).
+
+Prediction, recorded before running control 1: ~0.7 that control 1 PASSES on X3's current
+(preimage) code -- i.e. ~0.7 confidence the current _queue_artifact_at_workspace_divergence has
+no mtime gate at all and will incorrectly treat a stale fallback file as AVAILABLE (BLOCK
+requirement violated; the hole is real).
+
+"Attempt start the backend already records": dashboard/backend/main.py's QueueStorage.claim_item
+(line ~5174-5187) writes item["claim"] = {"claimed_by": agent_id, "claimed_at": now} and sets
+status "agent_working" at the moment a worker attempt begins. This is the one timestamp the
+backend already records per-item for "when this attempt started" -- reused via the existing
+_parse_record_timestamp() helper (main.py line 1746), not invented fresh.
+
+== Part B — controls run against X3 preimage (current code, before any edit) ==
+tests/test_queue_artifact_workspace_divergence_fallback.py, 4 tests, against unmodified
+dashboard/backend/main.py (sha256 67de64d5...093c7, same as X3's shipped patched file):
+  control 1 (stale seed)   -> FAILED the "must BLOCK" requirement: returned available=True,
+                                workspace_divergence set, size 14 bytes, content "fallback copy".
+                                THE HOLE IS REAL, confirmed empirically.
+  control 2 (fresh file)   -> PASSED already (available=True) -- no mtime gate existed, so a
+                                fresh file was never at risk; behaviour coincidentally correct.
+  control 3 (nowhere path) -> PASSED already (available=False) -- unaffected by this change.
+  control 4 (primary hit)  -> PASSED already (available=True, no workspace_divergence key) --
+                                unaffected, primary-path behaviour untouched.
+Prediction scored: predicted ~0.7 that control 1 would PASS-on-current-code in the sense of the
+hole being real (stale file wrongly accepted). Outcome: hole confirmed real. Prediction borne out.
+
+== Part B — fix applied ==
+Exact change, dashboard/backend/main.py:
+  - _queue_artifact_at_workspace_divergence(root_relative) -> adds a keyword-only
+    not_before: datetime.datetime | None parameter; returns None (fails closed) when
+    not_before is None OR when the candidate's mtime is before not_before.
+  - _queue_verified_artifacts_from_worker_result(item, worker_result): computes
+    attempt_not_before = _parse_record_timestamp((item.get("claim") or {}).get("claimed_at"))
+    (reusing the existing helper at main.py:1746) and passes it through to the fallback call.
+Rerun of the 4 controls, same test file, against the patched file: all 4 PASSED (see below).
+
+== Part C — bare import fix, with a correction caught by the new regression test ==
+First attempt (WRONG, self-caught): copied the try/except pattern verbatim in the same order as
+tools/context_assembler.py (bare first, then tools.-qualified on ModuleNotFoundError). Reran
+tests/test_business_brain_graph_scope_import_identity.py against this first attempt: BOTH TESTS
+STILL FAILED. Root cause of the non-fix: business_brain_graph.py itself unconditionally inserts
+TOOLS_DIR onto sys.path two lines above the import (line 26-28, by design, for standalone CLI
+use), so a bare-first try always succeeds locally and never falls through to the qualified
+branch -- the try/except order matters, and copying tools/context_assembler.py's order verbatim
+does not close this file's own split.
+Corrected fix: reversed the order -- try the qualified `tools.business_brain_scope` import
+FIRST (succeeds whenever this module loads as part of the `dashboard` package, i.e. every
+Hermes-hook-chain and dashboard-backend caller, since repo root is already on sys.path there,
+matching the identity tools/context_assembler.py resolves to); fall back to the bare name only
+on ModuleNotFoundError (the standalone-CLI case, `python3 dashboard/backend/business_brain_graph.py
+...`, where repo root is not on sys.path but TOOLS_DIR is).
+Reran tests/test_business_brain_graph_scope_import_identity.py against the corrected fix: both
+PASSED. Confirmed standalone CLI still works: `dashboard/backend/.venv/bin/python
+dashboard/backend/business_brain_graph.py --help` -> prints usage normally (bare-import fallback
+branch exercised, no regression to standalone use).
+
+Other bare imports of business_brain_scope found (search excluded connectors/ and
+workspaces/north_shore_sales_coach/ from the first command), reported per instruction, fixed
+only the one on the Hermes-hook chain:
+  dashboard/backend/business_brain_graph.py:31  -- FIXED (on the Hermes-hook chain; the
+    defect X3 diagnosed).
+  dashboard/backend/main.py:68 `import business_brain_scope` -- NOT on the Hermes-hook chain.
+    main.py is the FastAPI dashboard-backend process, never imported by the Hermes-hook
+    subprocess; it bare-imports business_brain_scope consistently alongside its own bare
+    imports of context_assembler et al., so no identity split exists within that process.
+    Left unchanged.
+  tests/test_business_brain_scope.py:11, tests/test_step4_entity_relationships.py:11,
+    tests/test_business_brain_search_scope.py:12, tests/business_brain_test_support.py:4 --
+    test-only files, each inserting tools/ onto sys.path themselves before the bare import
+    (same existing convention across the test suite); not on the Hermes-hook chain. Left
+    unchanged.
+
+== Part C — shim disable/remove experiment ==
+Disabled (commented out) the two active shim lines in hooks/context_assembler_hook.py
+(sys.modules.setdefault("business_brain_scope", ...) and its import), leaving the surrounding
+explanatory comment and everything else in the file untouched. Reran X3's own offline controls
+in-process (same hook-dispatch replication: load_config -> discover_plugins ->
+register_from_config -> invoke_hook("pre_llm_call", ...), same real 6,379-char decomposition
+prompt from X3's saved real_prompt_text.txt, same coordinator env), script saved at
+/tmp/.../80cd8bb4.../scratchpad/repro_shim_off.py:
+  Positive (AOS_STEP6_WRAPPED=1): marker present, joined_len=52317, elapsed=11.827s. HOLDS.
+  Negative (AOS_STEP6_WRAPPED unset): results_count=0, no marker, joined_len=0, elapsed=0.287s
+    -- matches X3's own negative-control shape (results_count=0, no marker, 0.29s) almost
+    exactly. Fails closed correctly. HOLDS.
+Both held with the shim off -> removed the shim (deleted, not left commented), per instruction.
+Reran both controls again against the file with the shim fully deleted: identical results
+(positive: marker present, joined_len=52317, elapsed=12.189s; negative: results_count=0, no
+marker, joined_len=0, elapsed=0.288s).
+diff against the preimage: only the shim's comment+two-line region (old lines 23-39) changed;
+everything else in the file, including STEP T7's test-turn gate (lines 56-57 comment,
+217/226/243 code) is byte-for-byte identical to the preimage (confirmed via `diff` against
+/home/liam/ttros_backups/stepX4_2026-09-11/context_assembler_hook.py.PREIMAGE).
+
+== Part C — full-suite regression found and corrected (second self-caught correction) ==
+Full canonical suite run after the corrected (qualified-first, try/except) import fix and the
+shim removal: 3 FAILED, 832 passed, 1 skipped (832 > 829 bar met on count, but 0-failed bar
+violated). All 3 failures shared one pattern: `business_brain_scope.ClientScopeError` (the bare
+class) escaping uncaught through add_candidate(), in
+tests/test_business_brain_graph.py::test_two_client_targets_are_filtered_before_return_and_contain_no_bodies,
+tests/test_one_brain_context.py::test_revenue_entities_and_activity_are_selected_automatically,
+tests/test_telegram_conversational_routing.py::test_founder_interview_with_pending_items_crosses_bridge_once_and_stays_conversation.
+Root cause: these tests build their ClientScopeRegistry via
+tests/business_brain_test_support.py::make_registry(), which bare-imports ClientScopeRegistry --
+an EXISTING, pre-X4 file this step is not authorized to edit. Before this step's fix,
+business_brain_graph.py's bare-first import matched that bare fixture (both wrong together,
+which is exactly how X3's live defect went unnoticed by the suite). After switching to
+qualified-first, the module's `except ClientScopeError` no longer matches a registry built from
+the bare fixture -- the same identity split, just inverted.
+Checked whether this matters for the live dashboard-backend process: dashboard/backend/main.py
+never calls business_brain_graph.query_targets or constructs a BusinessBrainGraphService/gate at
+all (grep: 0 hits) -- the only real callers of this code path are the Hermes-hook chain (via
+tools/business_brain_context.py, always qualified, unaffected) and this handful of tests using
+the bare test fixture. So the regression is suite-only, not a live-path regression.
+Correction (still entirely inside dashboard/backend/business_brain_graph.py, the one authorized
+file/import site -- no test file touched): rather than a single either/or import, also imports
+the *other* spelling's ClientScopeError under `_OtherSpellingClientScopeError` and builds
+`_CLIENT_SCOPE_ERRORS = (ClientScopeError, _OtherSpellingClientScopeError)` (collapsed to a
+1-tuple when they're already the same object), and add_candidate()'s except clause now catches
+that tuple instead of the single name. This is deliberately more defensive than the step's
+literal one-line suggestion: it catches an out-of-scope ClientScopeError regardless of which
+import spelling produced the registry that raised it, closing the identity split from either
+direction without weakening the scope check itself and without touching any file outside the
+declared authorized list.
+Reran the 3 previously-failing tests plus both new regression test files: 47 passed, 29 subtests
+passed, 0 failed.
+
+== Part D — final suite runs ==
+Canonical env:
+`PYTHONPATH=/home/liam/ttros-testenv/pytest dashboard/backend/.venv/bin/python -m pytest`
+-> 835 passed, 0 failed, 1 skipped, 223 subtests passed, 391.84s.
+(bar: "count rises above 829, 0 failed" -- MET. 835 > 829, 0 failed.)
+Full output: /tmp/claude-1002/-home-liam-agentic-os-live/80cd8bb4-5c43-45ba-a0e9-628529ca7c3a/scratchpad/canonical_suite_run2.txt
+
+Hermes-venv leg, same as X3 ran it:
+`/home/liam/.hermes/hermes-agent/venv/bin/python3 -m pytest -q --ignore=tests/test_telegram_conversational_routing.py`
+-> 7 failed, 813 passed, 1 skipped, 218 subtests passed, 309.78s.
+Same 7 failures, same names, same file (tests/test_brain_memory_mcp_intake_passage.py::
+OpenNoteIntakePassageTests, all 7 of X3's own named tests), 0 new failures.
+(bar: "exactly the same 7 pre-existing failures, no new ones" -- MET.)
+Full output: /tmp/claude-1002/-home-liam-agentic-os-live/80cd8bb4-5c43-45ba-a0e9-628529ca7c3a/scratchpad/hermesvenv_suite_run.txt
+
+== Files changed, final state ==
+- dashboard/backend/main.py -- Part B fix (mtime-gated fallback). Preimage above.
+- dashboard/backend/business_brain_graph.py -- Part C fix (qualified-first import +
+  dual-identity except tuple). Preimage above.
+- hooks/context_assembler_hook.py -- X3's shim removed (deleted, T7 gate untouched, confirmed
+  byte-for-byte outside the shim region via diff). Preimage above.
+- tests/test_business_brain_graph_scope_import_identity.py -- new regression test (Part D-a).
+- tests/test_queue_artifact_workspace_divergence_fallback.py -- new regression test (Part D-b,
+  the 4 controls).
+No commits, no push, no git action of any kind. Model calls: 0.

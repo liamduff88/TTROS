@@ -1,0 +1,154 @@
+id: source-intake-claim-kenneth-sme-june-18
+type: claim_record
+source_id: kenneth-sme-june-18
+source_path: sources/historical_calls/kenneth-sme-june-18.md
+source_sha256: 02ed7e0a78e267afdcf6bf4ff3b00818f0d7f46c67f56f3660d0bece64c08d5a
+generated_at: '2026-09-09T22:42:41.856825Z'
+model: gpt-5.5
+claim_count: 13
+dropped_count: 2
+canonical_truth: false
+claims:
+- claim: Them said the Surrey Board of Trade weekly email update lists upcoming events
+    that Liam could monitor.
+  type: third_party_statement
+  attribution: Them
+  status: historical
+  evidence:
+    quote: they call it the weekly email update. And then if you click on that one.
+      Then they'll always have, like, upcoming. Sort of events.
+    locator: Them, early discussion of networking-event source
+- claim: Them advised making a judgment call on paid networking events because the
+    return is uncertain.
+  type: advice_received
+  attribution: Them
+  status: historical
+  evidence:
+    quote: some of these things. Like. Like the cost. Like, it's a couple hundred
+      bucks. And in my head, I'm thinking, I don't know if that's worth the return.
+    locator: Them, discussion of networking-event costs
+- claim: Liam said he needed to save costs until he brought in more cash.
+  type: liam_position
+  attribution: Me
+  status: historical
+  evidence:
+    quote: for me right now I need to. Save on the costs until I start to bring more
+      cash in.
+    locator: Me, response about whether to attend events
+- claim: Them offered to share Surrey Board of Trade event information and suggested
+    scraping boards of trade across Metro.
+  type: offer_made
+  attribution: Them
+  status: historical
+  evidence:
+    quote: For the sari border trade I can share that. Right. That's. I just need.
+      To get into a routine or habit of remembering.
+    locator: Them, after Liam explains finding events through ChatGPT
+- claim: Them asked Liam to share the 45 possible shortlisted leads so they could
+    validate the targeting algorithm.
+  type: commitment
+  attribution: Them
+  status: historical
+  evidence:
+    quote: Can you share with me. The 45 possibles? And, and not all the details.
+      Just, just, just the, the, the key points. I tell you why, just from a validation,
+      let's check the algorithm
+    locator: Them, transition to report review
+- claim: Them suggested adding an indicator of decision-maker openness to change so
+    outreach could be tailored.
+  type: advice_received
+  attribution: Them
+  status: historical
+  evidence:
+    quote: anything that gives me an indicator and it doesn't have to be like, like.
+      You're not trying to do a psych profile of this person. It's really just trying
+      to pick certain nuggets that either tells me this person is. Open to it. Not
+      open to it.
+    locator: Them, explanation of character profile / sentiment
+- claim: Liam said he could look into adding the requested decision-maker profiling,
+    but raised concerns about LinkedIn scraping policies and possible account bans.
+  type: liam_position
+  attribution: Me
+  status: historical
+  evidence:
+    quote: I'm exploring the possibility of doing a LinkedIn scraper for myself and
+      I could potentially also just do one for you the reason I'm a little bit. Hesitant
+      about it is because it goes against LinkedIn's kind of policies and stuff.
+    locator: Me, response to profiling request
+- claim: Them said they would start reaching out next week and had enough planning
+    to begin contacting prospects.
+  type: commitment
+  attribution: Them
+  status: historical
+  evidence:
+    quote: from next week, I will start reaching out. Like, I, I need to really get
+      better at it.
+    locator: Them, summary before legal/compliance discussion
+- claim: Liam said the targeting system saves time and increases the quality of people
+    engaged, but does not guarantee high response rates.
+  type: liam_position
+  attribution: Me
+  status: historical
+  evidence:
+    quote: what this does is it selects companies that that could work well for you.
+      What it means is that of the people that you bother to engage with it saves
+      your time.
+    locator: Me, managing expectations for lead-targeting report
+- claim: Liam said he built the system conservatively around Canadian rules so the
+    information included would be safe to use.
+  type: liam_position
+  attribution: Me
+  status: historical
+  evidence:
+    quote: I basically said it on the conservative side of what's acceptable.
+    locator: Me, discussion of Canadian laws and safe information
+- claim: Liam advised keeping client calls human rather than fully voice-agent automated,
+    because relationship-building and perceived value would be stronger.
+  type: advice_received
+  attribution: Me
+  status: historical
+  evidence:
+    quote: what I would probably recommend is that rather than doing the whole voice
+      agent to that extent that you have a call with them and tell them you're recording
+      the call so you can take proper notes.
+    locator: Me, response to audit automation idea
+- claim: Them advised Liam to use a hybrid CCI pricing structure rather than all referral
+    or commission, balancing upfront cash and deferred upside.
+  type: advice_received
+  attribution: Them
+  status: historical
+  evidence:
+    quote: I think, I think the hybrid is the, the way to go.
+    locator: Them, CCI pricing discussion
+- claim: Them said they would prompt Ollie next week and use Liam's work summary to
+    support Liam's sale for other CCI work.
+  type: commitment
+  attribution: Them
+  status: historical
+  evidence:
+    quote: I'll prompt him next week as well.
+    locator: Them, after reviewing Liam's email to Ollie
+dropped:
+- claim:
+    claim: Them said they did not want to outsource the relationship part of consulting
+      work to AI, but did want administrative work automated behind the scenes.
+    type: third_party_statement
+    attribution: Them
+    status: historical
+    evidence:
+      quote: I don't want to outsource the relationship part of it to an AI. But Outsourcing
+        the administrative work that nobody else sees, by the way.
+      locator: Them, audit/report automation discussion
+  reason: evidence quote does not resolve as an exact substring of the source
+- claim:
+    claim: Them said Liam had done enough work on the reports and the next step was
+      to start applying the system.
+    type: decision
+    attribution: Them
+    status: historical
+    evidence:
+      quote: I think you've done enough work. I'm not saying we mustn't talk. By the
+        way, we can talk about other stuff. But in terms of putting more effort into
+        the reports. I think, you know, by what we spoke about today, it's good enough.
+      locator: Them, CCI risk/reward and report-effort discussion
+  reason: evidence quote does not resolve as an exact substring of the source

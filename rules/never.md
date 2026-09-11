@@ -1,5 +1,5 @@
 # NEVER
-> Revisit: monthly review pass. · Last touched: 2026-08-17.
+> Revisit: monthly review pass. · Last touched: 2026-08-10.
 
 Operator-approved hard prohibitions (pruned 2026-07-08). "Never send Telegram"
 and "no model calls on parse" style LLM-invented absolutes are removed —
@@ -8,7 +8,12 @@ internal sends are governed by rules/always.md #11–12; model spend by #5.
 1. Never take a THIRD-PARTY external side effect (clients, prospects, LinkedIn,
    anyone outside the system) without typed per-action confirmation naming
    that action. Internal sends per allowlist are exempt (always.md #11).
-2. Never touch North Shore files from this system.
+2. Never inspect or modify North Shore application code, client data, or
+   workspace internals unless Liam explicitly scopes North Shore work.
+   Scoped runtime/supervision maintenance may touch only the minimum
+   infrastructure required to operate the existing service. Credential
+   and protected-config contents remain protected unless Liam explicitly
+   scopes them (#6).
 3. Never route through old Ubuntu, old Hermes, old vaults, ZPC, legacy_harvest,
    or any legacy runtime path.
 4. Never import old runtime state.
@@ -32,4 +37,8 @@ internal sends are governed by rules/always.md #11–12; model spend by #5.
 ## Pointers
 - Enforcement: hooks/pre_external_action.md · hooks/protected_path_check.md ·
   hooks/secret_exposure_check.md · hooks/client_isolation_check.md
+- #2 invariant: North Shore is a separate business; its code, client data
+  and workspace must never be reached incidentally, and operating the
+  service is not permission to read what it holds. Revisit #2 if North
+  Shore moves to its own repo or gains its own operator.
 - Companion: rules/always.md

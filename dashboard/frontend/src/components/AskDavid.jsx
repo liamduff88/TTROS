@@ -35,6 +35,9 @@ function ReplyCard({ entry, onNavigate }) {
         <p className="mt-2 text-sm text-stone">
           Routed <button className="font-mono text-champagne underline-offset-2 hover:underline" onClick={() => onNavigate?.('work-queue', { selectedId: entry.item?.id })}>{entry.item?.id}</button> to {entry.item?.owner || 'the queue'}.
         </p>
+        {entry.handed_objective ? (
+          <p className="mt-2 text-sm italic leading-6 text-stone" data-testid="ask-david-handed-objective">Handed to Hermes: “{entry.handed_objective}”</p>
+        ) : null}
         <div className="mt-1 text-xs text-taupe">{entry.route?.workflow ? `Matched workflow: ${entry.route.workflow}` : 'Matched a recognized command pattern.'}</div>
       </div>
     )

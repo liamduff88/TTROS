@@ -1,0 +1,378 @@
+=== STEP T4 transcript — 2026-09-10T21:33:36Z ===
+Model calls declared max: 0
+
+--- ITEM 0 ---
+Backup search: /home/liam/ttros_backups/ for a pre-T3 david config.yaml preimage
+-rw-------  1 liam liam   1641 Sep  7 12:08 david_config.yaml.PREIMAGE_20260908T044915Z
+Found: david_config.yaml.PREIMAGE_20260908T044915Z (STEP U pre-upgrade preimage, dated 2026-09-08 -- predates T3 which ran 2026-09-10, and lacks keys added between STEP U and T3: memory.write_approval, hooks.pre_tool_call, the security/fallback-model comment blocks). This is NOT a T3 preimage -- it captures a different, earlier state for a different purpose (the Hermes version upgrade).
+ANSWER ITEM 0: NO dedicated pre-T3 preimage exists under /home/liam/ttros_backups/. T3's own session copied config.yaml to a /tmp scratchpad path (ephemeral, not under ttros_backups/, ) before editing -- this is a genuine T3 method gap against permission-header rule 6 (rollback must be backup-only under /home/liam/ttros_backups/). T3's documented hand-edit rollback (reverse the exact disabled_toolsets lines recorded in its transcript) stands as the only real rollback path for the pre-T3 state.
+
+Taking immutable preimage of CURRENT (post-T3) live config.yaml before ITEM 1 changes:
+7b2ca86657a78256a786a3224446270a214c14fbf6a4e829b3a689932af10274  /home/liam/ttros_backups/stepT4_2026-09-10/david_config.yaml.PREIMAGE_pre-item1_20260910
+-r--r--r-- 1 liam liam 2923 Sep 10 14:33 /home/liam/ttros_backups/stepT4_2026-09-10/david_config.yaml.PREIMAGE_pre-item1_20260910
+
+--- ITEM 1: Queue-MCP contradiction ---
+PREDICTION (written before measuring): obsolete residue -- the execution handoff is parsed
+downstream from David's reply TEXT (a fenced JSON block), never via a David-side tool call,
+so no live path requires David to hold a queue MCP tool. Predicted discovery wall-time saved
+per David session start by removing a server that retries 3 times: ~3-4 seconds (backoff
+sequence 1.0s then ~2.0s between the 3 failed connect attempts, per tools/mcp_tool.py:234-236
+_MAX_INITIAL_CONNECT_RETRIES=3 / _MAX_BACKOFF_SECONDS=60, geometric doubling from 1.0s, plus
+the 3 near-instant failed subprocess-spawn attempts themselves).
+
+Evidence trace, file:line:
+  rules/david_execution_handoff.md -- David's OWN contract: 'Emitting an execution_handoff is
+  not creating queue work. It is not delegating... It is a single structured message.' The
+  contract never names a tool; it specifies a JSON block inside David's ordinary text reply.
+  dashboard/backend/main.py:4635-4658 _david_execution_handoff() -- parses reply_text (a
+  plain string) via _extract_json_objects(); pure text/regex parsing, zero tool calls.
+  dashboard/backend/main.py:7769-7770 -- response = _execute_named_profile_consultation(...);
+  handoff = _david_execution_handoff(response.get('response') or '') -- parsed AFTER David's
+  session has already returned its final text reply.
+  dashboard/backend/main.py:7777 -- _hermes_objective_from_handoff(handoff, ...) creates the
+  actual queue item; this is a plain Python function in the backend process, not a David tool
+  call and not a queue MCP round trip.
+  connectors/telegram_bridge/ is PROTECTED (never read this session, per header rule 1); the
+  contract text itself (rules/david_execution_handoff.md) is surface-agnostic -- it specifies
+  what David emits in his reply, not how any given bridge consumes it -- so the 'no tool call
+  needed' conclusion holds architecturally regardless of which surface parses the reply.
+
+Discovery wall-time BEFORE removing queue (3 fresh-process runs, david profile):
+Failed to connect to MCP server 'queue' (command=/home/liam/.hermes/hermes-agent/venv/bin/python): Connection closed
+ELAPSED=7.840s TOOLS=10
+Failed to connect to MCP server 'queue' (command=/home/liam/.hermes/hermes-agent/venv/bin/python): Connection closed
+ELAPSED=8.386s TOOLS=10
+Failed to connect to MCP server 'queue' (command=/home/liam/.hermes/hermes-agent/venv/bin/python): Connection closed
+ELAPSED=10.164s TOOLS=10
+
+APPLIED: removed the 'queue:' mcp_servers entry from ~/.hermes/profiles/david/config.yaml
+(david's profile only; no other profile touched).
+
+Discovery wall-time AFTER removing queue (3 fresh-process runs, david profile):
+ELAPSED=1.481s TOOLS=10
+ELAPSED=1.490s TOOLS=10
+ELAPSED=1.467s TOOLS=10
+POST-REMOVAL: 10 tools, 4526 bytes -- brain unaffected, queue gone
+['mcp__brain__brain_memory_status', 'mcp__brain__get_prompt', 'mcp__brain__list_prompts', 'mcp__brain__list_resources', 'mcp__brain__open_call', 'mcp__brain__open_note', 'mcp__brain__read_resource', 'mcp__brain__remember_brain_knowledge', 'mcp__brain__search_calls', 'mcp__brain__search_history']
+
+--- ITEM 2: Persistence of David's five-tool scope ---
+PREDICTION (written before measuring): nothing in the repo writes David's toolset config;
+Hermes migration preserves the key; the realistic loss path is a manual profile re-create.
+
+CONFIRMED: prediction holds on all counts.
+  1. tools/install_hermes_context_assembler.py (the only repo script that touches david's
+     config.yaml at all, per file:line 78/169 above) is additive/idempotent: it only manages
+     the plugin symlink, calls native 'hermes plugins enable'/'hermes mcp add', and checks
+     (never writes) memory_enabled/user_profile_enabled. It never references
+     agent.disabled_toolsets or mcp_servers.queue, and re-running install() today would be a
+     no-op against both (plugin already linked+enabled, brain already registered).
+  2. Surface searched: 'grep -rln config.yaml --include=*.py' across the whole repo (excluding
+     tests) -> only install_hermes_context_assembler.py (above), step3_b7_harness.py (a
+     hardcoded print string, does not even open the file), and
+     tools/validate_unbound_runtime.py (read-only, line 83). No repo script writes it.
+  3. Surface searched: hermes_cli/config_migrations.py in full (641 lines) -- 'grep -n
+     disabled_toolsets|mcp_servers|enabled_toolsets' -> zero hits. The module's own docstring:
+     'a step may only persist values that differ from the schema default (plus
+     removals/renames)' -- migrations are table-driven and additive; since no step ever names
+     either key, no future in-place version bump touches them.
+  4. Surface searched: 'grep -l profile ~/.config/systemd/user/*.service' -> zero hits; none
+     of the 9 TTROS user units (listed via systemctl --user list-unit-files) reference
+     'hermes setup'/'hermes profile'/profile regeneration in their own unit text.
+  Realistic loss path, confirmed as predicted: a manual 'hermes setup'/profile re-create,
+  not any repo or systemd surface.
+
+OUTCOME: nothing owns David's config -- saving an immutable final-state snapshot.
+7bb26334df281d695400e1dd65c38e4d2fdb4ac013ee2c737c38c87c7049650d  /home/liam/ttros_backups/stepT4_2026-09-10/david_config.yaml.FINAL_postT4item1_20260910
+
+--- ITEM 3: Return the suite to green ---
+PREDICTION (written before measuring): working tree is 100644 while the test (and possibly
+the shell-hook contract) executes the file directly.
+
+Working-tree mode:
+-rw-r--r-- 1 liam liam 11160 Sep  9 23:43 /home/liam/agentic-os-live/hooks/context_assembler_hook.py
+Git-index mode:
+100644 c31d58539270f51f393f4aa6ee82f1ea4fdcaacc 0	hooks/context_assembler_hook.py
+
+How the test invokes the hook: tests/test_hermes_context_plugin.py:109 calls
+_pre_llm_call(session_id=..., user_message=...), imported from
+hooks.hermes_context_assembler_plugin (NOT hooks.context_assembler_hook directly). That
+module's _invoke() (hooks/hermes_context_assembler_plugin/__init__.py:32-40) calls
+subprocess.run([str(HOOK)], ...) where HOOK = ROOT/hooks/context_assembler_hook.py -- a bare
+path, no interpreter prefix, so the OS requires the +x bit and a shebang to exec it. This
+specific test (test_unregistered_profile_receives_no_context) does NOT mock subprocess -- it
+deliberately exercises the real plugin-registration path end to end (that is the point of the
+test: proving the native fail-closed turn guard rejects an unregistered profile). The test's
+invocation is CORRECT, matching production exactly, not a test bug.
+
+How PRODUCTION invokes the SAME file: hooks/hermes_context_assembler_plugin/__init__.py:16
+sets HOOK = ROOT/hooks/context_assembler_hook.py directly -- the repo file itself, not a
+separate deployed/installed copy. register() (line 58-64 of the same file) wires this via
+ctx.register_hook('pre_llm_call', _pre_llm_call) -- Hermes' own native plugin-hook contract.
+The 'plugins/ttros-context-assembler' symlink under EVERY scoped profile
+(aos-delivery/aos-marketing/aos-ops/aos-orchestrator/aos-revenue/david/operator-lean/
+source-intake-semantic -- confirmed via readlink -f on all 8) resolves to
+/home/liam/agentic-os-live/hooks/hermes_context_assembler_plugin, i.e. THIS SAME repo file is
+the production hook for every profile. There is no separate installed copy to compare against
+-- the repo file IS the production artifact.
+
+SEPARATE finding, same root cause: 7 of 8 scoped profiles (every one except david) ALSO
+configure a shell-hook FALLBACK that directly names the same broken file as a literal command:
+  hooks.pre_llm_call / hooks.post_llm_call: [{command: .../hooks/context_assembler_hook.py}]
+(confirmed present in aos-delivery/aos-marketing/aos-ops/aos-orchestrator/aos-revenue/
+operator-lean/source-intake-semantic config.yaml via grep; ABSENT from david's config.yaml,
+per T3's own reading -- david has no fallback at all if the Python plugin registration ever
+fails to load, named here as a structural single-point-of-failure, not fixed in this step).
+This shell-hook fallback ALSO requires the +x bit and is affected identically.
+
+Nightly-backup cross-check (read-only, /home/liam/agentic-os-backups/): EVERY nightly snapshot
+from 2026-08-04 through 2026-09-10T01:00:00Z (this morning) shows this exact file at mode
+-rwxr-xr-x (755), including the most recent one taken AFTER yesterday's content edit (same
+11160-byte size as the current live copy). The live repo copy right now is -rw-r--r-- (644).
+755 is therefore the long-standing, correct, production mode -- confirmed by over a month of
+consistent nightly evidence, not asserted from the file's name or purpose. The bit was
+evidently dropped sometime AFTER the 2026-09-10 01:00 UTC backup and before this session.
+
+core.fileMode is set to 'false' for this repo (git config core.fileMode -> false) -- git does
+NOT track file-mode changes here at all, which is why 'git ls-files -s' shows 100644
+regardless of the real on-disk mode, and why T1's own check ('git mode is 100644, unchanged
+from HEAD') could not have detected this: git's recorded mode was never authoritative for
+this repo's actual executable bits. The comparable, currently-WORKING pre_tool_call hook
+(hooks/b7_test_material_guard.py) is -rwxr-xr-x (755) right now, same git core.fileMode=false
+setting, confirming 755-via-filesystem-not-git is the normal, working pattern for every other
+hook in this repo -- context_assembler_hook.py is the one exception, and only as of very
+recently.
+
+SETTLING THE KEY QUESTION: this is NOT test-only. The installed production hook -- which is
+the identical repo file referenced directly by both the native plugin registration and 7 of 8
+profiles' shell-hook fallback -- has the exact same defect right now. Per this item's own
+explicit decision rule ('If the installed production copy is affected, report it prominently
+and do NOT change the installed copy in this step -- that is a runtime change for Liam'), NO
+chmod was applied. This is reported prominently below and in the closeout, not fixed.
+
+Severity, reasoned from already-established facts, no model call needed to state it:
+hooks/hermes_context_assembler_plugin/__init__.py:33-40 raises on a non-JSON/non-zero result
+but subprocess.run() itself would raise a bare PermissionError at OS-exec time, which STEP U's
+own prior finding (scripts/hermes_upgrade_and_native_capability_classification.md) already
+established is swallowed by Hermes' own plugin-hook call sites ('except Exception: pass /
+logger.warning'). That means the mandatory TTROS_ASSEMBLED_CONTEXT_V1 marker would silently
+fail to be injected on every real Hermes turn across all 8 scoped profiles right now -- but
+the SAME STEP U patch (the fail-closed RuntimeError gate in agent/turn_context.py) should then
+see the marker absent and BLOCK the model call outright, which is the safe failure mode. This
+reasoning is corroborated, not just theorized: the full-suite run below still shows
+test_installed_native_turn_guard_rejects_missing_registered_context passing, meaning the
+fail-closed gate itself is intact and would be doing exactly this blocking today.
+
+Confirmed directly: tests/test_hermes_context_plugin.py + tests/test_unbound_runtime_drift.py -k 'guard or turn_guard or rejects_missing' -> 2 passed. The fail-closed gate is intact.
+
+No chmod applied (per this item's own decision rule -- installed production copy IS affected).
+Full suite, run per header rule 8 from repo root:
+  /home/liam/agentic-os-live/tests/test_aos_capture.py:467: DeprecationWarning: jsonschema.RefResolver is deprecated as of v4.18.0, in favor of the https://github.com/python-jsonschema/referencing library, which provides more compliant referencing behavior as well as more flexible APIs for customization. A future release will remove RefResolver. Please file a feature request (on referencing) if you are missing an API for the kind of customization you need.
+    resolver = jsonschema.RefResolver.from_schema(schema, store={receipt_schema["$id"]: receipt_schema})
+
+tests/test_aos_capture.py::Stage3AndQueueTests::test_scope_before_evidence_brain_search_graph_and_safe_human_review
+  /home/liam/agentic-os-live/tests/test_aos_capture.py:413: DeprecationWarning: jsonschema.RefResolver is deprecated as of v4.18.0, in favor of the https://github.com/python-jsonschema/referencing library, which provides more compliant referencing behavior as well as more flexible APIs for customization. A future release will remove RefResolver. Please file a feature request (on referencing) if you are missing an API for the kind of customization you need.
+    resolver = jsonschema.RefResolver.from_schema(schema, store={receipt_schema["$id"]: receipt_schema})
+
+tests/test_promotion_review_tier.py::ReviewTierTestCase::test_filed_item_validates_against_the_work_item_schema
+  /home/liam/agentic-os-live/tests/test_promotion_review_tier.py:143: DeprecationWarning: jsonschema.RefResolver is deprecated as of v4.18.0, in favor of the https://github.com/python-jsonschema/referencing library, which provides more compliant referencing behavior as well as more flexible APIs for customization. A future release will remove RefResolver. Please file a feature request (on referencing) if you are missing an API for the kind of customization you need.
+    resolver = jsonschema.RefResolver.from_schema(schema, store={receipt_schema["$id"]: receipt_schema})
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_hermes_context_plugin.py::HermesContextPluginTest::test_unregistered_profile_receives_no_context
+1 failed, 828 passed, 7 warnings, 223 subtests passed in 365.15s (0:06:05)
+tests/test_workflow_prompt_templates.py::WorkflowPromptTemplatesTest::test_templates_include_run_folder_contract
+
+829 tests collected in 8.28s
+git diff --check:
+context/TOKEN_POLICY.md:94: new blank line at EOF.
+hooks/token_budget_check.md:54: new blank line at EOF.
+exit: 0
+exit: 2
+
+--- ITEM 4: Correct T3's eager-MCP arithmetic ---
+PREDICTION (written before measuring): net change vs the live 7,493 B is between -600 B and
++1,100 B; it goes negative if the protocol tools can be excluded natively.
+
+(a) Break-even arithmetic, corrected:
+  29,400-token fixed tax (21 questions x 1,400 tokens/request) vs N residual round trips at
+  ~28,884 tokens each:
+    N=1: 28,884 tokens benefit < 29,400 tokens cost -> tax costs slightly MORE (~roughly
+         break-even, tax loses by 516 tokens, ~1.8%).
+    N=2: 57,768 tokens benefit > 29,400 tokens cost -> tax costs LESS; eager wins clearly.
+  T3's own text said 'if Repair 2 cut real traffic to even 1-2 residual calls... the fixed tax
+  exceeds the remaining benefit' -- WRONG at N=2 (benefit exceeds cost by roughly 2x there,
+  favoring eager, not the fixed tax). CORRECTED: break-even sits at almost exactly N=1 residual
+  round trip across a 21-question pass; at N=2 or more, eager wins on this arithmetic alone.
+
+Eager MCP array on the COPIED profile (tools.tool_search.enabled: off), all 10 tools:
+tools=10 bytes=4526
+   1083  mcp__brain__remember_brain_knowledge
+    610  mcp__brain__search_calls
+    517  mcp__brain__search_history
+    486  mcp__brain__open_note
+    470  mcp__brain__open_call
+    420  mcp__brain__get_prompt
+    280  mcp__brain__read_resource
+    262  mcp__brain__brain_memory_status
+    191  mcp__brain__list_resources
+    187  mcp__brain__list_prompts
+
+Same copy, WITH mcp_servers.brain.tools: {resources: false, prompts: false} added (the exact
+native mechanism already live on operator-lean for both its servers -- config_defaults/
+mcp_tool_registration.py:71-89 _select_utility_schemas / mcp_tool_schema.py:221-222):
+tools=6 bytes=3440
+['mcp__brain__brain_memory_status', 'mcp__brain__open_call', 'mcp__brain__open_note', 'mcp__brain__remember_brain_knowledge', 'mcp__brain__search_calls', 'mcp__brain__search_history']
+
+(d) Read-only coupling check -- would B6/receipts/the fail-closed guard still recognise direct
+eager brain-tool calls (mcp__brain__open_note etc.) instead of tool_call-wrapped ones?
+  scripts/step5_step6_post_repaired_b6_investigation_instrument.py:277,326 -- B6's own
+  investigation instrument already keys on the RESOLVED tool name (mcp__brain__open_note/
+  open_call), not the literal 'tool_call' bridge-wrapper string. T2's own Part 1 evidence
+  table already established that state.db's messages.tool_calls records the resolved target
+  name even for bridged calls ('all 35 tool_call invocations proxy mcp__brain__* tools' --
+  meaning the log already unwraps to the real name). Direct eager calls would log under the
+  same resolved names -- UNCHANGED recognition.
+  hooks/b7_test_material_guard.py BLOCKED_TOOL_NAMES (STEP U's own list: search_files,
+  read_file, execute_code, session_search, terminal, process_manage) contains zero overlap
+  with any mcp__brain__* name in either mode -- UNCHANGED, unaffected either way.
+  The STEP-U fail-closed/native guard (agent/turn_context.py's RuntimeError gate, reapplied
+  per scripts/hermes_upgrade_and_native_capability_classification.md) checks only for the
+  TTROS_ASSEMBLED_CONTEXT_V1 marker in the pre_llm_call hook's own output -- entirely
+  independent of which MCP tools are eager vs deferred. UNCHANGED.
+  CONCLUSION: no coupling risk found on any of the three named surfaces.
+
+--- ITEM 5: Surface and context-file reconciliation ---
+PREDICTION (written before measuring): the tier is the repo-root AGENTS.md, loaded only when
+cwd is the repo; the dashboard and gateway surfaces differ from CLI in cwd.
+-rwxrwxrwx 1 liam liam 2003 Jul  7 19:01 /home/liam/agentic-os-live/AGENTS.md
+-rwxrwxrwx 1 liam liam 9382 Sep  9 16:22 /home/liam/agentic-os-live/CLAUDE.md
+/home/liam/agentic-os-live
+
+CORRECTION TO PREDICTION: the tier's actual content is NOT AGENTS.md or CLAUDE.md file
+content -- it is .hermes.md (the TTROS canonical map, generated by scripts/
+step5_map_generator.py, present untracked at the repo root). Confirmed directly:
+agent/prompt_builder.py:1578 -- 'Only ONE project context type loads, first found wins:
+.hermes.md/HERMES.md (walk to git root) -> ...' and .hermes.md exists, so it wins outright;
+AGENTS.md/CLAUDE.md content is never reached. The literal substring 'CLAUDE.md' found earlier
+was NOT injected file content -- it is one line inside Hermes' own small 'workspace snapshot'
+metadata block (git status/recent commits/verify command/'Context files: AGENTS.md, CLAUDE.md'
+-- a NAME-only listing of which context files exist in the directory, not their content).
+PREDICTION PARTLY WRONG, corrected: no coding-agent instruction FILE CONTENT leaks into
+David's prompt. A smaller, real, worth-naming finding survives: the workspace-snapshot
+metadata block (git status / recent commit subjects / verify command) is itself
+coding-agent-shaped scaffolding irrelevant to David's executive-partner role, injected
+unconditionally as part of this same tier -- named here, not fixed.
+
+.hermes.md discovery walks UP TO THE GIT ROOT (agent/prompt_builder.py:110-116), so it is
+cwd-INSENSITIVE within the repo: aos-backend.service's own WorkingDirectory is
+/home/liam/agentic-os-live/dashboard (confirmed via systemctl --user show), a SUBDIRECTORY of
+the same git repo, not the repo root -- but the walk-to-git-root logic still finds the same
+.hermes.md regardless. Likewise git status/git log (feeding the workspace-snapshot block)
+report on the whole repo regardless of which subdirectory inside it the process's cwd is.
+PREDICTION PARTLY WRONG, corrected: dashboard's WorkingDirectory IS literally different from
+CLI's (repo root), but the OBSERVABLE content is the same either way, because of this
+walk-to-root behavior -- not because the surfaces coincidentally share a cwd.
+
+Telegram gateway: connectors/telegram_bridge/ is PROTECTED (never read this session, per
+header rule 1) -- its actual launch cwd cannot be established from this session. Per
+.hermes.md's own discovery rule, a cwd with NO git root ancestor stops at the exact cwd only
+(agent/prompt_builder.py:_find_hermes_md docstring: 'No git root: cwd only'); a cwd WITH a
+git-root ancestor (e.g. if the bridge runs from anywhere under /home/liam/agentic-os-live/)
+would find the same .hermes.md. UNPROVEN for this surface specifically -- named, not assumed
+either way.
+platform=cli: 5 tools -> ['clarify', 'memory', 'tool_call', 'tool_describe', 'tool_search']
+platform=telegram: 5 tools -> ['clarify', 'memory', 'tool_call', 'tool_describe', 'tool_search']
+
+agent.disabled_toolsets under platform-toolset resolution, same offline instrument, both
+platforms against david's real profile: 'cli' -> 5 tools {clarify,memory,tool_call,
+tool_describe,tool_search}; 'telegram' -> IDENTICAL 5 tools. PROVEN at the config/toolset-
+resolution layer: agent.disabled_toolsets is honoured identically regardless of simulated
+platform. NOT an end-to-end live proof of the real connectors/telegram_bridge/ process itself
+(protected, unread this session) -- this proves Hermes' own platform-toolset-resolution code
+does not special-case Telegram away from disabled_toolsets; it does not prove what env/profile
+selection the actual bridge script passes at its own invocation boundary.
+
+--- ITEM 6: Final constructed Fred/MLS request, post items 1-3 ---
+Surface: CLI-David. cwd: /home/liam/agentic-os-live (repo root -- matches the CLI/B7-harness invocation pattern).
+tools: {'count': 5, 'json_bytes': 7493}
+system_prompt: {'chars': 21621, 'bytes': 21725}
+=== Fred/MLS ===
+  scoped canonical Brain notes bytes: 4966
+  sources: ('business_brain:sources/intake/cards/d9cb4668fd766474278e414bb53223f944342004f34be23020c161fa4160dd74.card.md#sha256=714c754e7acf5c08cc0b09709e31dc4233eee5c448ad91fb8757b1df100d9a68#route=pointer', 'business_brain:sources/historical_calls/cards/kenneth-meeting-may-27.card.md#sha256=21c48a3ed55a811dc76dc719b76bedfd940842b4356b63a51a0e7e55dbcf02a2#route=pointer')
+  full assembled context bytes: 43422
+  total_tokens (assembler estimate): 8488
+
+=== CCI ===
+  scoped canonical Brain notes bytes: 7262
+  sources: ('business_brain:sources/historical_calls/cards/call-kenneth-after-first-cci.card.md#sha256=fa16314c8aa03457717bbe36d431e71f96c76146a313007bf5d48a9794a7fcae#route=pointer', 'business_brain:sources/historical_calls/cards/first-call-cci.card.md#sha256=14df3dc89140c28b707c2dae93fb891b3f91d5693940ace15bdd86444a222d72#route=pointer', 'business_brain:sources/historical_calls/cards/cci-second-call-june-15.card.md#sha256=ef9ea2adea741214d312b306269af27583ebd685e65ac929fa5fed4fd3aa2f10#route=pointer')
+  full assembled context bytes: 25329
+  total_tokens (assembler estimate): 4679
+
+=== Andrea (E5) ===
+  scoped canonical Brain notes bytes: 4651
+  sources: ('business_brain:sources/historical_calls/cards/andrea-roberts-june-26.card.md#sha256=7d2ec436d65756ca918989d2c8ebf4bd01465c13b38401f1245361a37d7916c2#route=pointer', 'business_brain:sources/historical_calls/cards/andrea-second-call-june-30.card.md#sha256=32f00707a693904d422a35f236860ae7af2d49fdcb74b0d0323d28782a81c2b5#route=pointer')
+  full assembled context bytes: 30386
+  total_tokens (assembler estimate): 5717
+
+=== Negative control 1 ===
+  scoped canonical Brain notes bytes: 192
+  sources: ('retrieval:scope-first-hierarchy#no-additional-read',)
+  full assembled context bytes: 43655
+  total_tokens (assembler estimate): 8986
+
+=== Negative control 2 (trivial) ===
+  scoped canonical Brain notes bytes: 192
+  sources: ('retrieval:scope-first-hierarchy#no-additional-read',)
+  full assembled context bytes: 16207
+  total_tokens (assembler estimate): 2816
+
+=== Fallback control ===
+  scoped canonical Brain notes bytes: 192
+  sources: ('retrieval:scope-first-hierarchy#no-additional-read',)
+  full assembled context bytes: 45214
+  total_tokens (assembler estimate): 9398
+
+[['stable (identity/guidance/skills)', 17143, 17225], ['context (AGENTS.md/cwd files)', 3753, 3773], ['volatile (memory/profile/timestamp)', 721, 723]]
+
+Final Fred/MLS totals:
+  WITH item-5 context tier:    tools 7,493 + system_prompt 21,725 + assembled/question 43,422 = 72,640 B
+  WITHOUT item-5 context tier: tools 7,493 + system_prompt 17,952 + assembled/question 43,422 = 68,867 B
+  vs T3's 72,640 B: +0 B (unchanged -- expected; none of items 1-3 touched tools/instructions/context assembly bytes)
+  vs T1's 110,886 B: -38,246 B / -34.5% (with tier) or -42,019 B / -37.9% (without tier)
+Resolved tool count: 5: ['clarify', 'memory', 'tool_call', 'tool_describe', 'tool_search']
+
+ASSERT PRESENT: PASS
+ASSERT ABSENT: PASS
+
+--- Rehearsed negative case #1 (PRESENT checker, T3 already did this) ---
+  assert a nonexistent tool is present: FAIL as expected -- {'nonexistent_tool_xyz'}
+
+--- Rehearsed negative case #2 (ABSENT checker -- NEW this run, T3 never did this) ---
+  assert 'memory' (a real KEEP tool) is absent: FAIL as expected -- still present: {'memory'}
+
+(c) Post-T3 per-hop cost, re-estimated (ESTIMATE, not a measurement -- no round trip was
+dispatched):
+  Pre-T3 request (T1's own basis for the 28,884-token figure): tools 40,088 B + system_prompt
+  32,191 B = 72,279 B -> 28,884 tokens (given).
+  Post-T3 (current live, this session): tools 7,493 B + system_prompt 21,725 B = 29,218 B.
+  Scale factor: 29,218 / 72,279 = 0.4042.
+  ESTIMATE: 28,884 x 0.4042 ~= 11,674 tokens per round trip post-T3 -- a proportional scaling
+  of the ORIGINAL figure by prefix-size ratio, not a fresh measurement of a real round trip.
+  This lowers the break-even point for eager MCP correspondingly: at the post-T3 per-hop
+  estimate, N=1 residual round trip (11,674 tokens) is already smaller than the 29,400-token
+  fixed tax, and N=2 (23,348) is also smaller -- meaning the LOWER estimated per-hop cost
+  actually makes the fixed eager tax look WORSE (harder to justify) than the original,
+  pre-T3-scaled figure implied. This corrects T3's implicit assumption that the 28,884-token
+  figure still applied post-T3; it does not, and the corrected direction favours staying
+  lazy (auto), not going eager, for a modest number of residual round trips.
+
+=== STEP T4 transcript end — 2026-09-10T21:59:26Z ===
+Model calls: 0 / declared max 0
+---backup dir contents---
+total 20
+drwxr-xr-x  3 liam liam 4096 Sep 10 14:48 .
+drwxr-xr-x 31 liam liam 4096 Sep 10 14:33 ..
+-r--r--r--  1 liam liam 2771 Sep 10 14:37 david_config.yaml.FINAL_postT4item1_20260910
+-r--r--r--  1 liam liam 2923 Sep 10 14:33 david_config.yaml.PREIMAGE_pre-item1_20260910
+drwx------ 20 liam liam 4096 Sep 10 14:52 david_copy_item4_whatif

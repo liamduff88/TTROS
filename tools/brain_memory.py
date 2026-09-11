@@ -284,7 +284,13 @@ def write_transaction(
     with _transaction_lock():
         staged_before = [line for line in _git("diff", "--cached", "--name-only").stdout.splitlines() if line]
         if staged_before:
-            raise BrainMemoryError("vault index already contains staged human changes; transaction refused")
+            if commit:
+                raise BrainMemoryError("vault index already contains staged human changes; transaction refused")
+            # Uncommitted continuity writes must not depend on unrelated staged work, but they
+            # still refuse to overwrite a file the operator has staged themselves.
+            overlap = sorted(set(staged_before) & set(canonical))
+            if overlap:
+                raise BrainMemoryError(f"transaction targets are staged in the vault index: {', '.join(overlap)}")
 
         originals: dict[str, bytes | None] = {}
         current_hashes: dict[str, str | None] = {}
@@ -432,6 +438,54 @@ def read_session(surface: str, session_key: str) -> tuple[str, str | None]:
     return path.read_text(encoding="utf-8"), file_sha256(path)
 
 
+THREAD_MAX_CHARS = 2500
+
+
+def thread_relative(identity: str) -> str:
+    safe = re.sub(r"[^a-z0-9_-]+", "-", str(identity).lower()).strip("-") or "hermes"
+    return f"sessions/thread_{safe}.md"
+
+
+def read_thread(identity: str) -> tuple[str, str | None]:
+    path = _target(thread_relative(identity))
+    if not path.exists():
+        return "", None
+    return path.read_text(encoding="utf-8"), file_sha256(path)
+
+
+def write_thread(*, identity: str, body: str, session_id: str, source: str) -> BrainWriteResult:
+    """Supersede one rolling continuity thread. Never appends, never commits."""
+    text = str(body or "").strip()
+    if not text:
+        raise BrainMemoryError("empty continuity thread body")
+    if len(text) > THREAD_MAX_CHARS:
+        raise BrainMemoryError(f"continuity thread exceeds {THREAD_MAX_CHARS} characters")
+    relative = thread_relative(identity)
+    expected = file_sha256(_target(relative))
+    document = "\n".join((
+        "---",
+        f"id: hermes-thread-{Path(relative).stem}",
+        "type: thread",
+        "status: active",
+        "author: hermes",
+        f"source: {json.dumps(source)}",
+        "---",
+        f"# {identity} — working thread",
+        "",
+        "> Superseded every turn. Edit freely: David reads exactly what is left here.",
+        "",
+        text,
+        "",
+    ))
+    return write_transaction(
+        {relative: document},
+        source=source,
+        session_id=session_id,
+        expected_hashes={relative: expected},
+        commit=False,
+    )
+
+
 def append_session_turn(
     *,
     surface: str,
@@ -487,6 +541,27 @@ def append_session_turn(
         session_id=session_id,
         expected_hashes={relative: expected},
     )
+
+
+HISTORICAL_CALLS_DIR = "sources/historical_calls"
+
+
+def normalize_vault_pointer(raw: str) -> str:
+    """Validate and normalize a vault-relative Business Brain note path for a
+    direct read. Does not check that the note exists."""
+    return _safe_relative(str(raw or ""))
+
+
+def read_vault_note(relative: str) -> tuple[str, str]:
+    """Direct, read-only access to one canonical Business Brain note's raw
+    text. Returns (normalized_relative_path, text). This is a vault read, not
+    a transaction: no lock, no commit, no provenance stamp -- Step 6 corpus/
+    vault tools are read-only by design."""
+    canonical = normalize_vault_pointer(relative)
+    target = _target(canonical)
+    if not target.is_file():
+        raise BrainMemoryError(f"no such vault note: {canonical}")
+    return canonical, target.read_text(encoding="utf-8")
 
 
 def reset_session(*, surface: str, session_key: str, session_id: str, source: str) -> BrainWriteResult | None:

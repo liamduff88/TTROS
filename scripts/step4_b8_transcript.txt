@@ -1,0 +1,267 @@
+STEP 4 — B8, cache-and-latency observer. Transcript.
+Session date: 2026-09-06. Surface: CLI, direct execution (not gateway; not relay).
+Host: WSL2 Linux, repo /home/liam/agentic-os-live.
+Hermes install under test: /home/liam/.hermes/hermes-agent, pinned version confirmed live:
+  `hermes --version` -> "Hermes Agent v0.18.0 (2026.7.1) . upstream f228e145 . local 05cbddc0 (+8090 carried commits)"
+Config: provider=openai-codex, model=gpt-5.5, base_url=https://chatgpt.com/backend-api/codex
+  (Codex OAuth path). api_mode resolves to "codex_responses" for provider "openai-codex"
+  (agent/agent_init.py:425-426).
+
+=====================================================================
+0. CANONICAL FILES — mirror integrity
+=====================================================================
+`sha256sum -c docs/ttros/SOURCE.sha256` -> all 5 files OK. Single revision of each canonical
+file present in docs/ttros/. No collision, no stop condition triggered.
+
+=====================================================================
+1. FIRST CHECK — does post_api_request exist on the pinned v0.18.0 build?
+=====================================================================
+CONFIRMED LOCALLY (static source read, not upstream doc, not memory):
+  - hermes_cli/hooks.py:170 lists "post_api_request" with a full default test payload.
+  - hermes_cli/plugins.py:158 lists "post_api_request" in VALID_HOOKS.
+  - agent/conversation_loop.py:4243-4276 calls `_invoke_hook("post_api_request", ...)` on every
+    completed API turn, guarded by `has_hook("post_api_request")`.
+  - Two bundled plugins already consume it: plugins/observability/nemo_relay/__init__.py:412,
+    plugins/observability/langfuse/__init__.py:1133.
+RESULT: post_api_request EXISTS. It is registered via `ctx.register_hook(...)` from a plugin's
+`register(ctx)` — a PLUGIN lifecycle hook, not a gateway hook. This matches the instruction to
+attach B8 to a plugin hook. The "hook demotion is upstream-doc only, never confirmed locally"
+premise in the step prompt does not hold for this pinned build — no substitute attach point is
+needed.
+
+Hook payload contract (from run_agent.py:2210-2223, 2390-2416):
+  - `usage=` kwarg is `agent._usage_summary_for_api_request_hook(response)`, which calls
+    `normalize_usage(raw_usage, provider=..., api_mode=...)` (agent/usage_pricing.py:763) and
+    returns `asdict(CanonicalUsage)` with **`raw_usage` popped before return**
+    (run_agent.py:2218: `summary.pop("raw_usage", None)`; docstring: "no raw response object").
+  - `response=` kwarg is `_api_response_payload_for_hook(...)`, which independently calls the
+    SAME `_usage_summary_for_api_request_hook`, so it carries the same stripped summary, not the
+    raw object either.
+PREDICTION (recorded before any live call): the raw provider usage object will be ABSENT from
+both hook kwargs on this build, by design, not by provider omission. Normalised
+`cache_read_tokens` / `cache_write_tokens` (Hermes's naming for the spec's cached_tokens /
+cache_write_tokens) will be PRESENT as always-populated integer fields (default 0), because
+`CanonicalUsage` sets them via dataclass defaults regardless of provider.
+
+=====================================================================
+2. PREDICTIONS — written before any live call, not moved afterward
+=====================================================================
+P1. post_api_request exists on pinned v0.18.0: CONFIRMED YES (section 1, static, zero calls).
+P2. Cache telemetry on the Codex OAuth path (provider=openai-codex, api_mode=codex_responses):
+    EXPECT cache_read_tokens > 0 on a second call that repeats the same large stable prefix
+    (system prompt + tool schemas are byte-identical across two `hermes -z` invocations with the
+    same config), because normalize_usage's codex_responses branch reads
+    `input_tokens_details.cached_tokens` from the raw OpenAI Responses usage object, and OpenAI's
+    Responses API applies automatic prefix caching. EXPECT cache_write_tokens == 0 on both calls:
+    the codex_responses branch reads `details.cache_creation_tokens`, a field the OpenAI
+    Responses API usage object does not populate (caching there is implicit, not an explicit
+    write op the way Anthropic's is) — normalize_usage will default it to 0 via
+    `_to_int(getattr(details, "cache_creation_tokens", 0) if details else 0)`.
+P3. Raw provider usage object: EXPECT ABSENT from the hook payload on both calls (see section 1).
+P4. Latency: EXPECT api_duration in the low single-digit seconds (2-8s) for a short prompt on
+    gpt-5.5 via Codex OAuth. EXPECT the cache-hit call to be flat-to-modestly-faster than the
+    cache-miss call, not dramatically faster — cache reduces prefill compute, but total latency on
+    a short generation is generation-bound, not prefill-bound.
+P5. D-STALENESS: EXPECT the sentinel to reappear in a freshly rebuilt system prompt after
+    `_invalidate_system_prompt()` + `_build_system_prompt()`, and EXPECT the live model to repeat
+    it back, because `agent/conversation_compression.py:694` calls exactly that pair on every
+    compression, and `_find_hermes_md`/`_strip_yaml_frontmatter` (agent/prompt_builder.py) do a
+    plain `Path.is_file()` + read with no memoization. i.e. EXPECT: context files ARE re-read on a
+    compression-triggered rebuild -> explicit approval is the safer policy, confirming rev 3's
+    reasoning-only recommendation empirically.
+P6. Protected-file check for `.hermes.md`: EXPECT NEGATIVE — not classified as a protected
+    instruction/context file requiring write approval on this build (static read of
+    agent/file_safety.py's `build_write_denied_paths` / `build_write_denied_prefixes`, and of
+    tools/approval.py's dangerous-command system, found zero references to `.hermes.md`,
+    `HERMES.md`, or any generic "context file" write-approval gate).
+
+=====================================================================
+3. MODEL-CALL BUDGET — declared before the first call
+=====================================================================
+MAXIMUM: 3 David (live provider) calls for this step. No more will be made; the exercising
+script hard-stops at 3 and exits nonzero if a 4th would be attempted.
+  Call 1 — D-STALENESS live confirmation: after the zero-call offline proof (section 5), ask the
+           live model (via `hermes -z`, cwd = repo root so `.hermes.md` resolves) to state the
+           sentinel written into `.hermes.md`. This is the "ask David to repeat the sentinel"
+           step from the design of record and is the one call the design of record itself budgets
+           ("costs one model call"). This call is also captured by the B8 hook (attached for the
+           whole exercise), giving a first usage/latency data point at no extra cost.
+  Call 2 — B8 cache exercise, leg A (cache write / cache miss): `hermes -z` with a prompt that
+           forces a large, unique-enough-to-not-already-be-cached request built from the same
+           system prompt/toolset as calls 1 and 3.
+  Call 3 — B8 cache exercise, leg B (cache read / cache hit): a second `hermes -z` call
+           immediately after, same config/cwd, so the stable system-prompt prefix is byte-
+           identical to call 2's — the minimum pair needed to observe a write followed by a read.
+JUSTIFICATION FOR THE NUMBER: 1 is the number the design of record names for D-STALENESS. 2 is
+the minimum to observe a cache-miss-then-cache-hit pair (fewer than 2 cannot show a transition).
+1 + 2 = 3. No other live call is needed for Step 4 — the post_api_request-exists check and the
+.hermes.md protected-file check are both settled by static source reads, at zero calls.
+
+=====================================================================
+4. EXACT ATTACH / DETACH — written before execution
+=====================================================================
+CORRECTION, made before any live call: the plain `hermes` CLI's sticky default profile on this
+host is "aos-orchestrator", not "default" — attaching under `~/.hermes/` (the default profile
+home) would not observe the actual David assistant, which runs under a separate profile named
+"david" (`hermes profile show david` -> Path: /home/liam/.hermes/profiles/david, model gpt-5.5 /
+openai-codex, its own config.yaml, its own plugins/ dir already holding
+`ttros-context-assembler -> /home/liam/agentic-os-live/hooks/hermes_context_assembler_plugin`).
+This is CLI-David's surface. An initial attach was made under the default profile
+(~/.hermes/plugins/b8_observer + ~/.hermes/config.yaml plugins.enabled) and was fully reverted
+(files removed, config.yaml restored from the preimage, diff-confirmed byte-identical) before any
+live call was made — no live call was spent on the wrong surface. All measurement below runs
+against profile "david" via `hermes -p david ...`, and is CLI-David only; Gateway-David
+(`hermes -p david gateway ...`) was NOT started or exercised this step (gateway hooks do not fire
+in the CLI regardless, so this is consistent with the instruction to use a plugin hook).
+
+ATTACH (profile "david"):
+  a) Write new directory /home/liam/.hermes/profiles/david/plugins/b8_observer/
+     {plugin.yaml,__init__.py}. This directory did not exist before this step — rollback is
+     removing the two files and the now-empty directory.
+  b) Edit /home/liam/.hermes/profiles/david/config.yaml: the file already had a `plugins:` block
+     (`enabled: [ttros-context-assembler]`) — appended `b8_observer` to the existing `enabled`
+     list, one line added, nothing else touched. Preimage backed up at
+     /home/liam/ttros_backups/step4_b8_2026-09-06/david_config.yaml.preimage
+     (sha256 e41da9b852290829e927abc969d9e0633a59c816f9663f470a55f6e4012124c6, matches the live
+     file at backup time).
+  c) Write repo-root `.hermes.md` containing a unique sentinel string, for the D-STALENESS check.
+     This file did not exist before this step — rollback is `rm .hermes.md` at repo root.
+DETACH (rollback, run at the end of this step regardless of outcome):
+  1) Remove /home/liam/.hermes/profiles/david/plugins/b8_observer/{plugin.yaml,__init__.py} and
+     the __pycache__/ and the now-empty directory.
+  2) Restore /home/liam/.hermes/profiles/david/config.yaml from the preimage backup, then diff to
+     confirm byte-identical (this correctly restores `plugins.enabled` to
+     `[ttros-context-assembler]` only).
+  3) `rm /home/liam/agentic-os-live/.hermes.md`.
+No git push. No external action beyond the `hermes -p david -z ...` calls the step already
+names. Gateway not touched; no service enabled or started.
+
+=====================================================================
+5. RESULTS
+=====================================================================
+Verification (zero calls): `hermes -p david plugins list` showed both `b8_observer` and
+`ttros-context-assembler` as "enabled" / "user" source before any live call was made.
+
+--- D-STALENESS ---
+Offline mechanism check (scripts/step4_dstaleness_offline_check.py, zero model calls, same
+process): built the system prompt with .hermes.md containing SENTINEL_A, then mutated the file to
+SENTINEL_B mid-process and called the EXACT pair `agent._invalidate_system_prompt()` +
+`agent._build_system_prompt()` that agent/conversation_compression.py:693-694 calls on every
+compression. Result: build #1 had A not B; build #2 had B not A. Negative case rehearsed (build
+#1 correctly did not contain the not-yet-written B). CONFIRMED: context files are re-read fresh
+from disk on a compression-triggered rebuild on this pinned build.
+Live confirmation (call 1 of 3): asked David (profile david, CLI, cwd=repo root) to read
+.hermes.md and state the sentinel. Reply: exact sentinel string, verbatim, nothing else. This
+closes the loop the offline check could not: the re-read content does reach the live model output
+on the Codex OAuth path, not just the assembled prompt string.
+SETTLES: D-STALENESS resolves to explicit approval as the safer policy (rev 3's reasoning-only
+recommendation is now empirically confirmed, not merely argued) -- automatic regeneration on
+promotion would let a live session silently pick up new map content mid-conversation.
+DOES NOT SETTLE: nothing here says anything about the as-yet-unbuilt map generator's own
+behavior, cost, or trigger cadence -- only about the underlying Hermes mechanism it would sit on
+top of. Uses `.hermes.md` as the stand-in artifact because that is the real mechanism this build
+has today; the map format from TTROS_BUILD_PLAN section 4 does not exist yet.
+
+--- Protected-file check (.hermes.md) ---
+Static: zero references to `.hermes.md`/`HERMES.md`/any generic context-file write-approval gate
+anywhere in agent/file_safety.py (the write denylist) or tools/approval.py (the dangerous-command
+approval system).
+Empirical (zero model calls): `agent.file_safety.is_write_denied()` called directly (HERMES_HOME
+pointed at the david profile) --
+  is_write_denied(repo root .hermes.md)                          = False
+  is_write_denied(profile david .env)                            = True   (negative case rehearsed)
+  is_write_denied(~/.ssh/authorized_keys)                        = True   (negative case rehearsed)
+SETTLES: on this pinned v0.18.0 build, `.hermes.md` is NOT classified as a protected
+instruction/context file requiring write approval -- an unattended nightly write to it would not
+block on an approval prompt and would not fail silently for that reason. This is a NEGATIVE
+answer, so per the design of record it does NOT settle D-STALENESS on its own -- the sentinel
+check above is what carries that decision.
+DOES NOT SETTLE: whether some OTHER file in the real map/vault-write path (once it exists) will
+be classified differently -- this checked the literal `.hermes.md` name only, since that is the
+named artifact in the step prompt and the only native Hermes context-file mechanism that exists
+today.
+
+--- B8 cache-and-latency observer ---
+Budget: declared 3, used 3 (see section 3). One nuance found and reported, not hidden: each
+`hermes -z` CLI invocation is not always exactly one provider API request -- call 1 (the
+D-STALENESS ask, which required a file-read tool call) made 2 underlying API requests
+(tool_calls, then stop); calls 2 and 3 (plain text answers, no tools) made 1 each. Total
+underlying provider API requests observed: 4, across 3 CLI invocations. The budget as declared
+counted CLI invocations ("David calls"); if the intended unit is underlying API requests, the
+actual/declared ratio is 4/3, not 3/3, and that discrepancy is reported here rather than quietly
+absorbed.
+
+Per-call usage (from `--usage-file`, cross-checked against the b8_observer.jsonl hook transcript;
+numbers agree where both cover the same request):
+  call 1 (session ...fc97d9, 2 API requests, D-STALENESS ask):
+    input_tokens=19025 output_tokens=87 cache_read_tokens=34816 cache_write_tokens=0
+    reasoning_tokens=34 total_tokens=53928 wall_clock=17.354s (2 requests: 5.950s + 2.354s per
+    the hook's own per-request api_duration)
+  call 2 (session ...598745, leg A / expected cache miss):
+    input_tokens=19899 output_tokens=30 cache_read_tokens=8704 cache_write_tokens=0
+    reasoning_tokens=22 total_tokens=28633 wall_clock=8.596s (hook api_duration=2.436s)
+  call 3 (session ...b0008d, leg B / expected cache hit, same SHARED_PREFIX as call 2):
+    input_tokens=19903 output_tokens=30 cache_read_tokens=8704 cache_write_tokens=0
+    reasoning_tokens=22 total_tokens=28637 wall_clock=9.975s (hook api_duration=3.004s)
+
+FINDING 1 (answers the design-of-record's core question): cache_read_tokens is present, real,
+and NOT always zero on the Codex OAuth path (openai-codex / gpt-5.5 / api_mode=codex_responses).
+The amortisation argument is NOT void on this path -- confirms P2's first half.
+FINDING 2: cache_write_tokens was 0 on all 4 observed API requests, with no exception. Matches
+P2's second half exactly: normalize_usage's codex_responses branch reads
+`input_tokens_details.cache_creation_tokens`, a field this build's OpenAI Responses usage object
+never appears to populate -- Codex-side caching looks implicit/read-only from Hermes's vantage
+point, never surfaced as an explicit write bucket the way Anthropic's is.
+FINDING 3 (a genuine miss, reported plainly): calls 2 and 3 do NOT show a clean miss-then-hit
+transition -- cache_read_tokens is IDENTICAL (8704) on both legs, not 0-then-8704. Two
+explanations, neither ruled out within the 3-call budget: (a) the cacheable stable-prompt prefix
+was already warm server-side from unrelated Hermes traffic minutes earlier today (many
+queue/context_assemblies entries at ~17:50-17:55, same session run), so leg A was never a true
+cold miss; and/or (b) the ~11,000 input tokens NOT covered by the cache_read figure (19899-8704)
+include per-session volatile content (session_id, timestamps) that breaks prefix-identity between
+the two legs before my SHARED_PREFIX filler is reached, so the filler itself was never inside the
+cached region on either call. DOES NOT SETTLE which of (a)/(b) is the mechanism, or whether a true
+cold-start miss (e.g. first call after an idle period) would show cache_read_tokens=0. Would need
+1+ more calls with a verified-cold cache to isolate -- not spent, per budget discipline.
+FINDING 4 (confirms P3 exactly): the raw provider usage object is ABSENT from the post_api_request
+hook payload on all 4 requests (`raw_usage_key_present: False` throughout) -- by design
+(run_agent.py explicitly pops `raw_usage` before handing the summary to hook subscribers). B8
+therefore cannot log "the raw provider usage object" as the design of record's bounds literally
+ask, from this attach point, without patching Hermes -- which header rule 9 forbids. What B8 CAN
+and does log is the full normalised bucket set every request: input/output/cache_read/cache_write
+/reasoning tokens, finish_reason, response_model, base_url, api_mode, and wall-clock
+api_duration per call.
+FINDING 5 (credential-awareness, bounded by header rule 1): B8 logs provider ("openai-codex"),
+model ("gpt-5.5"), and base_url ("https://chatgpt.com/backend-api/codex") on every call -- this is
+the "serving provider/model" the design of record asks for. It does NOT attempt to derive a
+stable opaque credential-slot identifier, because the only place such an identifier could plausibly
+be read (the profile's credential/token store, e.g. auth.json) is a protected boundary under
+header rule 1 ("never read... any auth or credential store") -- not inspected, not opened, not
+"checked for shape." The post_api_request hook kwargs carry no credential-slot field of their own
+(full kwarg key list captured in the jsonl transcript). This is reported as a bound, not treated
+as absence-implies-nothing: if a future step needs per-credential attribution, it needs a
+sanctioned, non-file-reading source for that identifier (e.g. Hermes exposing one in the hook
+payload itself), not a workaround that opens the credential store.
+FINDING 6: latency (api_duration from the hook, the authoritative per-request wall-clock) ranged
+2.354s-5.950s across the 4 requests -- inside the low-single-digit-seconds P4 prediction. No
+dramatic cache-hit speed-up was observed, consistent with P4 (generation-bound, not
+prefill-bound, on these short replies) -- though Finding 3 means this comparison is confounded by
+the flat cache_read_tokens across legs 2/3, so it is weak evidence at best, not a clean
+cache-hit-vs-miss latency comparison.
+
+=====================================================================
+6. ROLLBACK — executed and confirmed
+=====================================================================
+1) Removed /home/liam/.hermes/profiles/david/plugins/b8_observer/{plugin.yaml,__init__.py}, its
+   __pycache__, and the now-empty directory.
+2) Restored /home/liam/.hermes/profiles/david/config.yaml from the preimage backup; diff against
+   the preimage was empty (byte-identical); sha256 confirmed
+   e41da9b852290829e927abc969d9e0633a59c816f9663f470a55f6e4012124c6 matches the pre-step hash.
+3) Removed /home/liam/agentic-os-live/.hermes.md.
+Final check: `hermes -p david plugins list` shows only `ttros-context-assembler` enabled —
+`b8_observer` is gone. David's profile is back to its exact pre-step state.
+The initial wrong-target attach under the default profile (~/.hermes/) was likewise fully
+reverted before any live call (section 4), confirmed by diff + sha256 at that time.
+No files remain outside /home/liam/agentic-os-live/scripts/step4_*  and the ttros_backups
+preimages. Nothing pushed; no service started; no external action beyond the 3 declared
+`hermes -p david -z` calls.

@@ -1,0 +1,42 @@
+{
+  "card_sha256": {
+    "andrea-roberts-june-26": "7d2ec436d65756ca918989d2c8ebf4bd01465c13b38401f1245361a37d7916c2",
+    "andrea-second-call-june-30": "32f00707a693904d422a35f236860ae7af2d49fdcb74b0d0323d28782a81c2b5",
+    "call-dr-kenneth-after-second-cci": "cd1d0a202cc46e24edc9ba687931508e9400f8e191d593a14b00fe5b9dd5cc7b",
+    "call-kenneth-after-first-cci": "fa16314c8aa03457717bbe36d431e71f96c76146a313007bf5d48a9794a7fcae",
+    "cci-second-call-june-15": "ef9ea2adea741214d312b306269af27583ebd685e65ac929fa5fed4fd3aa2f10",
+    "first-call-cci": "14df3dc89140c28b707c2dae93fb891b3f91d5693940ace15bdd86444a222d72",
+    "hermes-water-treatment-summary-trent": "be1645d60d2e7b6cb72537f2c541a5f4be8a01cd27cd60c40992a7ba11b9ce82",
+    "kenneth-june-30": "c00ff1135e1950e57d7fe5a082fb0234d4370cbb8ce55407a3af5c84b44295c1",
+    "kenneth-meeting-may-27": "21c48a3ed55a811dc76dc719b76bedfd940842b4356b63a51a0e7e55dbcf02a2",
+    "kenneth-sme-june-18": "3fc086e53f4e0a3628f256ca3c51e8500470f1b289777eb7da4a5344a9796045",
+    "meeting-ken-stanick": "084f7e0c42482e203a0f5d3f82182ddcc24c8e12aa7c1434df568bc55a9c342f",
+    "mike-knapp-gtm-context-july-22": "9be486d0c1dfbbc249d6181ac691e328f5a54f8690257d2a287d33a1314218cc",
+    "mike-knapp-july-21": "c0adfddc1ba2817f1cbd52b5f4bd56525c17ac148b7953d8ea0ae30694a6b135",
+    "trent-first-call": "0915eb7b95f251dab8fc88f0c2b7486c3166082f08c339233189646a845562d6",
+    "trent-july-9": "a461b4091f4eb5a89491c2e5faa5bdda55b384d83c25c033fdcb12988112cece"
+  },
+  "claim_receipt_sha256": {
+    "andrea-roberts-june-26": "b3c5712ac4d892213d6d6f3487c3e8dfb34588add498f42cc47899de61722fef",
+    "andrea-second-call-june-30": "347c206aab707b1e4d8f94da0e20d79714508e4aec9614d074b7eebca5fbc123",
+    "call-dr-kenneth-after-second-cci": "1d0b151734a6f0d853d5263391f1506602329cb305d04502f7cd4f554fe1e7a2",
+    "call-kenneth-after-first-cci": "5c0332759b34779824423884f4cbe5c4a5866ea1d3fdcb192851beaa24606023",
+    "cci-second-call-june-15": "97e0f3954efdfea69342b69ee41dd6d7be999b60dc540dff4a058b5b6878c1fc",
+    "first-call-cci": "601af7ba60b44a36fddabc4cf2e97a08a7009f58887e667366e5b9bd64d80c38",
+    "hermes-water-treatment-summary-trent": "e91b3eea207de789aa50b229c3b1f66c9610124e0f78212b463bb6d7058d9280",
+    "kenneth-june-30": "5c494d032fb00136ec214169d5cfb7ba85dfffa6b9eb57340f2ce02bc895f4b4",
+    "kenneth-meeting-may-27": "a7abe5548f7cbcd2b7e1e2fe5d60ba0142ba99f95889dba3bfcc346552042c89",
+    "kenneth-sme-june-18": "7f903cfd4ad67bd0f01d9aa6f1777f582519aeecf37a63c3ba075325bf5d9b1c",
+    "meeting-ken-stanick": "31169cbb8ddb8cb9c9a2283e121f080bae4909f5935c52a6b4fd4deb76175bdb",
+    "mike-knapp-gtm-context-july-22": "2cded7762704ed2bc27020efab33ef247b0ab7fdddf9d773a8ffb15ce0b7df33",
+    "mike-knapp-july-21": "21fc205d86abfa1e728cbe6be0f4ed040fb8be5f2435d7439b88810070ea20c0",
+    "trent-first-call": "858aace375aa31cedfd81aff87d88590dcf44c4b7a4c3e89fca6b47c192af44b",
+    "trent-july-9": "d88a0450f235eb01a597699acd888be6c92479a312bf1f0a86c7297e2e849411"
+  },
+  "cumulative_semantic_model_call_count": 16,
+  "cumulative_semantic_model_call_maximum": 30,
+  "extraction_template_sha256": "db97cac04640fdca84247b933f4ae582bbb60a8a09bbfa75881ed694ca0f20d7",
+  "freeze_id": "i1-freeze-2026-09-09",
+  "historical_calls_index_sha256": "be29837a78a589f1d44a15d764970ee8030fd163b70d2f600a36a5cec109496c",
+  "vault_head": "7833df6648dfbe7d0bd875858eacdaa69298ada7"
+}

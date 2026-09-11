@@ -1,0 +1,11 @@
+=== Step 4 B8 live exercise ===
+DECLARED MAXIMUM: 3 David calls.
+[call 1] D-STALENESS ask -> stdout: 'TTROS-DSTALE-SENTINEL-1788744467-a803ee62'
+[call 1] sentinel present in reply: True
+[call 2] leg A stdout: 'ALPHA'
+[call 3] leg B stdout: 'BETA'
+
+ACTUAL CALL COUNT: 3 against declared maximum 3.
+[D-STALENESS live ask] wall=17.354s usage_file={"estimated_cost_usd": 0.0, "cost_status": "included", "cost_source": "none", "input_tokens": 19025, "output_tokens": 87, "cache_read_tokens": 34816, "cache_write_tokens": 0, "reasoning_tokens": 34, "total_tokens": 53928, "api_calls": 2, "model": "gpt-5.5", "provider": "openai-codex", "session_id": "20260906_182934_fc97d9", "completed": true, "failed": false}
+[cache exercise leg A (miss)] wall=8.596s usage_file={"estimated_cost_usd": 0.0, "cost_status": "included", "cost_source": "none", "input_tokens": 19899, "output_tokens": 30, "cache_read_tokens": 8704, "cache_write_tokens": 0, "reasoning_tokens": 22, "total_tokens": 28633, "api_calls": 1, "model": "gpt-5.5", "provider": "openai-codex", "session_id": "20260906_182950_598745", "completed": true, "failed": false}
+[cache exercise leg B (hit)] wall=9.975s usage_file={"estimated_cost_usd": 0.0, "cost_status": "included", "cost_source": "none", "input_tokens": 19903, "output_tokens": 30, "cache_read_tokens": 8704, "cache_write_tokens": 0, "reasoning_tokens": 22, "total_tokens": 28637, "api_calls": 1, "model": "gpt-5.5", "provider": "openai-codex", "session_id": "20260906_182959_b0008d", "completed": true, "failed": false}

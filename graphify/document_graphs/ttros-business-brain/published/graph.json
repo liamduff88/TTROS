@@ -1,0 +1,3191 @@
+{
+  "directed": true,
+  "edges": [
+    {
+      "confidence": "DERIVED",
+      "edge_kind": "derived",
+      "extractor": "ttros.frontmatter.queue_ids",
+      "relation": "touched",
+      "relationship_reason": "AOS-2026-0174 is declared in the prospect note's queue_ids frontmatter",
+      "source": "activity:AOS-2026-0174",
+      "target": "prospect-talent-harbour-loretta-davis",
+      "target_path": "business_brain:prospects/2026-07-talent-harbour-loretta-davis.md"
+    },
+    {
+      "confidence": "DERIVED",
+      "edge_kind": "derived",
+      "extractor": "ttros.frontmatter.queue_ids",
+      "relation": "touched",
+      "relationship_reason": "AOS-2026-0175 is declared in the prospect note's queue_ids frontmatter",
+      "source": "activity:AOS-2026-0175",
+      "target": "prospect-highway-99-evan-thompson",
+      "target_path": "business_brain:prospects/2026-07-highway-99-evan-thompson.md"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "prospect-highway-99-evan-thompson",
+      "target": "prospect-highway-99-evan-thompson#heading-1"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "prospect-highway-99-evan-thompson",
+      "target": "prospect-highway-99-evan-thompson#heading-2"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "prospect-highway-99-evan-thompson",
+      "target": "prospect-highway-99-evan-thompson#heading-3"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "prospect-highway-99-evan-thompson",
+      "target": "prospect-highway-99-evan-thompson#heading-4"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "prospect-highway-99-evan-thompson",
+      "target": "prospect-highway-99-evan-thompson#heading-5"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "prospect-highway-99-evan-thompson",
+      "target": "prospect-highway-99-evan-thompson#heading-6"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "prospect-highway-99-evan-thompson",
+      "target": "prospect-highway-99-evan-thompson#heading-7"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "prospect-talent-harbour-loretta-davis",
+      "target": "prospect-talent-harbour-loretta-davis#heading-1"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "prospect-talent-harbour-loretta-davis",
+      "target": "prospect-talent-harbour-loretta-davis#heading-2"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "prospect-talent-harbour-loretta-davis",
+      "target": "prospect-talent-harbour-loretta-davis#heading-3"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "prospect-talent-harbour-loretta-davis",
+      "target": "prospect-talent-harbour-loretta-davis#heading-4"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "prospect-talent-harbour-loretta-davis",
+      "target": "prospect-talent-harbour-loretta-davis#heading-5"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "prospect-talent-harbour-loretta-davis",
+      "target": "prospect-talent-harbour-loretta-davis#heading-6"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-active-projects",
+      "target": "ttros-brain-active-projects#heading-1"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-active-projects",
+      "target": "ttros-brain-active-projects#heading-2"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-active-projects",
+      "target": "ttros-brain-active-projects#heading-3"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-active-projects",
+      "target": "ttros-brain-active-projects#heading-4"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-active-projects",
+      "target": "ttros-brain-active-projects#heading-5"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-active-projects",
+      "target": "ttros-brain-active-projects#heading-6"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-active-projects",
+      "target": "ttros-brain-active-projects#heading-7"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-agentic-os",
+      "target": "ttros-brain-agentic-os#heading-1"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-agentic-os",
+      "target": "ttros-brain-agentic-os#heading-2"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-clients",
+      "target": "ttros-brain-clients#heading-1"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-clients",
+      "target": "ttros-brain-clients#heading-2"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-clients",
+      "target": "ttros-brain-clients#heading-3"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-company",
+      "target": "ttros-brain-company#heading-1"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-company",
+      "target": "ttros-brain-company#heading-2"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-company",
+      "target": "ttros-brain-company#heading-3"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-contradictions",
+      "target": "ttros-brain-contradictions#heading-1"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-contradictions",
+      "target": "ttros-brain-contradictions#heading-2"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-contradictions",
+      "target": "ttros-brain-contradictions#heading-3"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-current-priorities",
+      "target": "ttros-brain-current-priorities#heading-1"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-current-priorities",
+      "target": "ttros-brain-current-priorities#heading-2"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-current-priorities",
+      "target": "ttros-brain-current-priorities#heading-3"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-decisions",
+      "target": "ttros-brain-decisions#heading-1"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-decisions",
+      "target": "ttros-brain-decisions#heading-2"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-decisions",
+      "target": "ttros-brain-decisions#heading-3"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-decisions",
+      "target": "ttros-brain-decisions#heading-4"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-delivery-model",
+      "target": "ttros-brain-delivery-model#heading-1"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-ideal-clients",
+      "target": "ttros-brain-ideal-clients#heading-1"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "explicit",
+      "extractor": "graphify.markdown+ttros-obsidian-resolution",
+      "package_edge_confirmed": false,
+      "relation": "wiki_link",
+      "source": "ttros-brain-ideal-clients",
+      "source_path": "business_brain:memory/ideal_clients.md",
+      "target": "ttros-brain-ideal-clients-a"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "explicit",
+      "extractor": "graphify.markdown+ttros-obsidian-resolution",
+      "package_edge_confirmed": false,
+      "relation": "wiki_link",
+      "source": "ttros-brain-ideal-clients",
+      "source_path": "business_brain:memory/ideal_clients.md",
+      "target": "ttros-brain-ideal-clients-b"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "explicit",
+      "extractor": "graphify.markdown+ttros-obsidian-resolution",
+      "package_edge_confirmed": false,
+      "relation": "wiki_link",
+      "source": "ttros-brain-ideal-clients",
+      "source_path": "business_brain:memory/ideal_clients.md",
+      "target": "ttros-brain-prospecting-query-bank"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "explicit",
+      "extractor": "graphify.markdown+ttros-obsidian-resolution",
+      "package_edge_confirmed": false,
+      "relation": "wiki_link",
+      "source": "ttros-brain-ideal-clients",
+      "source_path": "business_brain:memory/ideal_clients.md",
+      "target": "ttros-brain-prospecting-rotation-plan"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "explicit",
+      "extractor": "graphify.markdown+ttros-obsidian-resolution",
+      "package_edge_confirmed": false,
+      "relation": "wiki_link",
+      "source": "ttros-brain-ideal-clients",
+      "source_path": "business_brain:memory/ideal_clients.md",
+      "target": "ttros-brain-prospecting-scoring-contract"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "explicit",
+      "extractor": "graphify.markdown+ttros-obsidian-resolution",
+      "package_edge_confirmed": false,
+      "relation": "wiki_link",
+      "source": "ttros-brain-ideal-clients-a",
+      "source_path": "business_brain:memory/ideal_clients_A.md",
+      "target": "ttros-brain-ideal-clients"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-ideal-clients-a",
+      "target": "ttros-brain-ideal-clients-a#heading-1"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-ideal-clients-a",
+      "target": "ttros-brain-ideal-clients-a#heading-2"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-ideal-clients-a",
+      "target": "ttros-brain-ideal-clients-a#heading-3"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-ideal-clients-a",
+      "target": "ttros-brain-ideal-clients-a#heading-4"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-ideal-clients-a",
+      "target": "ttros-brain-ideal-clients-a#heading-5"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-ideal-clients-a",
+      "target": "ttros-brain-ideal-clients-a#heading-6"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-ideal-clients-a",
+      "target": "ttros-brain-ideal-clients-a#heading-7"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "explicit",
+      "extractor": "graphify.markdown+ttros-obsidian-resolution",
+      "package_edge_confirmed": false,
+      "relation": "wiki_link",
+      "source": "ttros-brain-ideal-clients-a",
+      "source_path": "business_brain:memory/ideal_clients_A.md",
+      "target": "ttros-brain-offers"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "explicit",
+      "extractor": "graphify.markdown+ttros-obsidian-resolution",
+      "package_edge_confirmed": false,
+      "relation": "wiki_link",
+      "source": "ttros-brain-ideal-clients-b",
+      "source_path": "business_brain:memory/ideal_clients_B.md",
+      "target": "ttros-brain-ideal-clients"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-ideal-clients-b",
+      "target": "ttros-brain-ideal-clients-b#heading-1"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-ideal-clients-b",
+      "target": "ttros-brain-ideal-clients-b#heading-2"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-ideal-clients-b",
+      "target": "ttros-brain-ideal-clients-b#heading-3"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-ideal-clients-b",
+      "target": "ttros-brain-ideal-clients-b#heading-4"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-ideal-clients-b",
+      "target": "ttros-brain-ideal-clients-b#heading-5"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-ideal-clients-b",
+      "target": "ttros-brain-ideal-clients-b#heading-6"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "explicit",
+      "extractor": "graphify.markdown+ttros-obsidian-resolution",
+      "package_edge_confirmed": false,
+      "relation": "wiki_link",
+      "source": "ttros-brain-ideal-clients-b",
+      "source_path": "business_brain:memory/ideal_clients_B.md",
+      "target": "ttros-brain-offers"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-inbox",
+      "target": "ttros-brain-inbox#heading-1"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-inbox",
+      "target": "ttros-brain-inbox#heading-2"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-inbox",
+      "target": "ttros-brain-inbox#heading-3"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-inbox",
+      "target": "ttros-brain-inbox#heading-4"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "explicit",
+      "extractor": "graphify.markdown+ttros-obsidian-resolution",
+      "package_edge_confirmed": false,
+      "relation": "wiki_link",
+      "source": "ttros-brain-inbox",
+      "source_path": "business_brain:inbox/README.md",
+      "target": "ttros-brain-memory-index"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "explicit",
+      "extractor": "graphify.markdown+ttros-obsidian-resolution",
+      "package_edge_confirmed": false,
+      "relation": "wiki_link",
+      "source": "ttros-brain-inbox",
+      "source_path": "business_brain:inbox/README.md",
+      "target": "ttros-brain-root"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-marketing-voice",
+      "target": "ttros-brain-marketing-voice#heading-1"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "explicit",
+      "extractor": "graphify.markdown+ttros-obsidian-resolution",
+      "package_edge_confirmed": false,
+      "relation": "wiki_link",
+      "source": "ttros-brain-memory-index",
+      "source_path": "business_brain:index/MEMORY_INDEX.md",
+      "target": "ttros-brain-active-projects"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "explicit",
+      "extractor": "graphify.markdown+ttros-obsidian-resolution",
+      "package_edge_confirmed": false,
+      "relation": "wiki_link",
+      "source": "ttros-brain-memory-index",
+      "source_path": "business_brain:index/MEMORY_INDEX.md",
+      "target": "ttros-brain-agentic-os"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "explicit",
+      "extractor": "graphify.markdown+ttros-obsidian-resolution",
+      "package_edge_confirmed": false,
+      "relation": "wiki_link",
+      "source": "ttros-brain-memory-index",
+      "source_path": "business_brain:index/MEMORY_INDEX.md",
+      "target": "ttros-brain-clients"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "explicit",
+      "extractor": "graphify.markdown+ttros-obsidian-resolution",
+      "package_edge_confirmed": false,
+      "relation": "wiki_link",
+      "source": "ttros-brain-memory-index",
+      "source_path": "business_brain:index/MEMORY_INDEX.md",
+      "target": "ttros-brain-company"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "explicit",
+      "extractor": "graphify.markdown+ttros-obsidian-resolution",
+      "package_edge_confirmed": false,
+      "relation": "wiki_link",
+      "source": "ttros-brain-memory-index",
+      "source_path": "business_brain:index/MEMORY_INDEX.md",
+      "target": "ttros-brain-contradictions"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "explicit",
+      "extractor": "graphify.markdown+ttros-obsidian-resolution",
+      "package_edge_confirmed": false,
+      "relation": "wiki_link",
+      "source": "ttros-brain-memory-index",
+      "source_path": "business_brain:index/MEMORY_INDEX.md",
+      "target": "ttros-brain-current-priorities"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "explicit",
+      "extractor": "graphify.markdown+ttros-obsidian-resolution",
+      "package_edge_confirmed": false,
+      "relation": "wiki_link",
+      "source": "ttros-brain-memory-index",
+      "source_path": "business_brain:index/MEMORY_INDEX.md",
+      "target": "ttros-brain-decisions"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "explicit",
+      "extractor": "graphify.markdown+ttros-obsidian-resolution",
+      "package_edge_confirmed": false,
+      "relation": "wiki_link",
+      "source": "ttros-brain-memory-index",
+      "source_path": "business_brain:index/MEMORY_INDEX.md",
+      "target": "ttros-brain-delivery-model"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "explicit",
+      "extractor": "graphify.markdown+ttros-obsidian-resolution",
+      "package_edge_confirmed": false,
+      "relation": "wiki_link",
+      "source": "ttros-brain-memory-index",
+      "source_path": "business_brain:index/MEMORY_INDEX.md",
+      "target": "ttros-brain-ideal-clients"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "explicit",
+      "extractor": "graphify.markdown+ttros-obsidian-resolution",
+      "package_edge_confirmed": false,
+      "relation": "wiki_link",
+      "source": "ttros-brain-memory-index",
+      "source_path": "business_brain:index/MEMORY_INDEX.md",
+      "target": "ttros-brain-ideal-clients-a"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "explicit",
+      "extractor": "graphify.markdown+ttros-obsidian-resolution",
+      "package_edge_confirmed": false,
+      "relation": "wiki_link",
+      "source": "ttros-brain-memory-index",
+      "source_path": "business_brain:index/MEMORY_INDEX.md",
+      "target": "ttros-brain-ideal-clients-b"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "explicit",
+      "extractor": "graphify.markdown+ttros-obsidian-resolution",
+      "package_edge_confirmed": false,
+      "relation": "wiki_link",
+      "source": "ttros-brain-memory-index",
+      "source_path": "business_brain:index/MEMORY_INDEX.md",
+      "target": "ttros-brain-inbox"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "explicit",
+      "extractor": "graphify.markdown+ttros-obsidian-resolution",
+      "package_edge_confirmed": false,
+      "relation": "wiki_link",
+      "source": "ttros-brain-memory-index",
+      "source_path": "business_brain:index/MEMORY_INDEX.md",
+      "target": "ttros-brain-marketing-voice"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-memory-index",
+      "target": "ttros-brain-memory-index#heading-1"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-memory-index",
+      "target": "ttros-brain-memory-index#heading-2"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-memory-index",
+      "target": "ttros-brain-memory-index#heading-3"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-memory-index",
+      "target": "ttros-brain-memory-index#heading-4"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "explicit",
+      "extractor": "graphify.markdown+ttros-obsidian-resolution",
+      "package_edge_confirmed": false,
+      "relation": "wiki_link",
+      "source": "ttros-brain-memory-index",
+      "source_path": "business_brain:index/MEMORY_INDEX.md",
+      "target": "ttros-brain-offers"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "explicit",
+      "extractor": "graphify.markdown+ttros-obsidian-resolution",
+      "package_edge_confirmed": false,
+      "relation": "wiki_link",
+      "source": "ttros-brain-memory-index",
+      "source_path": "business_brain:index/MEMORY_INDEX.md",
+      "target": "ttros-brain-old-vault-archive-plan"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "explicit",
+      "extractor": "graphify.markdown+ttros-obsidian-resolution",
+      "package_edge_confirmed": false,
+      "relation": "wiki_link",
+      "source": "ttros-brain-memory-index",
+      "source_path": "business_brain:index/MEMORY_INDEX.md",
+      "target": "ttros-brain-positioning"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "explicit",
+      "extractor": "graphify.markdown+ttros-obsidian-resolution",
+      "package_edge_confirmed": false,
+      "relation": "wiki_link",
+      "source": "ttros-brain-memory-index",
+      "source_path": "business_brain:index/MEMORY_INDEX.md",
+      "target": "ttros-brain-prospecting-query-bank"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "explicit",
+      "extractor": "graphify.markdown+ttros-obsidian-resolution",
+      "package_edge_confirmed": false,
+      "relation": "wiki_link",
+      "source": "ttros-brain-memory-index",
+      "source_path": "business_brain:index/MEMORY_INDEX.md",
+      "target": "ttros-brain-prospecting-rotation-plan"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "explicit",
+      "extractor": "graphify.markdown+ttros-obsidian-resolution",
+      "package_edge_confirmed": false,
+      "relation": "wiki_link",
+      "source": "ttros-brain-memory-index",
+      "source_path": "business_brain:index/MEMORY_INDEX.md",
+      "target": "ttros-brain-prospecting-scoring-contract"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "explicit",
+      "extractor": "graphify.markdown+ttros-obsidian-resolution",
+      "package_edge_confirmed": false,
+      "relation": "wiki_link",
+      "source": "ttros-brain-memory-index",
+      "source_path": "business_brain:index/MEMORY_INDEX.md",
+      "target": "ttros-brain-prospects-index"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "explicit",
+      "extractor": "graphify.markdown+ttros-obsidian-resolution",
+      "package_edge_confirmed": false,
+      "relation": "wiki_link",
+      "source": "ttros-brain-memory-index",
+      "source_path": "business_brain:index/MEMORY_INDEX.md",
+      "target": "ttros-brain-protected-paths"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "explicit",
+      "extractor": "graphify.markdown+ttros-obsidian-resolution",
+      "package_edge_confirmed": false,
+      "relation": "wiki_link",
+      "source": "ttros-brain-memory-index",
+      "source_path": "business_brain:index/MEMORY_INDEX.md",
+      "target": "ttros-brain-root"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "explicit",
+      "extractor": "graphify.markdown+ttros-obsidian-resolution",
+      "package_edge_confirmed": false,
+      "relation": "wiki_link",
+      "source": "ttros-brain-memory-index",
+      "source_path": "business_brain:index/MEMORY_INDEX.md",
+      "target": "ttros-brain-sales-and-revenue"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "explicit",
+      "extractor": "graphify.markdown+ttros-obsidian-resolution",
+      "package_edge_confirmed": false,
+      "relation": "wiki_link",
+      "source": "ttros-brain-memory-index",
+      "source_path": "business_brain:index/MEMORY_INDEX.md",
+      "target": "ttros-brain-website-and-content"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "explicit",
+      "extractor": "graphify.markdown+ttros-obsidian-resolution",
+      "package_edge_confirmed": false,
+      "relation": "wiki_link",
+      "source": "ttros-brain-memory-index",
+      "source_path": "business_brain:index/MEMORY_INDEX.md",
+      "target": "ttros-executive-view"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "explicit",
+      "extractor": "graphify.markdown+ttros-obsidian-resolution",
+      "package_edge_confirmed": false,
+      "relation": "wiki_link",
+      "source": "ttros-brain-memory-index",
+      "source_path": "business_brain:index/MEMORY_INDEX.md",
+      "target": "ttros-open-loops"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-offers",
+      "target": "ttros-brain-offers#heading-1"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-old-vault-archive-plan",
+      "target": "ttros-brain-old-vault-archive-plan#heading-1"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-positioning",
+      "target": "ttros-brain-positioning#heading-1"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "explicit",
+      "extractor": "graphify.markdown+ttros-obsidian-resolution",
+      "package_edge_confirmed": false,
+      "relation": "wiki_link",
+      "source": "ttros-brain-prospecting-query-bank",
+      "source_path": "business_brain:memory/prospecting_query_bank.md",
+      "target": "ttros-brain-ideal-clients"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-prospecting-query-bank",
+      "target": "ttros-brain-prospecting-query-bank#heading-1"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-prospecting-query-bank",
+      "target": "ttros-brain-prospecting-query-bank#heading-2"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-prospecting-query-bank",
+      "target": "ttros-brain-prospecting-query-bank#heading-3"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-prospecting-query-bank",
+      "target": "ttros-brain-prospecting-query-bank#heading-4"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-prospecting-query-bank",
+      "target": "ttros-brain-prospecting-query-bank#heading-5"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-prospecting-query-bank",
+      "target": "ttros-brain-prospecting-query-bank#heading-6"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-prospecting-query-bank",
+      "target": "ttros-brain-prospecting-query-bank#heading-7"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-prospecting-query-bank",
+      "target": "ttros-brain-prospecting-query-bank#heading-8"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-prospecting-query-bank",
+      "target": "ttros-brain-prospecting-query-bank#heading-9"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "explicit",
+      "extractor": "graphify.markdown+ttros-obsidian-resolution",
+      "package_edge_confirmed": false,
+      "relation": "wiki_link",
+      "source": "ttros-brain-prospecting-query-bank",
+      "source_path": "business_brain:memory/prospecting_query_bank.md",
+      "target": "ttros-brain-prospecting-rotation-plan"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "explicit",
+      "extractor": "graphify.markdown+ttros-obsidian-resolution",
+      "package_edge_confirmed": false,
+      "relation": "wiki_link",
+      "source": "ttros-brain-prospecting-rotation-plan",
+      "source_path": "business_brain:memory/prospecting_rotation_plan.md",
+      "target": "ttros-brain-ideal-clients"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "explicit",
+      "extractor": "graphify.markdown+ttros-obsidian-resolution",
+      "package_edge_confirmed": false,
+      "relation": "wiki_link",
+      "source": "ttros-brain-prospecting-rotation-plan",
+      "source_path": "business_brain:memory/prospecting_rotation_plan.md",
+      "target": "ttros-brain-prospecting-query-bank"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-prospecting-rotation-plan",
+      "target": "ttros-brain-prospecting-rotation-plan#heading-1"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-prospecting-rotation-plan",
+      "target": "ttros-brain-prospecting-rotation-plan#heading-2"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "explicit",
+      "extractor": "graphify.markdown+ttros-obsidian-resolution",
+      "package_edge_confirmed": false,
+      "relation": "wiki_link",
+      "source": "ttros-brain-prospecting-scoring-contract",
+      "source_path": "business_brain:memory/prospecting_scoring_contract.md",
+      "target": "ttros-brain-ideal-clients"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "explicit",
+      "extractor": "graphify.markdown+ttros-obsidian-resolution",
+      "package_edge_confirmed": false,
+      "relation": "wiki_link",
+      "source": "ttros-brain-prospecting-scoring-contract",
+      "source_path": "business_brain:memory/prospecting_scoring_contract.md",
+      "target": "ttros-brain-prospecting-query-bank"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-prospecting-scoring-contract",
+      "target": "ttros-brain-prospecting-scoring-contract#heading-1"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-prospecting-scoring-contract",
+      "target": "ttros-brain-prospecting-scoring-contract#heading-2"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-prospecting-scoring-contract",
+      "target": "ttros-brain-prospecting-scoring-contract#heading-3"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-prospecting-scoring-contract",
+      "target": "ttros-brain-prospecting-scoring-contract#heading-4"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "explicit",
+      "extractor": "graphify.markdown+ttros-obsidian-resolution",
+      "package_edge_confirmed": true,
+      "relation": "wiki_link",
+      "source": "ttros-brain-prospects-index",
+      "source_path": "business_brain:prospects/index.md",
+      "target": "prospect-highway-99-evan-thompson"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "explicit",
+      "extractor": "graphify.markdown+ttros-obsidian-resolution",
+      "package_edge_confirmed": true,
+      "relation": "wiki_link",
+      "source": "ttros-brain-prospects-index",
+      "source_path": "business_brain:prospects/index.md",
+      "target": "prospect-talent-harbour-loretta-davis"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "explicit",
+      "extractor": "graphify.markdown+ttros-obsidian-resolution",
+      "package_edge_confirmed": false,
+      "relation": "wiki_link",
+      "source": "ttros-brain-prospects-index",
+      "source_path": "business_brain:prospects/index.md",
+      "target": "ttros-brain-memory-index"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-prospects-index",
+      "target": "ttros-brain-prospects-index#heading-1"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-prospects-index",
+      "target": "ttros-brain-prospects-index#heading-2"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-prospects-index",
+      "target": "ttros-brain-prospects-index#heading-3"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-prospects-index",
+      "target": "ttros-brain-prospects-index#heading-4"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "explicit",
+      "extractor": "graphify.markdown+ttros-obsidian-resolution",
+      "package_edge_confirmed": false,
+      "relation": "wiki_link",
+      "source": "ttros-brain-prospects-index",
+      "source_path": "business_brain:prospects/index.md",
+      "target": "ttros-prospect-2026-07-club-hub-ilan-puterman"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "explicit",
+      "extractor": "graphify.markdown+ttros-obsidian-resolution",
+      "package_edge_confirmed": false,
+      "relation": "wiki_link",
+      "source": "ttros-brain-prospects-index",
+      "source_path": "business_brain:prospects/index.md",
+      "target": "ttros-prospect-2026-07-cyborg-nicolas-dupont"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "explicit",
+      "extractor": "graphify.markdown+ttros-obsidian-resolution",
+      "package_edge_confirmed": false,
+      "relation": "wiki_link",
+      "source": "ttros-brain-prospects-index",
+      "source_path": "business_brain:prospects/index.md",
+      "target": "ttros-prospect-2026-07-deepinspect-ai-parminder-singh"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "explicit",
+      "extractor": "graphify.markdown+ttros-obsidian-resolution",
+      "package_edge_confirmed": false,
+      "relation": "wiki_link",
+      "source": "ttros-brain-prospects-index",
+      "source_path": "business_brain:prospects/index.md",
+      "target": "ttros-prospect-2026-07-flox-ron-efroni"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "explicit",
+      "extractor": "graphify.markdown+ttros-obsidian-resolution",
+      "package_edge_confirmed": false,
+      "relation": "wiki_link",
+      "source": "ttros-brain-prospects-index",
+      "source_path": "business_brain:prospects/index.md",
+      "target": "ttros-prospect-2026-07-manufex-anush-sridhar"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "explicit",
+      "extractor": "graphify.markdown+ttros-obsidian-resolution",
+      "package_edge_confirmed": false,
+      "relation": "wiki_link",
+      "source": "ttros-brain-prospects-index",
+      "source_path": "business_brain:prospects/index.md",
+      "target": "ttros-prospect-2026-07-ollama-jeffrey-morgan"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "explicit",
+      "extractor": "graphify.markdown+ttros-obsidian-resolution",
+      "package_edge_confirmed": false,
+      "relation": "wiki_link",
+      "source": "ttros-brain-prospects-index",
+      "source_path": "business_brain:prospects/index.md",
+      "target": "ttros-prospect-2026-07-punttai-ronnie-coleman"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "explicit",
+      "extractor": "graphify.markdown+ttros-obsidian-resolution",
+      "package_edge_confirmed": false,
+      "relation": "wiki_link",
+      "source": "ttros-brain-prospects-index",
+      "source_path": "business_brain:prospects/index.md",
+      "target": "ttros-prospect-2026-07-zunesha-labs-omar-alani"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-protected-paths",
+      "target": "ttros-brain-protected-paths#heading-1"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-protected-paths",
+      "target": "ttros-brain-protected-paths#heading-2"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-protected-paths",
+      "target": "ttros-brain-protected-paths#heading-3"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-protected-paths",
+      "target": "ttros-brain-protected-paths#heading-4"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-protected-paths",
+      "target": "ttros-brain-protected-paths#heading-5"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "explicit",
+      "extractor": "graphify.markdown+ttros-obsidian-resolution",
+      "package_edge_confirmed": true,
+      "relation": "wiki_link",
+      "source": "ttros-brain-root",
+      "source_path": "business_brain:README.md",
+      "target": "ttros-brain-current-priorities"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "explicit",
+      "extractor": "graphify.markdown+ttros-obsidian-resolution",
+      "package_edge_confirmed": true,
+      "relation": "wiki_link",
+      "source": "ttros-brain-root",
+      "source_path": "business_brain:README.md",
+      "target": "ttros-brain-decisions"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "explicit",
+      "extractor": "graphify.markdown+ttros-obsidian-resolution",
+      "package_edge_confirmed": true,
+      "relation": "wiki_link",
+      "source": "ttros-brain-root",
+      "source_path": "business_brain:README.md",
+      "target": "ttros-brain-inbox"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "explicit",
+      "extractor": "graphify.markdown+ttros-obsidian-resolution",
+      "package_edge_confirmed": true,
+      "relation": "wiki_link",
+      "source": "ttros-brain-root",
+      "source_path": "business_brain:README.md",
+      "target": "ttros-brain-memory-index"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-root",
+      "target": "ttros-brain-root#heading-1"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-root",
+      "target": "ttros-brain-root#heading-2"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-root",
+      "target": "ttros-brain-root#heading-3"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-root",
+      "target": "ttros-brain-root#heading-4"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-root",
+      "target": "ttros-brain-root#heading-5"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-root",
+      "target": "ttros-brain-root#heading-6"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-sales-and-revenue",
+      "target": "ttros-brain-sales-and-revenue#heading-1"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-sales-and-revenue",
+      "target": "ttros-brain-sales-and-revenue#heading-2"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-brain-website-and-content",
+      "target": "ttros-brain-website-and-content#heading-1"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-executive-view",
+      "target": "ttros-executive-view#heading-1"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-executive-view",
+      "target": "ttros-executive-view#heading-2"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-executive-view",
+      "target": "ttros-executive-view#heading-3"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-executive-view",
+      "target": "ttros-executive-view#heading-4"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-executive-view",
+      "target": "ttros-executive-view#heading-5"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-open-loops",
+      "target": "ttros-open-loops#heading-1"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-open-loops",
+      "target": "ttros-open-loops#heading-2"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-open-loops",
+      "target": "ttros-open-loops#heading-3"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-open-loops",
+      "target": "ttros-open-loops#heading-4"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-open-loops",
+      "target": "ttros-open-loops#heading-5"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-open-loops",
+      "target": "ttros-open-loops#heading-6"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-open-loops",
+      "target": "ttros-open-loops#heading-7"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "explicit",
+      "extractor": "graphify.markdown+ttros-obsidian-resolution",
+      "package_edge_confirmed": false,
+      "relation": "wiki_link",
+      "source": "ttros-prospect-2026-07-club-hub-ilan-puterman",
+      "source_path": "business_brain:prospects/2026-07-club-hub-ilan-puterman.md",
+      "target": "ttros-brain-prospects-index"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-prospect-2026-07-club-hub-ilan-puterman",
+      "target": "ttros-prospect-2026-07-club-hub-ilan-puterman#heading-1"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "explicit",
+      "extractor": "graphify.markdown+ttros-obsidian-resolution",
+      "package_edge_confirmed": false,
+      "relation": "wiki_link",
+      "source": "ttros-prospect-2026-07-cyborg-nicolas-dupont",
+      "source_path": "business_brain:prospects/2026-07-cyborg-nicolas-dupont.md",
+      "target": "ttros-brain-prospects-index"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-prospect-2026-07-cyborg-nicolas-dupont",
+      "target": "ttros-prospect-2026-07-cyborg-nicolas-dupont#heading-1"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "explicit",
+      "extractor": "graphify.markdown+ttros-obsidian-resolution",
+      "package_edge_confirmed": false,
+      "relation": "wiki_link",
+      "source": "ttros-prospect-2026-07-deepinspect-ai-parminder-singh",
+      "source_path": "business_brain:prospects/2026-07-deepinspect-ai-parminder-singh.md",
+      "target": "ttros-brain-prospects-index"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-prospect-2026-07-deepinspect-ai-parminder-singh",
+      "target": "ttros-prospect-2026-07-deepinspect-ai-parminder-singh#heading-1"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "explicit",
+      "extractor": "graphify.markdown+ttros-obsidian-resolution",
+      "package_edge_confirmed": false,
+      "relation": "wiki_link",
+      "source": "ttros-prospect-2026-07-flox-ron-efroni",
+      "source_path": "business_brain:prospects/2026-07-flox-ron-efroni.md",
+      "target": "ttros-brain-prospects-index"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-prospect-2026-07-flox-ron-efroni",
+      "target": "ttros-prospect-2026-07-flox-ron-efroni#heading-1"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "explicit",
+      "extractor": "graphify.markdown+ttros-obsidian-resolution",
+      "package_edge_confirmed": false,
+      "relation": "wiki_link",
+      "source": "ttros-prospect-2026-07-manufex-anush-sridhar",
+      "source_path": "business_brain:prospects/2026-07-manufex-anush-sridhar.md",
+      "target": "ttros-brain-prospects-index"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-prospect-2026-07-manufex-anush-sridhar",
+      "target": "ttros-prospect-2026-07-manufex-anush-sridhar#heading-1"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "explicit",
+      "extractor": "graphify.markdown+ttros-obsidian-resolution",
+      "package_edge_confirmed": false,
+      "relation": "wiki_link",
+      "source": "ttros-prospect-2026-07-ollama-jeffrey-morgan",
+      "source_path": "business_brain:prospects/2026-07-ollama-jeffrey-morgan.md",
+      "target": "ttros-brain-prospects-index"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-prospect-2026-07-ollama-jeffrey-morgan",
+      "target": "ttros-prospect-2026-07-ollama-jeffrey-morgan#heading-1"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "explicit",
+      "extractor": "graphify.markdown+ttros-obsidian-resolution",
+      "package_edge_confirmed": false,
+      "relation": "wiki_link",
+      "source": "ttros-prospect-2026-07-punttai-ronnie-coleman",
+      "source_path": "business_brain:prospects/2026-07-punttai-ronnie-coleman.md",
+      "target": "ttros-brain-prospects-index"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-prospect-2026-07-punttai-ronnie-coleman",
+      "target": "ttros-prospect-2026-07-punttai-ronnie-coleman#heading-1"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "explicit",
+      "extractor": "graphify.markdown+ttros-obsidian-resolution",
+      "package_edge_confirmed": false,
+      "relation": "wiki_link",
+      "source": "ttros-prospect-2026-07-zunesha-labs-omar-alani",
+      "source_path": "business_brain:prospects/2026-07-zunesha-labs-omar-alani.md",
+      "target": "ttros-brain-prospects-index"
+    },
+    {
+      "confidence": "EXTRACTED",
+      "edge_kind": "structural",
+      "extractor": "graphify.markdown",
+      "relation": "contains",
+      "source": "ttros-prospect-2026-07-zunesha-labs-omar-alani",
+      "target": "ttros-prospect-2026-07-zunesha-labs-omar-alani#heading-1"
+    }
+  ],
+  "namespace": "ttros-business-brain",
+  "nodes": [
+    {
+      "authoritative": false,
+      "id": "activity:AOS-2026-0174",
+      "kind": "activity",
+      "metadata": {
+        "reference": "AOS-2026-0174",
+        "type": "activity"
+      },
+      "title": "AOS-2026-0174"
+    },
+    {
+      "authoritative": false,
+      "id": "activity:AOS-2026-0175",
+      "kind": "activity",
+      "metadata": {
+        "reference": "AOS-2026-0175",
+        "type": "activity"
+      },
+      "title": "AOS-2026-0175"
+    },
+    {
+      "content_sha256": "23197f6ce1bce384c59ea2cf6a62ff80f344ac13036009e9cd6f6c67e59a126f",
+      "id": "prospect-highway-99-evan-thompson",
+      "kind": "note",
+      "metadata": {
+        "date": "2026-07-22",
+        "entity_type": "prospect",
+        "id": "prospect-highway-99-evan-thompson",
+        "status": "human_review",
+        "type": "prospect"
+      },
+      "relative_path": "prospects/2026-07-highway-99-evan-thompson.md",
+      "source_path": "business_brain:prospects/2026-07-highway-99-evan-thompson.md",
+      "title": "Evan Thompson — Highway 99 Technology Solutions"
+    },
+    {
+      "graphify_original_id": "prospects_2026_07_highway_99_evan_thompson_evan_thompson_highway_99_technology_solutions",
+      "id": "prospect-highway-99-evan-thompson#heading-1",
+      "kind": "heading",
+      "label": "Evan Thompson — Highway 99 Technology Solutions",
+      "relative_path": "prospects/2026-07-highway-99-evan-thompson.md",
+      "source_location": "L16",
+      "source_path": "business_brain:prospects/2026-07-highway-99-evan-thompson.md"
+    },
+    {
+      "graphify_original_id": "prospects_2026_07_highway_99_evan_thompson_verified_facts",
+      "id": "prospect-highway-99-evan-thompson#heading-2",
+      "kind": "heading",
+      "label": "Verified facts",
+      "relative_path": "prospects/2026-07-highway-99-evan-thompson.md",
+      "source_location": "L20",
+      "source_path": "business_brain:prospects/2026-07-highway-99-evan-thompson.md"
+    },
+    {
+      "graphify_original_id": "prospects_2026_07_highway_99_evan_thompson_interpretation",
+      "id": "prospect-highway-99-evan-thompson#heading-3",
+      "kind": "heading",
+      "label": "Interpretation",
+      "relative_path": "prospects/2026-07-highway-99-evan-thompson.md",
+      "source_location": "L28",
+      "source_path": "business_brain:prospects/2026-07-highway-99-evan-thompson.md"
+    },
+    {
+      "graphify_original_id": "prospects_2026_07_highway_99_evan_thompson_staleness_and_owed_follow_up",
+      "id": "prospect-highway-99-evan-thompson#heading-4",
+      "kind": "heading",
+      "label": "Staleness and owed follow-up",
+      "relative_path": "prospects/2026-07-highway-99-evan-thompson.md",
+      "source_location": "L33",
+      "source_path": "business_brain:prospects/2026-07-highway-99-evan-thompson.md"
+    },
+    {
+      "graphify_original_id": "prospects_2026_07_highway_99_evan_thompson_uncertainty",
+      "id": "prospect-highway-99-evan-thompson#heading-5",
+      "kind": "heading",
+      "label": "Uncertainty",
+      "relative_path": "prospects/2026-07-highway-99-evan-thompson.md",
+      "source_location": "L38",
+      "source_path": "business_brain:prospects/2026-07-highway-99-evan-thompson.md"
+    },
+    {
+      "graphify_original_id": "prospects_2026_07_highway_99_evan_thompson_action_boundary",
+      "id": "prospect-highway-99-evan-thompson#heading-6",
+      "kind": "heading",
+      "label": "Action boundary",
+      "relative_path": "prospects/2026-07-highway-99-evan-thompson.md",
+      "source_location": "L43",
+      "source_path": "business_brain:prospects/2026-07-highway-99-evan-thompson.md"
+    },
+    {
+      "graphify_original_id": "prospects_2026_07_highway_99_evan_thompson_operator_correction",
+      "id": "prospect-highway-99-evan-thompson#heading-7",
+      "kind": "heading",
+      "label": "Operator Correction",
+      "relative_path": "prospects/2026-07-highway-99-evan-thompson.md",
+      "source_location": "L48",
+      "source_path": "business_brain:prospects/2026-07-highway-99-evan-thompson.md"
+    },
+    {
+      "content_sha256": "122343ea7a43dcc7529ddf2a5647b05faa19d21f9d5e79ed2480632644a2d01c",
+      "id": "prospect-talent-harbour-loretta-davis",
+      "kind": "note",
+      "metadata": {
+        "date": "2026-07-22",
+        "entity_type": "prospect",
+        "id": "prospect-talent-harbour-loretta-davis",
+        "status": "human_review",
+        "type": "prospect"
+      },
+      "relative_path": "prospects/2026-07-talent-harbour-loretta-davis.md",
+      "source_path": "business_brain:prospects/2026-07-talent-harbour-loretta-davis.md",
+      "title": "Loretta Davis — Talent Harbour Group"
+    },
+    {
+      "graphify_original_id": "prospects_2026_07_talent_harbour_loretta_davis_loretta_davis_talent_harbour_group",
+      "id": "prospect-talent-harbour-loretta-davis#heading-1",
+      "kind": "heading",
+      "label": "Loretta Davis — Talent Harbour Group",
+      "relative_path": "prospects/2026-07-talent-harbour-loretta-davis.md",
+      "source_location": "L16",
+      "source_path": "business_brain:prospects/2026-07-talent-harbour-loretta-davis.md"
+    },
+    {
+      "graphify_original_id": "prospects_2026_07_talent_harbour_loretta_davis_verified_facts",
+      "id": "prospect-talent-harbour-loretta-davis#heading-2",
+      "kind": "heading",
+      "label": "Verified facts",
+      "relative_path": "prospects/2026-07-talent-harbour-loretta-davis.md",
+      "source_location": "L20",
+      "source_path": "business_brain:prospects/2026-07-talent-harbour-loretta-davis.md"
+    },
+    {
+      "graphify_original_id": "prospects_2026_07_talent_harbour_loretta_davis_interpretation",
+      "id": "prospect-talent-harbour-loretta-davis#heading-3",
+      "kind": "heading",
+      "label": "Interpretation",
+      "relative_path": "prospects/2026-07-talent-harbour-loretta-davis.md",
+      "source_location": "L28",
+      "source_path": "business_brain:prospects/2026-07-talent-harbour-loretta-davis.md"
+    },
+    {
+      "graphify_original_id": "prospects_2026_07_talent_harbour_loretta_davis_staleness_and_owed_follow_up",
+      "id": "prospect-talent-harbour-loretta-davis#heading-4",
+      "kind": "heading",
+      "label": "Staleness and owed follow-up",
+      "relative_path": "prospects/2026-07-talent-harbour-loretta-davis.md",
+      "source_location": "L32",
+      "source_path": "business_brain:prospects/2026-07-talent-harbour-loretta-davis.md"
+    },
+    {
+      "graphify_original_id": "prospects_2026_07_talent_harbour_loretta_davis_uncertainty",
+      "id": "prospect-talent-harbour-loretta-davis#heading-5",
+      "kind": "heading",
+      "label": "Uncertainty",
+      "relative_path": "prospects/2026-07-talent-harbour-loretta-davis.md",
+      "source_location": "L37",
+      "source_path": "business_brain:prospects/2026-07-talent-harbour-loretta-davis.md"
+    },
+    {
+      "graphify_original_id": "prospects_2026_07_talent_harbour_loretta_davis_action_boundary",
+      "id": "prospect-talent-harbour-loretta-davis#heading-6",
+      "kind": "heading",
+      "label": "Action boundary",
+      "relative_path": "prospects/2026-07-talent-harbour-loretta-davis.md",
+      "source_location": "L42",
+      "source_path": "business_brain:prospects/2026-07-talent-harbour-loretta-davis.md"
+    },
+    {
+      "content_sha256": "5f83b07f5e01f8a9fbbf7b519ab5af1194670e023ee90925923f0baa871c05af",
+      "id": "ttros-brain-active-projects",
+      "kind": "note",
+      "metadata": {
+        "id": "ttros-brain-active-projects",
+        "type": "operating_state"
+      },
+      "relative_path": "operating_context/active_projects.md",
+      "source_path": "business_brain:operating_context/active_projects.md",
+      "title": "Active Projects"
+    },
+    {
+      "graphify_original_id": "operating_context_active_projects_active_projects",
+      "id": "ttros-brain-active-projects#heading-1",
+      "kind": "heading",
+      "label": "Active Projects",
+      "relative_path": "operating_context/active_projects.md",
+      "source_location": "L5",
+      "source_path": "business_brain:operating_context/active_projects.md"
+    },
+    {
+      "graphify_original_id": "operating_context_active_projects_ttros_business_brain_live",
+      "id": "ttros-brain-active-projects#heading-2",
+      "kind": "heading",
+      "label": "TTROS Business Brain — live",
+      "relative_path": "operating_context/active_projects.md",
+      "source_location": "L7",
+      "source_path": "business_brain:operating_context/active_projects.md"
+    },
+    {
+      "graphify_original_id": "operating_context_active_projects_agentic_os_live_live",
+      "id": "ttros-brain-active-projects#heading-3",
+      "kind": "heading",
+      "label": "Agentic OS Live — live",
+      "relative_path": "operating_context/active_projects.md",
+      "source_location": "L10",
+      "source_path": "business_brain:operating_context/active_projects.md"
+    },
+    {
+      "graphify_original_id": "operating_context_active_projects_north_shore_sales_coach_live_pilot",
+      "id": "ttros-brain-active-projects#heading-4",
+      "kind": "heading",
+      "label": "North Shore Sales Coach — live pilot",
+      "relative_path": "operating_context/active_projects.md",
+      "source_location": "L13",
+      "source_path": "business_brain:operating_context/active_projects.md"
+    },
+    {
+      "graphify_original_id": "operating_context_active_projects_website_rebuild_live",
+      "id": "ttros-brain-active-projects#heading-5",
+      "kind": "heading",
+      "label": "Website rebuild — live",
+      "relative_path": "operating_context/active_projects.md",
+      "source_location": "L16",
+      "source_path": "business_brain:operating_context/active_projects.md"
+    },
+    {
+      "graphify_original_id": "operating_context_active_projects_linkedin_prospecting_engine_live_hardening",
+      "id": "ttros-brain-active-projects#heading-6",
+      "kind": "heading",
+      "label": "LinkedIn prospecting engine — live hardening",
+      "relative_path": "operating_context/active_projects.md",
+      "source_location": "L19",
+      "source_path": "business_brain:operating_context/active_projects.md"
+    },
+    {
+      "graphify_original_id": "operating_context_active_projects_benched",
+      "id": "ttros-brain-active-projects#heading-7",
+      "kind": "heading",
+      "label": "Benched",
+      "relative_path": "operating_context/active_projects.md",
+      "source_location": "L24",
+      "source_path": "business_brain:operating_context/active_projects.md"
+    },
+    {
+      "content_sha256": "068e0c46e194432491c20b54076255e341b19bc65f6847f9fc85f3e21fab4009",
+      "id": "ttros-brain-agentic-os",
+      "kind": "note",
+      "metadata": {
+        "id": "ttros-brain-agentic-os",
+        "type": "knowledge"
+      },
+      "relative_path": "memory/agentic_os.md",
+      "source_path": "business_brain:memory/agentic_os.md",
+      "title": "Agentic OS"
+    },
+    {
+      "graphify_original_id": "memory_agentic_os_agentic_os",
+      "id": "ttros-brain-agentic-os#heading-1",
+      "kind": "heading",
+      "label": "Agentic OS",
+      "relative_path": "memory/agentic_os.md",
+      "source_location": "L5",
+      "source_path": "business_brain:memory/agentic_os.md"
+    },
+    {
+      "graphify_original_id": "memory_agentic_os_machine_outcome_index_render_contract",
+      "id": "ttros-brain-agentic-os#heading-2",
+      "kind": "heading",
+      "label": "Machine outcome index render contract",
+      "relative_path": "memory/agentic_os.md",
+      "source_location": "L31",
+      "source_path": "business_brain:memory/agentic_os.md"
+    },
+    {
+      "content_sha256": "cf0eb996cb25b7c8f8abb83dd78247274d64315b9f33adc5a783d2106fe8e424",
+      "id": "ttros-brain-clients",
+      "kind": "note",
+      "metadata": {
+        "id": "ttros-brain-clients",
+        "type": "knowledge"
+      },
+      "relative_path": "memory/clients.md",
+      "source_path": "business_brain:memory/clients.md",
+      "title": "Clients Memory"
+    },
+    {
+      "graphify_original_id": "memory_clients_clients_memory",
+      "id": "ttros-brain-clients#heading-1",
+      "kind": "heading",
+      "label": "Clients Memory",
+      "relative_path": "memory/clients.md",
+      "source_location": "L5",
+      "source_path": "business_brain:memory/clients.md"
+    },
+    {
+      "graphify_original_id": "memory_clients_active_pilot_north_shore_honda",
+      "id": "ttros-brain-clients#heading-2",
+      "kind": "heading",
+      "label": "Active pilot: North Shore Honda",
+      "relative_path": "memory/clients.md",
+      "source_location": "L7",
+      "source_path": "business_brain:memory/clients.md"
+    },
+    {
+      "graphify_original_id": "memory_clients_benched_cci_tracc_competitive_capabilities_international",
+      "id": "ttros-brain-clients#heading-3",
+      "kind": "heading",
+      "label": "Benched: CCI / TRACC (Competitive Capabilities International)",
+      "relative_path": "memory/clients.md",
+      "source_location": "L15",
+      "source_path": "business_brain:memory/clients.md"
+    },
+    {
+      "content_sha256": "472a930ed55dfd08cc05f69b8fe340edcf07e76a486df39302314b6e5330e3e9",
+      "id": "ttros-brain-company",
+      "kind": "note",
+      "metadata": {
+        "id": "ttros-brain-company",
+        "type": "knowledge"
+      },
+      "relative_path": "memory/company.md",
+      "source_path": "business_brain:memory/company.md",
+      "title": "Company"
+    },
+    {
+      "graphify_original_id": "memory_company_company",
+      "id": "ttros-brain-company#heading-1",
+      "kind": "heading",
+      "label": "Company",
+      "relative_path": "memory/company.md",
+      "source_location": "L10",
+      "source_path": "business_brain:memory/company.md"
+    },
+    {
+      "graphify_original_id": "memory_company_synthetic_repair_proof",
+      "id": "ttros-brain-company#heading-2",
+      "kind": "heading",
+      "label": "Synthetic repair proof",
+      "relative_path": "memory/company.md",
+      "source_location": "L44",
+      "source_path": "business_brain:memory/company.md"
+    },
+    {
+      "graphify_original_id": "memory_company_verified_fact",
+      "id": "ttros-brain-company#heading-3",
+      "kind": "heading",
+      "label": "Verified Fact",
+      "relative_path": "memory/company.md",
+      "source_location": "L54",
+      "source_path": "business_brain:memory/company.md"
+    },
+    {
+      "content_sha256": "64526aa6d837e63e2902a254217742b776b59ed2adcbe25b47a13595525ab038",
+      "id": "ttros-brain-contradictions",
+      "kind": "note",
+      "metadata": {
+        "id": "ttros-brain-contradictions",
+        "status": "active",
+        "type": "inbox"
+      },
+      "relative_path": "inbox/contradictions.md",
+      "source_path": "business_brain:inbox/contradictions.md",
+      "title": "Contradictions"
+    },
+    {
+      "graphify_original_id": "inbox_contradictions_contradictions",
+      "id": "ttros-brain-contradictions#heading-1",
+      "kind": "heading",
+      "label": "Contradictions",
+      "relative_path": "inbox/contradictions.md",
+      "source_location": "L13",
+      "source_path": "business_brain:inbox/contradictions.md"
+    },
+    {
+      "graphify_original_id": "inbox_contradictions_open",
+      "id": "ttros-brain-contradictions#heading-2",
+      "kind": "heading",
+      "label": "Open",
+      "relative_path": "inbox/contradictions.md",
+      "source_location": "L17",
+      "source_path": "business_brain:inbox/contradictions.md"
+    },
+    {
+      "graphify_original_id": "inbox_contradictions_resolved",
+      "id": "ttros-brain-contradictions#heading-3",
+      "kind": "heading",
+      "label": "Resolved",
+      "relative_path": "inbox/contradictions.md",
+      "source_location": "L23",
+      "source_path": "business_brain:inbox/contradictions.md"
+    },
+    {
+      "content_sha256": "e9e22d3c4cb5d1fa2417df3ebda54917824da1a109d14243314903573a003176",
+      "id": "ttros-brain-current-priorities",
+      "kind": "note",
+      "metadata": {
+        "id": "ttros-brain-current-priorities",
+        "type": "operating_state"
+      },
+      "relative_path": "operating_context/current_priorities.md",
+      "source_path": "business_brain:operating_context/current_priorities.md",
+      "title": "Current Priorities"
+    },
+    {
+      "graphify_original_id": "operating_context_current_priorities_current_priorities",
+      "id": "ttros-brain-current-priorities#heading-1",
+      "kind": "heading",
+      "label": "Current Priorities",
+      "relative_path": "operating_context/current_priorities.md",
+      "source_location": "L10",
+      "source_path": "business_brain:operating_context/current_priorities.md"
+    },
+    {
+      "graphify_original_id": "operating_context_current_priorities_synthetic_repair_proof",
+      "id": "ttros-brain-current-priorities#heading-2",
+      "kind": "heading",
+      "label": "Synthetic repair proof",
+      "relative_path": "operating_context/current_priorities.md",
+      "source_location": "L24",
+      "source_path": "business_brain:operating_context/current_priorities.md"
+    },
+    {
+      "graphify_original_id": "operating_context_current_priorities_verified_fact",
+      "id": "ttros-brain-current-priorities#heading-3",
+      "kind": "heading",
+      "label": "Verified Fact",
+      "relative_path": "operating_context/current_priorities.md",
+      "source_location": "L34",
+      "source_path": "business_brain:operating_context/current_priorities.md"
+    },
+    {
+      "content_sha256": "f50e5fb4757723cc41c55cf145dc3d245d06da406c43a306ceef9b227500e887",
+      "id": "ttros-brain-decisions",
+      "kind": "note",
+      "metadata": {
+        "id": "ttros-brain-decisions",
+        "type": "decision_log"
+      },
+      "relative_path": "decisions/DECISIONS.md",
+      "source_path": "business_brain:decisions/DECISIONS.md",
+      "title": "Decisions"
+    },
+    {
+      "graphify_original_id": "decisions_decisions_decisions",
+      "id": "ttros-brain-decisions#heading-1",
+      "kind": "heading",
+      "label": "Decisions",
+      "relative_path": "decisions/DECISIONS.md",
+      "source_location": "L5",
+      "source_path": "business_brain:decisions/DECISIONS.md"
+    },
+    {
+      "graphify_original_id": "decisions_decisions_durable_decisions",
+      "id": "ttros-brain-decisions#heading-2",
+      "kind": "heading",
+      "label": "Durable Decisions",
+      "relative_path": "decisions/DECISIONS.md",
+      "source_location": "L7",
+      "source_path": "business_brain:decisions/DECISIONS.md"
+    },
+    {
+      "graphify_original_id": "decisions_decisions_2026_07_16_integrate_the_linkedin_prospecting_engine_as_revenue_v0",
+      "id": "ttros-brain-decisions#heading-3",
+      "kind": "heading",
+      "label": "2026-07-16 — Integrate the LinkedIn prospecting engine as Revenue v0",
+      "relative_path": "decisions/DECISIONS.md",
+      "source_location": "L19",
+      "source_path": "business_brain:decisions/DECISIONS.md"
+    },
+    {
+      "graphify_original_id": "decisions_decisions_decision_log_format",
+      "id": "ttros-brain-decisions#heading-4",
+      "kind": "heading",
+      "label": "Decision Log Format",
+      "relative_path": "decisions/DECISIONS.md",
+      "source_location": "L31",
+      "source_path": "business_brain:decisions/DECISIONS.md"
+    },
+    {
+      "content_sha256": "72a8b6051915e7324217e3949877251ac41ea2205ac5e86c728022b0b64eefe9",
+      "id": "ttros-brain-delivery-model",
+      "kind": "note",
+      "metadata": {
+        "id": "ttros-brain-delivery-model",
+        "type": "knowledge"
+      },
+      "relative_path": "memory/delivery_model.md",
+      "source_path": "business_brain:memory/delivery_model.md",
+      "title": "Delivery Model"
+    },
+    {
+      "graphify_original_id": "memory_delivery_model_delivery_model",
+      "id": "ttros-brain-delivery-model#heading-1",
+      "kind": "heading",
+      "label": "Delivery Model",
+      "relative_path": "memory/delivery_model.md",
+      "source_location": "L5",
+      "source_path": "business_brain:memory/delivery_model.md"
+    },
+    {
+      "content_sha256": "86173f38f742de300cafdde9402a41c0b7e8e99a3b9efdcdce86aab95ac1e846",
+      "id": "ttros-brain-ideal-clients",
+      "kind": "note",
+      "metadata": {
+        "id": "ttros-brain-ideal-clients",
+        "type": "knowledge"
+      },
+      "relative_path": "memory/ideal_clients.md",
+      "source_path": "business_brain:memory/ideal_clients.md",
+      "title": "Ideal Clients — router"
+    },
+    {
+      "graphify_original_id": "memory_ideal_clients_ideal_clients_router",
+      "id": "ttros-brain-ideal-clients#heading-1",
+      "kind": "heading",
+      "label": "Ideal Clients — router",
+      "relative_path": "memory/ideal_clients.md",
+      "source_location": "L5",
+      "source_path": "business_brain:memory/ideal_clients.md"
+    },
+    {
+      "content_sha256": "bff79e8a4b0a70e1494103811c62b68f4fa470c01d381d10f82b6d84ddd0cc54",
+      "id": "ttros-brain-ideal-clients-a",
+      "kind": "note",
+      "metadata": {
+        "id": "ttros-brain-ideal-clients-a",
+        "status": "cycle-1-hypothesis",
+        "type": "knowledge"
+      },
+      "relative_path": "memory/ideal_clients_A.md",
+      "source_path": "business_brain:memory/ideal_clients_A.md",
+      "title": "Ideal Clients — ICP-A: System Buyers"
+    },
+    {
+      "graphify_original_id": "memory_ideal_clients_a_ideal_clients_icp_a_system_buyers",
+      "id": "ttros-brain-ideal-clients-a#heading-1",
+      "kind": "heading",
+      "label": "Ideal Clients — ICP-A: System Buyers",
+      "relative_path": "memory/ideal_clients_A.md",
+      "source_location": "L6",
+      "source_path": "business_brain:memory/ideal_clients_A.md"
+    },
+    {
+      "graphify_original_id": "memory_ideal_clients_a_who",
+      "id": "ttros-brain-ideal-clients-a#heading-2",
+      "kind": "heading",
+      "label": "Who",
+      "relative_path": "memory/ideal_clients_A.md",
+      "source_location": "L9",
+      "source_path": "business_brain:memory/ideal_clients_A.md"
+    },
+    {
+      "graphify_original_id": "memory_ideal_clients_a_geography_in_order",
+      "id": "ttros-brain-ideal-clients-a#heading-3",
+      "kind": "heading",
+      "label": "Geography, in order",
+      "relative_path": "memory/ideal_clients_A.md",
+      "source_location": "L19",
+      "source_path": "business_brain:memory/ideal_clients_A.md"
+    },
+    {
+      "graphify_original_id": "memory_ideal_clients_a_priority_lanes",
+      "id": "ttros-brain-ideal-clients-a#heading-4",
+      "kind": "heading",
+      "label": "Priority lanes",
+      "relative_path": "memory/ideal_clients_A.md",
+      "source_location": "L27",
+      "source_path": "business_brain:memory/ideal_clients_A.md"
+    },
+    {
+      "graphify_original_id": "memory_ideal_clients_a_signal_taxonomy",
+      "id": "ttros-brain-ideal-clients-a#heading-5",
+      "kind": "heading",
+      "label": "Signal taxonomy",
+      "relative_path": "memory/ideal_clients_A.md",
+      "source_location": "L34",
+      "source_path": "business_brain:memory/ideal_clients_A.md"
+    },
+    {
+      "graphify_original_id": "memory_ideal_clients_a_disqualifiers",
+      "id": "ttros-brain-ideal-clients-a#heading-6",
+      "kind": "heading",
+      "label": "Disqualifiers",
+      "relative_path": "memory/ideal_clients_A.md",
+      "source_location": "L47",
+      "source_path": "business_brain:memory/ideal_clients_A.md"
+    },
+    {
+      "graphify_original_id": "memory_ideal_clients_a_entry_paths",
+      "id": "ttros-brain-ideal-clients-a#heading-7",
+      "kind": "heading",
+      "label": "Entry paths",
+      "relative_path": "memory/ideal_clients_A.md",
+      "source_location": "L54",
+      "source_path": "business_brain:memory/ideal_clients_A.md"
+    },
+    {
+      "content_sha256": "260b96bdff24ef1c8a1bdaf76446838059bec25e5547e8f958672aa62cb99637",
+      "id": "ttros-brain-ideal-clients-b",
+      "kind": "note",
+      "metadata": {
+        "id": "ttros-brain-ideal-clients-b",
+        "status": "cycle-1-hypothesis",
+        "type": "knowledge"
+      },
+      "relative_path": "memory/ideal_clients_B.md",
+      "source_path": "business_brain:memory/ideal_clients_B.md",
+      "title": "Ideal Clients — ICP-B: GTM Engineering Buyers"
+    },
+    {
+      "graphify_original_id": "memory_ideal_clients_b_ideal_clients_icp_b_gtm_engineering_buyers",
+      "id": "ttros-brain-ideal-clients-b#heading-1",
+      "kind": "heading",
+      "label": "Ideal Clients — ICP-B: GTM Engineering Buyers",
+      "relative_path": "memory/ideal_clients_B.md",
+      "source_location": "L6",
+      "source_path": "business_brain:memory/ideal_clients_B.md"
+    },
+    {
+      "graphify_original_id": "memory_ideal_clients_b_who",
+      "id": "ttros-brain-ideal-clients-b#heading-2",
+      "kind": "heading",
+      "label": "Who",
+      "relative_path": "memory/ideal_clients_B.md",
+      "source_location": "L13",
+      "source_path": "business_brain:memory/ideal_clients_B.md"
+    },
+    {
+      "graphify_original_id": "memory_ideal_clients_b_wedge_menu",
+      "id": "ttros-brain-ideal-clients-b#heading-3",
+      "kind": "heading",
+      "label": "Wedge menu",
+      "relative_path": "memory/ideal_clients_B.md",
+      "source_location": "L23",
+      "source_path": "business_brain:memory/ideal_clients_B.md"
+    },
+    {
+      "graphify_original_id": "memory_ideal_clients_b_signal_taxonomy",
+      "id": "ttros-brain-ideal-clients-b#heading-4",
+      "kind": "heading",
+      "label": "Signal taxonomy",
+      "relative_path": "memory/ideal_clients_B.md",
+      "source_location": "L32",
+      "source_path": "business_brain:memory/ideal_clients_B.md"
+    },
+    {
+      "graphify_original_id": "memory_ideal_clients_b_disqualifiers",
+      "id": "ttros-brain-ideal-clients-b#heading-5",
+      "kind": "heading",
+      "label": "Disqualifiers",
+      "relative_path": "memory/ideal_clients_B.md",
+      "source_location": "L41",
+      "source_path": "business_brain:memory/ideal_clients_B.md"
+    },
+    {
+      "graphify_original_id": "memory_ideal_clients_b_entry_paths",
+      "id": "ttros-brain-ideal-clients-b#heading-6",
+      "kind": "heading",
+      "label": "Entry paths",
+      "relative_path": "memory/ideal_clients_B.md",
+      "source_location": "L48",
+      "source_path": "business_brain:memory/ideal_clients_B.md"
+    },
+    {
+      "content_sha256": "a00494bee8177e2b3364591a0aa49b72507be02ed8e959361c6afdf9df3d87e5",
+      "id": "ttros-brain-inbox",
+      "kind": "note",
+      "metadata": {
+        "id": "ttros-brain-inbox",
+        "type": "intake"
+      },
+      "relative_path": "inbox/README.md",
+      "source_path": "business_brain:inbox/README.md",
+      "title": "Inbox"
+    },
+    {
+      "graphify_original_id": "inbox_readme_inbox",
+      "id": "ttros-brain-inbox#heading-1",
+      "kind": "heading",
+      "label": "Inbox",
+      "relative_path": "inbox/README.md",
+      "source_location": "L5",
+      "source_path": "business_brain:inbox/README.md"
+    },
+    {
+      "graphify_original_id": "inbox_readme_folders",
+      "id": "ttros-brain-inbox#heading-2",
+      "kind": "heading",
+      "label": "Folders",
+      "relative_path": "inbox/README.md",
+      "source_location": "L11",
+      "source_path": "business_brain:inbox/README.md"
+    },
+    {
+      "graphify_original_id": "inbox_readme_capture_doors",
+      "id": "ttros-brain-inbox#heading-3",
+      "kind": "heading",
+      "label": "Capture doors",
+      "relative_path": "inbox/README.md",
+      "source_location": "L16",
+      "source_path": "business_brain:inbox/README.md"
+    },
+    {
+      "graphify_original_id": "inbox_readme_rules",
+      "id": "ttros-brain-inbox#heading-4",
+      "kind": "heading",
+      "label": "Rules",
+      "relative_path": "inbox/README.md",
+      "source_location": "L35",
+      "source_path": "business_brain:inbox/README.md"
+    },
+    {
+      "content_sha256": "f02069517535ef0a08dffad412d8909bf5312dace59e42bafb51f846e1b1c732",
+      "id": "ttros-brain-marketing-voice",
+      "kind": "note",
+      "metadata": {
+        "id": "ttros-brain-marketing-voice",
+        "type": "knowledge"
+      },
+      "relative_path": "memory/marketing_voice.md",
+      "source_path": "business_brain:memory/marketing_voice.md",
+      "title": "Marketing Voice"
+    },
+    {
+      "graphify_original_id": "memory_marketing_voice_marketing_voice",
+      "id": "ttros-brain-marketing-voice#heading-1",
+      "kind": "heading",
+      "label": "Marketing Voice",
+      "relative_path": "memory/marketing_voice.md",
+      "source_location": "L5",
+      "source_path": "business_brain:memory/marketing_voice.md"
+    },
+    {
+      "content_sha256": "1350518f5c7493bfd3838df2684089abebf6950b4184506d9a89201c936f69c7",
+      "id": "ttros-brain-memory-index",
+      "kind": "note",
+      "metadata": {
+        "id": "ttros-brain-memory-index",
+        "type": "index"
+      },
+      "relative_path": "index/MEMORY_INDEX.md",
+      "source_path": "business_brain:index/MEMORY_INDEX.md",
+      "title": "Memory Index"
+    },
+    {
+      "graphify_original_id": "index_memory_index_memory_index",
+      "id": "ttros-brain-memory-index#heading-1",
+      "kind": "heading",
+      "label": "Memory Index",
+      "relative_path": "index/MEMORY_INDEX.md",
+      "source_location": "L10",
+      "source_path": "business_brain:index/MEMORY_INDEX.md"
+    },
+    {
+      "graphify_original_id": "index_memory_index_business_plan_quick_map",
+      "id": "ttros-brain-memory-index#heading-2",
+      "kind": "heading",
+      "label": "Business Plan Quick Map",
+      "relative_path": "index/MEMORY_INDEX.md",
+      "source_location": "L42",
+      "source_path": "business_brain:index/MEMORY_INDEX.md"
+    },
+    {
+      "graphify_original_id": "index_memory_index_machine_maintained_verified_outcomes",
+      "id": "ttros-brain-memory-index#heading-3",
+      "kind": "heading",
+      "label": "Machine-maintained verified outcomes",
+      "relative_path": "index/MEMORY_INDEX.md",
+      "source_location": "L75",
+      "source_path": "business_brain:index/MEMORY_INDEX.md"
+    },
+    {
+      "graphify_original_id": "index_memory_index_one_brain_additions",
+      "id": "ttros-brain-memory-index#heading-4",
+      "kind": "heading",
+      "label": "One Brain additions",
+      "relative_path": "index/MEMORY_INDEX.md",
+      "source_location": "L83",
+      "source_path": "business_brain:index/MEMORY_INDEX.md"
+    },
+    {
+      "content_sha256": "612f407ef6628348f07e3169fca3cd06b580a7417e2165646ded0fe0f21ad9da",
+      "id": "ttros-brain-offers",
+      "kind": "note",
+      "metadata": {
+        "id": "ttros-brain-offers",
+        "type": "knowledge"
+      },
+      "relative_path": "memory/offers.md",
+      "source_path": "business_brain:memory/offers.md",
+      "title": "Offers"
+    },
+    {
+      "graphify_original_id": "memory_offers_offers",
+      "id": "ttros-brain-offers#heading-1",
+      "kind": "heading",
+      "label": "Offers",
+      "relative_path": "memory/offers.md",
+      "source_location": "L5",
+      "source_path": "business_brain:memory/offers.md"
+    },
+    {
+      "content_sha256": "60fc8a486005fa9210a495b6e622c1da3e3e180a068b4cf9788e2511e322eb60",
+      "id": "ttros-brain-old-vault-archive-plan",
+      "kind": "note",
+      "metadata": {
+        "id": "ttros-brain-old-vault-archive-plan",
+        "type": "archive_record"
+      },
+      "relative_path": "operating_context/old_vault_archive_plan.md",
+      "source_path": "business_brain:operating_context/old_vault_archive_plan.md",
+      "title": "Old Vault Archive Plan"
+    },
+    {
+      "graphify_original_id": "operating_context_old_vault_archive_plan_old_vault_archive_plan",
+      "id": "ttros-brain-old-vault-archive-plan#heading-1",
+      "kind": "heading",
+      "label": "Old Vault Archive Plan",
+      "relative_path": "operating_context/old_vault_archive_plan.md",
+      "source_location": "L5",
+      "source_path": "business_brain:operating_context/old_vault_archive_plan.md"
+    },
+    {
+      "content_sha256": "d1111b30cfc27186d07b868e1a28964751d2ae7a37533a97679d117ddaa57442",
+      "id": "ttros-brain-positioning",
+      "kind": "note",
+      "metadata": {
+        "id": "ttros-brain-positioning",
+        "type": "knowledge"
+      },
+      "relative_path": "memory/positioning.md",
+      "source_path": "business_brain:memory/positioning.md",
+      "title": "Positioning"
+    },
+    {
+      "graphify_original_id": "memory_positioning_positioning",
+      "id": "ttros-brain-positioning#heading-1",
+      "kind": "heading",
+      "label": "Positioning",
+      "relative_path": "memory/positioning.md",
+      "source_location": "L5",
+      "source_path": "business_brain:memory/positioning.md"
+    },
+    {
+      "content_sha256": "128476dfd14e96e57c73228d5aa7e09f64f1dde43420086aa3d5bbc85c5d6d91",
+      "id": "ttros-brain-prospecting-query-bank",
+      "kind": "note",
+      "metadata": {
+        "id": "ttros-brain-prospecting-query-bank",
+        "status": "cycle-1-hypothesis",
+        "type": "knowledge"
+      },
+      "relative_path": "memory/prospecting_query_bank.md",
+      "source_path": "business_brain:memory/prospecting_query_bank.md",
+      "title": "Prospecting Query Bank — LinkedIn + public web"
+    },
+    {
+      "graphify_original_id": "memory_prospecting_query_bank_prospecting_query_bank_linkedin_public_web",
+      "id": "ttros-brain-prospecting-query-bank#heading-1",
+      "kind": "heading",
+      "label": "Prospecting Query Bank — LinkedIn + public web",
+      "relative_path": "memory/prospecting_query_bank.md",
+      "source_location": "L6",
+      "source_path": "business_brain:memory/prospecting_query_bank.md"
+    },
+    {
+      "graphify_original_id": "memory_prospecting_query_bank_icp_a_queries",
+      "id": "ttros-brain-prospecting-query-bank#heading-2",
+      "kind": "heading",
+      "label": "ICP-A queries",
+      "relative_path": "memory/prospecting_query_bank.md",
+      "source_location": "L14",
+      "source_path": "business_brain:memory/prospecting_query_bank.md"
+    },
+    {
+      "graphify_original_id": "memory_prospecting_query_bank_professional_services",
+      "id": "ttros-brain-prospecting-query-bank#heading-3",
+      "kind": "heading",
+      "label": "Professional services",
+      "relative_path": "memory/prospecting_query_bank.md",
+      "source_location": "L16",
+      "source_path": "business_brain:memory/prospecting_query_bank.md"
+    },
+    {
+      "graphify_original_id": "memory_prospecting_query_bank_home_services_and_trades",
+      "id": "ttros-brain-prospecting-query-bank#heading-4",
+      "kind": "heading",
+      "label": "Home services and trades",
+      "relative_path": "memory/prospecting_query_bank.md",
+      "source_location": "L22",
+      "source_path": "business_brain:memory/prospecting_query_bank.md"
+    },
+    {
+      "graphify_original_id": "memory_prospecting_query_bank_commercial_services",
+      "id": "ttros-brain-prospecting-query-bank#heading-5",
+      "kind": "heading",
+      "label": "Commercial services",
+      "relative_path": "memory/prospecting_query_bank.md",
+      "source_location": "L28",
+      "source_path": "business_brain:memory/prospecting_query_bank.md"
+    },
+    {
+      "graphify_original_id": "memory_prospecting_query_bank_property_and_property_adjacent",
+      "id": "ttros-brain-prospecting-query-bank#heading-6",
+      "kind": "heading",
+      "label": "Property and property-adjacent",
+      "relative_path": "memory/prospecting_query_bank.md",
+      "source_location": "L34",
+      "source_path": "business_brain:memory/prospecting_query_bank.md"
+    },
+    {
+      "graphify_original_id": "memory_prospecting_query_bank_recruiting_hr_training",
+      "id": "ttros-brain-prospecting-query-bank#heading-7",
+      "kind": "heading",
+      "label": "Recruiting / HR / training",
+      "relative_path": "memory/prospecting_query_bank.md",
+      "source_location": "L39",
+      "source_path": "business_brain:memory/prospecting_query_bank.md"
+    },
+    {
+      "graphify_original_id": "memory_prospecting_query_bank_icp_b_queries",
+      "id": "ttros-brain-prospecting-query-bank#heading-8",
+      "kind": "heading",
+      "label": "ICP-B queries",
+      "relative_path": "memory/prospecting_query_bank.md",
+      "source_location": "L44",
+      "source_path": "business_brain:memory/prospecting_query_bank.md"
+    },
+    {
+      "graphify_original_id": "memory_prospecting_query_bank_hygiene",
+      "id": "ttros-brain-prospecting-query-bank#heading-9",
+      "kind": "heading",
+      "label": "Hygiene",
+      "relative_path": "memory/prospecting_query_bank.md",
+      "source_location": "L52",
+      "source_path": "business_brain:memory/prospecting_query_bank.md"
+    },
+    {
+      "content_sha256": "387c7290b42c0167446c0352fe56c05423976079582ee62b48b381abe3da9ab3",
+      "id": "ttros-brain-prospecting-rotation-plan",
+      "kind": "note",
+      "metadata": {
+        "id": "ttros-brain-prospecting-rotation-plan",
+        "status": "cycle-1",
+        "type": "operating_state"
+      },
+      "relative_path": "memory/prospecting_rotation_plan.md",
+      "source_path": "business_brain:memory/prospecting_rotation_plan.md",
+      "title": "Prospecting Rotation Plan — cycle 1"
+    },
+    {
+      "graphify_original_id": "memory_prospecting_rotation_plan_prospecting_rotation_plan_cycle_1",
+      "id": "ttros-brain-prospecting-rotation-plan#heading-1",
+      "kind": "heading",
+      "label": "Prospecting Rotation Plan — cycle 1",
+      "relative_path": "memory/prospecting_rotation_plan.md",
+      "source_location": "L6",
+      "source_path": "business_brain:memory/prospecting_rotation_plan.md"
+    },
+    {
+      "graphify_original_id": "memory_prospecting_rotation_plan_committed_volume",
+      "id": "ttros-brain-prospecting-rotation-plan#heading-2",
+      "kind": "heading",
+      "label": "Committed volume",
+      "relative_path": "memory/prospecting_rotation_plan.md",
+      "source_location": "L9",
+      "source_path": "business_brain:memory/prospecting_rotation_plan.md"
+    },
+    {
+      "content_sha256": "9562a44021b5026aa5724b132975a84909da5991e97a0757f2cb9d220a57b2ff",
+      "id": "ttros-brain-prospecting-scoring-contract",
+      "kind": "note",
+      "metadata": {
+        "id": "ttros-brain-prospecting-scoring-contract",
+        "status": "v0",
+        "type": "policy"
+      },
+      "relative_path": "memory/prospecting_scoring_contract.md",
+      "source_path": "business_brain:memory/prospecting_scoring_contract.md",
+      "title": "Prospecting Scoring Contract — v0"
+    },
+    {
+      "graphify_original_id": "memory_prospecting_scoring_contract_prospecting_scoring_contract_v0",
+      "id": "ttros-brain-prospecting-scoring-contract#heading-1",
+      "kind": "heading",
+      "label": "Prospecting Scoring Contract — v0",
+      "relative_path": "memory/prospecting_scoring_contract.md",
+      "source_location": "L6",
+      "source_path": "business_brain:memory/prospecting_scoring_contract.md"
+    },
+    {
+      "graphify_original_id": "memory_prospecting_scoring_contract_seven_gates",
+      "id": "ttros-brain-prospecting-scoring-contract#heading-2",
+      "kind": "heading",
+      "label": "Seven gates",
+      "relative_path": "memory/prospecting_scoring_contract.md",
+      "source_location": "L13",
+      "source_path": "business_brain:memory/prospecting_scoring_contract.md"
+    },
+    {
+      "graphify_original_id": "memory_prospecting_scoring_contract_score_100",
+      "id": "ttros-brain-prospecting-scoring-contract#heading-3",
+      "kind": "heading",
+      "label": "Score (100)",
+      "relative_path": "memory/prospecting_scoring_contract.md",
+      "source_location": "L23",
+      "source_path": "business_brain:memory/prospecting_scoring_contract.md"
+    },
+    {
+      "graphify_original_id": "memory_prospecting_scoring_contract_tiers_and_hard_caps",
+      "id": "ttros-brain-prospecting-scoring-contract#heading-4",
+      "kind": "heading",
+      "label": "Tiers and hard caps",
+      "relative_path": "memory/prospecting_scoring_contract.md",
+      "source_location": "L32",
+      "source_path": "business_brain:memory/prospecting_scoring_contract.md"
+    },
+    {
+      "content_sha256": "3dd5dd8555483d7bba08856bc187b6c900b1ded0d926ad8a42cf0317a381624a",
+      "id": "ttros-brain-prospects-index",
+      "kind": "note",
+      "metadata": {
+        "id": "ttros-brain-prospects-index",
+        "status": "live",
+        "type": "index"
+      },
+      "relative_path": "prospects/index.md",
+      "source_path": "business_brain:prospects/index.md",
+      "title": "Prospects Index"
+    },
+    {
+      "graphify_original_id": "prospects_index_prospects_index",
+      "id": "ttros-brain-prospects-index#heading-1",
+      "kind": "heading",
+      "label": "Prospects Index",
+      "relative_path": "prospects/index.md",
+      "source_location": "L11",
+      "source_path": "business_brain:prospects/index.md"
+    },
+    {
+      "graphify_original_id": "prospects_index_2026_07_16_first_no_send_daily_run",
+      "id": "ttros-brain-prospects-index#heading-2",
+      "kind": "heading",
+      "label": "2026-07-16 — first no-send daily run",
+      "relative_path": "prospects/index.md",
+      "source_location": "L17",
+      "source_path": "business_brain:prospects/index.md"
+    },
+    {
+      "graphify_original_id": "prospects_index_2026_07_17_second_no_send_daily_run",
+      "id": "ttros-brain-prospects-index#heading-3",
+      "kind": "heading",
+      "label": "2026-07-17 — second no-send daily run",
+      "relative_path": "prospects/index.md",
+      "source_location": "L24",
+      "source_path": "business_brain:prospects/index.md"
+    },
+    {
+      "graphify_original_id": "prospects_index_one_brain_additions",
+      "id": "ttros-brain-prospects-index#heading-4",
+      "kind": "heading",
+      "label": "One Brain additions",
+      "relative_path": "prospects/index.md",
+      "source_location": "L31",
+      "source_path": "business_brain:prospects/index.md"
+    },
+    {
+      "content_sha256": "8fe11973e4460f3dd20b348415948b3bbc7e9a06738796c4f12af3e7be4d6107",
+      "id": "ttros-brain-protected-paths",
+      "kind": "note",
+      "metadata": {
+        "id": "ttros-brain-protected-paths",
+        "type": "policy"
+      },
+      "relative_path": "operating_context/protected_paths.md",
+      "source_path": "business_brain:operating_context/protected_paths.md",
+      "title": "Protected Paths"
+    },
+    {
+      "graphify_original_id": "operating_context_protected_paths_protected_paths",
+      "id": "ttros-brain-protected-paths#heading-1",
+      "kind": "heading",
+      "label": "Protected Paths",
+      "relative_path": "operating_context/protected_paths.md",
+      "source_location": "L5",
+      "source_path": "business_brain:operating_context/protected_paths.md"
+    },
+    {
+      "graphify_original_id": "operating_context_protected_paths_runtime_connector_state",
+      "id": "ttros-brain-protected-paths#heading-2",
+      "kind": "heading",
+      "label": "Runtime / Connector State",
+      "relative_path": "operating_context/protected_paths.md",
+      "source_location": "L9",
+      "source_path": "business_brain:operating_context/protected_paths.md"
+    },
+    {
+      "graphify_original_id": "operating_context_protected_paths_dashboard_code",
+      "id": "ttros-brain-protected-paths#heading-3",
+      "kind": "heading",
+      "label": "Dashboard Code",
+      "relative_path": "operating_context/protected_paths.md",
+      "source_location": "L18",
+      "source_path": "business_brain:operating_context/protected_paths.md"
+    },
+    {
+      "graphify_original_id": "operating_context_protected_paths_archive_quarantine_only",
+      "id": "ttros-brain-protected-paths#heading-4",
+      "kind": "heading",
+      "label": "Archive / Quarantine Only",
+      "relative_path": "operating_context/protected_paths.md",
+      "source_location": "L24",
+      "source_path": "business_brain:operating_context/protected_paths.md"
+    },
+    {
+      "graphify_original_id": "operating_context_protected_paths_external_actions",
+      "id": "ttros-brain-protected-paths#heading-5",
+      "kind": "heading",
+      "label": "External Actions",
+      "relative_path": "operating_context/protected_paths.md",
+      "source_location": "L35",
+      "source_path": "business_brain:operating_context/protected_paths.md"
+    },
+    {
+      "content_sha256": "65eec0b55a8ccda3e13d0b4c0d2b253be864b900f6bb96ffd2a7dc16e1adcb17",
+      "id": "ttros-brain-root",
+      "kind": "note",
+      "metadata": {
+        "id": "ttros-brain-root",
+        "type": "navigation"
+      },
+      "relative_path": "README.md",
+      "source_path": "business_brain:README.md",
+      "title": "TTROS Business Brain"
+    },
+    {
+      "graphify_original_id": "readme_ttros_business_brain",
+      "id": "ttros-brain-root#heading-1",
+      "kind": "heading",
+      "label": "TTROS Business Brain",
+      "relative_path": "README.md",
+      "source_location": "L5",
+      "source_path": "business_brain:README.md"
+    },
+    {
+      "graphify_original_id": "readme_relationship_to_agentic_os_live",
+      "id": "ttros-brain-root#heading-2",
+      "kind": "heading",
+      "label": "Relationship To Agentic OS Live",
+      "relative_path": "README.md",
+      "source_location": "L11",
+      "source_path": "business_brain:README.md"
+    },
+    {
+      "graphify_original_id": "readme_business_plan_pointers",
+      "id": "ttros-brain-root#heading-3",
+      "kind": "heading",
+      "label": "Business Plan Pointers",
+      "relative_path": "README.md",
+      "source_location": "L18",
+      "source_path": "business_brain:README.md"
+    },
+    {
+      "graphify_original_id": "readme_archive_boundary",
+      "id": "ttros-brain-root#heading-4",
+      "kind": "heading",
+      "label": "Archive Boundary",
+      "relative_path": "README.md",
+      "source_location": "L32",
+      "source_path": "business_brain:README.md"
+    },
+    {
+      "graphify_original_id": "readme_source_inbox",
+      "id": "ttros-brain-root#heading-5",
+      "kind": "heading",
+      "label": "Source Inbox",
+      "relative_path": "README.md",
+      "source_location": "L46",
+      "source_path": "business_brain:README.md"
+    },
+    {
+      "graphify_original_id": "readme_operating_rule",
+      "id": "ttros-brain-root#heading-6",
+      "kind": "heading",
+      "label": "Operating Rule",
+      "relative_path": "README.md",
+      "source_location": "L52",
+      "source_path": "business_brain:README.md"
+    },
+    {
+      "content_sha256": "506e44c619302296601586c5ad7ffb4f1e8d79d984573a1c9a7210471e481c37",
+      "id": "ttros-brain-sales-and-revenue",
+      "kind": "note",
+      "metadata": {
+        "id": "ttros-brain-sales-and-revenue",
+        "type": "knowledge"
+      },
+      "relative_path": "memory/sales_and_revenue.md",
+      "source_path": "business_brain:memory/sales_and_revenue.md",
+      "title": "Sales And Revenue"
+    },
+    {
+      "graphify_original_id": "memory_sales_and_revenue_sales_and_revenue",
+      "id": "ttros-brain-sales-and-revenue#heading-1",
+      "kind": "heading",
+      "label": "Sales And Revenue",
+      "relative_path": "memory/sales_and_revenue.md",
+      "source_location": "L5",
+      "source_path": "business_brain:memory/sales_and_revenue.md"
+    },
+    {
+      "graphify_original_id": "memory_sales_and_revenue_lead_gen_workflow_v4_1_rebuild_blueprint",
+      "id": "ttros-brain-sales-and-revenue#heading-2",
+      "kind": "heading",
+      "label": "Lead Gen Workflow V4.1 (rebuild blueprint)",
+      "relative_path": "memory/sales_and_revenue.md",
+      "source_location": "L25",
+      "source_path": "business_brain:memory/sales_and_revenue.md"
+    },
+    {
+      "content_sha256": "97abacd5227d83e7cfbf05bee85602e301243b1b0b7d78c61588f5066eed2a29",
+      "id": "ttros-brain-website-and-content",
+      "kind": "note",
+      "metadata": {
+        "id": "ttros-brain-website-and-content",
+        "type": "knowledge"
+      },
+      "relative_path": "memory/website_and_content.md",
+      "source_path": "business_brain:memory/website_and_content.md",
+      "title": "Website And Content"
+    },
+    {
+      "graphify_original_id": "memory_website_and_content_website_and_content",
+      "id": "ttros-brain-website-and-content#heading-1",
+      "kind": "heading",
+      "label": "Website And Content",
+      "relative_path": "memory/website_and_content.md",
+      "source_location": "L5",
+      "source_path": "business_brain:memory/website_and_content.md"
+    },
+    {
+      "content_sha256": "0efa03492684752c98b6f80bba3c7e425cc374fbd0212fb518ec3f371b1e079e",
+      "id": "ttros-executive-view",
+      "kind": "note",
+      "metadata": {
+        "id": "ttros-executive-view",
+        "status": "active",
+        "type": "operating_context"
+      },
+      "relative_path": "operating_context/executive_view.md",
+      "source_path": "business_brain:operating_context/executive_view.md",
+      "title": "Executive View"
+    },
+    {
+      "graphify_original_id": "operating_context_executive_view_executive_view",
+      "id": "ttros-executive-view#heading-1",
+      "kind": "heading",
+      "label": "Executive View",
+      "relative_path": "operating_context/executive_view.md",
+      "source_location": "L13",
+      "source_path": "business_brain:operating_context/executive_view.md"
+    },
+    {
+      "graphify_original_id": "operating_context_executive_view_current_interpretation",
+      "id": "ttros-executive-view#heading-2",
+      "kind": "heading",
+      "label": "Current interpretation",
+      "relative_path": "operating_context/executive_view.md",
+      "source_location": "L19",
+      "source_path": "business_brain:operating_context/executive_view.md"
+    },
+    {
+      "graphify_original_id": "operating_context_executive_view_working_hypotheses",
+      "id": "ttros-executive-view#heading-3",
+      "kind": "heading",
+      "label": "Working hypotheses",
+      "relative_path": "operating_context/executive_view.md",
+      "source_location": "L25",
+      "source_path": "business_brain:operating_context/executive_view.md"
+    },
+    {
+      "graphify_original_id": "operating_context_executive_view_confidence_and_uncertainty",
+      "id": "ttros-executive-view#heading-4",
+      "kind": "heading",
+      "label": "Confidence and uncertainty",
+      "relative_path": "operating_context/executive_view.md",
+      "source_location": "L29",
+      "source_path": "business_brain:operating_context/executive_view.md"
+    },
+    {
+      "graphify_original_id": "operating_context_executive_view_synthetic_repair_proof",
+      "id": "ttros-executive-view#heading-5",
+      "kind": "heading",
+      "label": "Synthetic repair proof",
+      "relative_path": "operating_context/executive_view.md",
+      "source_location": "L35",
+      "source_path": "business_brain:operating_context/executive_view.md"
+    },
+    {
+      "content_sha256": "068b37ea2ac2105084dc924b8a97de019bf24ad0a09b65b47a620c598b1ce70c",
+      "id": "ttros-open-loops",
+      "kind": "note",
+      "metadata": {
+        "id": "ttros-open-loops",
+        "status": "active",
+        "type": "operating_context"
+      },
+      "relative_path": "operating_context/open_loops.md",
+      "source_path": "business_brain:operating_context/open_loops.md",
+      "title": "Open Loops"
+    },
+    {
+      "graphify_original_id": "operating_context_open_loops_open_loops",
+      "id": "ttros-open-loops#heading-1",
+      "kind": "heading",
+      "label": "Open Loops",
+      "relative_path": "operating_context/open_loops.md",
+      "source_location": "L13",
+      "source_path": "business_brain:operating_context/open_loops.md"
+    },
+    {
+      "graphify_original_id": "operating_context_open_loops_revenue_review",
+      "id": "ttros-open-loops#heading-2",
+      "kind": "heading",
+      "label": "Revenue review",
+      "relative_path": "operating_context/open_loops.md",
+      "source_location": "L17",
+      "source_path": "business_brain:operating_context/open_loops.md"
+    },
+    {
+      "graphify_original_id": "operating_context_open_loops_one_brain_release",
+      "id": "ttros-open-loops#heading-3",
+      "kind": "heading",
+      "label": "One Brain release",
+      "relative_path": "operating_context/open_loops.md",
+      "source_location": "L22",
+      "source_path": "business_brain:operating_context/open_loops.md"
+    },
+    {
+      "graphify_original_id": "operating_context_open_loops_nightly_deterministic_staleness_findings",
+      "id": "ttros-open-loops#heading-4",
+      "kind": "heading",
+      "label": "Nightly deterministic staleness findings",
+      "relative_path": "operating_context/open_loops.md",
+      "source_location": "L29",
+      "source_path": "business_brain:operating_context/open_loops.md"
+    },
+    {
+      "graphify_original_id": "operating_context_open_loops_resolved_architecture_release_gates",
+      "id": "ttros-open-loops#heading-5",
+      "kind": "heading",
+      "label": "Resolved architecture release gates",
+      "relative_path": "operating_context/open_loops.md",
+      "source_location": "L44",
+      "source_path": "business_brain:operating_context/open_loops.md"
+    },
+    {
+      "graphify_original_id": "operating_context_open_loops_synthetic_repair_proof",
+      "id": "ttros-open-loops#heading-6",
+      "kind": "heading",
+      "label": "Synthetic repair proof",
+      "relative_path": "operating_context/open_loops.md",
+      "source_location": "L52",
+      "source_path": "business_brain:operating_context/open_loops.md"
+    },
+    {
+      "graphify_original_id": "operating_context_open_loops_uncertainty",
+      "id": "ttros-open-loops#heading-7",
+      "kind": "heading",
+      "label": "Uncertainty",
+      "relative_path": "operating_context/open_loops.md",
+      "source_location": "L62",
+      "source_path": "business_brain:operating_context/open_loops.md"
+    },
+    {
+      "content_sha256": "13b58ad127107dbfb2562e4d6a0899c19e9607ed6a377b0a77a3a924a3bd5620",
+      "id": "ttros-prospect-2026-07-club-hub-ilan-puterman",
+      "kind": "note",
+      "metadata": {
+        "entity_type": "prospect",
+        "id": "ttros-prospect-2026-07-club-hub-ilan-puterman",
+        "status": "drafted",
+        "type": "prospect"
+      },
+      "relative_path": "prospects/2026-07-club-hub-ilan-puterman.md",
+      "source_path": "business_brain:prospects/2026-07-club-hub-ilan-puterman.md",
+      "title": "Ilan Puterman — Club Hub"
+    },
+    {
+      "graphify_original_id": "prospects_2026_07_club_hub_ilan_puterman_ilan_puterman_club_hub",
+      "id": "ttros-prospect-2026-07-club-hub-ilan-puterman#heading-1",
+      "kind": "heading",
+      "label": "Ilan Puterman — Club Hub",
+      "relative_path": "prospects/2026-07-club-hub-ilan-puterman.md",
+      "source_location": "L6",
+      "source_path": "business_brain:prospects/2026-07-club-hub-ilan-puterman.md"
+    },
+    {
+      "content_sha256": "cf18fa044e58ef1f7db6887e9d3e29085fb3503c959edb941abdf9b68e942821",
+      "id": "ttros-prospect-2026-07-cyborg-nicolas-dupont",
+      "kind": "note",
+      "metadata": {
+        "entity_type": "prospect",
+        "id": "ttros-prospect-2026-07-cyborg-nicolas-dupont",
+        "status": "drafted",
+        "type": "prospect"
+      },
+      "relative_path": "prospects/2026-07-cyborg-nicolas-dupont.md",
+      "source_path": "business_brain:prospects/2026-07-cyborg-nicolas-dupont.md",
+      "title": "Nicolas Dupont — Cyborg"
+    },
+    {
+      "graphify_original_id": "prospects_2026_07_cyborg_nicolas_dupont_nicolas_dupont_cyborg",
+      "id": "ttros-prospect-2026-07-cyborg-nicolas-dupont#heading-1",
+      "kind": "heading",
+      "label": "Nicolas Dupont — Cyborg",
+      "relative_path": "prospects/2026-07-cyborg-nicolas-dupont.md",
+      "source_location": "L6",
+      "source_path": "business_brain:prospects/2026-07-cyborg-nicolas-dupont.md"
+    },
+    {
+      "content_sha256": "a20da0e99be7934a968d481fb044d5dc278a07f334750b81b4a7f2c8b6cb32e8",
+      "id": "ttros-prospect-2026-07-deepinspect-ai-parminder-singh",
+      "kind": "note",
+      "metadata": {
+        "entity_type": "prospect",
+        "id": "ttros-prospect-2026-07-deepinspect-ai-parminder-singh",
+        "status": "drafted",
+        "type": "prospect"
+      },
+      "relative_path": "prospects/2026-07-deepinspect-ai-parminder-singh.md",
+      "source_path": "business_brain:prospects/2026-07-deepinspect-ai-parminder-singh.md",
+      "title": "Parminder Singh — DeepInspect.AI"
+    },
+    {
+      "graphify_original_id": "prospects_2026_07_deepinspect_ai_parminder_singh_parminder_singh_deepinspect_ai",
+      "id": "ttros-prospect-2026-07-deepinspect-ai-parminder-singh#heading-1",
+      "kind": "heading",
+      "label": "Parminder Singh — DeepInspect.AI",
+      "relative_path": "prospects/2026-07-deepinspect-ai-parminder-singh.md",
+      "source_location": "L6",
+      "source_path": "business_brain:prospects/2026-07-deepinspect-ai-parminder-singh.md"
+    },
+    {
+      "content_sha256": "353fa6ee84a995f710d32dda1a9f944142be4f9aa2e3c76606fdc1387e9fe47a",
+      "id": "ttros-prospect-2026-07-flox-ron-efroni",
+      "kind": "note",
+      "metadata": {
+        "entity_type": "prospect",
+        "id": "ttros-prospect-2026-07-flox-ron-efroni",
+        "status": "drafted",
+        "type": "prospect"
+      },
+      "relative_path": "prospects/2026-07-flox-ron-efroni.md",
+      "source_path": "business_brain:prospects/2026-07-flox-ron-efroni.md",
+      "title": "Ron Efroni — Flox"
+    },
+    {
+      "graphify_original_id": "prospects_2026_07_flox_ron_efroni_ron_efroni_flox",
+      "id": "ttros-prospect-2026-07-flox-ron-efroni#heading-1",
+      "kind": "heading",
+      "label": "Ron Efroni — Flox",
+      "relative_path": "prospects/2026-07-flox-ron-efroni.md",
+      "source_location": "L6",
+      "source_path": "business_brain:prospects/2026-07-flox-ron-efroni.md"
+    },
+    {
+      "content_sha256": "2f40d2366ba5f8be77b83db1f9996ef0c6862080263c7f8d57795f3382fddf9c",
+      "id": "ttros-prospect-2026-07-manufex-anush-sridhar",
+      "kind": "note",
+      "metadata": {
+        "entity_type": "prospect",
+        "id": "ttros-prospect-2026-07-manufex-anush-sridhar",
+        "status": "drafted",
+        "type": "prospect"
+      },
+      "relative_path": "prospects/2026-07-manufex-anush-sridhar.md",
+      "source_path": "business_brain:prospects/2026-07-manufex-anush-sridhar.md",
+      "title": "Anush Sridhar — Manufex"
+    },
+    {
+      "graphify_original_id": "prospects_2026_07_manufex_anush_sridhar_anush_sridhar_manufex",
+      "id": "ttros-prospect-2026-07-manufex-anush-sridhar#heading-1",
+      "kind": "heading",
+      "label": "Anush Sridhar — Manufex",
+      "relative_path": "prospects/2026-07-manufex-anush-sridhar.md",
+      "source_location": "L6",
+      "source_path": "business_brain:prospects/2026-07-manufex-anush-sridhar.md"
+    },
+    {
+      "content_sha256": "255c4ffad527da02cb20429cdd183448c51358a8f523450b565284670a7aacbe",
+      "id": "ttros-prospect-2026-07-ollama-jeffrey-morgan",
+      "kind": "note",
+      "metadata": {
+        "entity_type": "prospect",
+        "id": "ttros-prospect-2026-07-ollama-jeffrey-morgan",
+        "status": "drafted",
+        "type": "prospect"
+      },
+      "relative_path": "prospects/2026-07-ollama-jeffrey-morgan.md",
+      "source_path": "business_brain:prospects/2026-07-ollama-jeffrey-morgan.md",
+      "title": "Jeffrey Morgan — Ollama"
+    },
+    {
+      "graphify_original_id": "prospects_2026_07_ollama_jeffrey_morgan_jeffrey_morgan_ollama",
+      "id": "ttros-prospect-2026-07-ollama-jeffrey-morgan#heading-1",
+      "kind": "heading",
+      "label": "Jeffrey Morgan — Ollama",
+      "relative_path": "prospects/2026-07-ollama-jeffrey-morgan.md",
+      "source_location": "L6",
+      "source_path": "business_brain:prospects/2026-07-ollama-jeffrey-morgan.md"
+    },
+    {
+      "content_sha256": "bc4c211cd0b2da33f1d2dd569f6f785d72dcb10343a7705d892521a1bd4ce35a",
+      "id": "ttros-prospect-2026-07-punttai-ronnie-coleman",
+      "kind": "note",
+      "metadata": {
+        "entity_type": "prospect",
+        "id": "ttros-prospect-2026-07-punttai-ronnie-coleman",
+        "status": "drafted",
+        "type": "prospect"
+      },
+      "relative_path": "prospects/2026-07-punttai-ronnie-coleman.md",
+      "source_path": "business_brain:prospects/2026-07-punttai-ronnie-coleman.md",
+      "title": "Ronnie Kwesi Coleman — PunttAI"
+    },
+    {
+      "graphify_original_id": "prospects_2026_07_punttai_ronnie_coleman_ronnie_kwesi_coleman_punttai",
+      "id": "ttros-prospect-2026-07-punttai-ronnie-coleman#heading-1",
+      "kind": "heading",
+      "label": "Ronnie Kwesi Coleman — PunttAI",
+      "relative_path": "prospects/2026-07-punttai-ronnie-coleman.md",
+      "source_location": "L6",
+      "source_path": "business_brain:prospects/2026-07-punttai-ronnie-coleman.md"
+    },
+    {
+      "content_sha256": "7fb05b573f2553a368edf235ad67d09cf4db39587056a30fb8a08744d9bb73fa",
+      "id": "ttros-prospect-2026-07-zunesha-labs-omar-alani",
+      "kind": "note",
+      "metadata": {
+        "entity_type": "prospect",
+        "id": "ttros-prospect-2026-07-zunesha-labs-omar-alani",
+        "status": "drafted",
+        "type": "prospect"
+      },
+      "relative_path": "prospects/2026-07-zunesha-labs-omar-alani.md",
+      "source_path": "business_brain:prospects/2026-07-zunesha-labs-omar-alani.md",
+      "title": "Omar Alani — Zunesha Labs"
+    },
+    {
+      "graphify_original_id": "prospects_2026_07_zunesha_labs_omar_alani_omar_alani_zunesha_labs",
+      "id": "ttros-prospect-2026-07-zunesha-labs-omar-alani#heading-1",
+      "kind": "heading",
+      "label": "Omar Alani — Zunesha Labs",
+      "relative_path": "prospects/2026-07-zunesha-labs-omar-alani.md",
+      "source_location": "L6",
+      "source_path": "business_brain:prospects/2026-07-zunesha-labs-omar-alani.md"
+    }
+  ],
+  "schema_version": 2,
+  "source_manifest_sha256": "a6bcf444d2421e90eaa5f132199d3d1379ab541f84d4fea1986e2978b27bc4e8"
+}

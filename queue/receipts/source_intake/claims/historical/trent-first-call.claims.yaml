@@ -1,0 +1,153 @@
+id: source-intake-claim-trent-first-call
+type: claim_record
+source_id: trent-first-call
+source_path: sources/historical_calls/trent-first-call.md
+source_sha256: 416b52129c2ff27e170588a3c21e2a8466d69774cb280cafb635a2704c32c74e
+generated_at: '2026-09-09T22:47:26.015962Z'
+model: gpt-5.5
+claim_count: 12
+dropped_count: 3
+canonical_truth: false
+claims:
+- claim: Trent MacGregor said British Columbia municipalities require onsite storm
+    water management for certain water treatment projects or renovations.
+  type: third_party_statement
+  attribution: Trent MacGregor
+  status: historical
+  evidence:
+    quote: the municipality requires in British Columbia that you have water treatment
+      on site to manage storm water.
+    locator: Trent MacGregor, water treatment example
+- claim: Trent MacGregor said AI could produce water treatment estimates almost instantaneously
+    if the proper inputs and inventory/pricing information are available.
+  type: third_party_statement
+  attribution: Trent MacGregor
+  status: historical
+  evidence:
+    quote: Now, that can be easily managed within seconds from AI if it has all the
+      proper inputs and they would have that.
+    locator: Trent MacGregor, estimate/RFP discussion
+- claim: Trent MacGregor said AI could reduce reliance on estimator and administrative
+    roles by generating quotes, invoices, reports, and other internal-office work
+    from inputs.
+  type: advice_received
+  attribution: Trent MacGregor
+  status: historical
+  evidence:
+    quote: it can also draft up a contract agreement to everything based on the specifics
+      of the scope.
+    locator: Trent MacGregor, AI quote/contract/invoice capabilities
+- claim: Trent MacGregor advised that technician information could be entered through
+    an app, email to office, or scanned daily sheets as part of operational procedures.
+  type: advice_received
+  attribution: Trent MacGregor
+  status: historical
+  evidence:
+    quote: it's either a scan document, or it's an email input that's copied and pasted,
+      and then it starts to generate a proper report on everything.
+    locator: Trent MacGregor responding to how technician data gets entered
+- claim: Trent MacGregor advised positioning the AI offer as business-specific efficiency,
+    cost reduction, and protection against attrition, while caveating that AI is only
+    as good as accurate inputs.
+  type: advice_received
+  attribution: Trent MacGregor
+  status: historical
+  evidence:
+    quote: it it is only as good as the accuracy of the inputs that go into it,
+    locator: Trent MacGregor, how to bring companies onboard
+- claim: Trent MacGregor advised starting with a concrete water-treatment example
+    using an RFP, the response, the awarded contract, and sample invoicing.
+  type: advice_received
+  attribution: Trent MacGregor
+  status: historical
+  evidence:
+    quote: I would go for an RFP. I go for the the estimate that was provided. I go
+      for the contract that was awarded.
+    locator: Trent MacGregor, how to start/package
+- claim: You stated that the best plan was to start with tendering, replying to emails,
+    or finding leads, then implement daily data capture.
+  type: liam_position
+  attribution: You
+  status: historical
+  evidence:
+    quote: that's definitely the best plan is to say, look, we'll start with this
+      area here, which is by tandering or replying to emails or binding leads,
+    locator: You, after Trent describes RFP/estimate/contract/invoice sample
+- claim: Trent MacGregor recommended targeting industries where one approach can be
+    reused across multiple similar companies.
+  type: advice_received
+  attribution: Trent MacGregor
+  status: historical
+  evidence:
+    quote: I'm suggesting. I'm recommending that you target industries that when you
+      approach one of them, you can easily approach a number of them,
+    locator: Trent MacGregor, weekend discussion of other AI prospects
+- claim: Trent MacGregor committed to getting back before 4 o'clock about Manpreet.
+  type: commitment
+  attribution: Trent MacGregor
+  status: historical
+  evidence:
+    quote: we'll figure that out, but I'll get back to you before 4 o'clock with that
+      one. okay?
+    locator: Trent MacGregor, Manpreet/Pure Leaf discussion
+- claim: Trent MacGregor committed to getting information from Lance over the weekend
+    and pitching the AI idea to them.
+  type: commitment
+  attribution: Trent MacGregor
+  status: historical
+  evidence:
+    quote: over the course of the weekend. I can get you the information from Lance
+      and we can start to put together something so that you can. We can actually
+      be in a position to do something and I'll pitch it to them.
+    locator: Trent MacGregor, Lance weekend follow-up
+- claim: Trent MacGregor said he had not heard back from the two immigration contacts,
+    had emailed them that morning, and was waiting to hear back.
+  type: third_party_statement
+  attribution: Trent MacGregor
+  status: historical
+  evidence:
+    quote: I haven't followed up or heard anything back from them. was supposed to
+      get me a document.
+    locator: Trent MacGregor, immigration update
+- claim: You said you would treat the recording as an interview and use AI to extract
+    information and produce a basic roadmap for the discussed system.
+  type: commitment
+  attribution: You
+  status: historical
+  evidence:
+    quote: I am going to take it and I'm going to treat it as an interview and I'm
+      going to use AI to try and basically put out all the good information
+    locator: You, near end after Trent asks about recording clarity
+dropped:
+- claim:
+    claim: Trent MacGregor offered to help by holding a meeting where he would provide
+      documents and show what should be done.
+    type: offer_made
+    attribution: Trent MacGregor
+    status: historical
+    evidence:
+      quote: I'm gonna, I'm gonna, we're gonna have a meeting where I'll provide you
+        with documents and show you what you should do, right?
+      locator: Trent MacGregor near opening, meeting/documents
+  reason: evidence quote does not resolve as an exact substring of the source
+- claim:
+    claim: Trent MacGregor said he thought Lance would be open to AI because Lance
+      is money-focused and trusts him.
+    type: third_party_statement
+    attribution: Trent MacGregor
+    status: historical
+    evidence:
+      quote: Yeah, I think he'd be open to it because he's about the money, right?
+      locator: Trent MacGregor, Lance openness
+  reason: evidence quote does not resolve as an exact substring of the source
+- claim:
+    claim: Trent MacGregor offered to oversee the AI work for Lance if Lance wanted
+      him to.
+    type: offer_made
+    attribution: Trent MacGregor
+    status: historical
+    evidence:
+      quote: I said, look, if you want me to oversee this last, then I'll oversee
+        it.
+      locator: Trent MacGregor, Lance oversight
+  reason: evidence quote does not resolve as an exact substring of the source

@@ -5,7 +5,7 @@ The assembler emits an immutable object with visible per-block byte/token
 counts.  It selects relevant Brain sources instead of dumping the vault and
 never truncates a selected block silently.
 
-Revisit: when a model surface, Brain retrieval source, or context block changes. · Last touched: 2026-08-04.
+Revisit: when a model surface, Brain retrieval source, or context block changes. · Last touched: 2026-08-17.
 """
 
 from __future__ import annotations
@@ -25,11 +25,13 @@ from typing import Any, Iterable
 import yaml
 
 try:
-    from brain_memory import VAULT_ROOT, file_sha256, read_session
+    import aos_indexer
+    from brain_memory import VAULT_ROOT, file_sha256, read_session, read_thread, thread_relative
     from business_brain_context import BrainContextError, ScopedBrainLoader
     from business_brain_scope import ClientScopeError, ClientScopeRegistry, load_registry
 except ModuleNotFoundError:
-    from tools.brain_memory import VAULT_ROOT, file_sha256, read_session
+    from tools import aos_indexer
+    from tools.brain_memory import VAULT_ROOT, file_sha256, read_session, read_thread, thread_relative
     from tools.business_brain_context import BrainContextError, ScopedBrainLoader
     from tools.business_brain_scope import ClientScopeError, ClientScopeRegistry, load_registry
 
@@ -44,11 +46,72 @@ SCHEMA_VERSION = 2
 MARKER = "TTROS_ASSEMBLED_CONTEXT_V1"
 ASSEMBLER_VERSION = 2
 SOFT_BUDGET_TOKENS = 60_000
+# Step 5 (2026-09-07, TTROS_BUILD_PLAN rev11): the canonical map now generated
+# into .hermes.md (scripts/step5_map_generator.py) supersedes _scoped_note_block's
+# per-turn ranking for the specific documents canonical.manifest covers (see
+# _canonical_manifest_covered_paths below). Disabled by design, not deleted --
+# rollback is flipping this flag back on, not restoring a backup. It does NOT
+# disable Graphify/relationship/prospect discovery for anything outside those
+# documents; that mechanism is unrelated to the Step 5 map and stays live.
+# Global env var is deliberate here (there is no per-profile equivalent for a
+# repo-side Python flag the way Hermes's own config.yaml is per-profile); it
+# only affects this repo's context_assembler, never a Hermes profile setting.
+TTROS_CANONICAL_RANKER_ENABLED = os.environ.get(
+    "TTROS_CANONICAL_RANKER_ENABLED", "0"
+).strip().lower() in ("1", "true", "yes")
+_MANIFEST_COVERED_PATHS_CACHE: "frozenset[str] | None" = None
+
+
+def _canonical_manifest_covered_paths() -> "frozenset[str]":
+    """`business_brain:`-prefixed vault paths covered by canonical.manifest's
+    9 classes -- the documents the Step 5 static map now supplies, so
+    _scoped_note_block can stop re-selecting exactly those (and only those)
+    when TTROS_CANONICAL_RANKER_ENABLED is off."""
+    global _MANIFEST_COVERED_PATHS_CACHE
+    if _MANIFEST_COVERED_PATHS_CACHE is not None:
+        return _MANIFEST_COVERED_PATHS_CACHE
+    paths: set[str] = set()
+    try:
+        data = yaml.safe_load((ROOT / "canonical.manifest").read_text(encoding="utf-8"))
+        for klass in (data or {}).get("classes", []):
+            for source in klass.get("sources", []):
+                p = source.get("path")
+                if p:
+                    paths.add(f"business_brain:{p}")
+    except Exception:
+        paths = set()
+    _MANIFEST_COVERED_PATHS_CACHE = frozenset(paths)
+    return _MANIFEST_COVERED_PATHS_CACHE
 TOKEN_RE = re.compile(r"\w+|[^\w\s]", re.UNICODE)
 TERM_RE = re.compile(r"[a-z0-9][a-z0-9&.'’-]+", re.IGNORECASE)
 ITEM_RE = re.compile(r"\bAOS-\d{4}-\d{4}\b", re.IGNORECASE)
 SOURCE_SHA256_RE = re.compile(r"#sha256=[0-9a-f]{64}", re.IGNORECASE)
 SOURCE_ROUTE_RE = re.compile(r"#route=([^#]+)")
+TURN_TS_RE = re.compile(r"^### Turn · (\S+)")
+# F-RECENCY-1.  "relevant session recency" selects RECENCY-FIRST, not score-first.
+# A turn qualifies by naming a work item, or by matching this fraction of the
+# query's scoreable terms.  0.10 is the highest floor that preserved full
+# coverage AND full two-turn selection across the 95 frozen v0.18 baseline
+# assemblies.  Derived from that baseline in one run, not tuned afterwards.
+# See TTROS_FRECENCY_PLAN_2026-08-15.md.
+RECENCY_FLOOR = 0.10
+
+# F-NOTEBUDGET-1.  Byte budget for "scoped canonical Brain notes".  Derived
+# 2026-09-01 against the 38 assemblies decomposed in ttros_brainnotes_derive.json.
+# The kept documents are bimodal: sources/historical_calls/INDEX.md is emitted at
+# 11,435 B and is 98.8% of the worst block, while every other document ever
+# emitted is <= 2,637 B.  NOTE_DOC_BUDGET sits in that gap, so every canonical
+# document emitted to date survives byte-identical and only the outlier is cut.
+#
+# The block budget is the second half and is not redundant.  A per-document cap
+# alone does not bound the block: fifteen future documents at the document budget
+# would breach B2 again.  A block cap alone is worse - it drops documents whole.
+# Together, no single document can consume the block and the block cannot consume
+# the context.  The reserve guarantees the in-band declaration always fits inside
+# the block budget rather than overshooting it.
+NOTE_DOC_BUDGET = 4096
+NOTE_BLOCK_BUDGET = 12288
+NOTE_DECLARATION_RESERVE = 256
 POINTER_RE = re.compile(r"business_brain:[A-Za-z0-9_./-]+\.md")
 RELATIONSHIP_RE = re.compile(
     r"\b(?:relationship|related|activity|touched|follow[- ]?up|owed|connected|connection|"
@@ -223,7 +286,14 @@ class AssembledContext:
             f"Classification: {self.classification}",
             f"Assembler: v{ASSEMBLER_VERSION}; source discovery model tokens: 0",
             f"Context total: {self.total_tokens} estimated tokens / {self.total_bytes} bytes",
-            "No selected block was truncated. Counts are visible below.",
+            # F-NOTEBUDGET-1.  This line was an unconditional literal asserting an
+            # absence of truncation that nothing computed - narration, in the sense
+            # 00 warns about for capture's hardcoded receipt constants.  With a byte
+            # budget in force it would have been affirmatively false, the F-REFRESH-1
+            # defect class.  It now states the policy, which is true unconditionally.
+            f"Block budget: scoped canonical Brain notes <= {NOTE_BLOCK_BUDGET} bytes, "
+            f"<= {NOTE_DOC_BUDGET} bytes per document. Any truncation or omission is "
+            f"declared in-band where it occurs. Counts are visible below.",
         ]
         if self.warnings:
             lines.extend(("Warnings:", *(f"- {warning}" for warning in self.warnings)))
@@ -365,6 +435,103 @@ def _known_entity_pointers(query: str, *, client_scope: str, registry: ClientSco
     return result
 
 
+CARD_POINTER_RE = re.compile(r"^business_brain:sources/(?:intake|historical_calls)/cards/[^/]+\.card\.md$")
+
+
+def _strong_terms(query: str) -> set[str]:
+    """Terms worth trusting on a single hit: existing multi-word proper nouns
+    (_entity_name_terms) plus single capitalised/all-caps tokens (a name or an
+    acronym like "CCI"/"MLS") that are not the query's own first word (usually
+    a capitalised sentence-starter like "What"/"Did"/"Summarize")."""
+    strong = set(_entity_name_terms(query))
+    words = query.strip().split()
+    for index, word in enumerate(words):
+        if index == 0:
+            continue
+        cleaned = re.sub(r"[^A-Za-z]", "", word)
+        if len(cleaned) >= 2 and (cleaned[0].isupper() or cleaned.isupper()):
+            strong.add(cleaned.casefold())
+    return strong
+
+
+def _card_search_pointers(
+    query: str,
+    *,
+    client_scope: str,
+    registry: ClientScopeRegistry,
+    search_db_path: Path | None = None,
+    limit: int = 3,
+) -> list[str]:
+    """STEP T1 Part 3 (2026-09-09).  Card-first deterministic prefetch.
+
+    Feeds the SAME terms _known_entity_pointers() already extracts
+    (_query_terms/_entity_name_terms) into the EXISTING aos_indexer.search()
+    FTS query against search/os_index.db -- the same index that already
+    contains and correctly titles cards such as the Fred/MLS intake card and
+    the CCI historical-call cards (scripts/step6_post_i3_usage_forensic_audit.md
+    Sec 8). No new index, ranker, retriever or classifier: this is the same
+    search() ScopedBrainLoader.retrieve() already calls, with `exact=False`
+    (OR-of-terms) instead of retrieve()'s hardcoded `exact=True` (phrase
+    match), which empirically never matched a natural-language question
+    (verified directly: 0 results for the Fred/CCI/Andrea-Roberts questions
+    under the current exact=True path; real hits, including the exact cards
+    named in the forensic audit, under this term-based path).
+
+    Restricted to source-card paths only
+    (sources/{intake,historical_calls}/cards/*.card.md) -- a raw original or
+    an unrelated document from the same search never qualifies. A miss here
+    is silent and cheap: the caller's existing exact-search/graph/
+    direct-fallback tier still runs unchanged.
+    """
+    terms = _query_terms(query) | _entity_name_terms(query)
+    if not terms:
+        return []
+    strong = _strong_terms(query)
+    term_query = " ".join(sorted(terms))
+    try:
+        # path_only=False: the title FTS already stores (a curated one-line
+        # summary, per aos_indexer.title_from_text) is used below, together
+        # with the pointer's own filename stem (the same signal
+        # _known_entity_pointers already reads off prospects/*.md), to require
+        # real term overlap before a card qualifies -- an OR-match on one
+        # common word (e.g. "our") cannot alone qualify a card. The FTS
+        # `snippet` is deliberately NOT used for this check: every card's
+        # opening body text is an identical boilerplate paragraph ("Card
+        # meaning: what this source says...") that would otherwise itself
+        # supply spurious matches (verified: "definition of done for a queue
+        # work item" matched "queue"/"work" out of that boilerplate on cards
+        # with no relation to the question). A single matching STRONG term (a
+        # name or acronym, e.g. "CCI"/"MLS"/"Fred") is trusted alone, the same
+        # way an explicit entity pointer already is; a short grammatical
+        # connector (len<4, e.g. "and"/"the"/"for") never counts toward the
+        # generic threshold.
+        result = aos_indexer.search(
+            term_query,
+            source="business_brain",
+            limit=25,
+            db_path=search_db_path,
+            client_scope=client_scope,
+            registry=registry,
+            exact=False,
+            path_only=False,
+        )
+    except Exception:
+        return []
+    pointers: list[str] = []
+    for group in (result.get("groups") or {}).values():
+        for row in group:
+            path = str(row.get("path") or "")
+            if not CARD_POINTER_RE.match(path) or path in pointers:
+                continue
+            stem_terms = " ".join(re.findall(r"[a-z0-9]+", Path(path).stem.replace(".card", "").casefold()))
+            haystack = str(row.get("title") or "").casefold() + " " + stem_terms
+            matched_generic = {term for term in terms if term in haystack and len(term) >= 4}
+            matched_strong = {term for term in terms if term in haystack} & strong
+            if len(matched_generic) >= 2 or matched_strong:
+                pointers.append(path)
+    return pointers[:limit]
+
+
 def _scoped_note_block(
     query: str,
     *,
@@ -403,13 +570,26 @@ def _scoped_note_block(
     if pointers:
         result = loader.retrieve(work={"client_scope": client_scope}, pointers=pointers, query=query)
         reads.extend(result.reads)
+    # STEP T1 Part 3 (2026-09-09).  Waterfall tier 2: only when no explicit
+    # pointer/entity match already fired, search the existing card index by
+    # term before falling through to the existing exact-search/graph tier
+    # below. See _card_search_pointers for why exact=True never matches here.
+    card_pointers: list[str] = []
+    if not pointers:
+        card_pointers = _card_search_pointers(
+            query, client_scope=client_scope, registry=gate, search_db_path=search_db_path,
+        )
+        if card_pointers:
+            result = loader.retrieve(work={"client_scope": client_scope}, pointers=card_pointers, query=query)
+            existing = {read.provenance.path for read in reads}
+            reads.extend(read for read in result.reads if read.provenance.path not in existing)
     relationship_dependent = bool(RELATIONSHIP_RE.search(query))
     try:
         result = loader.retrieve(
             work={"client_scope": client_scope},
             query=query,
             discovery_mode="relationship_dependent" if relationship_dependent else "explicit",
-            direct_fallback=None if pointers else _direct_fallback(query),
+            direct_fallback=None if (pointers or card_pointers) else _direct_fallback(query),
             limit=5,
         )
         graph_state = result.graph_state
@@ -427,27 +607,123 @@ def _scoped_note_block(
         "business_brain:operating_context/open_loops.md",
     }
     reads = [read for read in reads if read.provenance.path not in fixed]
+    # Step 5 (2026-09-07).  When TTROS_CANONICAL_RANKER_ENABLED is off (the
+    # default since Step 5), the static map (.hermes.md) already supplies the
+    # canonical.manifest classes in the cached prefix -- re-ranking them here
+    # fresh every turn would be redundant, not wrong, so this only drops the
+    # specific manifest-covered documents, never Graphify/relationship/
+    # prospect discovery for anything outside the map's 9 classes. The drop is
+    # recorded as a source string (never silently absorbed), matching the
+    # historical_source exclusion pattern immediately below.
+    excluded_by_manifest = ()
+    if not TTROS_CANONICAL_RANKER_ENABLED:
+        covered = _canonical_manifest_covered_paths()
+        excluded_by_manifest = tuple(
+            f"{read.provenance.path}#route={read.provenance.retrieval_route}#excluded=step5_map_covers_this"
+            for read in reads if read.provenance.path in covered
+        )
+        reads = [read for read in reads if read.provenance.path not in covered]
+    # F-BRAINNOTES-1.  Historical call transcripts carry `type: historical_source`
+    # and state in their own header that they are "not canonical TTROS truth".  A
+    # block named "scoped canonical Brain notes" must not inline them.  Five of them
+    # at ~33 KB each held this block at exactly 165,035 B and put 26 of 38 measured
+    # assemblies over the B2 96,000 B bound, peaking at 226,338 B for fifteen days.
+    #
+    # Excluded on EVERY route, not just graphify: one arrived by route=pointer at
+    # constant bytes on every turn including unattended 15:00 runs, so "pointer" here
+    # is automatic selection, not the operator asking for a transcript.  The documents
+    # remain in the vault and fully retrievable; only automatic inlining stops.
+    #
+    # The discriminator is structured, not prose, and was measured against the live
+    # vault: 15 of 103 documents, and the `type` field and the "not canonical" prose
+    # marker select exactly the same 15.  sources/historical_calls/INDEX.md is
+    # `type: index` and is deliberately KEPT - it is the compact canonical summary,
+    # which is the tier that belongs in context.  Derivation: 2026-09-01.
+    # B6 (candidate disposition / declared-input arrival, Step 2, 2026-09-05).  A
+    # candidate that reached this filter and was excluded left no trace anywhere in
+    # the manifest -- unlike the `#missing` and `#budget=omitted` markers below, the
+    # disposition instrument could not tell "never matched by retrieval" from
+    # "matched, then filtered here".  Recording the excluded identity as a source
+    # string (never in `actual_reads`, never inlining content, no change to budget
+    # accounting) makes the drop observable without changing what is read, budgeted,
+    # or shown to the model.  Additive only.
+    excluded_by_type = tuple(
+        f"{read.provenance.path}#route={read.provenance.retrieval_route}#excluded=type:historical_source"
+        for read in reads
+        if str((_frontmatter_body(read.content)[0] or {}).get("type") or "") == "historical_source"
+    )
+    reads = [
+        read for read in reads
+        if str((_frontmatter_body(read.content)[0] or {}).get("type") or "") != "historical_source"
+    ]
     if not reads:
         return ContextBlock(
             "scoped canonical Brain notes",
             "N/A — the scope-first pointer → one-hop Graphify → exact search → direct canonical fallback route found no additional canonical note. Required operating notes remain loaded separately.",
-            ("retrieval:scope-first-hierarchy#no-additional-read",),
+            ("retrieval:scope-first-hierarchy#no-additional-read", *excluded_by_type, *excluded_by_manifest),
             False,
             "route hierarchy exhausted without a whole-vault scan",
         )
-    sections = [f"Selected {len(reads)} canonical note(s); source discovery used zero model tokens."]
+    # F-NOTEBUDGET-1.  Spend the byte budget declared at the top of this module.
+    # F-BRAINNOTES-1 removed the offender of 2026-09-01; it did not stop the next
+    # large import repeating the breach, because this block inlined whole
+    # documents with no length normalisation and no cap.
+    #
+    # The module contract is that a selected block is never truncated SILENTLY.
+    # That is preserved literally: every cut and every omission is declared
+    # in-band at the point it happens, naming the original byte count and the
+    # full document by path and sha256, so nothing becomes unreachable.
+    # F-TOOLOVERREACH-1 (Step T6, 2026-09-10).  These notes are already-read, pre-fetched
+    # sources -- nothing previously said so.  David re-derived facts already present here via
+    # live tool calls (search_history/session_search/read_resource on the raw original this
+    # block's "Original:" link names), turning a 1-API-call turn into 11.  One sentence closes
+    # the gap without weakening the rule for genuinely missing facts.
+    sections = [
+        f"Selected {len(reads)} canonical note(s); source discovery used zero model tokens. "
+        "These are the pre-read Brain sources for this request -- answer from them; call a "
+        "brain tool only for a named fact they do not contain, with one targeted read, not a "
+        "history search."
+    ]
     sources: list[str] = []
     actual: list[ActualRead] = []
+    used = len(sections[0].encode("utf-8"))
     for read in reads:
         _fields, body = _frontmatter_body(read.content)
         provenance = read.provenance
-        sections.extend(("", f"### {provenance.path} · route={provenance.retrieval_route}", body.strip()))
-        sources.append(f"{provenance.path}#sha256={provenance.content_sha256}#route={provenance.retrieval_route}")
+        body = body.strip()
+        raw_bytes = len(body.encode("utf-8"))
+        header = f"### {provenance.path} · route={provenance.retrieval_route}"
+        pointer = f"{provenance.path}#sha256={provenance.content_sha256}"
+        allowance = min(
+            NOTE_DOC_BUDGET,
+            NOTE_BLOCK_BUDGET - used - len(header.encode("utf-8")) - 3 - NOTE_DECLARATION_RESERVE,
+        )
+        if allowance <= 0:
+            body = (
+                f"[F-NOTEBUDGET-1 omitted: block budget {NOTE_BLOCK_BUDGET} B reached; "
+                f"{raw_bytes} B not inlined. Full document: {pointer}]"
+            )
+            sources.append(f"{pointer}#route={provenance.retrieval_route}#budget=omitted")
+        else:
+            # B6: distinguish "arrived truncated" from "arrived in full" -- both
+            # previously produced the identical `#route=...` suffix, so a partial
+            # arrival was indistinguishable from a complete one in the manifest.
+            truncated = raw_bytes > allowance
+            if truncated:
+                body = body.encode("utf-8")[:allowance].decode("utf-8", "ignore").rstrip()
+                body += (
+                    f"\n[F-NOTEBUDGET-1 truncated: {raw_bytes} B -> {allowance} B budget. "
+                    f"Full document: {pointer}]"
+                )
+            marker = "#truncated" if truncated else ""
+            sources.append(f"{pointer}#route={provenance.retrieval_route}{marker}")
+        used += len(header.encode("utf-8")) + len(body.encode("utf-8")) + 3
+        sections.extend(("", header, body))
         actual.append(ActualRead(provenance.path, provenance.retrieval_route, client_scope, provenance.content_sha256))
     if graph_state:
         sources.append("graphify:ttros-business-brain#" + json.dumps(graph_state, sort_keys=True, separators=(",", ":")))
     return ContextBlock(
-        "scoped canonical Brain notes", "\n".join(sections), tuple(sources), False,
+        "scoped canonical Brain notes", "\n".join(sections), tuple(sources) + excluded_by_type + excluded_by_manifest, False,
         "scope-first explicit/entity seeds with relationship-aware one-hop expansion and canonical reads",
         tuple(actual),
     )
@@ -554,7 +830,8 @@ def _session_recency_block(
     terms = _query_terms(query)
     entity_terms = _entity_name_terms(query)
     ids = {value.upper() for value in ITEM_RE.findall(query)}
-    candidates: list[tuple[int, str, str, str]] = []
+    scoreable = [term for term in terms if len(term) >= 4]
+    candidates: list[tuple[str, int, str, str, str]] = []
     sessions = vault_root / "sessions"
     if sessions.is_dir():
         for path in sorted(sessions.glob("*.md")):
@@ -570,10 +847,18 @@ def _session_recency_block(
                 continue
             relative = path.relative_to(vault_root).as_posix()
             for turn in re.split(r"(?=^### Turn ·)", body, flags=re.MULTILINE):
+                stamp = TURN_TS_RE.match(turn)
+                if not stamp:
+                    # Not a turn: the file preamble before the first header has no
+                    # time, and a recency block cannot order what it cannot date.
+                    continue
+                turn_ts = stamp.group(1)
                 haystack = turn.casefold()
-                score = 100 * sum(1 for item_id in ids if item_id.casefold() in haystack)
-                score += sum(12 if term in haystack else 0 for term in terms if len(term) >= 4)
-                if score:
+                matched_ids = sum(1 for item_id in ids if item_id.casefold() in haystack)
+                matched_terms = sum(1 for term in scoreable if term in haystack)
+                score = 100 * matched_ids + 12 * matched_terms
+                coverage = (matched_terms / len(scoreable)) if scoreable else 0.0
+                if matched_ids or coverage >= RECENCY_FLOOR:
                     paragraphs = [value.strip() for value in re.split(r"\n\s*\n", turn) if value.strip()]
                     matched = [
                         value for value in paragraphs
@@ -584,8 +869,8 @@ def _session_recency_block(
                     excerpt_parts = list(dict.fromkeys(([header] if header else []) + matched))
                     excerpt = "\n\n".join(excerpt_parts)
                     excerpt += f"\n\n[Selected {len(matched)} relevant paragraph(s) of {len(paragraphs)} from this historical turn.]"
-                    candidates.append((score, relative, excerpt.strip(), _sha(text)))
-    candidates.sort(key=lambda row: (-row[0], row[1], row[2][:40]))
+                    candidates.append((turn_ts, score, relative, excerpt.strip(), _sha(text)))
+    candidates.sort(key=lambda row: (row[0], row[2], row[3][:40]), reverse=True)
     selected = candidates[:2]
     if not selected:
         return ContextBlock(
@@ -598,7 +883,7 @@ def _session_recency_block(
     sections = [f"Selected {len(selected)} relevant historical turn(s); session journals remain evidence, not fact authority."]
     sources: list[str] = []
     actual: list[ActualRead] = []
-    for score, relative, turn, digest in selected:
+    for _turn_ts, score, relative, turn, digest in selected:
         identity = f"business_brain:{relative}"
         sections.extend(("", f"### {identity} · episodic_relevance={score}", turn))
         sources.append(f"{identity}#sha256={digest}#route=episodic_recency")
@@ -608,7 +893,9 @@ def _session_recency_block(
         "\n".join(sections),
         tuple(sources),
         False,
-        f"selected {len(selected)} of {len(candidates)} scoped relevant turns; no transcript-wide default",
+        f"selected the {len(selected)} most recent of {len(candidates)} scoped turns clearing the "
+        f"relevance floor (>={RECENCY_FLOOR:.0%} of query terms, or an explicit work item); "
+        f"recency-first, no transcript-wide default",
         tuple(actual),
     )
 
@@ -805,7 +1092,9 @@ def _matching_workflows_block(query: str) -> ContextBlock:
     if not selected:
         return ContextBlock("matching skills/workflows", "N/A — no workflow matched.", ("skills:index#no-match",), False, "relevance search returned zero matches")
     sections = [
-        f"Selected {len(selected)}/{len(candidates)}; order preserved. READ_SOURCE is the exact retrieved repo file; DECLARED_*_TARGET is source metadata, not an additional read. Hashes are in provenance/artifact.",
+        f"Selected {len(selected)}/{len(candidates)}; order preserved. READ_SOURCE is the exact retrieved repo file; DECLARED_*_TARGET is source metadata, not an additional read. Hashes are in provenance/artifact. "
+        "These are TTROS repository workflow/skill files, already inlined below in full -- NOT entries in Hermes's own skill_view catalog. "
+        "The `id=` value is this block's own identifier, not a Hermes skill name: calling skill_view/skill_manage/tool_search on it will fail or return an unrelated Hermes-native skill. Nothing further needs to be loaded to use this content.",
     ]
     sources = []
     for index, (score, relative, text) in enumerate(selected, start=1):
@@ -820,7 +1109,7 @@ def _matching_workflows_block(query: str) -> ContextBlock:
     )
 
 
-def _conversation_block(surface: str, session_key: str, *, client_scope: str = "global") -> ContextBlock:
+def _conversation_block(surface: str, session_key: str, *, client_scope: str = "global", profile: str = "") -> ContextBlock:
     if client_scope != "global":
         return ContextBlock(
             "conversation summary",
@@ -829,6 +1118,29 @@ def _conversation_block(surface: str, session_key: str, *, client_scope: str = "
             False,
             "client isolation before conversation result construction",
         )
+    # Allowlist, mirroring the hook's write side. "if profile:" would make this a generic
+    # cross-profile thread loader, so a hand-created sessions/thread_<anything>.md would
+    # silently displace that profile's journal context.
+    # The thread is one global executive record. It must never be handed to a client-scoped
+    # call, so isolation is established BEFORE retrieval rather than assumed. The applier
+    # refuses to patch unless it has observed that David's real assembly runs global, so
+    # this condition can never silently stop the thread loading.
+    # Revisit: if a client scope is ever introduced for David, decide deliberately whether
+    # the thread splits per client — it must not inherit a scope by accident.
+    if profile in ("david",) and client_scope in ("", "global"):
+        thread_text, thread_digest = read_thread(profile)
+        if thread_text:
+            _thread_fields, thread_body = _frontmatter_body(thread_text)
+            identity = f"business_brain:{thread_relative(profile)}"
+            digest = thread_digest or _sha(thread_text)
+            return ContextBlock(
+                "conversation summary",
+                thread_body.strip(),
+                (f"{identity}#sha256={digest}",),
+                False,
+                "rolling continuity thread; supersedes transcript replay",
+                (ActualRead(identity, "rolling_thread", client_scope, digest),),
+            )
     if not session_key:
         return ContextBlock("conversation summary", "N/A — fresh task-scoped worker invocation.", ("session:none",), False, "fresh session")
     text, digest = read_session(surface, session_key)
@@ -839,6 +1151,46 @@ def _conversation_block(surface: str, session_key: str, *, client_scope: str = "
     source = f"business_brain:{Path(relative).relative_to(VAULT_ROOT).as_posix()}#sha256={digest}" if relative else f"session:{surface}#sha256={digest}"
     actual = ActualRead(source.split("#sha256=", 1)[0], "sticky_session", client_scope, digest or _sha(text))
     return ContextBlock("conversation summary", body.strip(), (source,), False, "durable sticky session; no transcript forwarding to workers", (actual,))
+
+
+DAVID_HANDOFF_CONTRACT = "rules/david_execution_handoff.md"
+
+
+def _execution_handoff_contract(profile: str, root: Path = ROOT) -> ContextBlock:
+    """David's conversation-vs-execution contract, owned by the repository.
+
+    Kept as a versioned file rather than prose inside a prompt string so the
+    routing rule is auditable and can be changed without touching the backend.
+
+    Gated on PROFILE, not surface. The assembly David actually receives is built
+    by hooks/context_assembler_hook.py:pre_llm_call under surface
+    "hermes:<platform>" — a surface test for "dashboard:executive:david" can
+    never match there, which is precisely how the first attempt failed. Every
+    other profile gets an explicit N/A, so this costs nothing elsewhere.
+    """
+    if str(profile or "").strip().lower() != "david":
+        return ContextBlock(
+            "execution handoff contract",
+            "N/A — not David; no execution handoff is available on this profile.",
+            (f"profile:{profile or 'unknown'}",),
+            True,
+            "explicit N/A",
+        )
+    path = root / DAVID_HANDOFF_CONTRACT
+    try:
+        content = path.read_text(encoding="utf-8").strip()
+    except OSError:
+        content = (
+            "UNAVAILABLE — the execution handoff contract could not be read. "
+            "Answer conversationally and emit no execution handoff."
+        )
+    return ContextBlock(
+        "execution handoff contract",
+        content,
+        (DAVID_HANDOFF_CONTRACT,),
+        True,
+        "required routing contract",
+    )
 
 
 def _action_boundaries() -> ContextBlock:
@@ -1018,6 +1370,127 @@ def _provenance_block(blocks: Iterable[ContextBlock], *, compact: bool = False) 
     )
 
 
+DELETION_TOMBSTONE_GLOB = "task-deletion-*.json"
+
+
+def _load_deletion_tombstones(root: Path = ROOT) -> dict[str, dict[str, Any]]:
+    """Newest deletion tombstone per purged work-item id.
+
+    Tombstones are historical evidence and are never rewritten or expired here.
+    They are read so a current-state answer can distinguish "this item existed
+    and was X" from "this item is X now".
+    """
+    found: dict[str, dict[str, Any]] = {}
+    receipts = root / "queue" / "receipts"
+    if not receipts.is_dir():
+        return found
+    for path in sorted(receipts.glob(DELETION_TOMBSTONE_GLOB)):
+        try:
+            value = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(value, dict):
+            continue
+        item_id = str(value.get("item_id") or "").strip().upper()
+        if not ITEM_RE.fullmatch(item_id):
+            continue
+        record = dict(value)
+        try:
+            record["tombstone_path"] = path.relative_to(root).as_posix()
+        except ValueError:
+            record["tombstone_path"] = path.as_posix()
+        previous = found.get(item_id)
+        if previous is None or str(record.get("deleted_at") or "") >= str(previous.get("deleted_at") or ""):
+            found[item_id] = record
+    return found
+
+
+def _queue_reference_validity_block(
+    blocks: Iterable[ContextBlock],
+    *,
+    query: str = "",
+    root: Path = ROOT,
+) -> ContextBlock:
+    """Current-state authority for every work item this context cites.
+
+    Selected blocks legitimately quote receipts, packs and session turns that
+    describe a queue item as it was. Nothing in those sources expires when the
+    item is deleted, so a reader downstream can restate a purged item's old
+    status as present fact - observed 2026-08-10 with AOS-2026-0174, purged
+    that morning and still reported as human_review.
+
+    This block resolves every cited id against the live queue and the deletion
+    tombstones and says which is which. It adds a statement. It never edits,
+    rehashes or suppresses the evidence above it.
+    """
+    cited: list[str] = []
+    for text in (query, *(block.content for block in blocks)):
+        for raw in ITEM_RE.findall(str(text or "")):
+            item_id = raw.upper()
+            if item_id not in cited:
+                cited.append(item_id)
+    if not cited:
+        return ContextBlock(
+            "queue reference validity",
+            "N/A - this context cites no queue work item.",
+            ("queue/work_items.jsonl#no-citation",),
+            False,
+            "no AOS work-item identifier appeared in the request or any selected block",
+        )
+    live = {
+        str(item.get("id") or "").upper(): item
+        for item in _read_jsonl(root / "queue" / "work_items.jsonl")
+    }
+    tombstones = _load_deletion_tombstones(root)
+    lines = [
+        "Current-state authority for every queue item cited anywhere above.",
+        "The blocks above remain valid as historical evidence. Where an item is",
+        "marked PURGED or ABSENT below, that evidence describes a record that no",
+        "longer exists: report it as history, never as current status.",
+        "",
+    ]
+    sources: list[str] = []
+    purged = 0
+    absent = 0
+    for item_id in sorted(cited):
+        item = live.get(item_id)
+        stone = tombstones.get(item_id)
+        if item is not None:
+            lines.append(
+                f"- {item_id}: LIVE - current status `{item.get('status')}`"
+                f" - last updated {item.get('updated_at') or item.get('created_at') or 'unknown'}"
+            )
+            sources.append(f"queue/work_items.jsonl#{item_id}")
+        elif stone is not None:
+            purged += 1
+            lines.append(
+                f"- {item_id}: PURGED - deleted {stone.get('deleted_at') or 'unknown'}"
+                f" by {stone.get('deleted_by') or 'unknown'}"
+                f" - status at deletion was `{stone.get('previous_status') or 'unknown'}`"
+                f" - reason: {stone.get('deletion_reason') or 'not recorded'}"
+                " - this item no longer exists and has no current status"
+            )
+            sources.append(str(stone.get("tombstone_path") or f"queue/receipts/#tombstone={item_id}"))
+        else:
+            absent += 1
+            lines.append(
+                f"- {item_id}: ABSENT - not in the live queue and carries no deletion"
+                " tombstone - its status is unverified, which is not clearance"
+            )
+            sources.append(f"queue/work_items.jsonl#{item_id}#absent")
+    return ContextBlock(
+        "queue reference validity",
+        "\n".join(lines),
+        tuple(sources),
+        False,
+        (
+            f"resolved {len(cited)} cited work-item id(s) against the live queue and"
+            f" {len(tombstones)} deletion tombstone(s); {purged} purged, {absent} absent;"
+            " no evidence block was edited or removed"
+        ),
+    )
+
+
 def assemble(
     request: str,
     *,
@@ -1044,7 +1517,7 @@ def assemble(
     except ClientScopeError as exc:
         raise ContextAssemblyError(f"client isolation failed before context construction: {exc}") from exc
     relevance = relevance_query(query)
-    conversation = _conversation_block(surface, session_key, client_scope=client_scope)
+    conversation = _conversation_block(surface, session_key, client_scope=client_scope, profile=profile)
     # Resolve ordinary executive anaphora from the durable sticky session.
     # Without this, a phrase such as "the two prospects we discussed" can
     # remember the answer from the conversation block while failing to select
@@ -1088,8 +1561,14 @@ def assemble(
         _matching_workflows_block(relevance),
         conversation,
         _action_boundaries(),
+        _execution_handoff_contract(profile),
     ]
-    blocks = tuple([*initial, _provenance_block(initial, compact=str(profile or "").strip().casefold() == "david")])
+    validity = _queue_reference_validity_block(initial, query=query, root=root)
+    blocks = tuple([
+        *initial,
+        validity,
+        _provenance_block([*initial, validity], compact=str(profile or "").strip().casefold() == "david"),
+    ])
     invocation = invocation_id or f"ctx-{uuid.uuid4().hex}"
     total = sum(block.token_count for block in blocks) + estimate_tokens(query)
     warnings = (f"soft context budget exceeded: {total}>{SOFT_BUDGET_TOKENS}; no block was silently removed",) if total > SOFT_BUDGET_TOKENS else ()
@@ -1109,6 +1588,117 @@ def assemble(
     return assembled
 
 
+SOURCE_INTAKE_SEMANTIC_CLASSIFICATION = "source_intake_semantic_extraction"
+
+
+def assemble_source_intake_semantic_extraction(
+    request: str,
+    *,
+    session_id: str = "",
+    invocation_id: str | None = None,
+    write_artifact: bool = True,
+    root: Path = ROOT,
+) -> AssembledContext:
+    """Narrow, blind assembly for tools/source_intake.py semantic extraction only.
+
+    Every scoped/relevance-based Brain retrieval block that ``assemble()`` would
+    otherwise run is replaced with an explicit N/A block naming what it excludes
+    and why. MANIFEST.md, canonical Brain notes, historical candidates and their
+    adjudication/corrections, session memory/thread/history, Graphify/search
+    results, and unrelated skills/workflows never reach a call built this way.
+    Only the mandatory safety boundary and a minimal handoff-contract N/A stay
+    real, alongside the caller's own fixed schema+source ``request`` -- carried
+    as-is, never duplicated into a block here. Liam-authorized narrow exception,
+    2026-09-09 (STEP I1); see scripts/i1_source_intake_semantic_extraction_transcript.md.
+    """
+    query = str(request or "").strip()
+    if not query:
+        raise ContextAssemblyError("cannot assemble context for an empty request")
+    excluded = (f"classification:{SOURCE_INTAKE_SEMANTIC_CLASSIFICATION}",)
+    reason = "excluded by design for source_intake_semantic_extraction (STEP I1 blindness contract)"
+    initial = [
+        ContextBlock("identity/company", f"N/A — {reason}.", excluded, True, "explicit N/A"),
+        ContextBlock("current priorities", f"N/A — {reason}.", excluded, True, "explicit N/A"),
+        ContextBlock("executive_view", f"N/A — {reason}.", excluded, True, "explicit N/A"),
+        ContextBlock("deterministic morning findings", f"N/A — {reason}.", excluded, False, "explicit N/A"),
+        ContextBlock(
+            "scoped canonical Brain notes",
+            "N/A — scoped Business Brain note retrieval, MANIFEST.md, canonical Brain notes, and "
+            f"historical candidates/adjudication/corrections are {reason}.",
+            excluded, False, "explicit N/A",
+        ),
+        ContextBlock(
+            "recent receipts and outcomes",
+            f"N/A — Graphify/search-derived contextual notes are {reason}.", excluded, False, "explicit N/A",
+        ),
+        ContextBlock(
+            "relevant session recency",
+            f"N/A — session memory/thread/history is {reason}.", excluded, False, "explicit N/A",
+        ),
+        ContextBlock("relevant open loops", f"N/A — {reason}.", excluded, False, "explicit N/A"),
+        ContextBlock("relevant current commitments", f"N/A — {reason}.", excluded, False, "explicit N/A"),
+        ContextBlock(
+            "matching skills/workflows",
+            f"N/A — unrelated skills/workflows are {reason}.", excluded, False, "explicit N/A",
+        ),
+        ContextBlock(
+            "conversation summary",
+            f"N/A — session memory/thread/history is {reason}.", excluded, False, "explicit N/A",
+        ),
+        _action_boundaries(),
+        _execution_handoff_contract("source-intake-semantic", root=root),
+    ]
+    blocks = (*initial, _provenance_block(initial))
+    invocation = invocation_id or f"ctx-source-intake-semantic-{uuid.uuid4().hex}"
+    total = sum(block.token_count for block in blocks) + estimate_tokens(query)
+    warnings = (
+        (f"soft context budget exceeded: {total}>{SOFT_BUDGET_TOKENS}; no block was silently removed",)
+        if total > SOFT_BUDGET_TOKENS else ()
+    )
+    assembled = AssembledContext(
+        invocation_id=invocation,
+        surface="source-intake:semantic",
+        session_id=str(session_id or ""),
+        classification=SOURCE_INTAKE_SEMANTIC_CLASSIFICATION,
+        client_scope="global",
+        request=query,
+        blocks=blocks,
+        created_at=_iso_now(),
+        warnings=warnings,
+    ).validate()
+    if write_artifact:
+        write_assembly_artifact(assembled)
+    return assembled
+
+
+ASSEMBLY_RETENTION = int(os.environ.get("AOS_ASSEMBLY_RETENTION", "400"))
+
+
+def _prune_assembly_dir(keep: int = ASSEMBLY_RETENTION) -> int:
+    """Keep only the newest `keep` assembly artifacts.
+
+    Nothing in the codebase reads these files back; they are a write-only
+    debug cache that grew to 134 MB in 7 days with no retention. Pruning is
+    best-effort and must never break a write.
+    """
+    try:
+        files = sorted(
+            ASSEMBLY_DIR.glob("*.json"),
+            key=lambda f: f.stat().st_mtime,
+            reverse=True,
+        )
+    except OSError:
+        return 0
+    removed = 0
+    for stale in files[keep:]:
+        try:
+            stale.unlink()
+            removed += 1
+        except OSError:
+            pass
+    return removed
+
+
 def write_assembly_artifact(context: AssembledContext) -> Path:
     context.validate()
     ASSEMBLY_DIR.mkdir(parents=True, exist_ok=True)
@@ -1121,6 +1711,7 @@ def write_assembly_artifact(context: AssembledContext) -> Path:
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(raw_tmp, target)
+        _prune_assembly_dir()
     finally:
         Path(raw_tmp).unlink(missing_ok=True)
     return target

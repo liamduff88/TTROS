@@ -1,0 +1,76 @@
+Step 6 zero-model-call repair — exact change and rollback (written before editing)
+Timestamp: 2026-09-07T19:07:31Z
+
+PROBLEM
+Full suite: 771 passed / 1 failed.
+Failing: tests/test_telegram_conversational_routing.py::TelegramConversationalRoutingTests::
+test_live_loaded_operator_preamble_has_exact_bounded_tools_under_budget
+
+ROOT CAUSE
+tools/brain_memory_mcp.py is a single shared FastMCP("brain") server. Every Hermes
+profile's config.yaml (david, aos-delivery, aos-marketing, aos-ops, aos-orchestrator,
+aos-revenue, operator-lean) points its "brain" mcp_servers entry at this exact same
+script with no per-profile scoping mechanism. Step 6 added four new @mcp.tool()
+functions (search_calls, open_call, open_note, search_history) unconditionally to
+this shared server. Because MCP exposes a server's full tool list to every client
+that connects to it, this silently widened operator-lean's live tool surface from
+its frozen 9-tool EXPECTED_TOOLS contract (operator_lean_oneshot.py) to 11, which
+require_operator_tools() correctly rejects as an "unexpected" tool-set mismatch
+(fail-closed, exit 78) -- confirmed via the direct subprocess run in the test,
+which raises CalledProcessError before ever reaching the assertions.
+
+FIX (change #1) -- tools/brain_memory_mcp.py
+Gate the four Step-6 depth tools (search_calls, open_call, open_note,
+search_history) behind an explicit opt-in environment variable,
+AOS_BRAIN_DEPTH_TOOLS, read once at module import time. Default (unset/false):
+identical to the pre-Step-6 surface -- only remember_brain_knowledge and
+brain_memory_status are registered on the FastMCP server, for every client that
+does not opt in. Set true: all six tools are registered, unchanged from Step 6's
+current behavior. No profile-name, question-wording, date, or scorer-literal is
+referenced anywhere in this file -- the gate is a generic, reusable capability
+flag any MCP client config can set via mcp_servers.<name>.env, the existing
+Hermes config mechanism (confirmed: hermes_cli/tools/mcp_tool.py reads
+config["env"] and merges it into the child process environment for stdio MCP
+servers).
+
+Exact edit: after the existing @mcp.tool() decorators for search_calls, open_call,
+open_note and search_history are defined, wrap their registration so it only
+happens when os.environ.get("AOS_BRAIN_DEPTH_TOOLS", "").strip().lower() in
+{"1", "true", "yes"}. remember_brain_knowledge and brain_memory_status keep their
+unconditional @mcp.tool() decorators exactly as before.
+
+ROLLBACK (change #1)
+cp /home/liam/ttros_backups/step6_operator_lean_repair_20260907T190731Z/brain_memory_mcp.py.orig \
+   /home/liam/agentic-os-live/tools/brain_memory_mcp.py
+
+FIX (change #2) -- /home/liam/.hermes/profiles/david/config.yaml (live Hermes
+profile config, not a repo file; not protected -- david is not connectors/,
+north_shore, or an auth/credential store)
+David is the only profile the canonical design (TTROS_BUILD_PLAN rev11 "Step 6 --
+corpus and vault behind tools", and install_hermes_context_assembler.py's
+PERSONAL_PROFILES = ("david",)) identifies as needing Business-Brain depth
+retrieval. Add env: AOS_BRAIN_DEPTH_TOOLS: "1" to david's existing
+mcp_servers.brain entry so David alone opts into the four depth tools. No other
+profile's config.yaml is touched -- operator-lean and the five aos-* worker
+profiles keep the pre-Step-6 default (2 brain tools), which is not a widening of
+operator-lean's allowlist (EXPECTED_TOOLS is untouched) and does not require one.
+
+Exact edit: under mcp_servers: brain: in david/config.yaml, add:
+    env:
+      AOS_BRAIN_DEPTH_TOOLS: "1"
+
+ROLLBACK (change #2)
+cp /home/liam/ttros_backups/step6_operator_lean_repair_20260907T190731Z/david_config.yaml.orig \
+   /home/liam/.hermes/profiles/david/config.yaml
+
+VERIFICATION PLAN
+1. Targeted: tests/test_telegram_conversational_routing.py (operator-lean tool
+   contract tests) -- must pass, 9 exact tools, no depth tools.
+2. Zero-model-call direct check: import tools.brain_memory_mcp with
+   AOS_BRAIN_DEPTH_TOOLS unset -> exactly {remember_brain_knowledge,
+   brain_memory_status} registered. With AOS_BRAIN_DEPTH_TOOLS=1 -> all 6
+   registered. No Hermes/model process involved.
+3. Business Brain test files (test_business_brain_*, test_aos_search.py) --
+   unaffected, they exercise aos_indexer/business_brain_context directly, not
+   the MCP tool registration.
+4. Full regression suite -- required 772 passed / 0 failed.

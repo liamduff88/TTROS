@@ -1,31 +1,54 @@
-# hooks/token_budget_check.md
-> Revisit: when ledger schema, provider usage, pricing, or fuse thresholds change. · Last touched: 2026-08-04.
+# hooks/token\_budget\_check.md
+
+> Revisit: when the ledger schema or budget thresholds change. · Last touched: 2026-07-08 (status/receipt paths now hard-refuse like `done`; schema validation is a hard block).
 
 ## Event
 
-Runs before and after every protected model invocation and during queue
-process-exit reconciliation.
+Fires when a queue item transitions to `done` in `tools/aos-queue.py`
+(`status ... done`, `receipt ... --status done`, or the explicit `done`
+subcommand). Implemented by `finalize\\\_done()`.
 
-## Before call
+## Check
 
-- Require typed assembled context at the model boundary.
-- Resolve the one cost dial (scope override → global → `standard`).
-- Read the named work-item/session state from `queue/token_ledger.jsonl`.
-- Block only a known 500,000-token pause or unknown/corrupt accounting.
+The coordinator assembles the `token\\\_usage` block for the receipt from
+harness/API usage fields only — a Hermes one-shot `--usage-file`, a
+pre-assembled `--token-usage` block, or, when neither is supplied, a block in
+which every component is listed by name under `unavailable`. Because an
+explicit-`unavailable` block is always constructible, the transition is refused
+only when the block cannot be built with its required keys
+(`orchestrator`, `subagents`, `workbenches`, `totals`, `est\\\_cost\\\_usd`,
+`unavailable`) — never to force a guessed token count. The assembled
+run-ledger and token-ledger lines are validated against
+`queue/run\\\_ledger\\\_schema.json` and `queue/token\\\_ledger\\\_schema.json`
+(best-effort only in the sense that validation is skipped if `jsonschema`
+isn't installed; when it is, a schema failure is a hard block, same as an
+incomplete `token\\\_usage` block). `est\\\_cost\\\_usd` is always computed
+deterministically from `scripts/model\\\_prices.json` — no caller-supplied cost
+override is accepted on any path.
 
-## After call
+Budget class is derived from the item's `budget:<class>` tag (or overridden on
+the `done` command) and recorded as a reporting label — a soft signal, never a
+hard mid-task stop, per `rules/token\\\_budget.md`.
 
-- Record provider, actual model, exact exposed token fields, canonical total,
-  price/unpriced state, dial source and scope.
-- Emit newly crossed 50/80/100 events once by invocation identity.
-- At 100%, preserve state and block the next call; never claim the running call
-  was interrupted.
+## On block
 
-The 50/80 events do not change context, model, compaction, or execution.
-Automatic compaction remains independent session hygiene. Deterministic
-operations record zero model invocations.
+All three done-transition paths — `status ITEM\\\_ID done`, `receipt ITEM\\\_ID PATH --status done`, and the explicit `done` command — refuse identically: `tools/ aos-queue.py` runs `finalize\\\_done()` (build token\_usage, validate both ledger
+lines against schema) *before* persisting the status change or the receipt.
+On refusal, `finalize\\\_done()` raises, nothing is written (no ledger line, no
+`<id>.token\\\_usage.json` sidecar), and the item's prior status stands — never a
+"done" item with a missing or invalid ledger entry. The error is surfaced as
+`NEEDS ATTENTION: ...` on stderr and the command exits non-zero. Never fills a
+missing token count with a guess to let the transition pass.
 
 ## Enforces
 
-`context/TOKEN_POLICY.md`, `rules/always.md` #1/#5, exact-or-unknown
-accounting, and the single Step 6 control contract.
+`rules/always.md` #1, #5 · `rules/token\\\_budget.md` · `context/TOKEN\\\_POLICY.md`.
+
+## Status
+
+Wired. `finalize\\\_done()` in `tools/aos-queue.py` runs this check before every
+done-transition (status, receipt, and explicit `done` commands alike), appends
+one line to both `queue/run\\\_ledger.jsonl` and `queue/token\\\_ledger.jsonl` only
+on success, and writes the `token\\\_usage` block into the receipt (markdown
+fenced block plus a `<id>.token\\\_usage.json` sidecar).
+

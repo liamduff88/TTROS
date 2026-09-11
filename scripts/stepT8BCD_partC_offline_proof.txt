@@ -1,0 +1,119 @@
+==============================================================================
+STEP T8-BCD Part C offline proof -- zero model calls
+==============================================================================
+
+--- PREDICTIONS (written before running) ---
+1. Card pointer, verbatim, BEFORE (preimage code): FAILS with 'Hermes durable knowledge writes must target Markdown'.
+2. Card pointer, verbatim, AFTER (this change): SUCCEEDS (success=true).
+3. GVR-boards call via card pointer + query 'GVR boards how many': result content contains 'I think 11 boards'; JSON-serialized result size strictly below 50,000 chars (the Hermes MCP spill threshold).
+4. Negative control (term 'unicorn', verified absent from the record by grep -c -i, count=0): matched=false, no passage returned.
+5. search_calls/open_call on one historical call: output byte-identical before vs after.
+6. T1's six assemble() cases: zero byte delta from T7's last-reported baseline.
+7. hooks/context_assembler_hook.py mode: still 755 (untouched by this step).
+
+--- CHECK 1/2: card pointer resolution, before vs after ---
+BEFORE: success=False error='Hermes durable knowledge writes must target Markdown'
+AFTER:  success=True pointer='business_brain:sources/intake/records/d9cb4668fd766474278e414bb53223f944342004f34be23020c161fa4160dd74.md' content_len=60000
+RESULT: PASS -- before fails, after resolves the exact card-rendered pointer.
+
+--- CHECK 3: bounded passage, GVR boards ---
+query (derived from Part D's verbatim question): 'meeting Fred exact words how many GVR boards there'
+matched=True content_len=12053 serialized_len=12380
+content:
+type: source
+status: historical-evidence
+title: "Meeting Title: Real estate workflow automation and MLS market reporting with Fred"
+original_filename: "Fred Haiderzada meeting sept 9th.txt"
+source_path: "/mnt/c/Users/Admin/Downloads/Fred Haiderzada meeting sept 9th.txt"
+imported_at: "2026-09-09T23:53:03.065662Z"
+source_sha256: d9cb4668fd766474278e414bb53223f944342004f34be23020c161fa4160dd74
+
+[...]
+
+## Searchable source text
+
+Meeting Title: Real estate workflow automation and MLS market reporting with Fred
+Date: Sep 9
+Meeting participants: Liam
+
+[...]
+
+Fred Haiderzada: I, I thought of something which is more like a project management platform.
+Me: Okay.
+Fred Haiderzada: Project managers use. There was like, you know, a few dozen of these software platforms available from, like, a very basic to a very sophisticated, like sap and, and so on. It's essentially like a process flow management. It shows your project which phase it's at, which tasks are done, which tasks are pending, who's responsible, who's waiting for it? Does it require approval? Which documents need to be uploaded and so on. However, on the real estate side, I thought something similar would be really helpful. For example, when you get a new client, there are a couple documents, forms that we have to fill out, like disclosure of representation, saying, like, you're my client and my loyalty stays with you. And if there's any conflict of interest, like, I'll excuse myself out of it or eliminate that interest. And then the other documents about privacy consent, sharing, like, how your information will be used by the board, by the realtor, and how it's going to be kept private. So there's those two firms that need to be filled out in the beginning required by the regulatory body. And then we move into, like, fin track, which is essentially idea that person to verify their identification and then also doing, like, financial report on them in terms of, it's a condocument. We fill out this, make sure that there's no signs of money laundering or anything like that. So there's a few questions that we have to answer. Again. These are like the three forms now you fill out in the beginning. Then there is, like, offers that you write, what offer you write a disclosure, rumoration, and then at the end, there's a few other documents get attached. When the offer gets accepted, you send it to the office. So my point being is there's, like, a few steps involved from the very beginning of the transaction till the very end when the transaction completes and the keys are handed over. There's probably, like, at least, like, maybe like a dozen checkpoints along the way. So maybe some realtors have, like, Excel spreadsheet. Some realtors have, you know, they've done it enough. It's kind of second nature. They know as soon as they write an offer, they already, they know that there's another disclosure that comes with it. So it's a very intuitive and almost like autopilot. They know what to do. But if you have, like, maybe two or three clients or four clients all running kind of in parallel and maybe the stages are a little bit off, it may at some point in time get a little bit confusing that, okay, did I get that disclosure done or not? And if somebody didn't sign something, like, where is it sitting at? So instead of having so many things just on your mind, what if you had, like, a little software that tells you, you know, your client number one is sitting at this stage client over to sitting at this stage. These documents are sent off to the office and to convincing so on. So you don't need to, you know, keep everything on your mind as much and everything's kind of documented for you.
+Me: So, yeah, I know.
+Fred Haiderzada: So, yeah, so that sounds like, oh, sorry. One more thing. This sounds like a full-on like project management software, but, yeah, I thought maybe something like that would be cool.
+
+[...]
+
+Fred Haiderzada: I think it's probably very rare because most people just look at vastly different criteria, some like in Vancouver, some like in 30, somewhat too bad. So on one bed, someone wants to detach. Someone wants a downhouse. Unless I think somebody has such a big clientele where the criteria might, might overlap. I still haven't had a situation where one client went and looked at the same one. I mean, it's probably possible, but because if you're working in downtown, there's many people whose criteria might overlap in, like, downtown, for example, for one bed or two bed. But potentially possible. Yeah.
+Me: So we have the tracking system, which is one thing, which I think we've covered. Then we have the MLS system. And so I just wanted to drill down a little bit in terms of, like, how you use mls and if there are areas that you would wish would be automated or what you spend your most time on that you would have to.
+Fred Haiderzada: I think what would be cool, like, you're kind of, like, opening up a wish list here. I was thinking, like, because I do a lot of stuff, obviously, manually, like almost every day I open MLS and I have my buyers listed and I see what new properties came on the market. And then I go through them, and if something really matches them and I hand pick it and I send them as a text message and I say, hey, like, I think this was really good. I hope you like, you know, if you haven't missed it or whatever. But what would be, I'm like thinking out loud now, like, what if I saw things like, hey, your buyer's been looking at two bets in downtown Vancouver? How many sold? How many are available price drops? New ones that came on the market. Like, I guess, just like general information, what's happening there. Like some sort of like an executive summary. The properties they've been looking at that's trending downwards. Yeah, maybe I probably should reflect on this more, like what, what information would I need extracted out of it? That would be of useful because I'm thinking would be so cool if my buyers got like a once a week report. Just kind of share it in their search area what has been happening, our prices starting to go down, how many new listings came on, how many sold, you know, what's the kind of the list price versus the sold price, just some pointers that they could see, you know, the weekend this way. Yeah.
+Me: Yeah, that's okay. So I'm currently right now. I just want to know in terms of if you go into mls yourself and try to do that work, it would be a nightmare because there's no way to build a report in ms. Right? Like that to say how many houses sold this week? What was the average price of two beds?
+Fred Haiderzada: Yeah, I think there is some manual reporting that's possible. I can share my screen with you. Time.
+
+[...]
+
+Fred Haiderzada: So I think the first one is like 20 bucks. The second one is 30 bucks. And if you want all three, it's like 35 or 36. Plus tax, like 40 bucks a month, I pay.
+Me: So this is the kind of thing that I was thinking of with if we get the API key, this is what I was thinking that we could build. And then we could sell it to other realtors.
+Fred Haiderzada: Yeah. And these guys. So this is the two views they gave us. Very basic, but I've used it many times, whether it helps the agents or buyers or not, but it's at least a number that they look at. So, for example, in downtown right now, Coal Harbor downtown West End and yield town inventory. How many condos are sitting on the market?
+Me: You know? Yeah.
+Fred Haiderzada: You're down 215 condos and only 30 sold. That's a sales ratio 14. So that means out of a hundred homes, only 14 sold. And then this shows you the price bands. So homes that are, I guess maybe in the 700s to 800s or 800 to 900s are suffering the most. Only 7% sales to active ratio, which means these are buyer markets. So I would take this and say, hey, look, Mr. Seller and listing agent, your price is like eight or 750. And 750 condos, only six sold last month out of 82. So you should technically be grateful that we're bringing you an offer because otherwise your property would sit on the market again for another month.
+
+[...]
+
+Them: Yeah, of course.
+Me: Right.
+Fred Haiderzada: Yeah, exactly. Exactly. And then, and then the summit, the show inventory in downtown total in July was 917. August 9 18 increased by one percent. Number of sold. August we had less action. So 16 last condos sold price increased in August. So prices went up quite a bit, actually. Price per square foot, one up by three percent. Sales ratio days on the market. And then it gives you a little market summary. You know what's happening.
+Me: So that price per square. So just going back to the price per square foot, how much of a real indicator is that? Because, for example, if you have a very expensive home that gets sold and it's a small home, then that, that's a very skewy number.
+Fred Haiderzada: It's a little.
+
+[...]
+
+Fred Haiderzada: Yeah, that sounds good. Yeah, definitely.
+Me: But it's kind of what I want to do is I want to, one of the things, like, I'm an entrepreneur. I got into this as a consulting thing, but one of the things I was on the side is, like, I want to find business opportunities like micro business opportunities where I can work with people in certain Industries to fix problems and then set up, like, a mini sauce or something with it and partner with somebody in the industry so that it can work well. And it, you know, it, it should not take too much time. And then when it's successful, maybe we can sell it to a bigger company. And it's just like that kind of thing. Is, that's kind of.
+Fred Haiderzada: One thought I had of this. I spoke with this with somebody else, like a year or so ago. Was like, if this dashboard got built to a certain level, and I think the number one customer who could acquire that business would be the, the boards like gvr, right? Like, you saw how archaic, like, first thing we saw the home screen, you're like, oh, my God, this is so ancient. Imagine if they brought that tool as, like, your home page right here.
+Me: Oh, yeah. Yeah. Yeah. I mean, it's. Yeah. And how much cash do they have? Because you guys must pay quite a bit every month to.
+Fred Haiderzada: A lot. They've got money. I'm sure they did. I've never heard of them complaining about money.
+
+[...]
+
+Fred Haiderzada: But what do I know? You know, so, you know, if they can sort of this little, what is this contact activity? So archaic. What if I had that dashboard as one of the windows right here? You know, I'm a west fan realtor. I open it right here every day. My wife's fan numbers show, you know, I can click on some buttons, look at british properties, look at call field, all interactive right here.
+Me: Awesome. Well, that would be great, because if we can build a dashboard and people start using it and then the, the GD, what's the gbr?
+Fred Haiderzada: Is the greater Vancouver realtors. There's like, I think 11 boards. There's a board that manages the Vancouver and a few other cities, and then there's Fraser Valley that looks at Surrey, Obisford. And then there's like a Vancouver Island board, northern DC board.
+Me: Ea, that's all of them together or that's just.
+Fred Haiderzada: And. Just, that's just Vancouver North, like Vancouver, I think us, burnab, cocodlum, West Van, Northbound, all fall under GVR.
+Me: So if so, basically with your API, you can only get the information for that cashman area.
+Fred Haiderzada: Yeah, but, I mean, I also have Fraser Valley, so they have some sort of data sharing. So I can look at Langley, Siri, their Fraser Valley, but it shows up on my MLS, so they are connected somehow.
+Me: Okay, awesome. Cool. Okay, well, so I'm gonna go away. I'll get back to you maybe in the next few days. I'll have a think about how we can do the reporting system for the, the tracking system for you and then maybe look at this a little bit more as well, and we can use something out.
+Fred Haiderzada: And I'll let you know what gvr tells me when they come back to me.
+Me: Yeah.
+Fred Haiderzada: Or data access. Yeah.
+
+RESULT: PASS -- quote present; serialized size 12,380 chars < 50,000 char spill threshold.
+
+--- CHECK 4: negative control ---
+query='unicorn' matched=False content=''
+RESULT: PASS -- verified-absent term returns no passage, not an arbitrary chunk.
+
+--- CHECK 5: search_calls/open_call byte-identity (historical call, untouched code path) ---
+BEFORE open_call success=True content_len=47441
+AFTER  open_call success=True content_len=47441
+RESULT: PASS -- open_call output byte-identical before vs after (function untouched).
+
+--- CHECK 6: T1's six assemble() cases (scoped canonical Brain notes block bytes) ---
+Fred/MLS               bytes=  5148 baseline=  5148 delta=+0 [OK]
+CCI                    bytes=  7444 baseline=  7444 delta=+0 [OK]
+Andrea                 bytes=  4833 baseline=  4833 delta=+0 [OK]
+Negative control 1     bytes=   192 baseline=   192 delta=+0 [OK]
+Negative control 2     bytes=   192 baseline=   192 delta=+0 [OK]
+Fallback control       bytes=   192 baseline=   192 delta=+0 [OK]
+RESULT: PASS -- zero byte drift on all six cases.
+
+--- CHECK 7: hooks/context_assembler_hook.py mode ---
+mode=755
+RESULT: PASS -- mode unchanged at 755.
+
+==============================================================================
+ALL CHECKS PASSED
+==============================================================================

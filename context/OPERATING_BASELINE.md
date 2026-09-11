@@ -24,7 +24,9 @@ Branch: `main` tracking `origin/main`
 ## Launch commands
 
 Dashboard:
-`tools/aos-linux-runtime.sh desktop-start`
+Started automatically by systemd at boot. There is nothing to run by hand.
+Check it with:
+`systemctl --user status aos-backend aos-frontend aos-runner aos-bridge`
 
 Codex:
 `cd "/home/liam/agentic-os-live" && /home/liam/.local/npm/bin/codex --sandbox danger-full-access --ask-for-approval never -C /home/liam/agentic-os-live`

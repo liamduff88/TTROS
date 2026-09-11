@@ -1,0 +1,151 @@
+id: source-intake-claim-kenneth-meeting-may-27
+type: claim_record
+source_id: kenneth-meeting-may-27
+source_path: sources/historical_calls/kenneth-meeting-may-27.md
+source_sha256: 2b6bda4ca5309207233cfb43bf778b2675f8db5195a6c04faad45bb29720d4c9
+generated_at: '2026-09-09T22:41:47.548518Z'
+model: gpt-5.5
+claim_count: 14
+dropped_count: 1
+canonical_truth: false
+claims:
+- claim: Me explained that the outreach notes had misaddressed leads as if Me were
+    contacting them on Them's behalf, and Me corrected the system.
+  type: fact_asserted
+  attribution: Me
+  status: historical
+  evidence:
+    quote: it misinterpreted what I said. And in the outreach notes, it said it basically
+      was addressing them as me on your behalf.
+    locator: Me turn explaining Outreach assets
+- claim: Me said the system could later be changed to provide only main leads and
+    suggested outreach copy instead of a large document once Them trusts it.
+  type: offer_made
+  attribution: Me
+  status: historical
+  evidence:
+    quote: We can change the system to just basically give you these are the main
+      leads you need to worry about. And this is what you can say to them. Rather
+      than this huge document.
+    locator: Me turn after discussing testing details
+- claim: Them advised not getting stuck in analysis paralysis and to take one lead
+    through outreach to learn from it.
+  type: advice_received
+  attribution: Them
+  status: historical
+  evidence:
+    quote: we can't also get stuck in, like, an alistus paralysis. Right. We gotta,
+      like, for me, for example, we got to say, okay, let's go take one. And then
+      follow it through, right?
+    locator: Them feedback after reviewing lead report
+- claim: Them asked whether Me could add keyword-based information retrieval to return
+    a paragraph for outreach narrative without changing the scoring system.
+  type: open_question
+  attribution: Them
+  status: historical
+  evidence:
+    quote: can you set up something in the system that when it's scrubbing for information,
+      it looks for some of these keywords. And return it returns it in a paragraph.
+    locator: Them question about keywords after scoring-system discussion
+- claim: Me offered to add cultural indications, management change, and systems-in-place
+    information to each company brief before the reach-out section.
+  type: commitment
+  attribution: Me
+  status: historical
+  evidence:
+    quote: I'll include it in the brief on each company that comes before the reach
+      out. So the brief can include things like cultural indications, management change
+      systems in place.
+    locator: Me response to keyword paragraph request
+- claim: Them said they preferred sending 20 or 30 relationship-based outreaches over
+    mass lead-generation emails.
+  type: liam_position
+  attribution: Them
+  status: historical
+  evidence:
+    quote: I rather we send. 20 or 30 because those clients that I got now, including
+      cci, including the Toronto one, including the one at the training for. Has been
+      through more direct discussions
+    locator: Them discussion of outreach approach and relationships
+- claim: Them described their value as bringing simplistic practical solutions to
+    seemingly complex problems.
+  type: third_party_statement
+  attribution: Them
+  status: historical
+  evidence:
+    quote: we bringing some simplistic practical solutions to your seemingly complex
+      problems.
+    locator: Them answer to what they offer
+- claim: Me positioned their broader work as identifying a company's pain points and
+    using AI to help fix them, not only lead generation.
+  type: liam_position
+  attribution: Me
+  status: historical
+  evidence:
+    quote: what I want to do with this in general is more about just looking at, for
+      example, what pain points does a company have and how can I help AI fix them.
+    locator: Me turn beginning 'going back to what I do'
+- claim: Them asked whether Me could use their tools to find distressed property sales
+    in a particular area for a personal property purchase.
+  type: open_question
+  attribution: Them
+  status: historical
+  evidence:
+    quote: Using. Your bag of tricks. Can you find distress sales in a particular
+      area?
+    locator: Them property-purchase question
+- claim: Them offered to introduce Me to Fred, a realtor, to explore possible service
+    value around buyers, sellers, or related needs.
+  type: offer_made
+  attribution: Them
+  status: historical
+  evidence:
+    quote: How then can you provide a service for him? To find. Buyers, sellers, whatever.
+    locator: Them discussion of Fred the realtor
+- claim: Them advised Me to create a slide with a visual roadmap for CCI showing engagement
+    steps, phases, inputs, processes, and outputs.
+  type: advice_received
+  attribution: Them
+  status: historical
+  evidence:
+    quote: My suggestion. Is, I'm just going to type it out here. Is do a. Slide.
+      To show a visual. Roadmap.
+    locator: Them suggestion for CCI presentation
+- claim: Me said the current 15% trust-based arrangement could not be done with CCI
+    and that Me needed to figure out CCI's model through conversation.
+  type: liam_position
+  attribution: Me
+  status: historical
+  evidence:
+    quote: It's a very casual trust based thing. It's not really, it's not really,
+      I can't, like, there's no way that I can do that with CCI.
+    locator: Me discussion of business model with CCI
+- claim: Them committed to speak with CCI and Fred and keep Me in the loop about follow-up
+    possibilities.
+  type: commitment
+  attribution: Them
+  status: historical
+  evidence:
+    quote: I'll speak to CCI probably next week, and I'll keep you in the loop.
+    locator: Them closing commitments
+- claim: Me said the corporate lead version four should be good and suggested reaching
+    out to all people in that list, while SME leads may need fit review.
+  type: advice_received
+  attribution: Me
+  status: historical
+  evidence:
+    quote: The version four for the corporate lead should be good. So I think you
+      can reach out to all of the people that are in that list.
+    locator: Me closing advice on corporate and SME leads
+dropped:
+- claim:
+    claim: Me said they could try to look for distressed property sales, probably
+      next week rather than that week.
+    type: commitment
+    attribution: Me
+    status: historical
+    evidence:
+      quote: I could, I could, I could definitely try and try and look at that. But
+        I probably can't do it this week. I'd probably have to be next week
+      locator: Me response to distressed-property question
+  reason: evidence quote does not resolve as an exact substring of the source

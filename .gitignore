@@ -131,3 +131,13 @@ queue/draft_runtime/
 
 # Prospecting handoff inbox is operator-supplied runtime input, not generated source.
 workflows/prospecting_daily_run/input/
+
+# Per-question B7/harness token-usage receipts are transient run evidence
+# (hundreds per pass); the pass's .raw/.scored.json and .transcript.txt/.md
+# report stay tracked as the durable record. STEP 0164 stabilization.
+scripts/*.usage.json
+
+# David Morning Brief is a non-authoritative, per-run local delivery artifact
+# (self-labelled in its own header); EXECUTIVE_BRIEF.md/MORNING_BRIEF_FINDINGS.json
+# remain tracked periodic snapshots by existing convention. STEP 0164 stabilization.
+context/DAVID_MORNING_BRIEF.md

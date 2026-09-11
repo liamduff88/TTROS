@@ -1,0 +1,30 @@
+Loaded 25 step6_post session IDs from usage.json files.
+Loaded 49 structural/meta signatures from harness doc + scorer sources.
+
+=== PART A: output-retention precondition ===
+Total tool calls across 25 step6_post sessions: 46
+Tool calls with a non-empty stored output (tool-role content): 46
+Output-retention coverage: 100.0%
+Missing sessions (not found in state.db): []
+
+=== PART C: tool surface enumerated from the records ===
+Distinct tool names observed: ['execute_code', 'mcp__brain__open_call', 'mcp__brain__open_note', 'mcp__brain__search_calls', 'mcp__brain__search_history', 'search_files', 'skill_view']
+Count: 7
+  execute_code: read-capable=True -- arbitrary code execution with filesystem access
+  mcp__brain__open_call: read-capable=True -- reads a historical call transcript
+  mcp__brain__open_note: read-capable=True -- reads a named Business Brain vault note
+  mcp__brain__search_calls: read-capable=True -- searches historical call corpus, returns content
+  mcp__brain__search_history: read-capable=True -- searches Business Brain vault, returns content
+  search_files: read-capable=True -- generic filesystem content/path search -- confirmed leak vector in step3/5
+  skill_view: read-capable=True -- reads skill definition content by name
+'terminal' present in step6_post surface: False
+'process_manage' present in step6_post surface: False
+'process' present in step6_post surface: False
+
+=== PART D: two-sided contamination scan (real records) ===
+Total tool calls scanned: 46
+Calls with ANY hit (argument, output, or cross-question leak): 0
+
+VERDICT (real records only): CLEAN on the full enumerated surface, 46 calls, 100.0% output coverage.
+
+Structured output written to /home/liam/agentic-os-live/scripts/step6_post_full_tool_surface_verification.json

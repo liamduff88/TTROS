@@ -1,0 +1,21 @@
+=== PHASE 2A -- LIVE GUARD EXTENSION REHEARSAL (14 freeze source paths) ===
+
+CASE A (run active, one of the 12 resolved candidates 14 SOURCE paths):
+  payload path: /mnt/c/Users/Admin/Documents/A-Time to revenue/TTROS Business Brain/sources/historical_calls/mike-knapp-july-21.md
+  result: {'action': 'block', 'message': 'validation-a seal guard denied a read of a sealed Validation A path'}
+  expected: action=block  -> PASS
+
+CASE B (run active, UNSEALED control path):
+  payload path: operating_context/current_priorities.md
+  result: {}
+  expected: {} (allow)  -> PASS
+
+CASE C (run INACTIVE -- env var absent, same freeze source path):
+  payload path: /mnt/c/Users/Admin/Documents/A-Time to revenue/TTROS Business Brain/sources/historical_calls/mike-knapp-july-21.md
+  result: {}
+  expected: {} (inert)  -> PASS
+
+=== SUMMARY ===
+DENY direction exercised (14-path extension): True
+ALLOW direction exercised (control path unaffected): True
+INERT-when-absent exercised (extension too): True

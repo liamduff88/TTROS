@@ -149,7 +149,6 @@ class AosCodexPolicyTest(unittest.TestCase):
             ROOT / "dashboard/backend/main.py",
             ROOT / "tools/aos-queue.py",
             ROOT / "tools/aos-orchestration-runner.py",
-            ROOT / "tools/aos-linux-runtime.sh",
             ROOT / "dashboard/frontend/src/launcherPrompts.js",
             ROOT / "workflows/prompt_templates/codex_workflow_runner.md",
             LAUNCHER,
@@ -158,8 +157,7 @@ class AosCodexPolicyTest(unittest.TestCase):
             text = path.read_text(encoding="utf-8")
             with self.subTest(path=path):
                 self.assertNotIn("workspace-write", text)
-                if path.name != "aos-linux-runtime.sh":
-                    self.assertNotIn("/mnt/c/Users/Admin/Documents/A-Time to revenue/Agentic OS Live", text)
+                self.assertNotIn("/mnt/c/Users/Admin/Documents/A-Time to revenue/Agentic OS Live", text)
 
 
 if __name__ == "__main__":

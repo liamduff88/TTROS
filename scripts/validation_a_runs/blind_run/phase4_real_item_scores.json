@@ -1,0 +1,190 @@
+{
+  "schema": "validation_a_phase4_real_item_scores_v1",
+  "detector_sha256_verified": "8fde986480f1129af2da0d7ff7e2f4e72035e06a74733ce7fb6ad7341375aa82",
+  "item_count": 12,
+  "results": [
+    {
+      "position": 1,
+      "item_id": "item-1",
+      "status": "OK",
+      "result": {
+        "verdict": "NOT SUPPORTED",
+        "reason_tags": [
+          "polarity_assertion",
+          "prohibited_opposite",
+          "temporal_status",
+          "essential_qualifier",
+          "locality"
+        ],
+        "evidence": "--- id: historical-source-94079fd55c0d1c8c type: historical_source status: evidence_only canonical_truth: false source_document_kind: call_transcript original_filename: \"First call with CCI.txt\" source_sha256: 94079fd55c0d1c8c524d119c8f9ca5f0e6ff1993c84c10cd7e0bc437dd818459 source_size_bytes: 43927 source_mime_type: \"message/rfc822\" source_date_text: \"Jun 10\" participants_text: \"Liam Duff; CCI participants not individually attributable\" metadata_basis: \"embedded fields; generic counterpart labels\" actual_source_read: full_bytes_for_sha256_and_import imported_at: \"2026-08-17\" hermes_last_write:   author: hermes   source: \"operator-approved historical call transcript import\"   session: \"historical-call-import-20260817\"   at: \"2026-08-17T20:50:10.573536Z\" --- # Historical source \u2014 First call with CCI  > Revisit: only if provenance or duplicate resolution is challenged. ; ## Original source content  <!-- TTROS:VERBATIM_SOURCE:BEGIN:316f9908a9d7f0ac3c4c2cdd54a1b125088d3c1f86f9d622eff4cb0f921e6bbe --> Meeting Title: AI consulting positioning and go-to-market strategy with Mike Date: Jul 21 Meeting participants: Liam  ### Liam\u2019s Background and Current Challenge  - AI consultancy set up ~6 months ago, after 10 years in startups (agritech, cannabinoid delivery systems) as CTO - Can deliver value but lacks sales experience and hasn\u2019t gained traction - Core tension: strategic positioning vs. ; Is the one is, uh, they currently have, uh, let's call it people doing work across multiple platforms, which then leads to inefficiencies and extra time and all the rest of it. ; <!-- TTROS:VERBATIM_SOURCE:END:94079fd55c0d1c8c524d119c8f9ca5f0e6ff1993c84c10cd7e0bc437dd818459 -->   --- id: historical-source-350d9a1f8bc4ea5b type: historical_source status: evidence_only canonical_truth: false source_document_kind: call_transcript original_filename: \"Call with Kenneth after first CCI call.md\" source_sha256: 350d9a1f8bc4ea5b2cf275071c0ed8c964abc1df78677fe33ee76ebfaab653eb source_size_bytes: 31212 source_mime_type: \"text/plain\" source_date_text: \"unavailable\" participants_text: \"Liam Duff; Dr Kenneth Moodley\" metadata_basis: \"filename/title and speaker labels\" actual_source_read: full_bytes_for_sha256_and_import imported_at: \"2026-08-17\" hermes_last_write:   author: hermes   source: \"operator-approved historical call transcript import\"   session: \"historical-call-import-20260817\"   at: \"2026-08-17T20:50:10.572814Z\" --- # Historical source \u2014 Call with Kenneth after first CCI call  > Revisit: only if provenance or duplicate resolution is challenged. ; ---\nid: historical-source-94079fd55c0d1c8c\ntype: historical_source\nstatus: evidence_only\ncanonical_truth: false\nsource_d | Them: And then I joined CCI just over a year ago actually a year ago last Monday started off looking after sales for Eur"
+      }
+    },
+    {
+      "position": 2,
+      "item_id": "item-2",
+      "status": "OK",
+      "result": {
+        "verdict": "NOT SUPPORTED",
+        "reason_tags": [
+          "polarity_assertion",
+          "prohibited_opposite",
+          "temporal_status",
+          "essential_qualifier",
+          "locality"
+        ],
+        "evidence": "Human Review Was Always the Plan  For this kind of business, AI should not automatically submit estimates, issue invoices, or make technical water-treatment decisions without review. ; Hermes can be asked:  > \u201cShow me all active jobs.\u201d  > \u201cWhich jobs are running past expected rental time?\u201d  > \u201cWhat equipment is currently onsite?\u201d  > \u201cWhich jobs need follow-up today?\u201d  ### Inputs  - Awarded estimate - Contract or PO - Customer information - Site address - Start date - Expected duration - Equipment deployed - Rental start date - Rental end date - Technician reports - Change orders - Site issues - Customer communications  ### Outputs  - Active job list - Job status report - Equipment deployment summary - Timing alerts - Missing information flags - Follow-up reminders - Rental overrun warnings - Weekly owner summary  ### Human review point  A human verifies project status and resolves exceptions. ; Bye bye.<!-- TTROS:VERBATIM_SOURCE:END:290c72e5efe04be152de33c05694b6dbd1a939264a95d1b83c7bac258d5e552d -->   --- id: historical-source-7d3871ea24d86108 type: historical_source status: evidence_only canonical_truth: false source_document_kind: concept_summary original_filename: \"hermes_water_treatment_system_summary_for_trent.md\" source_sha256: 7d3871ea24d861088189fc8695df2016e62eb7de0c7faafb59e5b2b233bfe3dc source_size_bytes: 20050 source_mime_type: \"text/plain\" source_date_text: \"unavailable\" participants_text: \"Prepared for Time to Revenue; references Lance and Trent\" metadata_basis: \"title/prepared-for block\" actual_source_read: full_bytes_for_sha256_and_import imported_at: \"2026-08-17\" hermes_last_write:   author: hermes   source: \"operator-approved historical call transcript import\"   session: \"historical-call-import-20260817\"   at: \"2026-08-17T20:50:10.578614Z\" --- # Historical source \u2014 Hermes-Assisted Water Treatment Operating System \u2014 Concept Summary for Lance / Trent  > Revisit: only if provenance or duplicate resolution is challenged. ; Them: And then I joined CCI just over a year ago actually a year ago last Monday started off looking after sales for Eur | Trent MacGregor\nThe other thing is that Lance, let's say in terms of, uh, the, the snow, uh, that's the other business t | - Knowledge state: `interpretation` / `historical discovery aid`, not canonical fact.\n- A supervised assistant concept f"
+      }
+    },
+    {
+      "position": 3,
+      "item_id": "item-3",
+      "status": "OK",
+      "result": {
+        "verdict": "NOT SUPPORTED",
+        "reason_tags": [
+          "polarity_assertion",
+          "prohibited_opposite",
+          "temporal_status",
+          "essential_qualifier",
+          "list_coverage",
+          "locality"
+        ],
+        "evidence": "I've got cowork right now running against obsidian on this screen over here managing a CRM of every single phone call for every single client that I do and doing all the pre research on every sales call and pumping out a simple text based report so I can in 30 seconds go oh I haven't had a call with Liam before and it says here's your call with Liam here's what happened in the last three calls here are all the open actions here's what he said he was going to do. ; ## Original source content  <!-- TTROS:VERBATIM_SOURCE:BEGIN:316f9908a9d7f0ac3c4c2cdd54a1b125088d3c1f86f9d622eff4cb0f921e6bbe --> Meeting Title: AI consulting positioning and go-to-market strategy with Mike Date: Jul 21 Meeting participants: Liam  ### Liam\u2019s Background and Current Challenge  - AI consultancy set up ~6 months ago, after 10 years in startups (agritech, cannabinoid delivery systems) as CTO - Can deliver value but lacks sales experience and hasn\u2019t gained traction - Core tension: strategic positioning vs. ; Trent MacGregor That's how their quote goes out, and then they'll quote a labour price and everything else, and then that will be all be put in there, so labour will be ongoing. ; --- id: historical-source-d38f763f650282c8 type: historical_source status: evidence_only canonical_truth: false source_document_kind: call_transcript original_filename: \"Call with Dr Kenneth after 2nd cci call.md\" source_sha256: d38f763f650282c80370b0bee705066f68aeac56493c0a97a39d597254dfd5f1 source_size_bytes: 54593 source_mime_type: \"text/plain\" source_date_text: \"unavailable\" participants_text: \"Liam Duff; Dr Kenneth Moodley\" metadata_basis: \"title and speaker labels\" actual_source_read: full_bytes_for_sha256_and_import imported_at: \"2026-08-17\" hermes_last_write:   author: hermes   source: \"operator-approved historical call transcript import\"   session: \"historical-call-import-20260817\"   at: \"2026-08-17T20:50:10.571952Z\" --- # Historical source \u2014 Call with Dr Kenneth Moodley after second CCI call  > Revisit: only if provenance or duplicate resolution is challenged. ; revenue capacity ; Dr Kenneth Moodley  \nBecause of language. So now if I phone up to CFO was worked in Toyota where they've been exposed to | You  \none of the questions I have about that is, and I probably should have asked Ollie, and I can ask him, is, um, I sh | Transcript:\nMe: Can you hear me? I think. \nThem: Can you hear me? \nMe: Oh yes, I can hear you now. \nThem: The hardware m"
+      }
+    },
+    {
+      "position": 4,
+      "item_id": "item-4",
+      "status": "OK",
+      "result": {
+        "verdict": "NOT SUPPORTED",
+        "reason_tags": [
+          "polarity_assertion",
+          "prohibited_opposite",
+          "temporal_status",
+          "essential_qualifier"
+        ],
+        "evidence": "\u201cAI-enabled CTO for SMBs\u201d   - Implementation: easier to sell, good for building proof points now   - Strategic: harder to get, but the real differentiator - AI-enabled CTO framing: lead cultural shift, govern innovation pipeline, ensure ROI   - Identify use cases, prioritize them, track through to delivery, verify return   - Governance of this process is \u201cincredibly weak across companies\u201d - Rocky and team at Now of Work doing this for mid/large clients: managing innovation, not just consulting - Recommended path: take implementation clients now to prove capability while building out the strategic offering  ### Niche, Market, and Tooling  - Niching down: easier sales, higher rates, clearer messaging   - Start with own experience and preferred company size   - Build a library of use cases per vertical, write SEO blogs around them   - In sales: lead with a specific, relatable pain point and a concrete before/after story - Enterprise vs. ; ## Original source content  <!-- TTROS:VERBATIM_SOURCE:BEGIN:316f9908a9d7f0ac3c4c2cdd54a1b125088d3c1f86f9d622eff4cb0f921e6bbe --> Meeting Title: AI consulting positioning and go-to-market strategy with Mike Date: Jul 21 Meeting participants: Liam  ### Liam\u2019s Background and Current Challenge  - AI consultancy set up ~6 months ago, after 10 years in startups (agritech, cannabinoid delivery systems) as CTO - Can deliver value but lacks sales experience and hasn\u2019t gained traction - Core tension: strategic positioning vs. ; --- id: historical-source-316f9908a9d7f0ac type: historical_source status: evidence_only canonical_truth: false source_document_kind: call_transcript original_filename: \"chat with Mike Knapp.txt\" source_sha256: 316f9908a9d7f0ac3c4c2cdd54a1b125088d3c1f86f9d622eff4cb0f921e6bbe source_size_bytes: 34322 source_mime_type: \"text/plain\" source_date_text: \"Jul 21\" participants_text: \"Liam Duff; Mike Knapp\" metadata_basis: \"embedded title/date; counterpart from filename\" actual_source_read: full_bytes_for_sha256_and_import imported_at: \"2026-08-17\" hermes_last_write:   author: hermes   source: \"operator-approved historical call transcript import\"   session: \"historical-call-import-20260817\"   at: \"2026-08-17T20:50:10.578009Z\" --- # Historical source \u2014 AI consulting positioning and go-to-market strategy with Mike  > Revisit: only if provenance or duplicate resolution is challenged."
+      }
+    },
+    {
+      "position": 5,
+      "item_id": "item-5",
+      "status": "OK",
+      "result": {
+        "verdict": "NOT SUPPORTED",
+        "reason_tags": [
+          "polarity_assertion",
+          "prohibited_opposite",
+          "essential_qualifier"
+        ],
+        "evidence": "\u201cAI-enabled CTO for SMBs\u201d   - Implementation: easier to sell, good for building proof points now   - Strategic: harder to get, but the real differentiator - AI-enabled CTO framing: lead cultural shift, govern innovation pipeline, ensure ROI   - Identify use cases, prioritize them, track through to delivery, verify return   - Governance of this process is \u201cincredibly weak across companies\u201d - Rocky and team at Now of Work doing this for mid/large clients: managing innovation, not just consulting - Recommended path: take implementation clients now to prove capability while building out the strategic offering  ### Niche, Market, and Tooling  - Niching down: easier sales, higher rates, clearer messaging   - Start with own experience and preferred company size   - Build a library of use cases per vertical, write SEO blogs around them   - In sales: lead with a specific, relatable pain point and a concrete before/after story - Enterprise vs. ; ## Original source content  <!-- TTROS:VERBATIM_SOURCE:BEGIN:316f9908a9d7f0ac3c4c2cdd54a1b125088d3c1f86f9d622eff4cb0f921e6bbe --> Meeting Title: AI consulting positioning and go-to-market strategy with Mike Date: Jul 21 Meeting participants: Liam  ### Liam\u2019s Background and Current Challenge  - AI consultancy set up ~6 months ago, after 10 years in startups (agritech, cannabinoid delivery systems) as CTO - Can deliver value but lacks sales experience and hasn\u2019t gained traction - Core tension: strategic positioning vs. ; --- id: historical-source-316f9908a9d7f0ac type: historical_source status: evidence_only canonical_truth: false source_document_kind: call_transcript original_filename: \"chat with Mike Knapp.txt\" source_sha256: 316f9908a9d7f0ac3c4c2cdd54a1b125088d3c1f86f9d622eff4cb0f921e6bbe source_size_bytes: 34322 source_mime_type: \"text/plain\" source_date_text: \"Jul 21\" participants_text: \"Liam Duff; Mike Knapp\" metadata_basis: \"embedded title/date; counterpart from filename\" actual_source_read: full_bytes_for_sha256_and_import imported_at: \"2026-08-17\" hermes_last_write:   author: hermes   source: \"operator-approved historical call transcript import\"   session: \"historical-call-import-20260817\"   at: \"2026-08-17T20:50:10.578009Z\" --- # Historical source \u2014 AI consulting positioning and go-to-market strategy with Mike  > Revisit: only if provenance or duplicate resolution is challenged."
+      }
+    },
+    {
+      "position": 6,
+      "item_id": "item-6",
+      "status": "OK",
+      "result": {
+        "verdict": "NOT SUPPORTED",
+        "reason_tags": [
+          "polarity_assertion",
+          "prohibited_opposite",
+          "temporal_status",
+          "essential_qualifier"
+        ],
+        "evidence": "## Selective discovery note  - Knowledge state: `interpretation` / `historical discovery aid`, not canonical fact. ; Them: Whereas now what I'm doing with CCI currently, it's, if I'm sitting on a call, I introduce you to them. ; --- id: historical-source-4d80f48274bfa398 type: historical_source status: evidence_only canonical_truth: false source_document_kind: call_transcript original_filename: \"second call with CCI Ollie and Kenneth.txt\" source_sha256: 4d80f48274bfa3986cea5851239f293755e75185b7920d2d46ec3abbac4903a2 source_size_bytes: 76281 source_mime_type: \"message/rfc822\" source_date_text: \"Jun 15\" participants_text: \"Liam Duff; CCI participants including Ollie and Kenneth; mapping unavailable\" metadata_basis: \"date plus filename/transcript references\" actual_source_read: full_bytes_for_sha256_and_import imported_at: \"2026-08-17\" hermes_last_write:   author: hermes   source: \"operator-approved historical call transcript import\"   session: \"historical-call-import-20260817\"   at: \"2026-08-17T20:50:10.580038Z\" --- # Historical source \u2014 Second call with CCI, Ollie and Kenneth  > Revisit: only if provenance or duplicate resolution is challenged."
+      }
+    },
+    {
+      "position": 7,
+      "item_id": "item-7",
+      "status": "OK",
+      "result": {
+        "verdict": "NOT SUPPORTED",
+        "reason_tags": [
+          "polarity_assertion",
+          "essential_qualifier",
+          "locality"
+        ],
+        "evidence": "And we go on how how can we're only finding out about that you know after they've made that decision about recruiting somebody without maybe even coming to CCI first about how they could leverage a system rather than getting some other new opex director in to completely create a new methodology. ; --- id: historical-source-94079fd55c0d1c8c type: historical_source status: evidence_only canonical_truth: false source_document_kind: call_transcript original_filename: \"First call with CCI.txt\" source_sha256: 94079fd55c0d1c8c524d119c8f9ca5f0e6ff1993c84c10cd7e0bc437dd818459 source_size_bytes: 43927 source_mime_type: \"message/rfc822\" source_date_text: \"Jun 10\" participants_text: \"Liam Duff; CCI participants not individually attributable\" metadata_basis: \"embedded fields; generic counterpart labels\" actual_source_read: full_bytes_for_sha256_and_import imported_at: \"2026-08-17\" hermes_last_write:   author: hermes   source: \"operator-approved historical call transcript import\"   session: \"historical-call-import-20260817\"   at: \"2026-08-17T20:50:10.573536Z\" --- # Historical source \u2014 First call with CCI  > Revisit: only if provenance or duplicate resolution is challenged. ; Them: And then I joined CCI just over a year ago actually a year ago last Monday started off looking after sales for Eur | Me: Hello? Hi.  \nThem: Hello.  \nMe: How are you?  \nThem: All good. Thank you.  \nMe: Great somehow. I have control over t"
+      }
+    },
+    {
+      "position": 8,
+      "item_id": "item-8",
+      "status": "OK",
+      "result": {
+        "verdict": "NOT SUPPORTED",
+        "reason_tags": [
+          "attribution",
+          "polarity_assertion",
+          "prohibited_opposite",
+          "temporal_status",
+          "essential_qualifier",
+          "locality"
+        ],
+        "evidence": "Dr Kenneth Moodley   One of the things, all he said was, Hey, that could save us a ton of       You   Yeah,       Dr Kenneth Moodley   time. ; Dr Kenneth Moodley So, so we also weary, that not to do too much because rumour you're going to do all this effort to, let's call it, put CCI's name, Up there, right, on the algorithm and it's more visible, et cetera. ; Dr Kenneth Moodley So I think there's opportunity to understand those current processes and then to say, oh, if I can I overlay AI solution on top of it, to improve the efficiency, which means then that I am, we are now able to save people's time, which means that instead of them doing spade work, using their hands, they can now use their minds and experience to actually engage with clients. ; Is the one is, uh, they currently have, uh, let's call it people doing work across multiple platforms, which then leads to inefficiencies and extra time and all the rest of it. ; --- id: historical-source-350d9a1f8bc4ea5b type: historical_source status: evidence_only canonical_truth: false source_document_kind: call_transcript original_filename: \"Call with Kenneth after first CCI call.md\" source_sha256: 350d9a1f8bc4ea5b2cf275071c0ed8c964abc1df78677fe33ee76ebfaab653eb source_size_bytes: 31212 source_mime_type: \"text/plain\" source_date_text: \"unavailable\" participants_text: \"Liam Duff; Dr Kenneth Moodley\" metadata_basis: \"filename/title and speaker labels\" actual_source_read: full_bytes_for_sha256_and_import imported_at: \"2026-08-17\" hermes_last_write:   author: hermes   source: \"operator-approved historical call transcript import\"   session: \"historical-call-import-20260817\"   at: \"2026-08-17T20:50:10.572814Z\" --- # Historical source \u2014 Call with Kenneth after first CCI call  > Revisit: only if provenance or duplicate resolution is challenged. ; ---\nid: historical-source-350d9a1f8bc4ea5b\ntype: historical_source\nstatus: evidence_only\ncanonical_truth: false\nsource_d | Dr Kenneth Moodley\nSo I think there's opportunity to understand those current processes and then to say, oh, if I can I "
+      }
+    },
+    {
+      "position": 9,
+      "item_id": "item-9",
+      "status": "OK",
+      "result": {
+        "verdict": "NOT SUPPORTED",
+        "reason_tags": [
+          "attribution",
+          "polarity_assertion",
+          "prohibited_opposite",
+          "essential_qualifier",
+          "list_coverage"
+        ],
+        "evidence": "I've got cowork right now running against obsidian on this screen over here managing a CRM of every single phone call for every single client that I do and doing all the pre research on every sales call and pumping out a simple text based report so I can in 30 seconds go oh I haven't had a call with Liam before and it says here's your call with Liam here's what happened in the last three calls here are all the open actions here's what he said he was going to do. ; \u201cAI-enabled CTO for SMBs\u201d   - Implementation: easier to sell, good for building proof points now   - Strategic: harder to get, but the real differentiator - AI-enabled CTO framing: lead cultural shift, govern innovation pipeline, ensure ROI   - Identify use cases, prioritize them, track through to delivery, verify return   - Governance of this process is \u201cincredibly weak across companies\u201d - Rocky and team at Now of Work doing this for mid/large clients: managing innovation, not just consulting - Recommended path: take implementation clients now to prove capability while building out the strategic offering  ### Niche, Market, and Tooling  - Niching down: easier sales, higher rates, clearer messaging   - Start with own experience and preferred company size   - Build a library of use cases per vertical, write SEO blogs around them   - In sales: lead with a specific, relatable pain point and a concrete before/after story - Enterprise vs. ; ## Original source content  <!-- TTROS:VERBATIM_SOURCE:BEGIN:316f9908a9d7f0ac3c4c2cdd54a1b125088d3c1f86f9d622eff4cb0f921e6bbe --> Meeting Title: AI consulting positioning and go-to-market strategy with Mike Date: Jul 21 Meeting participants: Liam  ### Liam\u2019s Background and Current Challenge  - AI consultancy set up ~6 months ago, after 10 years in startups (agritech, cannabinoid delivery systems) as CTO - Can deliver value but lacks sales experience and hasn\u2019t gained traction - Core tension: strategic positioning vs. ; --- id: historical-source-316f9908a9d7f0ac type: historical_source status: evidence_only canonical_truth: false source_document_kind: call_transcript original_filename: \"chat with Mike Knapp.txt\" source_sha256: 316f9908a9d7f0ac3c4c2cdd54a1b125088d3c1f86f9d622eff4cb0f921e6bbe source_size_bytes: 34322 source_mime_type: \"text/plain\" source_date_text: \"Jul 21\" participants_text: \"Liam Duff; Mike Knapp\" metadata_basis: \"embedded title/date; counterpart from filename\" actual_source_read: full_bytes_for_sha256_and_import imported_at: \"2026-08-17\" hermes_last_write:   author: hermes   source: \"operator-approved historical call transcript import\"   session: \"historical-call-import-20260817\"   at: \"2026-08-17T20:50:10.578009Z\" --- # Historical source \u2014 AI consulting positioning and go-to-market strategy with Mike  > Revisit: only if provenance or duplicate resolution is challenged. ; earning implementation proof"
+      }
+    },
+    {
+      "position": 10,
+      "item_id": "item-10",
+      "status": "OK",
+      "result": {
+        "verdict": "NOT SUPPORTED",
+        "reason_tags": [
+          "polarity_assertion",
+          "essential_qualifier",
+          "locality"
+        ],
+        "evidence": "Without being able to completely identify what the value proposition of all those chatbots, they can at least control, hey, let's standardize on one chatbot that we think will be more easily integrated to our data sources if we're a Microsoft shop. ; --- id: historical-source-1b59141c713cd108 type: historical_source status: evidence_only canonical_truth: false source_document_kind: call_transcript original_filename: \"Meeting Ken Stanick.txt\" source_sha256: 1b59141c713cd108f0eaf1955688a45fabef28d2f207621b036c93e37f2ed81f source_size_bytes: 34259 source_mime_type: \"text/plain\" source_date_text: \"Jul 7\" participants_text: \"Liam Duff; Ken Stanick\" metadata_basis: \"embedded title/date; counterpart from filename\" actual_source_read: full_bytes_for_sha256_and_import imported_at: \"2026-08-17\" hermes_last_write:   author: hermes   source: \"operator-approved historical call transcript import\"   session: \"historical-call-import-20260817\"   at: \"2026-08-17T20:50:10.574115Z\" --- # Historical source \u2014 AI consulting opportunity and dealership sales agent with Quinn founder  > Revisit: only if provenance or duplicate resolution is challenged. ; - Knowledge state: `interpretation` / `historical discovery aid`, not canonical fact.\n- Early TTR consulting, a dealersh | Them: From today. So building something called quin AI. I've been going at it for a couple years now. Kind of bootstrapp"
+      }
+    },
+    {
+      "position": 11,
+      "item_id": "item-11",
+      "status": "OK",
+      "result": {
+        "verdict": "NOT SUPPORTED",
+        "reason_tags": [
+          "polarity_assertion",
+          "essential_qualifier"
+        ],
+        "evidence": "## Selective discovery note  - Knowledge state: `interpretation` / `historical discovery aid`, not canonical fact. ; --- id: historical-source-b890ee5b656f0878 type: historical_source status: evidence_only canonical_truth: false source_document_kind: call_transcript original_filename: \"Meeting Title meeting with Andrea roberts.txt\" source_sha256: b890ee5b656f087875dbd4e3e60f2437391adccc2a9bc606779ce7c9f50555a2 source_size_bytes: 45654 source_mime_type: \"text/plain\" source_date_text: \"Jun 26\" participants_text: \"Liam Duff; Andrea Roberts\" metadata_basis: \"embedded title/date; counterpart from title\" actual_source_read: full_bytes_for_sha256_and_import imported_at: \"2026-08-17\" hermes_last_write:   author: hermes   source: \"operator-approved historical call transcript import\"   session: \"historical-call-import-20260817\"   at: \"2026-08-17T20:50:10.575460Z\" --- # Historical source \u2014 Meeting with Andrea Roberts  > Revisit: only if provenance or duplicate resolution is challenged."
+      }
+    },
+    {
+      "position": 12,
+      "item_id": "item-12",
+      "status": "OK",
+      "result": {
+        "verdict": "NOT SUPPORTED",
+        "reason_tags": [
+          "attribution",
+          "polarity_assertion",
+          "prohibited_opposite",
+          "temporal_status",
+          "essential_qualifier"
+        ],
+        "evidence": "Trent MacGregor generation, though, what I mean by that is, uh, you know, in terms of reaching out to companies introducing West Coast water treatment and then requesting, you know, to, uh, uh, get on a, you know, a tender list or  You Yeah. ; Trent MacGregor Without hallucination because it's it's basing it on what's being put into it. ; You that chief of staff will then have subagents, which will be in charge of marketing, reach out, all of the different workflows that are currently done right now. ; Trent MacGregor That's how their quote goes out, and then they'll quote a labour price and everything else, and then that will be all be put in there, so labour will be ongoing. ; <!-- TTROS:VERBATIM_SOURCE:END:416b52129c2ff27e170588a3c21e2a8466d69774cb280cafb635a2704c32c74e -->   --- id: historical-source-290c72e5efe04be1 type: historical_source status: evidence_only canonical_truth: false source_document_kind: call_transcript original_filename: \"trent call transcript july 9th.txt\" source_sha256: 290c72e5efe04be152de33c05694b6dbd1a939264a95d1b83c7bac258d5e552d source_size_bytes: 38834 source_mime_type: \"text/plain\" source_date_text: \"Jul 9\" participants_text: \"Liam Duff; Trent MacGregor\" metadata_basis: \"filename and speaker labels\" actual_source_read: full_bytes_for_sha256_and_import imported_at: \"2026-08-17\" hermes_last_write:   author: hermes   source: \"operator-approved historical call transcript import\"   session: \"historical-call-import-20260817\"   at: \"2026-08-17T20:50:10.581384Z\" --- # Historical source \u2014 Trent call transcript \u2014 July 9  > Revisit: only if provenance or duplicate resolution is challenged."
+      }
+    }
+  ]
+}

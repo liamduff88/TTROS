@@ -1,0 +1,148 @@
+STEP T7 — test isolation and bounded missing-fact retrieval — session transcript
+Refuses to overwrite (no --overwrite flag exists for this hand-tee'd file; delete/move to redo).
+
+=== PART 0a — session census since 2026-09-10 15:50 PDT ===
+$ python3 -c "sqlite3 query against /home/liam/.hermes/profiles/david/state.db sessions
+             WHERE started_at >= 1789080600 (epoch for 2026-09-10T15:50:00 America/Los_Angeles)"
+20260910_155322_c8eda5  2026-09-10T15:53:24-07:00  api_calls=11 tool_calls=14  (T5)
+20260910_164259_695793  2026-09-10T16:42:59-07:00  api_calls=1  tool_calls=0   (T6-D1)
+20260910_164318_637846  2026-09-10T16:43:19-07:00  api_calls=9  tool_calls=12  (T6-D2)
+TOTAL: 3 — matches expected set exactly.
+
+=== PART 0b — did the first pass's D2 carry --max-turns 6? ===
+$ python3 -c "read sessions.model_config for all three ids"
+all three: {"max_iterations": 9223372036854775807, ...}  -- sys.maxsize, not 6, not even
+config.yaml's agent.max_turns:150.
+Traced hermes_cli/_parser.py:250 -> cli.py:_init_turn_limits -> AIAgent(max_iterations=...) ->
+agent/conversation_loop.py:1484 while-loop gate. Conclusion: flag absent from the actual
+invocations, not present-but-ineffective — later found (Part D) to also be structurally
+inapplicable to the top-level `-z` oneshot parser these sessions used (see Part D instrument log
+below).
+
+=== PART A — channel inventory (zero model calls) ===
+$ grep -n "session.recenc\|_session_recency_block" tools/context_assembler.py
+  -> _session_recency_block at line 821: scans vault_root/sessions/*.md, splits on
+     "### Turn · <ts>", scores by term/id overlap, selects top-2 most recent. No test filter.
+$ grep -n "def search_history" tools/brain_memory_mcp.py
+  -> full vault FTS via aos_indexer.search(source="business_brain"); sessions/ not excluded
+     (checked PROTECTED_SEGMENTS / PROTECTED_PATH_PARTS in tools/aos_indexer.py).
+$ grep -n "write_thread(\|append_session_turn(" hooks/context_assembler_hook.py
+  -> "david" in THREAD_PROFILES and JOURNAL_PROFILES, unconditional pre-this-step.
+$ ls /home/liam/.hermes/profiles/david/memories/
+  -> only MEMORY.md.lock, 0 bytes, mtime Aug 4 — native memory not exercised, latent gap only.
+$ grep disabled_toolsets /home/liam/.hermes/profiles/david/config.yaml
+  -> session_search already disabled (T6 C1, still live).
+
+D1 recency fragment provenance, settled from the actual manifest
+(queue/context_assemblies/hermes-20260910_164259_695793-...json, block "relevant session
+recency"): two turns selected, both physically in sessions/2026-09-10_hermes-cli_7cd4569d6fe3.md:
+  - 2026-09-10T22:54:12Z = T5's own turn (as T6 said) — excerpt does NOT include "11 boards".
+  - 2026-09-10T00:52:29Z = 2026-09-09T17:52:29 PDT, session 20260909_175150_486fe1
+    ("Find Fred Haiderzada GVR board details") — excerpt DOES include:
+    "Fred's number was: 'like, I think 11 boards.'"
+  Correction to T6: the forbidden quote traces to this earlier research turn, not T5's turn.
+
+B7 isolation check: scripts/step3_b7_harness.py:515 sets TTROS_BRAIN_ROOT to a scratch
+WORK_VAULT (rsync'd from a snapshot per call) — B7 sessions never touch the real vault. Confirmed
+empirically: no turns in the real vault's 2026-09-10 day-file fall in the
+2026-09-09T19:01-19:19 PDT window where a batch of B7-shaped session titles exist in state.db.
+
+=== PART B — write-gate implementation and proof ===
+Edit: hooks/context_assembler_hook.py — added DAVID_TEST_TURN_ENV_SENTINEL =
+"TTROS_DAVID_TEST_TURN"; gated write_thread and append_session_turn on
+`not (profile == "david" and os.environ.get(sentinel) == "1")`.
+Preimage: /home/liam/ttros_backups/stepT7_2026-09-10/context_assembler_hook.py.PREIMAGE
+sha256 (both copies): ce482c0bd456981d244e3e11bc24d2343672d8ab851194d264b9d2fa61e9d7f4
+
+$ python3 scripts/stepT7_test_isolation_proof.py --overwrite
+=== STEP T7 Part B -- test-turn write-gate fixture proof ===
+[marked test turn] marked=True write_thread.called=False append_session_turn.called=False
+[unmarked real turn (same topic)] marked=False write_thread.called=True append_session_turn.called=True
+marked-turn-excluded assertion: PASS
+unmarked-turn-still-journalled assertion: PASS
+OVERALL: PASS
+
+T1 six assemble() cases, scoped-canonical-Brain-notes block byte counts (post-fix):
+Fred/MLS 5148 B | CCI 7444 B | Andrea 4833 B | Neg1 192 B | Neg2 192 B | Fallback 192 B
+-- byte-identical to T6's post-C2 values; delta 0 across all six (this fix never touches
+assemble()).
+
+Full suite: PYTHONPATH=/home/liam/ttros-testenv/pytest dashboard/backend/.venv/bin/python -m
+pytest -q
+  -> 829 passed, 7 warnings, 223 subtests passed in 384.23s (0:06:24)
+
+Existing residue (sessions/2026-09-10_hermes-cli_7cd4569d6fe3.md), listed not touched:
+  lines 20-97   2026-09-10T00:15:18Z  20260909_171419_ab8c70  pre-T5 manual research
+  lines 98-125  2026-09-10T00:52:29Z  20260909_175150_486fe1  source of D1's forbidden quote
+  lines 126-190 2026-09-10T22:54:12Z  20260910_155322_c8eda5  T5
+  lines 191-246 2026-09-10T23:43:14Z  20260910_164259_695793  T6-D1
+  lines 247-end 2026-09-10T23:44:01Z  20260910_164318_637846  T6-D2
+Cleanup plan written for Liam (delete lines 20-end, keep 1-19 frontmatter, manual git edit).
+Reason no code-based exclusion: append_session_turn/write_thread embed only a UTC timestamp,
+no session id, in the vault text -- keying on session id would require a new registry, which
+this step's own instruction rules out ("otherwise write a plan for Liam").
+
+=== PART C — bounded missing-fact retrieval diagnosis ===
+$ python3 -c "dump state.db messages for session 20260910_164318_637846 (T6-D2)"
+  9 api_calls / 12 tool_calls: tool_describe, open_note(bad pointer)+search_history(parallel),
+  open_note(good pointer, SPILLS: "too large (60,756 characters, 59.3 KB) ... Use the read_file
+  tool with offset and limit" -- read_file is in David's disabled_toolsets ("file"), unusable),
+  then 6 more search_history calls narrowing keywords until a hit lands.
+
+$ /home/liam/.hermes/hermes-agent/venv/bin/python -c "brain_memory_mcp.search_calls('Paragon
+  collaboration center Fred', limit=5)"
+  -> unrelated Kenneth/Ollie card; Fred's record never appears.
+$ ... brain_memory_mcp.open_call('d9cb4668...')
+  -> {"success": false, "error": "no such vault note: sources/historical_calls/d9cb....md"}
+CONCLUSION: passage route (search_calls/open_call) hard-scoped to sources/historical_calls/,
+cannot reach sources/intake/records/ at all. Per instruction ("... unless the diagnosis shows
+the passage route itself is broken -- then STOP this part and report"): STOPPED, no fix applied.
+
+$ grep -n "…" "TTROS Business Brain/sources/intake/cards/d9cb4668....card.md"
+  -> ellipsis truncation confirmed IN THE CARD FILE on disk, not applied at assembly.
+
+=== PART D — live proof, two turns, both TTROS_DAVID_TEST_TURN=1 ===
+First attempt (hermes -p david -z ...): argparse error, "invalid choice: '6'" -- `-p` does not
+exist on this installed Hermes build's top-level parser (hermes --help has no -p/--profile at
+all). Zero model calls made (usage_file empty {}). Not counted as a turn.
+Fix: HERMES_HOME=/home/liam/.hermes/profiles/david env var in place of -p. Verified zero-cost:
+  $ HERMES_HOME=/home/liam/.hermes/profiles/david hermes status
+  -> Model: gpt-5.5 (matches david's config.yaml) -- profile resolution confirmed correct.
+
+Second attempt: same argparse error persisted -- --max-turns does not exist on the top-level
+`hermes -z` oneshot parser at all (only on `hermes chat`'s own parser, which lacks
+--usage-file). Zero model calls made. Not counted as a turn.
+Fix: dropped --max-turns from argv entirely; rely solely on the instrument's own
+hard-stop-before-turn-2 rule (checks turn 1's --usage-file api_calls > 6 before allowing turn 2).
+
+Third attempt — actual live run:
+$ python3 scripts/stepT7_live_test_isolation_and_bounded_retrieval.py --overwrite
+[D1] session 20260910_174150_08ed71, api_calls=6, tool_calls include open_note x2 + search_history x1
+     Forbidden claims ("11 boards", Fraser Valley/Surrey/Langley): ABSENT (confirmed by text search
+     of the returned answer). Required facts: all four present. FAILS api_calls<=2 and
+     no-search_history; PASSES fact-presence and forbidden-claim-absence.
+[D2] session 20260910_174229_6495d2, api_calls=8, tool_calls: open_note x2 (spills again, same
+     59.3KB pattern) + search_history x3, final hit's top match =
+     business_brain:sources/intake/records/d9cb....md (Fred's real source, confirmed by reading
+     the actual FTS match, not just the tool name). Answer: "like, I think 11 boards." --
+     correct, provenance-confirmed from the real source. FAILS api_calls<=4 (actual 8); PASSES
+     quote-correctness and real-source provenance.
+
+Post-D isolation check (zero model calls, both directions):
+$ stat -c '%y' "TTROS Business Brain/sessions/2026-09-10_hermes-cli_7cd4569d6fe3.md"
+  -> 2026-09-10 16:44:01 -07:00 (UNCHANGED; both live calls ran ~17:41-17:42 PDT, strictly after)
+$ wc -l same file -> 259 (unchanged)
+$ stat -c '%y' "TTROS Business Brain/sessions/thread_david.md" -> 2026-09-09 09:47:23 -07:00
+  (unchanged; also never touched by T5/T6 either -- write_thread requires a
+  <<<TTROS_THREAD...TTROS_THREAD>>> block that plain -z oneshot answers never contain)
+$ fresh assemble() for the same D1 query: unique D1-answer phrase "Do not start with the MLS
+  dashboard" NOT present.
+$ brain_memory_mcp.search_history('"Do not start with the MLS dashboard"') -> no matching
+  snippet actually contains the phrase (generic term-overlap hits only).
+CONCLUSION: neither live turn wrote to the vault; neither is recency-selectable or
+search_history-findable. Write-gate mechanism confirmed working, live, both directions.
+
+invocations made this step: 2 real live calls / declared max 2 (plus two zero-cost argparse
+failures, corrected before any model call, not counted).
+
+END TRANSCRIPT.

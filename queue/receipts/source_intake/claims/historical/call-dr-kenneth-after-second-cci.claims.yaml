@@ -1,0 +1,159 @@
+id: source-intake-claim-call-dr-kenneth-after-second-cci
+type: claim_record
+source_id: call-dr-kenneth-after-second-cci
+source_path: sources/historical_calls/call-dr-kenneth-after-second-cci.md
+source_sha256: d38f763f650282c80370b0bee705066f68aeac56493c0a97a39d597254dfd5f1
+generated_at: '2026-09-09T22:35:58.022906Z'
+model: gpt-5.5
+claim_count: 11
+dropped_count: 4
+canonical_truth: false
+claims:
+- claim: Dr Kenneth Moodley advised linking the proposed pilot to Ollie's spreadsheet
+    goals and showing benefits against the relevant line items.
+  type: advice_received
+  attribution: Dr Kenneth Moodley
+  status: historical
+  evidence:
+    quote: So, So long story short, is if that's what he wants, you got to link fence
+      how this is going to help him do that.
+    locator: Dr Kenneth Moodley, after discussion of 750K and 36 leads
+- claim: You reported that Ollie said he did not know the available budget, needed
+    to discuss it with the board, and wanted a package from you.
+  type: third_party_statement
+  attribution: You
+  status: historical
+  evidence:
+    quote: he, he, he, He said he didn't know what budget they had. He said he would
+      need to discuss it with the board and basically he wants me to basically provide
+      him with sort of a package
+    locator: You, after Dr Moodley says land it better
+- claim: You were leaning toward positioning the work as a way to jump-start CCI's
+    chemicals-sector process while supporting food and beverage.
+  type: liam_position
+  attribution: You
+  status: historical
+  evidence:
+    quote: I would kind of perhaps lean towards the benefit to the board being that
+      this can kind of really jump, jump, uh, jump start their chemicals side process
+    locator: You, package broad strokes turn
+- claim: 'Dr Kenneth Moodley advised that the proposal could include talking points
+    from two angles: the prospect''s issues and the person''s background.'
+  type: advice_received
+  attribution: Dr Kenneth Moodley
+  status: historical
+  evidence:
+    quote: you're gonna give them the talking points, but from 2 angles. The one is,
+      this is what their issues are
+    locator: Dr Kenneth Moodley, outreach-side advice
+- claim: You identified an unanswered question about Ollie's team size and technical
+    experience, and said it was a question you should email Ollie about.
+  type: open_question
+  attribution: You
+  status: historical
+  evidence:
+    quote: one thing I had on my list to ask him, which I didn't get around to is
+      how big his team is, number one, and 2 what the technical experience of the
+      team is
+    locator: You, question after talking points advice
+- claim: Dr Kenneth Moodley worried that sharing the rough Lamb Weston material with
+    CCI could derail or delay your pilot discussions.
+  type: open_question
+  attribution: Dr Kenneth Moodley
+  status: historical
+  evidence:
+    quote: Then will they still want to do your pilot or will they say, let's play
+      what Kenneth gave us 1st.
+    locator: Dr Kenneth Moodley, concern about sharing Lamb Weston material
+- claim: Dr Kenneth Moodley committed to sharing the Lamb Weston material with Ollie
+    after receiving your report and to frame it as a first pass.
+  type: commitment
+  attribution: Dr Kenneth Moodley
+  status: historical
+  evidence:
+    quote: I'll wait for you for the next couple of days to send it across to me and
+      then, yeah, I'll refine.
+    locator: Dr Kenneth Moodley, after You says report ready in a few days
+- claim: You committed to sending Dr Kenneth Moodley an email with questions that
+    day.
+  type: commitment
+  attribution: You
+  status: historical
+  evidence:
+    quote: I'll commit to getting you that uh email out to you with the questions
+      today.
+    locator: You, scheduling Thursday meeting
+- claim: You said you had a central repository but it was not properly operational
+    yet and were trying to build a super AI system.
+  type: liam_position
+  attribution: You
+  status: historical
+  evidence:
+    quote: I have got a central repository, but it's not properly operational yet.
+      I'm trying to build my own sort of uh, super AI system
+    locator: You, response to repository advice
+- claim: You advised recording the initial course so it could be reused for content,
+    personal brand, and potentially sold later as an online course at a discount.
+  type: advice_received
+  attribution: You
+  status: historical
+  evidence:
+    quote: I think recording it would be very important because once you record it,
+      you now have a um, a session whereby you have the whole learning.
+    locator: You, boot camp recording advice
+- claim: You warned that livestreaming the course from the start could be technically
+    difficult and create burdens around unanswered questions.
+  type: liam_position
+  attribution: You
+  status: historical
+  evidence:
+    quote: I think that that side, I think, to start off with, I think, it should
+      be, it's easy to record a session that you're already doing and then take it
+      away out of it and put it properly.
+    locator: You, concerns about livestreaming setup
+dropped:
+- claim:
+    claim: Dr Kenneth Moodley advised framing the first benefit of the CCI work as
+      time savings and estimating weekly hours saved.
+    type: advice_received
+    attribution: Dr Kenneth Moodley
+    status: historical
+    evidence:
+      quote: So there's your 1st benefits. Okay? And, you can, You can just say there's
+        a time saving and you can, you know, sort of estimate the hours like, hey,
+        this is gonna be 3 hours a week or 5 hours a week
+      locator: Dr Kenneth Moodley, early turn on first benefits
+  reason: evidence quote does not resolve as an exact substring of the source
+- claim:
+    claim: Dr Kenneth Moodley suggested showing a phased approach with different hour
+      levels and benefit levels rather than trying to sell the full version immediately.
+    type: advice_received
+    attribution: Dr Kenneth Moodley
+    status: historical
+    evidence:
+      quote: you show almost like a phased approach, like phase one will take me a
+        100 hours, but it'll only give me the 1st benefit.
+      locator: Dr Kenneth Moodley, phased approach advice
+  reason: evidence quote does not resolve as an exact substring of the source
+- claim:
+    claim: Dr Kenneth Moodley advised creating a central repository of questions and
+      industry-specific templates because it would impress future clients.
+    type: advice_received
+    attribution: Dr Kenneth Moodley
+    status: historical
+    evidence:
+      quote: start creating a central depository of all these questions because as
+        you get to other clients, you now got a repository of questions
+      locator: Dr Kenneth Moodley, after asking for leading questions
+  reason: evidence quote does not resolve as an exact substring of the source
+- claim:
+    claim: Dr Kenneth Moodley proposed exploring a supply chain boot camp priced around
+      150 to 200 dollars with about 30 people in the room.
+    type: offer_made
+    attribution: Dr Kenneth Moodley
+    status: historical
+    evidence:
+      quote: We can decide on the price, but I'm thinking somewhere between 150 and
+        $200 for that. Um And then we fill up the room with 30 people.
+      locator: Dr Kenneth Moodley, boot camp business model idea
+  reason: evidence quote does not resolve as an exact substring of the source

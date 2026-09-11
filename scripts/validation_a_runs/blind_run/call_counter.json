@@ -1,0 +1,12 @@
+{
+  "cap": 20,
+  "count": 1,
+  "log": [
+    {
+      "index": 1,
+      "item_id": "shakedown",
+      "call_kind": "shakedown_smoke_test",
+      "reserved_at": "2026-09-09T07:43:49Z"
+    }
+  ]
+}

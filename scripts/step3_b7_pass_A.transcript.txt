@@ -1,0 +1,1064 @@
+STEP 3 -- B7 PASS A -- LIVE
+Started (UTC): 2026-09-07T00:17:53.092216+00:00
+Surface declared: CLI-David (direct `hermes -p david -z` invocation, not dashboard/gateway)
+Model pin (from ~/.hermes/profiles/david/config.yaml): openai-codex / gpt-5.5
+Vault isolation: TTROS_BRAIN_ROOT=/tmp/claude-1002/-home-liam-agentic-os-live/6ae94bfc-ff28-4f8a-95a3-7ba4d48e157c/scratchpad/b7_vault_work (restored from /home/liam/ttros_backups/b7_harness_vault_snapshot_20260907_000711Z before every call)
+Declared maximum calls this pass: 25
+
+--- Q1/25 [A1] What are our current offers and how are they priced?
+    latency_s=18.2 manifest=/home/liam/agentic-os-live/queue/context_assemblies/hermes-20260906_171755_525921-20260906_171755_525921:0ac2859e-cfef-4040-923a-ad12e00bb54a:4518cc63.json
+    !!! UNEXPECTED REPO MUTATION: ['?? scripts/step3_b7_pass_A_A1.usage.json']
+    ANSWER: Current offer ladder, as recorded:
+
+1. Free AI Opportunity Scan
+   - Price: Free
+   - Purpose: acquisition + qualification.
+   - Output: a genuinely useful personalized mini-report.
+   - Not a paid delivery offer.
+
+2. System Fit Call
+   - Price: Free / no recorded price
+   - Purpose: human conversation after the scan to decide whether there is a real system opportunity.
+
+3. Paid diagnosis / operational mapping
+   - Price: indicative CA$750–1,500
+   - Creditable toward the build.
+   - Output: quantified friction, prioritized opportunities, scoped recommendation.
+
+4. Scoped system build
+   - Price: indicative entry point around CA$4,500
+   - Delivery: design, build, deploy, embedded inside the client’s actual operation.
+   - The exact system is chosen after diagnosis, not pitched upfront.
+
+5. Training, documentation, handover
+   - Price: not currently recorded as standalone.
+   - Looks like part of the build/handoff unless separated later.
+
+6. Ongoing systems relationship
+   - Price: not currently recorded.
+   - Only where the system keeps earning / justifies continuing work.
+
+What we sell under that ladder:
+
+Go-to-market systems — primary wedge:
+- Speed-to-lead and lead response
+- Inbound voice / call handling
+- Targeting, signal detection, enrichment, prospect research
+- Outreach and follow-up sequences
+- Pipeline visibility and conversion measurement
+
+Operations systems:
+- Workflow agents and internal AI-assisted roles
+- Client memory and data consolidation
+- Scheduling, approvals, quoting, handoff workflows
+- Reporting and operational visibility
+
+Enablement:
+- Practical AI training
+- Documentation and SOPs
+
+Important caveat: the pricing is not settled. The Brain explicitly says the figures “predate the diagnose-first model” and need confirmation.
+
+My read: use this publicly as a diagnose-first ladder, but do not overcomplicate it. The clean commercial shape is:
+
+- Free scan
+- CA$1,000 diagnostic, credited if they build
+- CA$4,500+ first workflow build
+- Monthly support/iteration only after there is a live system worth maintaining
+
+The open pricing question we need to settle is whether the GoHighLevel setup is:
+- a standalone paid setup offer, or
+- just the mechanism behind the free intake / scan step.
+
+Until that is decided, don’t publish a detailed pricing page. Use “starting at” language and sell the paid diagnosis as the next concrete step.
+
+HARD STOP: an unexpected repo mutation was detected outside queue/context_assemblies/. This step is measurement-only; the run is aborted so nothing further compounds it.
+[resumed at 2026-09-07T00:19:36.377355+00:00, 1 prior call(s) carried forward: ['A1']]
+[the abort above was a false-positive in the mutation-detector: it flagged the harness's own --usage-file output (scripts/step3_b7_pass_*.usage.json) as an unexpected repo change. Fixed in the instrument; the real David call and its answer above are valid and are NOT re-asked, per 'no re-runs of individual questions'. Resuming from the next unanswered question.]
+
+--- Q2/25 [A2] What is the core principle behind how we sell?
+    latency_s=15.8 manifest=/home/liam/agentic-os-live/queue/context_assemblies/hermes-20260906_171938_f32cb4-20260906_171938_f32cb4:99af74be-3986-4f4d-aea9-627c671ff566:1c51e055.json
+    ANSWER: The core principle is: sell by diagnosing operational friction that delays revenue, then prove we can remove it with working systems.
+
+Not “AI automation.”
+Not “more leads.”
+Not “consulting recommendations.”
+Not “Agentic OS.”
+
+We sell the business outcome: faster, cleaner movement from interest to booked/sold/delivered revenue.
+
+The way we sell should mirror the way we deliver:
+
+1. Start in the client’s real workflow.
+2. Find the revenue leak: slow response, messy handoff, missed follow-up, manual admin, unclear ownership, bad data.
+3. Tie it to one of the ROI levers:
+   - effectiveness: more of the right leads become conversations or sales
+   - efficiency: less human time wasted chasing/admining
+   - quality: faster, cleaner, more reliable customer experience
+4. Offer the smallest credible next step: scan, assessment, or scoped build.
+5. Prove capability by shipping, not by explaining.
+
+The sharp version:
+
+“We help service businesses find where revenue is leaking from their operations, then build the workflow or system that stops the leak.”
+
+My read: our strongest sales posture is not “we can build clever systems.” It is “your revenue path has drag in it; we can show you where, fix the first bottleneck, and make the improvement real.”
+
+--- Q3/25 [A3] How is delivery actually done?
+    latency_s=27.1 manifest=/home/liam/agentic-os-live/queue/context_assemblies/hermes-20260906_171954_7c24e0-20260906_171954_7c24e0:5fcf406c-efd9-48b8-8255-240999470fde:8fbd5c67.json
+    ANSWER: Delivery is not “make a plan, hand over recommendations.”
+
+It is done as a scoped implementation workflow inside the client’s real operation, with evidence at every stage.
+
+The actual pattern is:
+
+1. Intake and scope
+   - You need a client entity page.
+   - You need signed scope / agreed delivery contract.
+   - You need a client-isolated folder.
+   - If those are missing, delivery should refuse to start.
+
+2. Map the real workflow
+   - Where does the work happen today?
+   - What tools, people, handoffs, messages, forms, inboxes, spreadsheets, CRMs, or calls are involved?
+   - What falls through?
+   - What is slow, duplicated, invisible, or ownerless?
+
+3. Get client agreement on the target design
+   - Not a big theoretical architecture.
+   - A concrete “here is how this workflow will run after the build.”
+   - Approval gates are marked.
+   - Human-in-the-loop points are explicit.
+   - Anything external-facing or mutating client systems remains gated.
+
+4. Build the system
+   - Implement the scoped workflow: automations, scripts, CRM fields, docs, handoff rules, dashboards, AI support, or whatever the real bottleneck needs.
+   - Use Codex / Claude / workbenches where useful.
+   - But delivery remains responsible for the outcome, not the worker.
+
+5. Test against reality
+   - No “looks good.”
+   - A test lead, test case, or real business question must traverse the system.
+   - Evidence is recorded: logs, screenshots, output files, timestamps, acceptance notes.
+   - If the system is supposed to improve speed-to-lead, a test lead must actually move through every scoped inbound path.
+   - If it is client memory, claims must trace to sources and answer real business questions correctly.
+
+6. Handoff
+   - Client gets practical docs:
+     - what it does
+     - how to use it
+     - what it never does automatically
+     - how to pause/rollback
+     - who owns updates
+   - This matters because renewal depends on the client seeing usable operating capability, not being impressed once.
+
+7. Closeout
+   - Update the client entity page.
+   - Write the receipt.
+   - Record token / work evidence.
+   - Revoke or close unnecessary access.
+   - Preserve client isolation.
+
+The simplest summary:
+
+Delivery = scoped workflow repair, built in the client’s context, tested with real acceptance evidence, handed off so the client can run it.
+
+The current offer shapes implied by the system are:
+
+- Quick-Win Scan: diagnostic, one bottleneck, one fix, no implementation.
+- Speed-to-Lead Build: inbound capture → route → respond → follow-up.
+- Client Memory Build: source-backed knowledge base their AI/tools can safely use.
+- AI Operations Support: monthly retainer cycle, session prep/follow-up, hub updates, ongoing operational visibility.
+
+My interpretation: the strongest delivery motion for TTR right now is not bespoke “AI consulting.” It is repeatable forward-deployed builds around revenue leakage and operational memory, starting small enough to close, but concrete enough to become a paid implementation proof.
+
+The danger: if delivery becomes another internal OS abstraction, it fails. The client should experience it as, “this broken workflow now works,” not “Liam has an impressive agent system.”
+
+--- Q4/25 [A4] What are we not allowed to claim to a prospect?
+    latency_s=19.0 manifest=/home/liam/agentic-os-live/queue/context_assemblies/hermes-20260906_172021_1e5fed-20260906_172021_1e5fed:bb1b5d09-b8c3-46fd-b1af-d8b3ce0cb3d8:d04cc43d.json
+    ANSWER: Do not claim anything to a prospect that we cannot prove, source, or safely stand behind.
+
+Specifically, we are not allowed to claim:
+
+1. Client results or case studies that are not evidenced
+   - No “we increased revenue by X”
+   - No “we saved a client Y hours”
+   - No implied client outcome unless sourced and approved
+
+2. Revenue figures, ROI, or guaranteed financial outcomes
+   - No promised ROI
+   - No “this will pay for itself in X days”
+   - No invented benchmark numbers
+   - Hypotheses are allowed only if labelled as hypotheses
+
+3. Credentials, partnerships, or authority we do not have
+   - No industry credentials not yet earned
+   - No implied partnerships
+   - No “trusted by” language unless actually true and approved
+
+4. Vertical expertise we have not earned
+   - We can say TTR works on operational friction in growing service businesses.
+   - We should not claim deep specialization in a vertical until proof exists.
+
+5. That Agentic OS is a client product
+   - Agentic OS / TTROS is internal operating infrastructure.
+   - It is not SaaS, not a product, and not something we sell to clients.
+
+6. Fully autonomous operations or replacement of human judgment
+   - We can say governed systems, human approval, better handoffs, faster response.
+   - We should not say “autonomous business operations” or imply people are removed from consequential decisions.
+
+7. Familiarity, urgency, intent, or relationship signals we do not have
+   - No “I noticed you’re struggling with…”
+   - No “you’re probably losing revenue because…”
+   - No fake shared history, fake referral, fake trigger, or assumed buying intent.
+
+8. Private client details without approval
+   - No naming clients, exposing operational details, or using private outcomes unless explicitly approved.
+
+The safe prospect-facing posture is:
+
+“We help growing service businesses find operational friction that costs time, capacity, or revenue, then design and build the systems that fix it. We start by diagnosing the workflow with your numbers before prescribing anything.”
+
+My recommendation: every outreach or sales asset should pass this test before use:
+
+“Could Liam show the source for this claim in under two minutes?”
+
+If not, cut it or rephrase it as a hypothesis/question.
+
+--- Q5/25 [A5] What is the primary type of system we build?
+    latency_s=15.1 manifest=/home/liam/agentic-os-live/queue/context_assemblies/hermes-20260906_172040_036e73-20260906_172040_036e73:1b0d5a41-a9bb-48b1-9063-e2a65093a243:b434d807.json
+    ANSWER: The primary type of system we build is client-facing revenue operations automation systems.
+
+More specifically: systems that capture, route, respond to, follow up on, qualify, or preserve business knowledge so a service business can convert demand faster and deliver more reliably.
+
+From the current playbooks, the main examples are:
+
+- Speed-to-lead systems
+- Lead-gen agents
+- Voice / missed-call agents
+- Client memory / knowledge systems
+
+My interpretation: Time to Revenue should not describe these primarily as “AI agents” or “internal automation.” The business outcome is faster revenue capture and better operational follow-through.
+
+--- Q6/25 [B1] What is our positioning, in the words we'd use with a service-business owner?
+    latency_s=14.8 manifest=/home/liam/agentic-os-live/queue/context_assemblies/hermes-20260906_172055_617738-20260906_172055_617738:eee11474-d072-4839-bafe-eac345c27a64:b0689074.json
+    ANSWER: Our service-business-owner positioning is:
+
+Time to Revenue helps growing service businesses find the operational friction that is costing them time, capacity, and revenue — then designs and builds the systems that remove it.
+
+In their words, not ours:
+
+“You’re busy, but revenue is leaking in the handoffs.
+
+Calls get missed.
+Quotes go out late.
+Follow-up depends on memory.
+The team is chasing updates.
+The owner is still stuck in the middle of every important workflow.
+
+We come in, map how the work actually moves through the business, find where time or money is leaking, and build the practical systems that stop it.
+
+Not a strategy deck.
+Not generic automation.
+Not ‘AI transformation.’
+
+The result is simple: the right work gets captured, routed, followed up, measured, and done — without everything depending on you.”
+
+Short version:
+
+“We help growing service businesses stop leaking revenue through messy operations.”
+
+Slightly more complete:
+
+“We find where your operation is costing you revenue — missed calls, slow quotes, weak follow-up, messy handoffs — then build the systems that make the work move properly.”
+
+Website/offer register:
+
+“Your business does not need more software. It needs the work to move cleanly.
+
+We diagnose the friction inside your sales and operations workflow, quantify what it is costing, and build the systems that fix it — so quotes go out faster, follow-up happens, handoffs stop leaking, and the owner is not the glue holding it all together.”
+
+What we should avoid saying to this buyer:
+
+- “forward-deployed engineering”
+- “go-to-market engineering”
+- “AI operating system”
+- “autonomous agents”
+- “AI-enabled operator”
+- “workflow orchestration layer”
+
+Those may be true internally or for technical audiences, but they are not the pitch to a service-business owner.
+
+My recommendation: use “operational friction that costs revenue” as the core phrase. It is broad enough for the current market, concrete enough to sell, and it keeps us out of premature vertical or AI positioning.
+
+--- Q7/25 [B2] When would we use "forward-deployed engineering" language, and when not?
+    latency_s=20.3 manifest=/home/liam/agentic-os-live/queue/context_assemblies/hermes-20260906_172110_9cda54-20260906_172110_9cda54:86fc89c5-d5cd-4535-8cd0-42d285fb1552:4d977a17.json
+    ANSWER: Use “forward-deployed engineering” when you are speaking to people who already value embedded, implementation-heavy, technical problem-solving.
+
+Do not use it as the default public headline yet.
+
+My read:
+
+Verified fact from the Brain:
+Time to Revenue’s operating model includes forward-deployed engineering: embedding inside the client’s real operation, building against real workflows and real numbers, and shipping working systems instead of recommendations.
+
+Recommendation:
+Use the concept everywhere internally, but use the phrase selectively externally.
+
+Use “forward-deployed engineering” when:
+
+- Talking to technical founders, operators, COOs, RevOps people, or AI/automation-literate buyers.
+- You need to distinguish TTR from consultants who diagnose and leave.
+- You are explaining delivery model, not leading the pitch.
+- The buyer already believes their problem is operational/systemic, not just “we need more leads.”
+- You are in a proposal, sales call, or case-study-style explanation where you can define it immediately.
+- You want to signal: “I work inside the messy reality, not from outside with a slide deck.”
+
+Good usage:
+
+“We work more like a forward-deployed engineering team than a consultancy: we get inside the actual workflow, find the revenue friction, and build the operating system around the real numbers.”
+
+Or simpler:
+
+“We embed close to the operation and build the system in the real workflow, not in theory.”
+
+Do not use “forward-deployed engineering” when:
+
+- The audience is cold and non-technical.
+- It appears in the hero headline without explanation.
+- You are selling to owners who just want missed calls handled, follow-up fixed, quotes moving, or leads responded to faster.
+- It risks sounding like Palantir cosplay, AI jargon, or enterprise theatre.
+- You have not yet established the pain in the buyer’s language.
+- It distracts from the concrete business outcome.
+
+Bad usage:
+
+“Time to Revenue is a forward-deployed engineering firm for growing service businesses.”
+
+That is accurate-ish, but too abstract. It makes the buyer decode your category before they know why they should care.
+
+Better public/default language:
+
+“We find the operational friction slowing revenue down, then build the systems that remove it.”
+
+Or:
+
+“We help growing service businesses turn messy sales, follow-up, and delivery workflows into working revenue systems.”
+
+Then, lower on the page or in conversation:
+
+“Our delivery model is forward-deployed: we work inside the real operation, with the real workflows and numbers, until the system is working.”
+
+So the rule is:
+
+Lead with the buyer’s pain and outcome.
+Use “forward-deployed engineering” as the explanation for how you deliver.
+Do not make it the thing you sell.
+
+Cheapest test:
+Put the phrase in two versions of a short intro.
+
+Version A:
+“We’re a forward-deployed engineering practice for revenue operations.”
+
+Version B:
+“We find the operational friction slowing revenue down, then build the systems that remove it.”
+
+Ask five real owner/operator prospects: “Which one makes you more likely to ask what we do?” My bet: B wins with buyers; A wins only with technical peers.
+
+--- Q8/25 [B3] Who is the ideal client?
+    latency_s=43.8 manifest=/home/liam/agentic-os-live/queue/context_assemblies/hermes-20260906_172131_bfa62a-20260906_172131_bfa62a:e9c9fd25-3989-49a5-946d-b48cffef3287:060433ee.json
+    ANSWER: The ideal client is an owner-led service business that is growing, operationally messy, and close enough to revenue that a practical system build can make money or save time quickly.
+
+My recommendation: prioritize ICP-A — System Buyers.
+
+That means:
+
+- Owner/founder/operator-led service business
+- Roughly 5–150 employees, strongest fit around 10–100
+- Already commercially active, not idea-stage
+- Has real lead flow, delivery work, client communication, admin, CRM, quoting, onboarding, reporting, or follow-up friction
+- Buyer has authority and feels the pain personally
+- They know AI/automation could help, but they do not want a black-box “AI agent” spraying actions without approval
+- They value a practical build inside their real workflow more than a strategy deck
+
+The cleanest one-line ICP:
+
+“Owner-led service businesses with enough revenue activity to feel operational drag, but not enough internal RevOps/automation capacity to fix it themselves.”
+
+There is also a secondary ICP-B:
+
+- B2B founders or small revenue teams
+- Roughly 2–50 people
+- Founder still selling, or a 1–5 person revenue team
+- Weak/no RevOps function
+- Need a GTM engine built: targeting, signal detection, enrichment, outreach drafts, follow-up, measurement
+
+But I would not lead with ICP-B yet. It is more crowded, easier to sound like every lead-gen agency, and more exposed to cold outreach/CASL complexity.
+
+Best first client profile:
+
+A local/regional professional service, home service, B2B service, MSP/IT services, consulting, recruiting, coaching/training, or niche operations-heavy firm where the founder says something like:
+
+“We have leads and clients, but the follow-up, handoffs, tracking, and admin are a mess.”
+
+Bad fits:
+
+- SaaS/AI-native teams with internal builders
+- Tiny hobby/idea-stage businesses
+- Consumer-only low-ticket businesses
+- Anyone asking for autonomous spam
+- Companies with no visible lead volume, budget, fresh public signal, or specific workflow wedge
+
+Cheapest test:
+
+Pick 20 LinkedIn prospects matching ICP-A. For each one, require:
+1. a dated public signal from the last 90 days,
+2. one obvious operational/revenue friction,
+3. one specific first-project wedge,
+4. a named owner/operator buyer.
+
+If you cannot find 10 good ones in 90 minutes, the niche/search query is wrong. If you can, that’s the lane to run.
+
+--- Q9/25 [B4] Who should we disqualify, and what geography do we prioritise?
+    latency_s=23.2 manifest=/home/liam/agentic-os-live/queue/context_assemblies/hermes-20260906_172214_a3b6a9-20260906_172214_a3b6a9:bae46c3c-acdb-4d8e-be71-176283b906dc:83e4f1cd.json
+    ANSWER: Disqualify hard on three things:
+
+1. Regulated / high-liability promises
+   Disqualify firms where the obvious automation would touch legal, medical, financial, insurance, immigration, lending, investment, employment, or safety-critical claims unless there is already a clean “human approval before external action” scope.
+
+   Reason: you do not yet need complex compliance risk. You need implementation proofs.
+
+2. Low-value, chaotic micro-businesses
+   Disqualify businesses that:
+   - have no clear owner/operator
+   - cannot afford at least a small implementation project
+   - have no repeatable sales or delivery process
+   - are still figuring out the basic business model
+   - want “AI” as a novelty rather than to remove a measurable operational bottleneck
+
+   Reason: they will consume advisory time and not produce a clean proof.
+
+3. Anyone requiring vertical credibility you do not yet have
+   Disqualify prospects where the sale depends on saying “we know your industry deeply.”
+
+   TTR’s strongest current position is not vertical expertise. It is: “we find and remove operational friction in growing service businesses by building working revenue/data/ops systems.”
+
+Prioritise geography like this:
+
+1. Vancouver / Lower Mainland / North Shore first
+   This should be the default priority.
+
+   Why:
+   - you can credibly sell as local and embedded
+   - easier trust formation
+   - easier discovery calls
+   - easier referrals once one proof lands
+   - supports the forward-deployed positioning
+   - lets you avoid pretending to have broad market proof
+
+2. BC / Western Canada second
+   Especially service businesses where remote delivery is natural but local/regional trust still matters.
+
+3. North America remote only when the signal is unusually strong
+   Do not spray across the continent yet. Take remote opportunities only if they show a sharp, evidenced operational pain and a reachable decision-maker.
+
+My recommended ICP for now:
+
+Growing owner-led or founder-led service businesses in Vancouver / Lower Mainland with visible operational friction around lead response, follow-up, admin handoffs, booking, reporting, or sales process leakage.
+
+Best-fit examples:
+- agencies and consultancies
+- B2B services
+- trades / home services with high lead-response value
+- coaching / training / professional services, if non-regulated
+- clinics/wellness only if claims and bookings are tightly bounded
+- niche local service firms with obvious missed-call, inbox, CRM, quoting, or follow-up leakage
+
+Do not prioritise:
+- SaaS startups
+- ecommerce
+- restaurants
+- tiny solo freelancers
+- regulated advisory businesses
+- enterprise
+- anyone asking for autonomous outreach without manual approval
+- anyone whose main problem is “we need more content” rather than “revenue or operations are leaking here”
+
+The important point: do not narrow by industry yet. Narrow by geography, buyer type, and pain shape.
+
+So the working rule is:
+
+Local first. Owner-led service businesses. Operational/revenue friction visible from outside. Manual approval gates preserved. No regulated promises. No micro-chaos. No enterprise theatre.
+
+Evidence that would change my mind:
+- if three serious prospects from one vertical respond better than the broad operational-friction framing, then weight that vertical harder;
+- if Vancouver produces weak signal after a real outbound sample, expand to BC/Western Canada;
+- if a remote niche produces stronger booked-call rates than local, follow the evidence.
+
+But right now, broad market scope is correct. The constraint should be who you disqualify, not a premature vertical bet.
+
+--- Q10/25 [C1] What commitments have I made that are still outstanding?
+    latency_s=20.8 manifest=/home/liam/agentic-os-live/queue/context_assemblies/hermes-20260906_172238_65968b-20260906_172238_65968b:6dbd482a-344b-4d6e-8a6e-86a437961485:9813833d.json
+    ANSWER: The outstanding commitments I can verify from the assembled TTROS context are:
+
+1. Ryan / North Shore Sales Coach onboarding
+   - Status: current priority.
+   - Boundary: pilot boundaries preserved; Sheets sync stays gated until confirmed.
+   - Owner/wait: likely you / delivery process.
+   - This is the highest named delivery commitment.
+
+2. Ship the systems-led website / offer repositioning
+   - Status: current priority.
+   - Owner/wait: you.
+   - This is revenue-facing and still open.
+
+3. Harden the live LinkedIn prospecting engine through three real no-send runs
+   - Status: current priority.
+   - Boundary: every platform action remains manual and approval-gated.
+   - Owner/wait: system + you for review decisions.
+   - This is directly tied to acquisition.
+
+4. Decide what to do with AOS-2026-0501
+   - Item: Loretta Davis / Evan Thompson no-send follow-up plan.
+   - Status: `human_review`.
+   - Owner/wait: you.
+   - Required decision: accept, revise, cancel, or close.
+   - My view: this is the most commercially relevant stuck item because it turns prepared prospect evidence into a next action.
+
+5. Check current status of the Telegram approval-routing repair
+   - Item: AOS-2026-0133.
+   - Status: `needs_input`.
+   - Owner listed: Codex.
+   - This is active, but less revenue-relevant than the prospecting and Ryan/website work.
+
+6. Two internal system work items remain outstanding
+   - AOS-2026-0498: “PROBE api contract check - no action required”
+     - Status: `agent_todo`.
+   - AOS-2026-0494: “Describe aos-linux runtime behavior”
+     - Status: `agent_todo`.
+   - These are system-work commitments, not things I’d put ahead of revenue unless they directly unblock delivery.
+
+7. Several drafted prospect records are stale
+   - Anush Sridhar / Manufex
+   - Ron Efroni / Flox
+   - Nicolas Dupont / Cyborg
+   - Jeffrey Morgan / Ollama
+   - Status: drafted, no sent/rejected transition, no external action granted.
+   - Owner/wait: Revenue workflow to prepare review or record rejection.
+   - These are open acquisition loops, but they are not approval to contact anyone.
+
+8. Confirmations still open
+   - Confirm public short name used in client-facing materials.
+   - Confirm CASL-compliant basis before cold outreach volume increases.
+   - Confirm priority order between Ryan onboarding, website ship, and LinkedIn outreach build.
+
+My recommendation: do not touch the internal system work first. The real outstanding business commitments are Ryan onboarding, website/offer ship, and AOS-2026-0501 prospect review. If you want the cleanest next move: decide AOS-2026-0501 now, because it is the smallest revenue-adjacent decision currently waiting on you.
+
+--- Q11/25 [C2] Which prospects have gone quiet?
+    latency_s=19.9 manifest=/home/liam/agentic-os-live/queue/context_assemblies/hermes-20260906_172258_05755d-20260906_172258_05755d:0447ccb6-ad72-401a-b1b6-f02720b00efe:cc60adb9.json
+    ANSWER: None are “quiet” in the sense of prospects ignoring us after outreach. Verified fact: no sends are recorded.
+
+The prospects that have gone stale internally are:
+
+1. Ron Efroni — Flox
+   - Status: drafted
+   - Last activity: 2026-07-16
+   - Age: 53 days
+   - Blocker: system work outstanding, not waiting on you
+
+2. Nicolas Dupont — Cyborg
+   - Status: drafted
+   - Last activity: 2026-07-16
+   - Age: 53 days
+   - Blocker: system work outstanding
+
+3. Jeffrey Morgan — Ollama
+   - Status: drafted
+   - Last activity: 2026-07-16
+   - Age: 53 days
+   - Blocker: system work outstanding
+
+4. Ronnie Kwesi Coleman — PunttAI
+   - Status: drafted
+   - Last activity: 2026-07-16
+   - Age: 53 days
+   - Blocker: system work outstanding
+
+5. Anush Sridhar — Manufex
+   - Status: drafted
+   - Last activity: 2026-07-17
+   - Age: 52 days
+   - Blocker: system work outstanding
+
+6. Omar Alani — Zunesha Labs
+   - Status: drafted
+   - Last activity: 2026-07-17
+   - Age: 52 days
+   - Blocker: system work outstanding
+
+Separate stale review loop:
+
+7. Loretta Davis — Talent Harbour
+   - Strongest first review candidate
+   - Manual LinkedIn action prepared
+   - No outreach sent
+   - Still unresolved: role, prior-contact, platform/CASL checks
+
+8. Evan Thompson — Highway 99
+   - Useful second candidate
+   - Gmail draft review prepared
+   - No outreach sent
+   - Still unresolved: CASL, role, prior-contact
+
+My read: the problem is not prospects going quiet; it is TTR going quiet. There are drafted or prepared prospects sitting without a decision or workflow transition. The next revenue move is to review Loretta first, then Evan, and either approve/revise/cancel those drafts before doing more prospect discovery.
+
+--- Q12/25 [C3] What is the revenue target, and what do we not know about it?
+    latency_s=15.6 manifest=/home/liam/agentic-os-live/queue/context_assemblies/hermes-20260906_172318_cd7102-20260906_172318_cd7102:3964d5f2-1d58-494f-aa86-7a09457d79d4:d31051df.json
+    ANSWER: Verified revenue target: $30,000/month in business gross revenue within six months.
+
+Not personal take-home. Not profit after delivery costs. The canonical note says Liam clarified this explicitly.
+
+What we do not know / should not pretend to know:
+
+- Start date for the six-month clock.
+- Whether “$30k/month” means booked revenue, invoiced revenue, cash collected, or repeatable monthly run-rate.
+- Current baseline monthly revenue.
+- Required gross margin or delivery-cost ceiling.
+- Offer mix needed to hit it: one larger implementation, several smaller retainers, Ryan/North Shore-style pilots, or another package.
+- Pipeline math: number of qualified prospects, discovery calls, proposals, close rate, average deal size.
+- Whether the target is meant to be sustainable recurring revenue or simply one month crossing $30k.
+- Capacity constraint: how much Liam can deliver alone before revenue creates operational debt.
+- Whether Ryan / North Shore Sales Coach is expected to contribute materially to this target.
+- What evidence would make the target unrealistic or force a reset.
+
+My read: the target is directionally useful, but not yet operational enough. The next useful definition is:
+
+“By [date], TTR is collecting or contractually booked at least $30k/month gross revenue, from [offer mix], without relying on unpriced custom labour that destroys delivery capacity.”
+
+Cheapest test: write the target as pipeline math.
+
+Example:
+- $30k/month = 3 clients at $10k/month, or
+- 2 implementations/month at $15k, or
+- 1 implementation at $20k + 2 retainers at $5k.
+
+Then compare that to actual current pipeline. Right now, the context says the system is producing artifacts and review states, not enough revenue motion. That is the bigger warning.
+
+--- Q13/25 [C4] What is our proof strategy for winning the first clients?
+    latency_s=26.0 manifest=/home/liam/agentic-os-live/queue/context_assemblies/hermes-20260906_172334_99b30e-20260906_172334_99b30e:01adf4d4-469e-4803-b54d-f23529a4a9d2:7c0a4cee.json
+    ANSWER: Our proof strategy is not “prove we are generally smart.” It is:
+
+Win the first clients by proving, in public and in sales conversations, that we can find one revenue leak, map it to money, and ship a small working fix faster than the client could untangle it themselves.
+
+The practical strategy:
+
+1. Use TTR as the first proof
+   The acquisition engine itself is the credential.
+
+   We are not saying “we help companies with AI/ops.”
+   We are showing:
+   - we identified a narrow market signal
+   - found likely operational friction
+   - prepared specific hypotheses
+   - reached out with relevance
+   - tracked response and follow-up
+   - improved the machine from evidence
+
+   If this produces first calls, it proves the GTM-engineering side enough to sell.
+
+2. Sell the smallest paid diagnostic or implementation proof
+   The first commercial step should not be a broad transformation pitch.
+
+   Best proof products:
+   - Quick-Win Scan: “we’ll find the bottleneck and show the first fix”
+   - Business Efficiency Assessment: deeper paid mapping
+   - small scoped build: speed-to-lead, voice agent, client memory, follow-up system
+
+   The point is to get paid to expose and solve one painful workflow, not to convince someone to buy the whole worldview.
+
+3. Make every prospect conversation about one bottleneck
+   The fit-call proof pattern is:
+
+   - How does revenue enter the business?
+   - Where do leads, calls, DMs, referrals, or follow-ups slow down?
+   - What repeated admin is the team tired of?
+   - What breaks when volume increases?
+   - If we could fix one workflow first, which one would matter?
+
+   Then map the answer to one of three levers:
+   - effectiveness: more leads handled/booked
+   - efficiency: less manual chasing/admin
+   - quality: faster response, cleaner handoff, fewer dropped balls
+
+4. Avoid unsupported credibility claims
+   We cannot yet claim client results, ROI numbers, case studies, industry authority, or proprietary proof.
+
+   So the credible posture is:
+   “We are early, but this is the exact way we work: we inspect the real workflow, identify the leak, and build the fix. Start small; judge us by the working result.”
+
+5. Use Ryan / North Shore as delivery proof if it moves
+   Ryan is potentially the first implementation proof if boundaries stay clean and the work ships. That matters more than another internal OS improvement.
+
+   But it only becomes proof if it results in:
+   - a shipped artifact
+   - a before/after workflow
+   - client-visible usefulness
+   - a usable story without exaggeration
+
+6. Use Loretta / Evan as acquisition proof, not endless review material
+   AOS-2026-0501 is the stuck commercial loop. The system already prepared follow-up plans. The decision now is whether those opportunities are worth acting on, revising, cancelling, or closing.
+
+   My view: review Loretta first, make a decision, and stop treating stale review as strategy. If she is not commercially live, close it and move to fresher outbound evidence.
+
+The scoreboard for the first-client proof is simple:
+
+- 10–20 targeted no-send prospect briefs prepared
+- 3–5 approved outbound attempts
+- 1–2 fit calls booked
+- 1 paid diagnostic or small build sold
+- 1 implementation proof completed
+- 1 honest case narrative produced
+
+What would change my mind:
+- If Ryan has an immediate delivery dependency today, Ryan comes first because implementation proof beats prospecting theory.
+- If no prospect evidence converts after a small approved outbound batch, the message/ICP needs correction.
+- If calls happen but no one buys, the offer is too abstract or the entry price/scope is wrong.
+
+My recommendation: do not build more internal proof infrastructure right now. The next proof move is either Ryan delivery if there is a live dependency, or AOS-2026-0501 review followed by a controlled outbound test. Revenue proof comes from contact with the market, not from a cleaner operating system.
+
+--- Q14/25 [D1] What should I focus on right now?
+    latency_s=12.5 manifest=/home/liam/agentic-os-live/queue/context_assemblies/hermes-20260906_172400_41a01a-20260906_172400_41a01a:acc25907-09a2-41e2-b6c1-4c540be84440:cf83946e.json
+    ANSWER: Focus on revenue-facing review, not more OS work.
+
+Right now I’d do this:
+
+1. Decide the next commercial action from AOS-2026-0501.
+   That is the clearest “could move toward money” item currently waiting on you. The standing interpretation says the bottleneck is not discovery or infrastructure; it is prepared prospect/revenue evidence sitting in human review.
+
+2. If AOS-2026-0501 is stale or not worth acting on, explicitly kill or park it.
+   Do not let it keep occupying executive attention. The decision should be: act, revise, cancel, or close.
+
+3. Only after that, check whether Ryan onboarding has a hard dependency today.
+   If there is a real calendar/client dependency, Ryan wins because delivery/proof protects revenue. If not, prospect/revenue review wins.
+
+What I would not focus on right now:
+- Dashboard/workbench repair.
+- Telegram approval routing.
+- Old queue cleanup.
+- More architecture.
+- Another pass on positioning unless it directly supports outreach or the website going live.
+
+My opinion: spend the next block turning one prepared revenue opportunity into a concrete next action or a clean “no.” That is the highest-leverage thing because TTR’s constraint is still clients, not internal system sophistication.
+
+--- Q15/25 [D2] What are we deliberately not working on?
+    latency_s=14.1 manifest=/home/liam/agentic-os-live/queue/context_assemblies/hermes-20260906_172413_554346-20260906_172413_554346:b50e06eb-dc07-4cbc-b89b-fff940a1b4bc:589359a0.json
+    ANSWER: Deliberately not working on:
+
+1. CCI / TRACC
+   Verified: explicitly benched in Current Priorities.
+   Why: not the nearest path to new revenue proof unless reactivated.
+
+2. Lead Gen V4.1 rebuild
+   Verified: explicitly benched.
+   My read: rebuilding the old lead-gen machine is a distraction unless it directly feeds the current LinkedIn prospecting engine.
+
+3. AOS-2026-0521 and AOS-2026-0522
+   Verified: rolling thread says they remain parked unless they directly unblock revenue or delivery.
+   Why: blocked internal OS work is not the revenue constraint today.
+
+4. More Agentic OS architecture for its own sake
+   Verified basis: TTROS is internal infrastructure, not a product or SaaS.
+   My read: this is the main trap. The OS matters only if it helps sell, deliver, remember, or follow through. Otherwise it is founder avoidance dressed as leverage.
+
+5. Website/positioning narrowing by vertical
+   Verified: market scope is settled broad; ICP-A/ICP-B is prospecting weighting, not market restriction.
+   So we are not turning TTR into a narrow vertical offer until acquisition evidence justifies it.
+
+6. External sending / publishing / CRM or calendar mutation without approval
+   Verified: gated boundary.
+   We can draft and prepare; we are not taking platform actions automatically.
+
+7. Implementation inside diagnostics or support sessions before scope exists
+   Verified from workflows: Quick-Win Scan and AOA Support both prohibit scope creep into unscoped builds.
+   We diagnose, recommend, and log next builds; we do not quietly start delivery.
+
+8. Old vaults / legacy runtimes / quarantined systems except where they directly unblock current work
+   Verified: Current Priorities says keep them quarantined.
+   AOS-2026-0086 exists, but it is not above Ryan, website, or LinkedIn unless there is a direct dependency.
+
+The positive version: we are working on Ryan onboarding, the systems-led website/offer, and first real manual-gated LinkedIn prospecting runs. Everything else has to justify itself by moving revenue, protecting delivery, or closing a real open loop.
+
+--- Q16/25 [D3] Where does new work go?
+    latency_s=10.5 manifest=/home/liam/agentic-os-live/queue/context_assemblies/hermes-20260906_172427_cc9875-20260906_172427_cc9875:a9b9fcc6-d38d-472d-87ca-f2bebf59507d:79efe554.json
+    ANSWER: New work goes in:
+
+`Agentic OS Live/queue/`
+
+Not memory.
+
+Use the queue for durable work state: tasks, owners, statuses, receipts, reviews, blockers, and completion evidence.
+
+Use the Business Brain for durable knowledge: company facts, decisions, priorities, lessons, commitments, client/prospect context, and open loops.
+
+My read: if it needs doing, tracking, reviewing, or closing, it belongs in the queue. If it needs remembering as organisational truth after the work produces evidence, it belongs in the Brain.
+
+--- Q17/25 [D4] What decision is still open on the priority list itself?
+    latency_s=12.8 manifest=/home/liam/agentic-os-live/queue/context_assemblies/hermes-20260906_172437_db54b9-20260906_172437_db54b9:84e13bec-0c1b-4789-9703-c9a77a916c14:ebb39582.json
+    ANSWER: The open decision on the priority list itself is:
+
+Confirm the priority order between:
+1. Ryan onboarding
+2. Website / offer repositioning
+3. LinkedIn outreach build
+
+My read: Ryan wins only if there is an immediate calendar or client dependency. If not, the commercial sequence should be:
+
+1. Review AOS-2026-0501 — Loretta Davis / Evan Thompson no-send follow-up plan
+2. Use that decision to sharpen the LinkedIn prospecting path
+3. Then ship the website repositioning so it reflects the actual outreach/offer direction
+
+So the unresolved question is not “what are the priorities?” — they are listed. It is “which of the top three goes first this week?”
+
+--- Q18/25 [E1] Which historical calls do we have on file, and who was in each?
+    latency_s=50.7 manifest=/home/liam/agentic-os-live/queue/context_assemblies/hermes-20260906_172450_88bd7c-20260906_172450_88bd7c:854568b6-6d80-46d8-a30c-9315d3b22fd0:eb66de3b.json
+    ANSWER: We have 15 historical conversation/source records on file under `sources/historical_calls/INDEX.md`.
+
+Important caveat: these are historical evidence records, not canonical TTROS truth. Speaker statements inside them should not be treated as settled facts without promotion/verification.
+
+1. Call with Dr Kenneth Moodley after second CCI call
+   - Date: unavailable
+   - Participants: Liam Duff; Dr Kenneth Moodley
+
+2. Call with Kenneth after first CCI call
+   - Date: unavailable
+   - Participants: Liam Duff; Dr Kenneth Moodley
+
+3. First call with CCI
+   - Date: Jun 10
+   - Participants: Liam Duff; CCI participants not individually attributable
+
+4. AI consulting opportunity and dealership sales agent with Quinn founder
+   - Date: Jul 7
+   - Participants: Liam Duff; Ken Stanick
+
+5. Kenneth meeting
+   - Date: May 27
+   - Participants: Liam Duff; Kenneth, surname absent from metadata
+
+6. Meeting with Andrea Roberts
+   - Date: Jun 26
+   - Participants: Liam Duff; Andrea Roberts
+
+7. Time to Revenue — Mike Knapp Meeting and MSP Go-to-Market Context
+   - Date: 2026-07-22
+   - Participants/attribution: Liam Duff; Mike Knapp; post-meeting synthesis
+   - Note: this is a context packet, not a plain call transcript
+
+8. Call with Kenneth
+   - Date: Jun 30
+   - Participants: Liam Duff; Kenneth, surname absent from metadata
+
+9. Networking events, lead targeting, and CCI pilot project with consultant
+   - Date: Jun 18
+   - Participants: Liam Duff; Kenneth, surname absent from metadata
+
+10. AI consulting positioning and go-to-market strategy with Mike
+   - Date: Jul 21
+   - Participants: Liam Duff; Mike Knapp
+
+11. Hermes-Assisted Water Treatment Operating System — Concept Summary for Lance / Trent
+   - Date: unavailable
+   - Attribution: prepared for Time to Revenue; references Lance and Trent
+   - Note: Lance is referenced, not shown as present in a call
+
+12. Second call with Andrea
+   - Date: Jun 30
+   - Participants: Liam Duff; Andrea, surname inferred from related source
+
+13. Second call with CCI, Ollie and Kenneth
+   - Date: Jun 15
+   - Participants: Liam Duff; CCI participants including Ollie and Kenneth; mapping unavailable
+
+14. Trent call transcript
+   - Date: unavailable
+   - Participants: Liam Duff; Trent MacGregor
+
+15. Trent call transcript — July 9
+   - Date: Jul 9
+   - Participants: Liam Duff; Trent MacGregor
+
+Source checked: `/home/liam/ttros_backups/b7_harness_vault_snapshot_20260907_000711Z/sources/historical_calls/INDEX.md`.
+
+--- Q19/25 [E2] What did Mike Knapp advise?
+    latency_s=50.2 manifest=/home/liam/agentic-os-live/queue/context_assemblies/hermes-20260906_172541_09f948-20260906_172541_09f948:ed107ebe-a648-4fcc-8d26-ed0c123c17ce:d7f9a1cc.json
+    ANSWER: Mike’s advice was basically:
+
+1. Separate two offers that Liam had blurred together:
+   - Implementation work: easier to sell now; build automations, dashboards, workflows, specific AI-enabled fixes.
+   - Strategic AI-enabled CTO / AI operator: more differentiated and more aligned with Liam’s background, but harder to sell before he has proof.
+
+2. Recommended sequence:
+   Win narrow implementation work now, use it to create proof, and deliberately build the strategic AI-enabled CTO offer above it.
+
+3. Niche down — but treat it as a test, not a permanent identity decision.
+   Mike said niching makes sales easier and can support higher rates. He suggested starting from Liam’s own experience, preferred company size, sectors with money, and sectors with high administrative overhead. He specifically cautioned that tech startups may be weak because many can do AI themselves.
+
+4. Build a vertical use-case library.
+   Don’t sell “AI”. Pick a sector/problem set and collect concrete before/after use cases: painful workflows, buyer language, likely savings, approval points, and repeatable examples.
+
+5. Lead sales with specific operational pain.
+   Ask about a recognisable process problem, measure the burden, then propose a controlled improvement. The practical first offer should be a one-workflow pilot, not broad “AI transformation”.
+
+6. Use risk-reversal carefully to get early proof.
+   He floated doing early work where payment is due if agreed success criteria are met. The synthesis puts this around a scoped CA$3k–CA$5k pilot, with baseline, success criteria, and clear limits — not open-ended free labour.
+
+7. Partner with MSPs / IT firms.
+   This was his clearest distribution advice. MSPs already have SMB trust, client access, and knowledge of the technical environment. TTR could supply AI workflow discovery, implementation, governance, adoption, and ROI verification.
+
+8. Target the right MSPs.
+   Best hypothesis: owner-led BC MSPs or strategic IT firms with SMB clients, recurring relationships, Microsoft/cloud capability, vCIO-style orientation, and no mature internal AI consulting practice. Sanjay was introduced in that spirit.
+
+9. Don’t overbuild standalone agent boxes as the core value proposition.
+   Mike warned that Microsoft and Google are building more native agentic orchestration. TTR should lead with workflow design, governance, implementation judgment, and ROI — not with a proprietary external stack as the main selling point.
+
+10. AI doctrine:
+   “AI accelerates; humans decide.”
+   Mike was strong on this: AI is good for admin, research, drafting, flagging, and preparation, but if it is “thinking for” the business leader, the process has failed.
+
+Important correction: niching down was Mike’s advice, not Liam’s settled intention. The records say Liam was reluctant to niche down, and current positioning keeps scope deliberately broad while using segment weighting as a prospecting tool.
+
+--- Q20/25 [E3] What happened with CCI?
+    latency_s=12.4 manifest=/home/liam/agentic-os-live/queue/context_assemblies/hermes-20260906_172631_b7c30b-20260906_172631_b7c30b:56ab959c-b07a-43c5-8b1e-da437e20754f:f3f14429.json
+    ANSWER: CCI/TRACC got benched.
+
+Verified facts from the assembled Brain context:
+- Current priorities explicitly say: “Benched, do not work on unless reactivated: CCI/TRACC; Lead Gen V4.1 rebuild.”
+- There is no active scoped queue commitment matching CCI in the current context.
+- No recent receipt/outcome was found for it.
+- The currently live referenced work items are unrelated: AOS-2026-0501 is in human_review; AOS-2026-0521 and AOS-2026-0522 are blocked.
+
+Interpretation:
+- CCI was not killed as a business idea; it was deprioritised.
+- The system is treating Ryan onboarding, the website/offer repositioning, and LinkedIn prospecting as higher-priority revenue paths.
+- The reason is probably focus: CCI/TRACC was not the nearest route to implementation proofs or current revenue.
+
+What I would do:
+- Leave CCI parked unless there is a live buyer, warm intro, deadline, or committed next step.
+- Don’t spend another architecture/research cycle on it right now. That would be Liam building instead of selling.
+
+What would change my mind:
+- A named CCI/TRACC prospect with urgency.
+- A concrete next action that can produce a paid implementation conversation within 7 days.
+- Evidence that CCI is materially closer to cash than Ryan, website ship, or LinkedIn outreach.
+
+--- Q21/25 [E4] What is the Trent/Lance situation?
+    latency_s=17.2 manifest=/home/liam/agentic-os-live/queue/context_assemblies/hermes-20260906_172644_fa3b1c-20260906_172644_fa3b1c:710745a4-ea7d-4c6a-827e-da8ae572e67f:8d8a4eda.json
+    ANSWER: The Trent/Lance situation is this:
+
+Verified fact:
+- Trent described automation opportunities in Lance’s water-treatment business/workflows.
+- The evidence we have is second-hand through Trent and concept work.
+- There is no recorded direct validation from Lance in the assembled context.
+- Water treatment has been discussed as interesting, especially around tenders, estimates, job tracking, field reports, and invoice support.
+
+Interpretation:
+- This is a promising lead, not yet a validated market.
+- Trent is a source of signal, but Lance is the actual demand test.
+- Until Lance confirms the pain, data access, decision authority, and willingness to run/pay for something bounded, this should not drive TTR’s positioning or ICP.
+
+My recommendation:
+Do not make water treatment the main vertical yet. Treat Trent/Lance as a warm validation path that could become a first paid proof if Lance engages directly.
+
+Cheapest practical test:
+Get Lance on a short validation call and ask for one concrete workflow:
+- “Where do tenders/estimates/field reports/invoicing slow you down?”
+- “What does that delay cost or block?”
+- “Can you show one real example, with sensitive details removed?”
+- “If we fixed one bounded workflow in 2–3 weeks, would you pay for that pilot?”
+
+Decision rule:
+- If Lance gives real workflow data, a painful bottleneck, and a path to a paid/tightly bounded pilot: pursue it.
+- If it stays filtered through Trent or remains conceptual: park it and keep prioritising Ryan onboarding, website/offer, and LinkedIn prospecting.
+
+--- Q22/25 [E5] Did Andrea Roberts introduce us to anyone?
+    latency_s=51.8 manifest=/home/liam/agentic-os-live/queue/context_assemblies/hermes-20260906_172701_a07e7c-20260906_172701_a07e7c:e64f76ee-792b-4484-bef0-c8a8a9e15e37:fd5957cf.json
+    ANSWER: Yes.
+
+Verified from the historical Andrea call transcripts:
+
+- Ken Stanick, CEO/founder of Quinn/Quin AI.
+  - Jun 26: Andrea offered to email Ken and make the intro.
+  - Jun 30: she said Ken had replied “would love the intro,” then she said she sent the intro email.
+
+- Mike Knapp, her RascalHR business partner / Incrementa founder.
+  - Jun 30: she typed the intro during the call:
+    “Mike, I would like you to meet Liam… AI consultant looking to expand his network here in Vancouver… perhaps the consultant happy hour might be a fit.”
+  - She then said: “Done.”
+
+Likely / offered, but not proven as completed from the transcript:
+
+- Mike Gardner, Property Fox / CEO group leader.
+  - Andrea said she would talk to him Friday and maybe make the intro Monday. I don’t see proof in the transcript that she actually sent it.
+
+- Rachel Radford / Mirror Consulting.
+  - Andrea said she would ask about getting you on the guest list. Again, not proven as sent.
+
+So the clean answer is: yes, she appears to have introduced you to Ken Stanick and Mike Knapp; she also discussed potential future introductions to Mike Gardner and Rachel Radford, but those are not proven as completed from the call evidence I found.
+
+--- Q23/25 [F1] What is our one-sentence positioning statement?
+    latency_s=9.7 manifest=/home/liam/agentic-os-live/queue/context_assemblies/hermes-20260906_172753_87be40-20260906_172753_87be40:7cbd2519-f7e2-4110-b55a-956b41836216:65d06e81.json
+    ANSWER: Time to Revenue helps growing service businesses find and remove the operational friction that costs them time, capacity, or revenue — then designs and builds the revenue, data, and operations systems that fix it.
+
+That is the current settled version. AI is deliberately not in the sentence; it is the enabling technology, not the pitch.
+
+--- Q24/25 [F2] Have we chosen a niche?
+    latency_s=11.5 manifest=/home/liam/agentic-os-live/queue/context_assemblies/hermes-20260906_172803_0eb66f-20260906_172803_0eb66f:02df710a-5906-4aac-9f05-8a111af5d93e:832bb038.json
+    ANSWER: Yes — but not a narrow vertical niche.
+
+Verified fact: on 2026-09-03, the market scope was settled broad. The ICP-A / ICP-B 60/40 split is a prospecting-engine weighting, not a market restriction.
+
+So the current choice is:
+
+Time to Revenue sells operational-friction removal and revenue/data/ops systems for growing service businesses.
+
+The practical prospecting focus is weighted, not exclusive. We have not chosen “dentists” or “coaches” or “agencies” as the only niche.
+
+My read: this is the right decision for now. You do not yet have enough client proof to credibly claim vertical expertise. A broad systems-led position lets you sell the real capability while using prospecting segments to learn where the market pulls.
+
+What would change my mind:
+- 2–3 paid wins in one vertical,
+- repeated response from one segment to the same pain,
+- a clear delivery pattern that shortens sales/delivery,
+- or evidence that broad positioning is making outreach mushy.
+
+The risk now is not “we need a better niche.” The risk is using niche-choice as another way to delay live prospect review and outreach.
+
+Next revenue move: use the broad position, pick the current prospecting weight, and decide what to do with AOS-2026-0501 instead of reopening the niche question.
+
+--- Q25/25 [F3] Is our pricing confirmed?
+    latency_s=11.3 manifest=/home/liam/agentic-os-live/queue/context_assemblies/hermes-20260906_172814_0579ac-20260906_172814_0579ac:2a5e7fab-fc89-4482-91f8-614e08fef99b:d70025bd.json
+    ANSWER: No.
+
+Verified fact: the current offer note says the pricing is indicative, not confirmed:
+
+- Paid diagnosis / operational mapping: CA$750–1,500, creditable toward build.
+- Scoped system build: indicative ~CA$4,500 entry.
+- Client Memory workflow mentions “from CA$2,000”.
+- The Brain explicitly says: “Confirm pricing against the diagnose-first model — the figures above predate it.”
+
+So we should treat the numbers as working anchors, not settled public pricing.
+
+My recommendation: confirm a simple provisional ladder now:
+
+- Free AI Opportunity Scan
+- Paid diagnosis: CA$1,500, creditable toward build
+- First scoped build: from CA$4,500
+- Client Memory/Data Consolidation: from CA$2,000 only if sold as that specific deliverable
+- Ongoing support/systems relationship: price case-by-case after first build
+
+Cheapest test: use those numbers in 3 private fit-call/scoping conversations and watch for whether prospects object to price, scope, or trust. Do not publish them as final until we decide the website offer structure.
+
+Finished (UTC): 2026-09-07T00:28:24.141406+00:00
+Actual call count: 25 / declared maximum 25

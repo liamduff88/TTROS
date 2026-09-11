@@ -1,0 +1,146 @@
+id: source-intake-claim-andrea-roberts-june-26
+type: claim_record
+source_id: andrea-roberts-june-26
+source_path: sources/historical_calls/andrea-roberts-june-26.md
+source_sha256: b890ee5b656f087875dbd4e3e60f2437391adccc2a9bc606779ce7c9f50555a2
+generated_at: '2026-09-09T21:46:09.215058Z'
+model: gpt-5.5
+claim_count: 15
+dropped_count: 0
+canonical_truth: false
+claims:
+- claim: Them offered to introduce Liam to Ken if Liam wanted an introduction after
+    looking at Quin AI's website.
+  type: offer_made
+  attribution: Them
+  status: historical
+  evidence:
+    quote: if you have a look at his website and if you want an introduction to Ken,
+      just let me know and I'll just do an email introduction
+    locator: Them, early Quin AI discussion
+- claim: Liam said it would be great to meet Ken and later said he would love to talk
+    to him.
+  type: liam_position
+  attribution: Liam
+  status: historical
+  evidence:
+    quote: Okay, it would be great to meet them.
+    locator: Me, response to Quin AI introduction offer
+- claim: Liam said he wanted to build Time to Revenue, was in a malleable space, wanted
+    fractional AI officer opportunities, and was open to getting a job if needed for
+    income.
+  type: liam_position
+  attribution: Liam
+  status: historical
+  evidence:
+    quote: I do want to build Time to Revenue, but I am kind of in a flux and somewhat
+      malleable space
+    locator: Me, after Them describes Ken
+- claim: Them committed to emailing Ken after the phone call to give him a heads-up
+    about Liam.
+  type: commitment
+  attribution: Them
+  status: historical
+  evidence:
+    quote: I'll email Ken when we get off the phone
+    locator: Them, after Liam says he would love to talk to Ken
+- claim: Them said Rascal is legal compliance software and claimed it is the only
+    one in Canada that does this.
+  type: fact_asserted
+  attribution: Them
+  status: historical
+  evidence:
+    quote: So rascal is a legal compliance software. We are the only one in Canada
+      that does this.
+    locator: Them, Rascal origin story
+- claim: Them said Rascal is not AI based because of legal-risk concerns and because
+    AI might pull inaccurate employment-law content.
+  type: third_party_statement
+  attribution: Them
+  status: historical
+  evidence:
+    quote: So we are not AI based at all.
+    locator: Them, Rascal AI-risk discussion
+- claim: Them said Rascal uses disclaimers stating it is not offering legal advice
+    and recommends users go to their own lawyer.
+  type: fact_asserted
+  attribution: Them
+  status: historical
+  evidence:
+    quote: We are not offering legal advice. We still recommend that you go to your
+      own lawyer.
+    locator: Them, legal disclaimer discussion
+- claim: Them said Liam might be able to help down the road with an AI agent for policy
+    creation outside Rascal's existing offering.
+  type: offer_made
+  attribution: Them
+  status: historical
+  evidence:
+    quote: maybe this is something you can help me with, it's down the road. Like
+      if you're, if you're in your account, we don't have an AI agent.
+    locator: Them, AI agent discussion
+- claim: Them said she needs to figure out how to make Rascal better by using AI and
+    does not know how to do it.
+  type: open_question
+  attribution: Them
+  status: historical
+  evidence:
+    quote: But I need to figure out. How to make our product. Better. By using AI.
+      I don't know how to do it.
+    locator: Them, after AI template review discussion
+- claim: Them said her speaking at associations and medical conferences is the main
+    driver for Rascal sales and that webinars usually produce five sales within two
+    days.
+  type: fact_asserted
+  attribution: Them
+  status: historical
+  evidence:
+    quote: that's really the main driver for our sales is me speaking
+    locator: Them, sales channels discussion
+- claim: Liam said he had not focused enough on getting himself out there while starting
+    his business and found Them's webinar and travel-sales experience useful to hear.
+  type: liam_position
+  attribution: Liam
+  status: historical
+  evidence:
+    quote: when I'm starting my business, one thing that I really haven't focused
+      on enough is, is actually getting myself out there
+    locator: Me, after Them describes webinars and speaking
+- claim: Them said Rascal changed pricing after an SEO campaign brought hundreds of
+    landing-page visitors but no conversions.
+  type: fact_asserted
+  attribution: Them
+  status: historical
+  evidence:
+    quote: we got not a single conversion out of hundreds and hundreds of people
+    locator: Them, pricing value of death discussion
+- claim: Liam argued that being too protective of IP can stop people from knowing
+    about a company and that a business may need to accept some copying risk.
+  type: liam_position
+  attribution: Liam
+  status: historical
+  evidence:
+    quote: they don't have enough people coming to them. They don't have people knowing
+      about them because they're being so protective of what they are and who they
+      are that nobody knows.
+    locator: Me, comparison to UK company
+- claim: Them said she wanted an automated backend system where AI checks provincial
+    employment law, compares current and new policy templates, and notifies her for
+    review.
+  type: open_question
+  attribution: Them
+  status: historical
+  evidence:
+    quote: I would love to build an automated system on the back end so that AI goes
+      and checks all the provincial employment law.
+    locator: Them, after Liam describes immigration-law update system
+- claim: Liam said he could definitely help Them build a compliance AI bot, with the
+    main first issue being access to the publishing systems for the updates.
+  type: commitment
+  attribution: Liam
+  status: historical
+  evidence:
+    quote: Yeah, I can definitely help you to do that. The, the main kind of first
+      bump would just be access to whatever systems that are publishing that.
+    locator: Me, near end compliance AI bot discussion
+dropped: []

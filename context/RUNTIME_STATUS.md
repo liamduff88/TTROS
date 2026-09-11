@@ -12,7 +12,13 @@ Services:
 - FastAPI: existing `dashboard/backend/main.py`, Linux port 8010
 - Frontend: existing `dashboard/frontend`, Linux port 3010
 - Runner: existing `tools/aos-orchestration-runner.py --watch`
-- Lifecycle: `tools/aos-linux-runtime.sh start|status|stop`
+- Lifecycle: systemd user units - `aos-backend`, `aos-frontend`,
+  `aos-runner`, `aos-bridge`, `aos-north-shore` (linger enabled, start at boot)
+- Manage with: `systemctl --user start|stop|status <unit>`
+- Recurring Gmail capture: `aos-gmail-capture.timer` and
+  `aos-gmail-capture.service` - read-only, every 15 minutes, no model invocation
+- The legacy shell launcher under `tools/` was deleted 2026-08-15. systemd is the
+  only runtime authority and there is no wrapper script to run.
 
 Ready:
 - aos-codex

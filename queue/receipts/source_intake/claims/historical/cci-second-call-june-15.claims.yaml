@@ -1,0 +1,157 @@
+id: source-intake-claim-cci-second-call-june-15
+type: claim_record
+source_id: cci-second-call-june-15
+source_path: sources/historical_calls/cci-second-call-june-15.md
+source_sha256: 4d80f48274bfa3986cea5851239f293755e75185b7920d2d46ec3abbac4903a2
+generated_at: '2026-09-09T22:37:49.756192Z'
+model: gpt-5.5
+claim_count: 15
+dropped_count: 0
+canonical_truth: false
+claims:
+- claim: Liam suggested that a quicker pilot could be an external system that does
+    not yet integrate with CCI's internal systems or create security risk for the
+    tech team.
+  type: liam_position
+  attribution: Liam
+  status: historical
+  evidence:
+    quote: maybe it would be easier from a product perspective. And for the for your
+      team and you can correct me if I'm wrong but if we build an external system
+      that didn't have to interact with your systems yet just to see how it works
+      and to build confidence
+    locator: Liam describing an external pilot system
+- claim: Ollie said CCI's AI choice appeared to be Microsoft Copilot, subject to alignment
+    with the technical department.
+  type: third_party_statement
+  attribution: Ollie
+  status: historical
+  evidence:
+    quote: It looks like co-pilot is our AI of choice, in essence.
+    locator: Ollie after Liam proposes external pilot
+- claim: Ollie stated that the team target for the year was approximately seven million
+    in contracted revenue.
+  type: fact_asserted
+  attribution: Ollie
+  status: historical
+  evidence:
+    quote: our team target this year. Is seven, let's call it seven million. Contracted
+      Revenue for the year.
+    locator: Ollie sharing funnel model
+- claim: Ollie stated that CCI needed 36 sales qualified leads for the year to hit
+    its target, based on limited metrics.
+  type: fact_asserted
+  attribution: Ollie
+  status: historical
+  evidence:
+    quote: we need 36. Sales qualified leads. To hit our target.
+    locator: Ollie explaining funnel metrics
+- claim: Ollie stated that CCI's lead sources had been split into seven categories
+    including account-based marketing, events, follow our friends, inbound lead generation,
+    partner, referrals, and webinars.
+  type: fact_asserted
+  attribution: Ollie
+  status: historical
+  evidence:
+    quote: So these lead sources split into seven now. So we've got account based
+      marketing event or trade shows. Follow our friends. Inbound lean generation
+      partner, which is our external telemarketing team referrals and webinars.
+    locator: Ollie explaining lead sources
+- claim: Ollie stated that CCI's ideal customer profile document covered food and
+    beverage, chemicals, and pharma companies with turnover above 300 million plus
+    and target personas.
+  type: fact_asserted
+  attribution: Ollie
+  status: historical
+  evidence:
+    quote: Our ideal customer profile is food and beverage chemicals and pharma. Coverings
+      have turned over 300 million plus. And the personas are the five or six percenters
+      that we want to go after.
+    locator: Ollie describing go-to-market document
+- claim: Ollie stated that CCI was struggling with top-of-funnel activity and thought
+    messaging and the website were contributing factors.
+  type: third_party_statement
+  attribution: Ollie
+  status: historical
+  evidence:
+    quote: The area that we're really struggling on is top of the funnel activities.
+      And I think that's down to. Our messaging to the market. I think it's down to
+      our website.
+    locator: Ollie discussing funnel tracker
+- claim: Liam advised that CCI could work with industry influencers and podcasts to
+    improve visibility and lead generation.
+  type: advice_received
+  attribution: Liam
+  status: historical
+  evidence:
+    quote: finding industry influencers people who do a lot of speaking events or
+      who are considered. Really yeah as influencers in in whichever industry in the
+      industries that you're talking about the food and beverage chemicals.
+    locator: Liam advising on influencers and podcasts
+- claim: Ollie stated that the IC referral rate had increased from 1.5% to up to 5%
+    after he argued that 1.5% was not incentivizing ICs.
+  type: fact_asserted
+  attribution: Ollie
+  status: historical
+  evidence:
+    quote: I've gone back to the board and said, we need to increase that 1.5 percentage
+      because it's not incentivizing the ICs to pass opportunities over to us. So
+      that has now increased to up to 5%
+    locator: Ollie discussing IC referral incentives
+- claim: Liam advised that backlinks and cross-linking between CCI, Track, and IC
+    web properties could increase domain authority and web presence.
+  type: advice_received
+  attribution: Liam
+  status: historical
+  evidence:
+    quote: by actually doing follow backlinks between. This ecra track website and
+      each of those experts. By building that that kind of net this will greatly enhance
+      your domain authority
+    locator: Liam explaining backlink idea
+- claim: Ollie raised a caveat that listing many ICs publicly could make it easier
+    for competitors to poach CCI's coaches.
+  type: third_party_statement
+  attribution: Ollie
+  status: historical
+  evidence:
+    quote: The worry then would be that our competition, like the UIs, the McKenzies
+      of the world. Might start poaching. Our coaches.
+    locator: Ollie responding to public IC listing idea
+- claim: Ollie stated that the team's core geography areas were UK, Western Europe,
+    and the Americas, while the Far East was not an active target area.
+  type: decision
+  attribution: Ollie
+  status: historical
+  evidence:
+    quote: our core geography areas at the minute is UK and Western Europe. And Americas.
+    locator: Ollie answering geography question
+- claim: Ollie suggested trialing the pilot in chemicals because it was a new sector
+    where CCI did not yet have much data.
+  type: advice_received
+  attribution: Ollie
+  status: historical
+  evidence:
+    quote: Chemicals is a new sector that we would like to go into. So maybe we trial
+      this in a brand new sector where we don't have a lot of the data at the minute.
+    locator: Ollie interrupting Liam's pilot proposal
+- claim: Ollie stated that CCI's business goal was ultimately to sell Track, with
+    Accelerate used to prove value and start customers on the journey.
+  type: third_party_statement
+  attribution: Ollie
+  status: historical
+  evidence:
+    quote: The goal is to sell track. We've got the software and subscription, which
+      is going to improve the value in the business.
+    locator: Ollie explaining Track and Accelerate
+- claim: Ollie asked Liam to think about what the proof of concept would look like
+    and come back with a commercial model, while saying CCI could provide information
+    and might need an NDA.
+  type: commitment
+  attribution: Ollie
+  status: historical
+  evidence:
+    quote: Just, just have a think of. What this proof of concept will look. I'm happy
+      to work with you. And give you and provide you as much information. Probably
+      need to sign an MDA at some stage.
+    locator: Ollie closing next steps
+dropped: []

@@ -1,0 +1,83 @@
+STEP X3 — transcript index
+
+Full command output was not captured to a single tee'd file this session (interactive
+investigation across many small commands rather than one instrument script). This file indexes
+where the evidence actually lives, so it can be re-checked without re-running anything.
+
+PART A — root cause
+- In-process hook-dispatch reproduction scripts (scratchpad, not in repo):
+  /tmp/claude-1002/-home-liam-agentic-os-live/167a8049-1446-4473-a471-fe823b679aae/scratchpad/
+    repro_hook_dispatch.py                  - first pass, own shell env
+    repro_hook_dispatch_inherited.py        - env-inherited variant, used under the faithful chain
+    repro_faithful_chain.txt                - env -i + bash -lc replication, short synthetic prompt: PASS
+    repro_faithful_chain_realtext.txt       - same chain, REAL 6379-char decomposition prompt: FAILS
+                                               (this is the reproduction of the live defect)
+    repro_exception_detail.txt              - evaluate() called directly, full traceback captured:
+                                               tools.business_brain_scope.ClientScopeError
+    real_prompt_text.txt                    - the actual reconstructed decomposition prompt used
+                                               for the repro (via _hermes_decomposition_prompt +
+                                               assemble_model_context)
+- Ledger evidence for H2 refutation: queue/token_ledger.jsonl, scope
+  "session dashboard-243593f4da6a43bd8fee1410bb49b3a4" (X2's failed attempt) — exactly one row,
+  timestamped after the failure.
+
+PART B — fix #1 (Step 6 guard)
+- Preimage: /home/liam/ttros_backups/stepX3_2026-09-11/context_assembler_hook.py.PREIMAGE
+  sha256 c92ac0bf843fd573dbdbe1b5d7268bc30fb5caa9693ae8bf6d0b2ed23e076339
+- Patched file live sha256: a7a82ad2ed2c0798e0d0f24304342874d7df0e69ab456ee3b5d76c06e28093c7
+  (mode 755)
+- Positive/negative proof: repro_postfix_positive.txt, repro_negative_control.txt (same
+  scratchpad dir as above)
+- David 6-case drift check: david_six_cases_drift.py + david_six_cases_drift.txt (same dir) —
+  zero drift once the one pre-existing wall-clock "Fresh deterministic snapshot" line is
+  normalized (present and varying in both preimage and patched runs identically)
+- Canonical suite (both fixes, final run): 829 passed, 1 skipped, 0 failed, 397.98s
+- Hermes-venv suite, patched: 807 passed, 7 failed, 1 skipped, 316.31s
+- Hermes-venv suite, preimage control (same 7 names/counts, proving pre-existing):
+  hermesvenv_preimage_fullsuite.txt (same scratchpad dir)
+
+PART B — fix #2 (artifact verification)
+- Preimage: /home/liam/ttros_backups/stepX3_2026-09-11/main.py.PREIMAGE_artifactfix
+  sha256 e26333254d2db6d03a3046c1256cd8b8701d79b17f45e9afe084d0801a0f523b
+- Patched file live sha256: 67de64d5b5a3a8893dc2f0d44bd87e1097528109893f0fd4b4d32d699e1d2797
+  (mode 644)
+- Root-cause evidence: /home/liam/.hermes/profiles/aos-orchestrator/state.db, session
+  20260911_061111_82832e, messages 2659-2663 (terminal call, write_file call with
+  resolved_path=/home/liam/workflows/queue_artifacts/AOS-2026-0900_...md, final PASS text)
+- Direct-call reproduction attempts (did not reproduce the divergence in isolation):
+  terminal_tool()/write_file_tool() called directly, task_id="default" and a realistic session-id
+  shape, both resolved correctly to /home/liam/agentic-os-live/... — confirms the divergence is
+  runtime-context-specific, not reproducible via bare back-to-back tool calls
+- Offline proof: positive replay of AOS-2026-0900's exact worker output through
+  _queue_review_decision() -> PASS; negative control with a fabricated nowhere-path -> still
+  REVISE/"genuinely absent"
+- Suite after both fixes stacked: 829 passed, 1 skipped, 0 failed, 397.98s (bl3i6crz2.output)
+
+PART C — live re-run
+- Attempt 1 response: partc_attempt1_response.json (scratchpad)
+  Parent AOS-2026-0899 / child AOS-2026-0900, status blocked (defect #2), worker receipt shows
+  real HANDOFF_OK execution.
+- Attempt 2 response: partc_attempt2_response.json (scratchpad)
+  Parent AOS-2026-0909 / child AOS-2026-0910, status done, review PASS.
+  Full item detail: aos-2026-0910-final.json (scratchpad)
+- Session/invocation stats: /home/liam/.hermes/profiles/{aos-orchestrator,david}/state.db,
+  sessions table, filtered by started_at in each attempt's window (queried via sqlite3 python
+  module directly; the sqlite3 CLI binary is not installed on this host).
+- Step 6 ledger rows for attempt 2: queue/token_ledger.jsonl, 5 model_invocation rows
+  2026-09-11T18:56:25Z - 18:58:15Z, all accounting_status unset (clean).
+- Telegram check: logs/dashboard_backend.log, grep for "telegram_close_hook" and for
+  "2026-09-11.*telegram" - no hits for today or for AOS-2026-0909/0910.
+- Residue cleanup (both attempts): tools/brain_memory.py::write_transaction, commits
+  2e9f98c2f5c5a236c082b4d0e7f4c274d1363b72 (attempt 1 cleanup) and
+  28106c089bc73c86cf74d024345395eb6cabb8be (attempt 2 cleanup), both in the vault's own git
+  history under "A-Time to revenue/TTROS Business Brain".
+- Vault preimage bytes saved before each attempt:
+  /home/liam/ttros_backups/stepX3_2026-09-11/thread_david.md.PRE_PARTC_BYTES
+  /home/liam/ttros_backups/stepX3_2026-09-11/2026-09-11_hermes-cli_7cd4569d6fe3.md (attempt 1
+    baseline, filename has no suffix - copied before the first save could suffix it)
+  /home/liam/ttros_backups/stepX3_2026-09-11/thread_david.md.PRE_PARTC_ATTEMPT2_BYTES
+  /home/liam/ttros_backups/stepX3_2026-09-11/2026-09-11_hermes-cli_7cd4569d6fe3.md.PRE_PARTC_ATTEMPT2_BYTES
+
+Known loose end, disclosed in the report: workflows/queue_artifacts/REPRO_TEST_ARTIFACT.md,
+a 13-byte throwaway diagnostic file from testing fix #2 offline. An rm to remove it was denied
+this session; left in place rather than retried.

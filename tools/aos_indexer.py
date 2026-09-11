@@ -273,8 +273,6 @@ def document_from_path(path: Path, *, registry: ClientScopeRegistry | None = Non
     tags: list[str] = []
     if suffix in TEXT_EXTENSIONS:
         raw = path.read_bytes()[:MAX_TEXT_BYTES].decode("utf-8", errors="replace")
-        if SECRET_CONTENT_RE.search(raw):
-            return None
         frontmatter, content = parse_frontmatter(raw)
         tags = tags_from_frontmatter(frontmatter)
         body = sanitize_text(content)

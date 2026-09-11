@@ -1,0 +1,60 @@
+=== Step T6 Part D: live over-retrieval repair proof ===
+DECLARED MAXIMUM: 2 CLI-David invocation(s), fresh session each.
+Provider-request hard-stop: turn 1 api_calls > 6 => turn 2 does not run.
+cwd for both calls: /home/liam/agentic-os-live
+
+--- D1 ---
+question (verbatim, same as T5): 'What happened in my meeting with Fred, and what did he say about MLS?'
+invocation 1/2 complete.
+returncode: 0
+wall_clock_seconds: 19.548
+api_calls: 1
+stdout (answer text): 'You had a useful discovery meeting with Fred about real-estate systems. The strongest signal was not “AI” — it was workflow tracking for realtors.\n\nWhat happened:\n\nFred described day-to-day realtor pain around:\n\n- Tracking client/deal workflow across a transaction\n- Knowing which forms/documents are done or missing\n- Keeping track of viewed properties\n- Avoiding over-complicated CRM tools\n- Producing market reports clients can understand\n\nThe meeting seems to have split into two product directions:\n\n1. Realtor workflow / transaction dashboard\n   This was the stronger practical opportunity.\n\n   Fred preferred a project-management-style workflow dashboard over a simpler viewed-property tracker. The essential version would be tracking only, not heavy document storage.\n\n   My read: this is the nearer-term revenue opportunity because it is operational, bounded, and could be mocked or scoped quickly around Fred’s actual workflow.\n\n2. MLS / GVR market reporting dashboard\n   Fred also discussed SnapStats-style market reporting and MLS-derived stats.\n\n   He forwarded the SnapStats sheet during the meeting. The idea was a better dashboard for market data: mobile-friendly, interactive charts, regional/neighbourhood drill-downs, price-band filters, and something easier to use than static reports or archaic interfaces.\n\nWhat Fred said about MLS / GVR:\n\n- He uses MLS/GVR-style market data in client conversations.\n- The reports include things like inventory, sold count, sales ratio, price bands, days on market, and price per square foot.\n- He uses that data to help explain whether an offer is reasonable in a given segment or market.\n- He said existing tools/interfaces are basic or old-fashioned.\n- He was waiting to hear back from GVR about data access.\n- He gave a number for boards under GVR: “like, I think 11 boards.”\n- He also named cities under the Fraser Valley board in the earlier transcript, but the assembled context here does not include the full quote/city list.\n\nImportant caveat Fred raised:\n\nMLS stats are useful, but imperfect. Price per square foot is only a rough aggregated trend indicator because unusual properties and low transaction volume can skew it.\n\nMy recommendation:\n\nDo not build the MLS product first.\n\nThat path depends on data access, permissions, resale rights, and whether other realtors would pay. The faster revenue test is the workflow dashboard: ask Fred for one anonymized real client/deal example, then mock a tiny dashboard that tracks checkpoints, viewed properties, and missing forms. If he says, “yes, I would use this every week,” then scope a paid pilot.'
+usage_file: {
+  "estimated_cost_usd": 0.0,
+  "cost_status": "included",
+  "cost_source": "none",
+  "input_tokens": 14905,
+  "output_tokens": 553,
+  "cache_read_tokens": 0,
+  "cache_write_tokens": 0,
+  "reasoning_tokens": 26,
+  "total_tokens": 15458,
+  "api_calls": 1,
+  "model": "gpt-5.5",
+  "provider": "openai-codex",
+  "session_id": "20260910_164259_695793",
+  "completed": true,
+  "failed": false,
+  "service_tier": null
+}
+
+Turn 1 api_calls=1 <= ceiling 6. Proceeding to D2.
+
+--- D2 (over-suppression control) ---
+question: 'In the Fred Haiderzada meeting, what is the exact name of the MLS platform Fred said he uses to see when his last notification went out and when a client last opened the collaboration center?'
+invocation 2/2 complete.
+returncode: 0
+wall_clock_seconds: 47.179
+api_calls: 9
+stdout (answer text): 'Fred said he uses Paragon — specifically the MLS Paragon system.\n\nThat’s the platform he referred to for checking when the last notification went out and when the client last opened the Collaboration Center.'
+usage_file: {
+  "estimated_cost_usd": 0.0,
+  "cost_status": "included",
+  "cost_source": "none",
+  "input_tokens": 35297,
+  "output_tokens": 1294,
+  "cache_read_tokens": 156672,
+  "cache_write_tokens": 0,
+  "reasoning_tokens": 627,
+  "total_tokens": 193263,
+  "api_calls": 9,
+  "model": "gpt-5.5",
+  "provider": "openai-codex",
+  "session_id": "20260910_164318_637846",
+  "completed": true,
+  "failed": false,
+  "service_tier": null
+}
+
+ACTUAL INVOCATION COUNT: 2 / declared maximum 2.

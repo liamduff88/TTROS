@@ -1,0 +1,298 @@
+{
+  "schema": "validation_a_seal_manifest_v1",
+  "generated_by": "Validation A -- PREP PASS (Claude Code, contaminated-by-design session)",
+  "generated_at_note": "2026-09-08, Validation A prep pass",
+  "search_scope": [
+    "/home/liam/agentic-os-live (repo, excluding connectors/ and workspaces/north_shore_sales_coach/)",
+    "/home/liam/agentic-os-live/docs/ttros/",
+    "/mnt/c/Users/Admin/Documents/A-Time to revenue/"
+  ],
+  "out_of_scope_known_check": {
+    "path": "TTROS_MEMORY_ICM_NOUS_HERMES_CLAUDE_REVIEW_BRIEF_2026-09-08.md",
+    "status": "OUT-OF-SCOPE -- lives in Claude.ai project knowledge, not on any disk surface reachable from WSL. Confirmed absent via exact filename search, ICM/NOUS/BRIEF substring search, literal-string content cross-reference search, and full git history search (git log --all) across all three search roots. Not appended by hand per instruction."
+  },
+  "adjudication_file": {
+    "path": "/mnt/c/Users/Admin/Documents/A-Time to revenue/TTROS Reviews/00_TTROS_CURRENT_STATE_v2026-09-01.md",
+    "sha256": "87f60511d8efce2598c17905cda91bb243b7e2eb049ea206a24371f6cde0fccc",
+    "note": "KNOWN-IN-ADVANCE mandatory check member. The blind session must never touch this file before reveal."
+  },
+  "file_count": 46,
+  "files": [
+    {
+      "path": "/home/liam/agentic-os-live/docs/ttros/00_TTROS_CURRENT_STATE_v2026-09-08_rev7.md",
+      "sha256": "0bb7f4134ceec5b21b792063f0a002a11db0be73013fd17a8e2bdd2289a2a2b1",
+      "byte_size": 53854,
+      "reason": "CATEGORY: 00_*CURRENT_STATE* (docs/ttros mirror). Content-pattern matched: '12 candidates'."
+    },
+    {
+      "path": "/home/liam/agentic-os-live/docs/ttros/02_TTROS_ACTIVE_TASK_2026-09-08_rev7.md",
+      "sha256": "88f9e22bd251bebb0f21a8fd7708bc256ca5d2d642f58c4f6eecf1959e391366",
+      "byte_size": 37080,
+      "reason": "CATEGORY: 02_*ACTIVE_TASK* (docs/ttros mirror)."
+    },
+    {
+      "path": "/home/liam/agentic-os-live/docs/ttros/TTROS_B7_SCORING_FIDELITY_CONTRACT_v2.1_2026-09-08.md",
+      "sha256": "b00e409e143f553ff6b10711a9c0aceff8b80bb2e8141884f8ea4e8d2a543af9",
+      "byte_size": 31162,
+      "reason": "Content-pattern matched (docs/ttros mirror): 'Validation A', 'X of 12' count phrasing."
+    },
+    {
+      "path": "/home/liam/agentic-os-live/scripts/b6_leak_scorer_mechanical_repair_report.md",
+      "sha256": "bedaff2746d9e1cc8457a823a897488b23d081cb1a2cd320c0ca988e3b5c9f24",
+      "byte_size": 28264,
+      "reason": "CATEGORY: prior B6/scorer report (filename token 'b6')."
+    },
+    {
+      "path": "/home/liam/agentic-os-live/scripts/step3_b7_pass_A.raw.json",
+      "sha256": "3a9c890799510d69fe2b648c6d08ec292e480a41f5e04fd5de7d31ad67732f08",
+      "byte_size": 1581450,
+      "reason": "Content-pattern matched: 'X of 12' count phrasing (precautionary, raw B7 harness pass output)."
+    },
+    {
+      "path": "/home/liam/agentic-os-live/scripts/step3_b7_pass_B.raw.json",
+      "sha256": "3fcf1590497d27d2dd3600ea825b9220166fc4b65f45e18c4fc63ee6920b8f1d",
+      "byte_size": 1582615,
+      "reason": "Content-pattern matched: 'X of 12' count phrasing (precautionary, raw B7 harness pass output)."
+    },
+    {
+      "path": "/home/liam/agentic-os-live/scripts/step5_b7_pass_k1.raw.json",
+      "sha256": "ddde96de1bc352d49828c3d787349fad6c87b7705e3d9f2c2412aebed1a09796",
+      "byte_size": 1561524,
+      "reason": "Content-pattern matched: 'X of 12' count phrasing (precautionary, raw B7 harness pass output)."
+    },
+    {
+      "path": "/home/liam/agentic-os-live/scripts/step5_step6_b7_reconciliation_audit.md",
+      "sha256": "b361ff9ae7b1185fc91cfa72c4e55fd90fe5d4acce80fd88be55da44815068cc",
+      "byte_size": 49198,
+      "reason": "Content-pattern matched: 'X of 12' count phrasing (precautionary -- may be a B7 subsection count, not confirmed independent of the sealed adjudication)."
+    },
+    {
+      "path": "/home/liam/agentic-os-live/scripts/step5_step6_post_repaired_b6_investigation.md",
+      "sha256": "1f34722ecf0c5d65b757f8a0402eefaf2dc8f82277157568a7bef44f78efe084",
+      "byte_size": 33248,
+      "reason": "Content-pattern matched: 'Validation A'. Also B6-category (see below)."
+    },
+    {
+      "path": "/home/liam/agentic-os-live/scripts/step5_step6_post_repaired_b6_investigation_instrument.py",
+      "sha256": "8dee3316db54369179e54fc33e0d8f5c5cf684a22e8010266e0460c7f42226f0",
+      "byte_size": 27065,
+      "reason": "CATEGORY: prior B6 report/instrument (filename token 'b6')."
+    },
+    {
+      "path": "/home/liam/agentic-os-live/scripts/step5_step6_post_repaired_b6_investigation_instrument.txt",
+      "sha256": "3e820ff9a52029c2e288103c5feea2734d9f00a97408a7fc5adc9c1bbd212cd4",
+      "byte_size": 12873,
+      "reason": "CATEGORY: prior B6 report/instrument (filename token 'b6')."
+    },
+    {
+      "path": "/home/liam/agentic-os-live/scripts/step5_step6_post_repaired_b6_reconciliation_instrument.py",
+      "sha256": "790f469537490f35d203d36b12b2aaddd800e31746adb476e32256d86f5428ea",
+      "byte_size": 15096,
+      "reason": "CATEGORY: prior B6 report/instrument (filename token 'b6')."
+    },
+    {
+      "path": "/home/liam/agentic-os-live/scripts/step5_step6_post_repaired_b6_reconciliation_instrument.txt",
+      "sha256": "b3738ae7cd7b7d043d7b05723c9e015ce6d2f6c4bb95132f6f27f10e304396c9",
+      "byte_size": 8590,
+      "reason": "CATEGORY: prior B6 report/instrument (filename token 'b6')."
+    },
+    {
+      "path": "/home/liam/agentic-os-live/scripts/step6_b7_pass.raw.json",
+      "sha256": "9f1405baeeb2781f60731ca2138e59514dc5488a073e2796fac8efd6712c0dcd",
+      "byte_size": 1563992,
+      "reason": "Content-pattern matched: 'X of 12' count phrasing (precautionary, raw B7 harness pass output)."
+    },
+    {
+      "path": "/home/liam/agentic-os-live/scripts/step_b6b7_part3_scorer_verification.json",
+      "sha256": "34c28879e2279ff65090145c90c18714507c0538dae08c73ad9312987d787d17",
+      "byte_size": 48479,
+      "reason": "CATEGORY: prior B6/B7 scorer-verification output."
+    },
+    {
+      "path": "/home/liam/agentic-os-live/scripts/step_b6b7_part3_scorer_verification.py",
+      "sha256": "0f386cf9be163f419ad5b07f56a7702aec530fce580ac3a1aedf8377ac444423",
+      "byte_size": 24822,
+      "reason": "CATEGORY: prior B6/B7 scorer-verification instrument."
+    },
+    {
+      "path": "/home/liam/agentic-os-live/scripts/validation_a_fidelity_detector_report.md",
+      "sha256": "d8667b2ed49e1ab2028f3152f7ffb794a48ce2d9eff0dff4b4b1d8ec22ffbb45",
+      "byte_size": 6146,
+      "reason": "Content- and filename-pattern matched: 'validation_a', '12 candidates'."
+    },
+    {
+      "path": "/home/liam/agentic-os-live/scripts/validation_a_fidelity_detector_transcript.txt",
+      "sha256": "39fb9b890b7e7ae2064c4e6e134a7c7659574b92a900129d70ef47fb70b1f557",
+      "byte_size": 6845,
+      "reason": "Content- and filename-pattern matched: 'validation_a', '12 candidates'."
+    },
+    {
+      "path": "/home/liam/agentic-os-live/tests/test_b6_source_disposition.py",
+      "sha256": "449b4a308b7950e9a77ffcde3ecf7d08aa38501838edb12aeefa8a196ab8d8c2",
+      "byte_size": 13728,
+      "reason": "CATEGORY: prior B6 report/test (filename token 'b6')."
+    },
+    {
+      "path": "/mnt/c/Users/Admin/Documents/A-Time to revenue/TTROS Reviews/00_TTROS_CURRENT_STATE.md",
+      "sha256": "7e8bf08fa051c240a8bcf0e608a5d1fbc05e78280887795ad1893b2b4564b3b8",
+      "byte_size": 36700,
+      "reason": "CATEGORY: 00_*CURRENT_STATE* filename pattern (undated revision)."
+    },
+    {
+      "path": "/mnt/c/Users/Admin/Documents/A-Time to revenue/TTROS Reviews/00_TTROS_CURRENT_STATE_v2026-09-01.md",
+      "sha256": "87f60511d8efce2598c17905cda91bb243b7e2eb049ea206a24371f6cde0fccc",
+      "byte_size": 55412,
+      "reason": "KNOWN-IN-ADVANCE: the historical Validation A adjudication. Content-pattern matched: 'indexsplit', '12 candidates'."
+    },
+    {
+      "path": "/mnt/c/Users/Admin/Documents/A-Time to revenue/TTROS Reviews/00_TTROS_CURRENT_STATE_v2026-09-02.md",
+      "sha256": "ea130ab31be150b9faffff01404168a1ed41a17325057528b3ed546bade25e2d",
+      "byte_size": 41613,
+      "reason": "CATEGORY: 00_*CURRENT_STATE* revision. Content-pattern matched: '12 candidates'."
+    },
+    {
+      "path": "/mnt/c/Users/Admin/Documents/A-Time to revenue/TTROS Reviews/00_TTROS_CURRENT_STATE_v2026-09-04_rev6.md",
+      "sha256": "923862257c7d132b7771601df025d04897599ea9ad038b65901c2df7f38ecec5",
+      "byte_size": 44507,
+      "reason": "CATEGORY: 00_*CURRENT_STATE* revision. Content-pattern matched: '12 candidates'."
+    },
+    {
+      "path": "/mnt/c/Users/Admin/Documents/A-Time to revenue/TTROS Reviews/00_TTROS_CURRENT_STATE_v2026-09-08_rev7.md",
+      "sha256": "0bb7f4134ceec5b21b792063f0a002a11db0be73013fd17a8e2bdd2289a2a2b1",
+      "byte_size": 53854,
+      "reason": "CATEGORY: 00_*CURRENT_STATE* revision. Content-pattern matched: '12 candidates'."
+    },
+    {
+      "path": "/mnt/c/Users/Admin/Documents/A-Time to revenue/TTROS Reviews/02_TTROS_ACTIVE_TASK.md",
+      "sha256": "726827e12ae2c0f0863c7fbf8f2066a4718b5f3bb0df6216235f7a3f243b36da",
+      "byte_size": 13421,
+      "reason": "CATEGORY: 02_*ACTIVE_TASK* filename pattern (undated revision)."
+    },
+    {
+      "path": "/mnt/c/Users/Admin/Documents/A-Time to revenue/TTROS Reviews/02_TTROS_ACTIVE_TASK_2026-09-04_rev6.md",
+      "sha256": "9b8898a3468d7d3627db253e0ee91fab37740c476e989c39f306ffd17fb5d8b8",
+      "byte_size": 31643,
+      "reason": "CATEGORY: 02_*ACTIVE_TASK* revision."
+    },
+    {
+      "path": "/mnt/c/Users/Admin/Documents/A-Time to revenue/TTROS Reviews/02_TTROS_ACTIVE_TASK_2026-09-08_rev7.md",
+      "sha256": "88f9e22bd251bebb0f21a8fd7708bc256ca5d2d642f58c4f6eecf1959e391366",
+      "byte_size": 37080,
+      "reason": "CATEGORY: 02_*ACTIVE_TASK* revision."
+    },
+    {
+      "path": "/mnt/c/Users/Admin/Documents/A-Time to revenue/TTROS Reviews/TTROS_ARCHITECTURE_REVIEW_BRIEF_2026-09-02.md",
+      "sha256": "77567183d0b65a2c78ad0d067132650e8ba513d367b2e6e47fa69b086470904c",
+      "byte_size": 17280,
+      "reason": "CATEGORY: project review brief (filename contains REVIEW + BRIEF)."
+    },
+    {
+      "path": "/mnt/c/Users/Admin/Documents/A-Time to revenue/TTROS Reviews/TTROS_B7_SCORING_FIDELITY_CONTRACT_v2.1_2026-09-08.md",
+      "sha256": "b00e409e143f553ff6b10711a9c0aceff8b80bb2e8141884f8ea4e8d2a543af9",
+      "byte_size": 31162,
+      "reason": "Content-pattern matched: 'Validation A', 'X of 12' count phrasing."
+    },
+    {
+      "path": "/mnt/c/Users/Admin/Documents/A-Time to revenue/TTROS Reviews/TTROS_BUILD_PLAN_BRIEF_2026-09-02.md",
+      "sha256": "1357b7453968e96d240d25100554724abe0a5a50fc94f49517a57d8df134e7ba",
+      "byte_size": 13591,
+      "reason": "Content-pattern matched: 'candidate'."
+    },
+    {
+      "path": "/mnt/c/Users/Admin/Documents/A-Time to revenue/TTROS Reviews/TTROS_CONTEXT_ARCHITECTURE_DESIGN_2026-09-02.md",
+      "sha256": "86a0e5cde98f8784a15a25df579563fe03649394fc025af94e5841c397753dba",
+      "byte_size": 32173,
+      "reason": "Content-pattern matched: '12 candidates'."
+    },
+    {
+      "path": "/mnt/c/Users/Admin/Documents/A-Time to revenue/TTROS Reviews/TTROS_EXTERNAL_REVIEW_RESPONSE_2026-09-02.md",
+      "sha256": "2835b64d4d949138570518caa91b52880bcf11a29fbdc5eed832423d7585f046",
+      "byte_size": 10096,
+      "reason": "CATEGORY: project review brief (external review response, same 2026-09-02 review cycle)."
+    },
+    {
+      "path": "/mnt/c/Users/Admin/Documents/A-Time to revenue/TTROS Reviews/TTROS_PLATFORM_DECISION_BRIEF_2026-09-02.md",
+      "sha256": "9a913723e7b1f65b8b99304178c8878270fb263ca4b63bc353e940a11cc69d43",
+      "byte_size": 15823,
+      "reason": "CATEGORY: project review brief -- confirmed re-run of the Windows-side category find (*platform_decision_brief* glob) surfaced this path; added on that re-run, not on the original content-pattern pass."
+    },
+    {
+      "path": "/mnt/c/Users/Admin/Documents/A-Time to revenue/TTROS Reviews/ttros_indexsplit.sh",
+      "sha256": "9d50593de37121829ee507405d3a0e2fe47d8ff472a744970e8502596219176b",
+      "byte_size": 21773,
+      "reason": "CATEGORY: indexsplit provenance (filename)."
+    },
+    {
+      "path": "/mnt/c/Users/Admin/Documents/A-Time to revenue/TTROS Reviews/ttros_indexsplit.txt",
+      "sha256": "bf74ec483e4d93ead10b9daa13c58a4fae2866cfef52593d4f15f821fc2afd26",
+      "byte_size": 1117,
+      "reason": "CATEGORY: indexsplit provenance (filename); also content-matched 'indexsplit'."
+    },
+    {
+      "path": "/mnt/c/Users/Admin/Documents/A-Time to revenue/TTROS Reviews/ttros_indexsplit_applied.txt",
+      "sha256": "fba14f6cee37e83a5648aa8881f0aa1a75bb87254ad527fa91c071cc4f6e0a53",
+      "byte_size": 1740,
+      "reason": "CATEGORY: indexsplit provenance (filename); also content-matched 'indexsplit'."
+    },
+    {
+      "path": "/mnt/c/Users/Admin/Documents/A-Time to revenue/TTROS Reviews/ttros_indexsplit_confirm.sh",
+      "sha256": "59dc2ef8f65903234e9e0a9f6be609a3045cb1ab4a1947bd936738c319bc1192",
+      "byte_size": 3100,
+      "reason": "CATEGORY: indexsplit provenance (filename)."
+    },
+    {
+      "path": "/mnt/c/Users/Admin/Documents/A-Time to revenue/TTROS Reviews/ttros_indexsplit_confirm.txt",
+      "sha256": "5e457265d407e695240b30343d19121359eb4217c0480ba2985d81eb7137d486",
+      "byte_size": 1181,
+      "reason": "CATEGORY: indexsplit provenance (filename)."
+    },
+    {
+      "path": "/mnt/c/Users/Admin/Documents/A-Time to revenue/TTROS Reviews/ttros_indexsplit_diag.sh",
+      "sha256": "6f920f55663c8318a6a4615b3e6e016b65c1b24b4774affa02b0a57a54d59a03",
+      "byte_size": 2542,
+      "reason": "CATEGORY: indexsplit provenance (filename)."
+    },
+    {
+      "path": "/mnt/c/Users/Admin/Documents/A-Time to revenue/TTROS Reviews/ttros_indexsplit_diag.txt",
+      "sha256": "63973e3bc192482323a874cc5e28fd5e1a717b8a81f4db2825fb9a6b37df8b66",
+      "byte_size": 3849,
+      "reason": "CATEGORY: indexsplit provenance (filename)."
+    },
+    {
+      "path": "/mnt/c/Users/Admin/Documents/A-Time to revenue/TTROS Reviews/ttros_indexsplit_diag2.sh",
+      "sha256": "796cdc75c0e587d3d084e5b7ae526cfc7f34e751f39d05478b2b907752811a27",
+      "byte_size": 2343,
+      "reason": "CATEGORY: indexsplit provenance (filename)."
+    },
+    {
+      "path": "/mnt/c/Users/Admin/Documents/A-Time to revenue/TTROS Reviews/ttros_indexsplit_diag2.txt",
+      "sha256": "d1616e24ba22dd5ac91853764a423681a319ea8d13803f990a330ffb4f6e65a8",
+      "byte_size": 1802,
+      "reason": "CATEGORY: indexsplit provenance (filename)."
+    },
+    {
+      "path": "/mnt/c/Users/Admin/Documents/A-Time to revenue/TTROS Reviews/ttros_step2_b6_change_record.txt",
+      "sha256": "588fab9ca80ec3fa1a8cccc0b79ff5d4aa2d0a0a56107e277dd9e06a9339074a",
+      "byte_size": 4144,
+      "reason": "CATEGORY: prior B6 report (filename token 'b6')."
+    },
+    {
+      "path": "/mnt/c/Users/Admin/Documents/A-Time to revenue/TTROS Reviews/ttros_step2_b6_disposition.py",
+      "sha256": "793f40544f3d3a4ef499a553b4bb17173e0fea8065d970d1b5b7b23dfbfd5001",
+      "byte_size": 26432,
+      "reason": "CATEGORY: prior B6 report/instrument (filename token 'b6')."
+    },
+    {
+      "path": "/mnt/c/Users/Admin/Documents/A-Time to revenue/TTROS Reviews/ttros_step2_b6_disposition.sh",
+      "sha256": "3ce6470cd274051db2b1f0bf5c826c01babfffecdc09e2012fd4b8647627e316",
+      "byte_size": 3210,
+      "reason": "CATEGORY: prior B6 report/instrument (filename token 'b6')."
+    },
+    {
+      "path": "/mnt/c/Users/Admin/Documents/A-Time to revenue/TTROS Reviews/ttros_step2_b6_disposition.txt",
+      "sha256": "0d8a5d79e23b05db0c5ed3b1f208d7042412de48b737b671a9ab2f27910720a5",
+      "byte_size": 16261,
+      "reason": "CATEGORY: prior B6 report (filename token 'b6')."
+    }
+  ]
+}

@@ -1,0 +1,74 @@
+[
+  {
+    "label": "D-STALENESS live ask",
+    "call_index": 1,
+    "wall_clock_seconds": 17.354,
+    "stdout": "TTROS-DSTALE-SENTINEL-1788744467-a803ee62",
+    "returncode": 0,
+    "usage_file": {
+      "estimated_cost_usd": 0.0,
+      "cost_status": "included",
+      "cost_source": "none",
+      "input_tokens": 19025,
+      "output_tokens": 87,
+      "cache_read_tokens": 34816,
+      "cache_write_tokens": 0,
+      "reasoning_tokens": 34,
+      "total_tokens": 53928,
+      "api_calls": 2,
+      "model": "gpt-5.5",
+      "provider": "openai-codex",
+      "session_id": "20260906_182934_fc97d9",
+      "completed": true,
+      "failed": false
+    }
+  },
+  {
+    "label": "cache exercise leg A (miss)",
+    "call_index": 2,
+    "wall_clock_seconds": 8.596,
+    "stdout": "ALPHA",
+    "returncode": 0,
+    "usage_file": {
+      "estimated_cost_usd": 0.0,
+      "cost_status": "included",
+      "cost_source": "none",
+      "input_tokens": 19899,
+      "output_tokens": 30,
+      "cache_read_tokens": 8704,
+      "cache_write_tokens": 0,
+      "reasoning_tokens": 22,
+      "total_tokens": 28633,
+      "api_calls": 1,
+      "model": "gpt-5.5",
+      "provider": "openai-codex",
+      "session_id": "20260906_182950_598745",
+      "completed": true,
+      "failed": false
+    }
+  },
+  {
+    "label": "cache exercise leg B (hit)",
+    "call_index": 3,
+    "wall_clock_seconds": 9.975,
+    "stdout": "BETA",
+    "returncode": 0,
+    "usage_file": {
+      "estimated_cost_usd": 0.0,
+      "cost_status": "included",
+      "cost_source": "none",
+      "input_tokens": 19903,
+      "output_tokens": 30,
+      "cache_read_tokens": 8704,
+      "cache_write_tokens": 0,
+      "reasoning_tokens": 22,
+      "total_tokens": 28637,
+      "api_calls": 1,
+      "model": "gpt-5.5",
+      "provider": "openai-codex",
+      "session_id": "20260906_182959_b0008d",
+      "completed": true,
+      "failed": false
+    }
+  }
+]

@@ -1,0 +1,160 @@
+id: source-intake-claim-kenneth-june-30
+type: claim_record
+source_id: kenneth-june-30
+source_path: sources/historical_calls/kenneth-june-30.md
+source_sha256: bb26a216def6804c1e157a5d1eae13ded3d6dd58a31e90455ed6f3343e899ee6
+generated_at: '2026-09-09T22:40:44.239358Z'
+model: gpt-5.5
+claim_count: 15
+dropped_count: 0
+canonical_truth: false
+claims:
+- claim: Ollie reportedly said the prospect had finite budget and was spending money
+    across multiple marketing activities.
+  type: third_party_statement
+  attribution: Ollie
+  status: historical
+  evidence:
+    quote: what he did say, however, which is not a positive, is they've got. Finite
+      budget circumstance basically is what he. S spending money on lots of different
+      things in the marketing space.
+    locator: opening discussion of Ollie email response
+- claim: Ollie reportedly wanted to revisit the matter after reading the email rather
+    than move immediately.
+  type: third_party_statement
+  attribution: Ollie
+  status: historical
+  evidence:
+    quote: So he was talking about speaking to you about revisiting. Like revisiting
+      it. Okay. But he was going to read your email first.
+    locator: opening discussion of Ollie plans
+- claim: The speaker assessed that nothing was likely to happen with the opportunity
+    in the short term.
+  type: fact_asserted
+  attribution: speaker_unresolved
+  status: historical
+  evidence:
+    quote: Right. So it doesn't look like anything's going to happen in the short
+      term with that.
+    locator: after explanation of Ollie budget situation
+- claim: The speaker advised that offering to keep cutting price could weaken leverage
+    and make the seller appear desperate.
+  type: advice_received
+  attribution: speaker_unresolved
+  status: historical
+  evidence:
+    quote: The only problem with that approach, and that's why I say I'm a fist, is
+      you lose your leverage. Yeah. Then you're showing like, oh, I'm so desperate
+      for this piece of work that I'll keep cutting and cutting and cutting.
+    locator: advice after suggesting a call about what would work
+- claim: The speaker argued that undervaluing oneself at the start can become the
+    norm and is not a healthy way to do business.
+  type: advice_received
+  attribution: speaker_unresolved
+  status: historical
+  evidence:
+    quote: And I don't think that's. The right way to do business. Because if you
+      undervalue yourself now. Then that becomes a norm.
+    locator: discussion of cutting price and leverage
+- claim: One speaker said they agreed with the leverage concern but also needed cash
+    coming in.
+  type: fact_asserted
+  attribution: speaker_unresolved
+  status: historical
+  evidence:
+    quote: Yeah. No, I, I do agree with you on that. I just, I need to, I do, I do
+      also just need to get some cash coming in.
+    locator: response to advice about undervaluing
+- claim: One possible commercial model discussed was a 5K setup fee plus 200 per month
+    with commissions, but commission tracking was uncertain.
+  type: open_question
+  attribution: speaker_unresolved
+  status: historical
+  evidence:
+    quote: if we did something where he just paid kind of, like, just essentially
+      a 5K to set it all up and then at like 200 bucks a month to keep it going. Then,
+      then, you know, I was to get included on commissions. The only problem is, is
+      I don't know how I track the commissions
+    locator: discussion of alternate model for Ollie opportunity
+- claim: The speaker advised scheduling a later follow-up if the prospect named a
+    future time such as September.
+  type: advice_received
+  attribution: speaker_unresolved
+  status: historical
+  evidence:
+    quote: if you don't want to go down that route, you sort of say, hey, listen,
+      So when you revisit this and he says it tells you in September, for example.
+      Yeah. Then you just dial it for yourself to reach out in September
+    locator: advice on revisiting later
+- claim: The speaker advised not to keep pushing and said there is a balancing act
+    between overreaching and underreaching in follow-up.
+  type: advice_received
+  attribution: speaker_unresolved
+  status: historical
+  evidence:
+    quote: Yeah, listen, don't, don't, don't also keep pushing. I think customer service
+      point of view, you know, there's always a balancing act.
+    locator: after mention of unanswered follow-up
+- claim: The speaker said sales follow-up statistics suggest following up more, with
+    three to six follow-ups often producing an answer.
+  type: advice_received
+  attribution: speaker_unresolved
+  status: historical
+  evidence:
+    quote: But in, from a statistics point of view on sales, it says that you should
+      follow up more because people normally don't get any. Yeah. Apparently, you
+      know, between three and six sort of follow-ups is when you get the, when you
+      get the, when you get the answer that you want or definitive answer one way
+      or another.
+    locator: discussion of sales follow-up frequency
+- claim: The speaker described walking away from an equity-only supply-chain startup
+    proposal and agreeing to speak again in August.
+  type: decision
+  attribution: speaker_unresolved
+  status: historical
+  evidence:
+    quote: So, so, yeah, so we agreed to walk away. And they, they really looking
+      at their budgets in August. Yeah. And they said, can we speak then? I'm like,
+      yeah, sure, no problem. Really speak in August.
+    locator: speaker's supply-chain startup example
+- claim: The speaker committed to reviewing a list of 45 and shortlisting people to
+    contact by Thursday at the latest.
+  type: commitment
+  attribution: speaker_unresolved
+  status: historical
+  evidence:
+    quote: So this week, the one thing I'm definitely going to do is. Look through
+      that list of 45. Yeah. And this short, short list, and then I'm actually dialing.
+      But not tomorrow, but by Thursday latest
+    locator: commitment after mentioning next week Monday
+- claim: The speaker said the sales and marketing process of four to six touches and
+    follow-ups works, based on at least one recent study or experience.
+  type: fact_asserted
+  attribution: speaker_unresolved
+  status: historical
+  evidence:
+    quote: So. You know, we might not like it, but the sales and marketing process
+      about four to six touches and the follow-ups and stuff does what. I've got.
+      I've got at least one study in the last three, four months. That showed it's
+      what.
+    locator: after study board of trade boot camp example
+- claim: The speaker said they expected future opportunities to use the other person's
+    skills to help design solutions.
+  type: offer_made
+  attribution: speaker_unresolved
+  status: historical
+  evidence:
+    quote: The reason I'm telling you this is because I'm hoping, you know, I really
+      see there being opportunity for us, further opportunity for us later on where
+      I tap into your skills to start helping me design the solutions.
+    locator: after Business Growth Academy discussion
+- claim: The speaker offered business coaching advice and networking support because
+    of the current business model between the two speakers.
+  type: offer_made
+  attribution: speaker_unresolved
+  status: historical
+  evidence:
+    quote: I've also then taken care of myself to give you. Let's call it business
+      coaching advice. Thank you. Thank you. The networks could be.
+    locator: discussion of current business model and catch-up
+dropped: []

@@ -1,0 +1,27 @@
+{
+  "bodies_in_projection": false,
+  "derived_semantic_edge_count": 2,
+  "explicit_wiki_edge_count": 66,
+  "graphify_cli_documents_mode": "requires external LLM key in graphify 0.9.11; TTROS uses the installed local Markdown extractor API",
+  "graphify_mode": "installed_graphify_structural_markdown",
+  "heading_node_count": 118,
+  "input_tokens": 0,
+  "namespace": "ttros-business-brain",
+  "output_tokens": 0,
+  "package_confirmed_wiki_edge_count": 6,
+  "raw_graphify_edge_count": 184,
+  "raw_graphify_node_count": 155,
+  "raw_graphify_reference_count": 66,
+  "schema_version": 2,
+  "source_count": 37,
+  "stable_note_id_count": 37,
+  "supported_semantic_relations": [
+    "touched"
+  ],
+  "targeted_entity_count": 10,
+  "targeted_entity_types": [
+    "prospect"
+  ],
+  "token_usage_text": "Token usage: no agent invocation",
+  "ttros_repaired_wiki_edge_count": 60
+}

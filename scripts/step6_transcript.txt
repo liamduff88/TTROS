@@ -1,0 +1,79 @@
+STEP 6 -- corpus and vault behind tools -- exact change and rollback
+Written (UTC): 2026-09-07T17:51:08Z, BEFORE any edit, per CLAUDE.md rule 4.
+
+SCOPE (verbatim from the step prompt): extend the existing `brain` MCP server
+(tools/brain_memory_mcp.py) with search_calls, open_call, open_note,
+search_history. No second server. No permanent new component where a native
+capability already exists.
+
+PRE-EDIT STATE (established by inspection, not memory):
+- brain MCP server: tools/brain_memory_mcp.py (2 tools: remember_brain_knowledge,
+  brain_memory_status). Registered in ~/.hermes/profiles/david/config.yaml
+  under mcp_servers.brain, enabled: true. This is the only brain MCP server;
+  confirmed no second one exists.
+- Underlying vault I/O: tools/brain_memory.py (VAULT_ROOT, _safe_relative,
+  _target, BrainMemoryError -- write path already gated via write_transaction /
+  update_note_section; this step adds READ-ONLY functions only, no new write
+  path).
+- An existing full-vault FTS5 index already exists and already indexes the
+  Business Brain, including sources/historical_calls/*.md, as
+  `business_brain:<relative path>` documents: tools/aos_indexer.py +
+  search/os_index.db. It already respects the protected-boundary exclusions
+  (PROTECTED_SEGMENTS/PROTECTED_PATH_PARTS include north_shore_sales_coach and
+  connectors/telegram_bridge) and the client-scope registry
+  (context/client_scope_registry.json). Verified importable and callable from
+  the brain MCP server's own venv (/home/liam/.hermes/hermes-agent/venv/bin/python)
+  before relying on it. REUSED for search_calls/search_history rather than
+  writing a second search index (native capability already exists -- header
+  rule 9 / CLAUDE.md "reuse the authoritative instrument first").
+- B7 baseline before this step (Step 5, k=1, map_bytes=1788, no new tools):
+  overall coverage 53.5% (53/99); section E (historical calls) already 18/24
+  = 75.0% per scripts/step5_b7_pass_k1.scored.json, ENTIRELY via
+  `episodic_recency`/`episodic_activity` session-log leakage into context --
+  every E-question's declared sources/historical_calls/*.md source_arrived is
+  FALSE in the B6 manifest check. This is a known confound in the instrument
+  that predates this step and is not introduced by it; recorded here because
+  it changes what "improvement" can mean for this step's own measurement (see
+  scripts/step6_prediction.md).
+
+EXACT CHANGE:
+1. tools/brain_memory.py -- ADD three new read-only functions (no changes to
+   any existing function): `HISTORICAL_CALLS_DIR` constant,
+   `normalize_vault_pointer(raw)` (wraps existing `_safe_relative`),
+   `read_vault_note(relative)` (direct read-only file read via existing
+   `_target`, raises BrainMemoryError if missing). No new write path. No
+   change to write_transaction, update_note_section, or any gated code.
+2. tools/brain_memory_mcp.py -- ADD four new `@mcp.tool()` functions:
+   `search_calls`, `open_call`, `open_note`, `search_history`. Each is
+   read-only: search_calls/search_history call the existing
+   `tools/aos_indexer.search()` (client_scope="global", source="business_brain");
+   open_call/open_note call the new `read_vault_note()`. No existing function
+   in this file is modified. Composio is not touched by this step (no
+   Composio tool calls in this server); the pre_tool_call/{"action":"approve"}
+   note in the step prompt does not apply here because nothing added writes.
+3. No change to ~/.hermes/profiles/david/config.yaml (the brain server is
+   already registered there; adding tools to the same file requires no config
+   change).
+4. Backups (byte-for-byte preimage, taken before any edit):
+   /home/liam/ttros_backups/step6_20260907T175108Z/brain_memory.py
+   /home/liam/ttros_backups/step6_20260907T175108Z/brain_memory_mcp.py
+
+EXACT ROLLBACK:
+- Both files are tracked in git (repo /home/liam/agentic-os-live, branch main),
+  so `git diff` isolates exactly this step's change; but per the step's own
+  ROLLBACK line, use the backup-restore path:
+    cp /home/liam/ttros_backups/step6_20260907T175108Z/brain_memory.py tools/brain_memory.py
+    cp /home/liam/ttros_backups/step6_20260907T175108Z/brain_memory_mcp.py tools/brain_memory_mcp.py
+  This removes the four added tool definitions and the three added helper
+  functions, restoring the brain MCP server to exactly its Step-5 state.
+  Equivalently, `git checkout -- tools/brain_memory.py tools/brain_memory_mcp.py`
+  achieves the same result since both files are otherwise unmodified by this
+  session; the backup path is stated as primary per the step's ROLLBACK line.
+- No vault file, no .hermes.md, no canonical.manifest, no profile config is
+  touched by this change, so nothing else needs rollback.
+
+EXTERNAL ACTIONS: none beyond what the step authorizes (local file edits,
+local reads, local hermes -p david -z calls for the B7 rescoring pass, all
+already named by this step and Step 3/5's precedent). No git push. No network
+calls beyond the existing local hermes CLI invocation pattern already used by
+Step 3/5.

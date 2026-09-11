@@ -1,0 +1,195 @@
+STEP X1 — evidence transcript (condensed; full tool outputs were longer, this preserves the
+decisive lines). Session 2026-09-11, /home/liam/agentic-os-live.
+
+=== Part 0 ===
+Prediction (written first): two assistant responses in state.db messages for session
+20260911_000551_4b41e7 — the tool-call turn and a separate final-text turn after Hermes's
+max-iterations notice — so api_call_count misses the grace request.
+
+$ sqlite3-equivalent (python3) query on /home/liam/.hermes/profiles/david/state.db
+sessions row: id=20260911_000551_4b41e7, message_count=5, tool_call_count=1, api_call_count=1,
+model_config={"max_iterations": 1, ...}
+
+messages (id, role, finish_reason):
+1341 user       None
+1342 assistant  tool_calls   (content empty)
+1343 tool       None         tool_name=tool_describe
+1344 user       None         content: "You've reached the maximum number of tool-calling
+                              iterations allowed. Please provide a final response summarizing
+                              what you've found and accomplished so far, without calling any
+                              more tools."
+1345 assistant  None         content: 907 chars, final answer about Fred's GVR quote, ends with
+                              "Cheapest way to resolve it: open that source record and search
+                              within it for GVR, boards, or MLS."
+
+Verdict: prediction confirmed. Two assistant rows (1342, 1345); id 1345 is the final answer, sent
+after Hermes's own injected max-iterations notice (id 1344). api_call_count=1 undercounts by one.
+
+=== Part A1: handoff path — key file:line evidence ===
+rules/david_execution_handoff.md — four-state contract, read in full.
+
+dashboard/backend/main.py:7709   def dashboard_ask_david(body: AskDavidRequest):
+dashboard/backend/main.py:7769   response = _execute_named_profile_consultation("David", "david", text, request_id)
+dashboard/backend/main.py:7770   handoff = _david_execution_handoff(response.get("response") or "") ...
+dashboard/backend/main.py:4635   def _david_execution_handoff(reply_text): requires literal "execution_handoff" key
+dashboard/backend/main.py:4667   def _hermes_objective_from_handoff(...): calls hermes_message() with force_objective=True
+dashboard/backend/main.py:12719  def hermes_message(body): assembles context, calls _run_hermes_message(direct_context)
+dashboard/backend/main.py:3936   def _run_hermes_message(..., profile: str = "aos-orchestrator", ...)
+tools/aos-hermes-coordinator.sh:8   profile="aos-orchestrator"  (script default)
+tools/aos-hermes-coordinator.sh:84-91  case "$profile" in aos-orchestrator|aos-revenue|aos-marketing|aos-delivery|aos-ops|david) ;; *) exit 2
+dashboard/backend/main.py:4840   def _create_executive_objective(...): parent owner="hermes", child status="agent_todo"/"inbox"
+dashboard/backend/main.py:12102  def _accept_async_queue_runner(item): Popen(tools/aos-orchestration-runner.py --dispatch-item <id>)
+tools/aos-orchestration-runner.py:170  def dispatch_via_backend(item_id): POST {BACKEND_URL}/api/queue/items/{item_id}/run
+dashboard/backend/main.py:10055  def run_queue_item(item_id): claims item, owner = _queue_worker_owner(item)
+dashboard/backend/main.py:9093-9108   if owner == "hermes": _run_hermes_message(..., role="implementer") [default profile aos-orchestrator]
+dashboard/backend/main.py:4899   child_args ... review="model"   (hardcoded on every child)
+dashboard/backend/main.py:9220-9229  def _queue_review_required(item, worker_result): return True iff item.review=="model"
+
+=== Part A2: preimage diffs ===
+$ diff stepT4_2026-09-10/david_config.yaml.PREIMAGE_pre-item1_20260910 \
+       stepT4_2026-09-10/david_config.yaml.FINAL_postT4item1_20260910
+35,39d34
+<   queue:
+<     command: .../queue_mcp.py
+<     enabled: true
+
+$ diff stepT6_2026-09-10/david_config.yaml.PREIMAGE /home/liam/.hermes/profiles/david/config.yaml
+16a17
+>     - session_search
+41a43,45
+>     tools:
+>       resources: false
+>       prompts: false
+
+$ diff stepT7_2026-09-10/context_assembler_hook.py.PREIMAGE hooks/context_assembler_hook.py
+37a38,50  (adds DAVID_TEST_TURN_ENV_SENTINEL = "TTROS_DAVID_TEST_TURN", scoped to profile=="david")
+185a199  is_test_turn = profile == "david" and os.environ.get(DAVID_TEST_TURN_ENV_SENTINEL) == "1"
+194c208  thread write gated by "and not is_test_turn"
+211c225  journal write gated by "and not is_test_turn"
+
+$ diff stepT8BCD_2026-09-10/brain_memory_mcp.py.PREIMAGE tools/brain_memory_mcp.py
+adds _bounded_passage() helper and open_note(pointer, query="") — bounded excerpt + raw intake
+record support. Unrelated to queue/handoff.
+
+T3 preimage: /home/liam/ttros_backups/david_config.yaml.PREIMAGE_20260908T044915Z — pre-narrowing
+david config had mcp_servers.queue enabled, no agent.disabled_toolsets key at all.
+
+=== Part A3: profile settings ===
+Coordinator-addressable profiles (aos-hermes-coordinator.sh case statement): aos-orchestrator,
+aos-revenue, aos-marketing, aos-delivery, aos-ops, david.
+
+Per-profile (python3 + yaml.safe_load on each config.yaml):
+aos-orchestrator: mcp_servers=['brain'], platform_toolsets override=True, max_turns=150
+aos-revenue:      mcp_servers=['brain'], platform_toolsets override=False, max_turns=None(->150)
+aos-marketing:    mcp_servers=['brain'], platform_toolsets override=False, max_turns=None(->150)
+aos-delivery:     mcp_servers=['brain'], platform_toolsets override=False, max_turns=None(->150)
+aos-ops:          mcp_servers=['brain'], platform_toolsets override=False, max_turns=None(->150)
+david:            mcp_servers=['brain'], disabled_toolsets=[browser,web,vision,tts,file,skills,
+                  terminal,code_execution,delegation,session_search], max_turns=150
+
+No profile config.yaml sets tools.tool_search — all inherit global config.yaml's
+tools.tool_search.enabled: auto.
+
+mtimes:
+aos-revenue/config.yaml    2026-09-09 14:13:48.890
+aos-marketing/config.yaml  2026-09-09 14:13:49.330
+aos-delivery/config.yaml   2026-09-09 14:13:49.786
+aos-ops/config.yaml        2026-09-09 14:13:50.234
+aos-orchestrator/config.yaml 2026-09-09 14:13:48.446
+david/config.yaml          2026-09-10 16:34:51.183
+No preimage exists for the first five.
+
+=== Part A4: Composio ===
+grep -n "composio" dashboard/backend/main.py (non-protected file) — key lines:
+  754  WSL_ENV includes $HOME/.composio in PATH
+  757  COMPOSIO_PATH = "/home/liam/.composio:..."
+  2409 def _run_agentmail_composio_send(...)
+  3696 @app.get("/api/composio/connections")
+  12518 def _run_composio_adapter(mode, subject, json_args): subprocess to
+        connectors/composio_access_adapter.py
+  12880 @app.post("/api/connectors/composio/action")
+  12932 @app.post("/api/connectors/composio/refresh")
+
+All six coordinator-addressable Hermes profiles' mcp_servers == {'brain'} only (see A3) — no
+Composio MCP server or toolset anywhere in Hermes profile config.
+
+DISCLOSURE: an earlier `grep -rniIl composio . ` (no path exclusion) walked into connectors/*
+files' content before results were filtered with `grep -v`. Filenames only were returned to this
+session; no file content was read or displayed. All subsequent searches explicitly excluded
+connectors/ and workspaces/north_shore_sales_coach/.
+
+=== Part A5: the two aos-orchestrator failures ===
+$ python3 sqlite3 query on /home/liam/.hermes/profiles/aos-orchestrator/state.db, full session rows:
+
+20260909_004350_d1ed06: source=tool, cwd=None, started_at=1788939833.968 (2026-09-09 00:43:53.968
+  PDT), model_config={"max_iterations":1,"reasoning_config":{"effort":"medium"}}, message_count=0,
+  tool_call_count=0, api_call_count=0, end_reason=cli_close
+
+20260909_135449_e27b0f: source=cli, cwd=/tmp, started_at=1788987290.971 (2026-09-09 13:54:50.971
+  PDT), model_config={"max_iterations":9223372036854775807,"yolo_mode":true}, message_count=0,
+  tool_call_count=0, api_call_count=0, end_reason=agent_close
+
+$ journalctl --user --list-boots
+  IDX 0  boot 0909b3247d9a45b8a12783324fc9b3f2  first entry Thu 2026-09-10 23:06:20 PDT
+  -> no journal history predates this boot; both failures are before it.
+
+$ journalctl --user -u aos-backend.service --since "2026-09-09 07:30:00" --until "2026-09-09 08:00:00"
+  -- No entries --
+
+$ find queue/context_assemblies -newermt "2026-09-09 00:30:00" -not -newermt "2026-09-09 01:00:00"
+  (no output)
+$ find queue/context_assemblies -newermt "2026-09-09 13:40:00" -not -newermt "2026-09-09 14:10:00"
+  (no output)
+
+$ async_delegations table, all profiles with the table (david, aos-orchestrator, operator-lean,
+  source-intake-semantic): count=0 in every one. Department profiles (aos-revenue/marketing/
+  delivery/ops) have no such table.
+
+$ find . -newermt "2026-09-09 00:40:00" -not -newermt "2026-09-09 00:50:00" -type f
+  scripts/validation_a_runs/blind_run/call_counter.json           mtime 00:43:49.375 PDT
+  scripts/validation_a_runs/blind_run/phase2_rehearsal_plan.md     mtime 00:43:43.728 PDT
+  (+ other phase2/phase0 rehearsal artifacts, same window)
+$ grep -rln "aos-orchestrator" scripts/validation_a_runs/   -> no matches
+  (temporal proximity only; no direct textual link found)
+
+$ grep -n "fail.closed\|FAIL_CLOSED" hooks/context_assembler_hook.py hooks/runtime_guard.py
+  hooks/context_assembler_hook.py:246  # The scoped Hermes runtime has a matching fail-closed
+  marker check; returning no marker prevents a model call instead of degrading.
+  hooks/context_assembler_hook.py:239-251  def main(): except Exception: print
+  {"error": ...}; return 1   [no marker printed on exception]
+
+=== Part A6: side effects ===
+dashboard/backend/main.py:3311-3314  _telegram_reply_on_close: if item.source != "telegram": return None
+dashboard/backend/main.py:9711-9723  _notify_queue_completion: same "telegram"-only gate
+dashboard/backend/main.py:4844       _create_executive_objective default source="dashboard/hermes_message"
+grep for smtp/send_email/slack_send/discord send/webhook in main.py: no matches in the queue-
+  completion path.
+
+dashboard/backend/main.py:1279-1330  _run_wsl_supervised: subprocess.Popen(["bash","-lc",full_cmd],
+  cwd=str(BASE_DIR), ...)  -- no env= kwarg -> child inherits the running aos-backend.service
+  process's own environment. No mechanism in this call chain lets a caller of
+  /api/dashboard/ask-david set TTROS_DAVID_TEST_TURN for that one request.
+
+$ systemctl --user list-units --type=service --all | grep -i "aos\|hermes"
+  aos-backend.service   loaded active running   AOS backend (uvicorn 127.0.0.1:8010)
+  aos-runner.service    loaded active running   AOS orchestration runner
+  (+ others, aos-morning-brief.service and aos-nightly-hygiene.service both "failed" — not
+  investigated further, out of this step's scope)
+
+dashboard/backend/main.py:784-786   HERMES_EXECUTION_TIMEOUT_SECONDS default 600 (env
+  AOS_HERMES_TIMEOUT_SECONDS)
+dashboard/backend/main.py:1289      subprocess.Popen(..., start_new_session=True, ...)
+dashboard/backend/main.py:1300-1307 on TimeoutExpired: _terminate_process_group(process)
+
+=== Part B ===
+Not run. Reasoning: A1 step 5 (decomposition, aos-orchestrator) + step 8 (worker execution,
+aos-orchestrator) + step 9 (review, forced by review="model" hardcoded at main.py:4899 and
+_queue_review_required at main.py:9220-9229 returning True whenever item.review=="model") = 3
+Hermes calls beyond David's own turn = 4 total minimum. Declared budget for Part B: 2. No HTTP
+call made, no queue item created, zero model invocations spent this session.
+
+=== Part C ===
+No repair proposed — Part A found nothing broken in the handoff path.
+
+=== Invocations ===
+Declared: 2 (Part B only). Used: 0.

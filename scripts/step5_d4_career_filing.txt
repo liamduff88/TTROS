@@ -1,0 +1,37 @@
+=== Step 5 D4 -- gated write of memory/career.md ===
+vault root: /mnt/c/Users/Admin/Documents/A-Time to revenue/TTROS Business Brain
+pre-write hash (None if file does not exist yet): None
+changed_paths: ('memory/career.md',)
+commit: ff44cb663eb7bd3d22e2e049a576e1462e374805
+session_id: claude-code-session-step5-d4-career-filing-20260906
+source: ttros-step5-d4-manifest-approval-2026-09-06
+validation: markdown/frontmatter/git-index validated
+post-write hash: d822781a9b7fbadde6f6628eacca73eac207de516fd491b62e1052006b4ac898
+post-write byte length: 966
+post-write content follows:
+-----BEGIN-----
+---
+id: ttros-brain-career
+type: knowledge
+hermes_last_write:
+  author: hermes
+  source: "ttros-step5-d4-manifest-approval-2026-09-06"
+  session: "claude-code-session-step5-d4-career-filing-20260906"
+  at: "2026-09-07T02:58:38.004993Z"
+---
+# Career
+
+Liam is actively pursuing consulting and digital-strategy roles alongside building Time to Revenue.
+
+Career, income and job-search context are in scope for David as part of the broader personal executive-assistant role.
+
+Availability is not execution:
+
+- Durable career context may remain available to David.
+- Dated interviews, application deadlines and follow-up commitments surface through normal priorities/commitments.
+- Job searching or applications execute only on Liam's explicit request, an active task/goal, or a deadline requiring action.
+- Never launch recurring or background job searches automatically.
+
+TTR remains active alongside the career search; do not imply that the career search replaces TTR.
+
+-----END-----

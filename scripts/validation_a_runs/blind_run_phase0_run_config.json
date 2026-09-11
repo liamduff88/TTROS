@@ -1,0 +1,74 @@
+{
+  "schema": "validation_a_blind_run_phase0_config_v1",
+  "run_env_var": "TTROS_VALIDATION_A_RUN",
+  "guard_rehearsal": {
+    "transcript": "scripts/validation_a_runs/phase0_guard_rehearsal.txt",
+    "case_a_sealed_path_run_active": "DENY (action=block) -- PASS",
+    "case_b_unsealed_control_path_run_active": "ALLOW ({}) -- PASS",
+    "case_c_sealed_path_run_inactive": "INERT ({}) -- PASS"
+  },
+  "seal_guard_pytest": {
+    "file": "tests/test_validation_a_seal_guard.py",
+    "methods_declared": 9,
+    "methods_collected": 9,
+    "result": "9 passed, 7 subtests passed",
+    "transcript": "scripts/validation_a_runs/phase0_pytest_seal_guard.txt"
+  },
+  "seal_manifest_verification": {
+    "path": "scripts/validation_a_runs/seal_manifest.json",
+    "sha256_computed": "cca495607ebf084a10e06d0c4ce9f459dd5a6f02184688896fbc988a677e7cbd",
+    "sha256_expected": "cca495607ebf084a10e06d0c4ce9f459dd5a6f02184688896fbc988a677e7cbd",
+    "match": true,
+    "file_count_declared_field": 46,
+    "file_count_mechanically_counted_from_files_array": 46,
+    "match_count": true
+  },
+  "mirror_verification": {
+    "source_file": "docs/ttros/SOURCE.sha256",
+    "all_six_mirror_hashes_match": true,
+    "duplicate_revisions_present_in_docs_ttros": false,
+    "note": "Six canonical mirror files listed in SOURCE.sha256; docs/ttros/ contains exactly those six files (plus SOURCE.sha256 itself); no second revision of any one canonical file is present."
+  },
+  "output_vocabulary_derived_from_contract_5_and_6_1": {
+    "binary_verdicts": ["SUPPORTED", "NOT SUPPORTED"],
+    "reason_tags_nine": [
+      "normalization", "list_coverage", "essential_qualifier", "attribution",
+      "polarity_assertion", "temporal_status", "prohibited_opposite", "locality",
+      "source_contract"
+    ],
+    "source_unavailable_status": "SOURCE_UNAVAILABLE does not appear anywhere in the contract text (verified: zero matches for 'SOURCE_UNAVAILABLE' in docs/ttros/TTROS_B7_SCORING_FIDELITY_CONTRACT_v2.1_2026-09-08.md). It is defined only by the step prompt itself (§4.2) as an item/source status, never a verdict or reason tag. Implementation constraint recorded: the instrument must not be able to emit it as either -- not yet built, since the run stopped at §0.6."
+  },
+  "model_call_cap_parse": {
+    "cap_value": 20,
+    "source_line": "docs/ttros/TTROS_B7_SCORING_FIDELITY_CONTRACT_v2.1_2026-09-08.md line 286-287: \"If model-assisted: hard cap 20 calls total, covering 12 items plus rehearsal.\"",
+    "scope_assertion_required_by_step_prompt_0_6": "single-run budget covering rehearsal calls, retries and the 12 real items combined",
+    "scope_actually_stated_by_contract": "covers 12 items plus rehearsal only -- 'retries' is not mentioned anywhere in the contract",
+    "retries_mentioned_in_contract": false,
+    "grep_verification": "grep -n -i 'retry|retries' docs/ttros/TTROS_B7_SCORING_FIDELITY_CONTRACT_v2.1_2026-09-08.md -> zero matches, whole file",
+    "assertion_result": "CANNOT ASSERT -- contract does not clearly say retries are covered by the single 20-call cap",
+    "action_per_step_prompt": "STOP and report; do not assume a scope"
+  },
+  "operator_ruling_2026_09_09": {
+    "retry_scope": {
+      "ruling": "Contract v2.1 is silent on retry treatment. Operator ruled: the SS6.4 cap (20 calls) is one hard TOTAL model/provider-call budget covering synthetic rehearsal calls, the 12 real-item calls, AND any permitted retry -- no separate retry allowance, no second budget.",
+      "retry_conditions": "At most ONE retry per call site, including after detector freeze, and only for (a) provider/transport failure or (b) malformed/non-parseable returned output. Never for an undesirable verdict, unexpected tag, weak-looking evidence, score impact, or a wanted second opinion.",
+      "retry_mechanics": "A retry uses the identical frozen detector source, prompt/config, provider, model, input and retry policy. Every retry increments the same persisted call counter BEFORE invocation and is recorded in the transcript with its triggering failure.",
+      "pre_run_assertion_required": "Before the 12-item blind run begins, assert at least 12 calls remain under the same cap. Otherwise STOP.",
+      "bookkeeping_note_1_of_2": "Contract v2.1 is silent on retry treatment; operator ruled that all retries count inside the same SS6.4 cap."
+    },
+    "source_unavailable": {
+      "ruling": "Confirmed as an execution/status convention introduced by the Validation A step, NOT vocabulary defined by contract v2.1. It is NOT a detector verdict, NOT a reason tag, NOT one of the nine SS6.1 tags. Its only role: mark an item whose original source cannot be resolved/reached while preserving that item's fixed positional slot.",
+      "scoring_treatment": "G1 denominator stays fixed at 12. A SOURCE_UNAVAILABLE item receives zero G1 agreement credit and zero G2 credit. Reported separately as a source-availability finding.",
+      "implementation_requirement": "Assert in code that SOURCE_UNAVAILABLE cannot be emitted as a detector verdict or reason tag.",
+      "bookkeeping_note_2_of_2": "SOURCE_UNAVAILABLE is a step-level source-status convention, not contract vocabulary."
+    },
+    "rehearsal_ruling": {
+      "deterministic_free_checks": ["SOURCE_UNAVAILABLE suppresses a detector call", "invalid verdict/tag vocabulary is rejected", "call counter and cap enforcement works"],
+      "model_assisted_rehearsal_required": "Must exercise the actual model-assisted detector path for both binary verdict directions (SUPPORTED, NOT SUPPORTED) and all nine SS6.1 reason tags at least once, using multi-tag synthetic fixtures to conserve the shared 20-call budget.",
+      "pre_spend_declaration_required": "Before spending rehearsal calls: state the planned fixture set and planned call count, and verify it preserves at least 12 calls for the real population. If the required rehearsal cannot be completed while preserving those 12, STOP before spending the real-item budget."
+    },
+    "no_edits_permitted_to": ["contract v2.1", "its mirrors", "02 (active task)", "B7 material", "other project-state documents"],
+    "resume_instruction": "Resume from the Phase 0.6 blocker; do not repeat completed Phase 0 work except minimal guard/runtime state checks."
+  },
+  "run_status": "RESUMED per operator ruling 2026-09-09, Phase 0.6/0.7 now clear. STOPPED AGAIN at Phase 1.1: independent vault derivation resolves 11 candidates-with-sources, not 12. See scripts/validation_a_runs/blind_run_phase1_collision_check.md. No model call against any real item has occurred (0 of 20 calls spent). No sealed path was read (content-wise) at any point."
+}

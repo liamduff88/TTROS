@@ -1,0 +1,190 @@
+STEP P1 — Coordinator path recon: transcript
+Read-only. Declared model calls: 0. Actual model calls: 0. Zero changes made.
+Session date: 2026-09-10.
+
+PERMISSION HEADER: read and bound by it (protected: connectors/, workspaces/north_shore_sales_coach/, credential stores). One combined command that bundled a connectors/ path was refused by the permission layer mid-session and not retried; no protected path was read.
+
+=====================================================================
+PREDICTION (written before evidence, Q1):
+"-p PROFILE will resolve via a pre-argparse mechanism not visible in --help. Falsifiable other
+answer: -p is truly gone in v0.21.1, STEP U's PONG was a fluke, T7/T8-BCD correct."
+=====================================================================
+
+--- Evidence 1: installed version ---
+$ hermes --version
+Hermes Agent v0.21.1 (2026.9.7) · upstream 05d705dd · local b2aa855b (+1 carried commit)
+(matches STEP U's post-upgrade target and T7/T8-BCD's tested build)
+
+--- Evidence 2: hermes --help top-level (no prompt, no model call) ---
+No -p/-profile listed among top-level options (confirms the *visible* half of T7's claim).
+
+--- Evidence 3: source — hermes_cli/_parser.py:9-14 ---
+"`--profile` / `-p` is consumed by ``main._apply_profile_override`` before argparse runs
+(it sets ``HERMES_HOME`` and strips itself from ``sys.argv``), so it isn't on the parser."
+PRE_ARGPARSE_INHERITED_FLAGS = [("--profile", True), ("-p", True)]
+
+--- Evidence 4: source — hermes_cli/main.py:495-543 (_apply_profile_override) ---
+Runs at import time (line 546, before argparse built). Calls _scan_profile_flag(argv) (line 414),
+resolves HERMES_HOME via hermes_cli.profiles.resolve_profile_env, sets os.environ["HERMES_HOME"],
+strips the 2 consumed tokens from sys.argv. _PROFILE_NAME_RE = r"^[a-z0-9][a-z0-9_-]{0,63}$".
+
+--- Evidence 5: in-process parse test (zero model calls; only argparse + pure functions imported and called, no `hermes` process spawned) ---
+$ /home/liam/.hermes/hermes-agent/venv/bin/python3 -c "..."
+  scan result: aos-orchestrator 2 0
+  remaining argv after -p strip: ['--usage-file', '/tmp/x.json', '--oneshot', 'hello world']
+  usage-file in req flags: True
+  --oneshot in req flags: True
+  david scan: ('david', 2, 0)
+  T7-shape remaining after -p strip: ['-z', 'prompt text', '--max-turns', '6']
+  --max-turns in req/opt value flags: False
+
+--- Evidence 6: real argparse object, parse_known_args, zero execution beyond parsing ---
+$ python3 -c "... build_top_level_parser() ... parse_known_args(...) ..."
+coordinator-noprovider: PARSE OK. command=None extras=[] oneshot='hello world' usage_file='/tmp/x.json'
+coordinator-provider:   PARSE OK. command=None extras=[] oneshot='hello world' usage_file='/tmp/x.json'
+T7-shape:               SystemExit code=2
+  (stderr) hermes: error: argument command: invalid choice: '6' (choose from 'chat')
+smoke-shape:            PARSE OK. command=None extras=[] oneshot='Reply with exactly the single word: PONG' usage_file='/tmp/y.json'
+
+CONCLUSION Q1: -p/--profile is real and works. T7's failure is caused solely by --max-turns
+(genuinely absent from the top-level -z/--oneshot parser; only exists under `hermes chat`,
+which lacks --usage-file). T7/T8-BCD's "-p/--profile does not exist" claim is an instrument
+error. STEP U's smoke_test.py (no --max-turns in its argv) is the correct instrument.
+Falsified: the "-p truly gone" branch of the prediction. Confirmed: the "hidden pre-argparse
+mechanism" branch.
+
+=====================================================================
+Q2 — Callers
+=====================================================================
+$ grep -rln "aos-hermes-coordinator" <repo, protected paths excluded> --include *.py *.sh *.md *.json *.service *.timer
+  -> dashboard/backend/main.py (live code); rest are test/proof/receipt prose, not live callers.
+$ crontab -l -> "no crontab for liam"
+$ grep -rl "aos-hermes-coordinator" ~/.config/systemd/user/ -> no hits (no unit names it directly)
+$ ls ~/.config/systemd/user -> 9 services + 3 timers (aos-backend, aos-bridge, aos-cloudflared,
+  aos-frontend, aos-gmail-capture(+timer), aos-morning-brief(+timer), aos-nightly-hygiene(+timer),
+  aos-north-shore, aos-runner)
+
+dashboard/backend/main.py:758  HERMES_COORDINATOR = BASE_DIR / "tools" / "aos-hermes-coordinator.sh"
+  Called from _run_hermes_message() (line 3927) via _run_wsl_supervised() (line 1279 — plain
+  `bash -lc` subprocess.Popen, no actual WSL boundary despite the name).
+  _run_hermes_message() called from:
+    _queue_run_worker() (line 8999)
+    _execute_named_profile_consultation() (line 4272)
+  Always passes --profile <name> (long form) into the .sh; .sh re-emits `hermes -p "$profile"`.
+
+$ grep -n "aos-hermes-coordinator" tools/aos-orchestration-runner.py -> no hits
+$ grep -n "^import|^from|..." tools/aos-orchestration-runner.py -> imports aos_orchestration,
+  aos_paths, aos_queue_storage only; none reference the coordinator. Confirmed NOT a direct caller
+  despite running under the always-on aos-runner.service.
+$ grep -n "..." tools/aos_morning_brief.py -> uses urllib.request (HTTP to the backend), no
+  subprocess, no direct hermes/coordinator call. Reaches the coordinator only via the backend's
+  _run_hermes_message, over HTTP.
+
+Live profiles reachable: aos-orchestrator (default), aos-revenue, aos-marketing, aos-delivery,
+aos-ops, david (per the coordinator's own whitelist, tools/aos-hermes-coordinator.sh lines 84-90).
+
+=====================================================================
+Q3 — Actual use since 2026-09-08
+=====================================================================
+journalctl --user limitation discovered:
+$ journalctl --user -u aos-backend.service --since 2026-09-08 -> "-- No entries --"
+$ journalctl --user -u aos-morning-brief.service -> "-- No entries --"
+$ journalctl --user _PID=108209 -> "-- No entries --"
+$ journalctl --user --disk-usage -> "191.2M" (journal exists, has data)
+$ journalctl --user --since 2026-09-08 (unfiltered) -> lots of JSON blob lines, all tagged
+  "user@1002.service" / hostname "VRS-GLOBAL" / python[290] (aos-runner.py's own capacity-dispatch
+  loop, polling every ~5s) — NOT per-unit tagged.
+$ ls -la /var/log/journal/ -> drwxr-sr-x+ root systemd-journal (this account: groups = "liam sudo
+  users" — NOT in systemd-journal group) -> explains "some journal files were not opened due to
+  insufficient permissions" warning on every journalctl call. Persisted per-unit journal is
+  unreadable in this session. Not escalated (sudo/group change judged out of read-only scope).
+
+Evidence used instead (both explicitly authorized read-only surfaces):
+
+(a) state.db, read-only, per profile, epoch-based query (cutoff = 2026-09-08T00:00:00Z = 1788825600.0):
+  aos-orchestrator: 2 sessions, 2026-09-09T07:43:53Z .. 2026-09-09T20:54:50Z
+  aos-revenue/marketing/delivery/ops: 0 sessions each
+  david: 47 sessions, 2026-09-08T15:00:27Z .. 2026-09-11T04:50:53Z (T7/T8's own live-test
+    sessions today also live in this table, e.g. 20260910_174150_08ed71 = T7's own D1 session)
+
+  Zero-message / near-instant-close rows (session created, 0 messages, closes in <0.3s):
+    aos-orchestrator 20260909_135449_e27b0f  dur=0.067s  end_reason=agent_close
+    aos-orchestrator 20260909_004350_d1ed06  dur=0.300s  end_reason=cli_close
+    david             20260910_080045_c17556 dur=0.064s  end_reason=agent_close
+                       (matches aos-morning-brief.service's failed run window, see below)
+  All other david sessions since 09-08 (46/47) have message_count > 0 (real turns).
+
+(b) queue/receipts/david-morning-brief-2026-09-09.md:
+    PASS. api_calls:1, provider openai-codex, model gpt-5.5, session_id 20260909_094653_e13ecd,
+    email+telegram sent. created_at 2026-09-09T16:46:26Z (09:46 PDT). Last unambiguous success.
+
+(c) systemctl --user status aos-morning-brief.timer:
+    Active: active (waiting) since Wed 2026-09-09 09:46:26 PDT
+$ systemctl --user list-timers --all:
+    aos-morning-brief.service  LAST: Thu 2026-09-10 08:00:24 PDT  15h ago
+$ systemctl --user status aos-morning-brief.service:
+    × failed (Result: exit-code) since Thu 2026-09-10 08:00:47 PDT; 14h ago
+    Process: 108209 ExecStart=... -m tools.aos_morning_brief --deliver --format quiet
+      (code=exited, status=1/FAILURE)
+$ tail logs/david_morning_brief_delivery.jsonl:
+    last entry run_id "2026-09-09" — NO 2026-09-10 entry at all. Failure occurred before the
+    delivery/send stage was ever reached.
+
+(d) Hook +x outage cross-check:
+$ ls -la hooks/context_assembler_hook.py -> -rwxr-xr-x (0755) now, mtime 2026-09-10 17:29:28 PDT
+$ git status --porcelain hooks/context_assembler_hook.py -> " M hooks/context_assembler_hook.py"
+  (uncommitted — the fix, and an apparent content edit, 11160->12335 bytes, is live but not
+  committed to git)
+grep "23:43|chmod|hook" stepT4_post_t3_closeout.transcript.txt line 92:
+    "-rw-r--r-- 1 liam liam 11160 Sep 9 23:43 .../hooks/context_assembler_hook.py"
+    (0644, no +x, matches this step's cited outage start)
+  -> at 08:00:47 PDT today (the david failure), the hook was still non-executable (its repair
+     mtime, 17:29 PDT, is 9+ hours LATER). Timing fits the david failure.
+  -> the two aos-orchestrator failures (2026-09-09 00:43 and 13:54 local) are BEFORE the reported
+     23:43 PDT outage start. Timing does NOT fit. Their cause is not established here.
+
+=====================================================================
+Q4 — repair plan (only if 1-3 show a live failing path)
+=====================================================================
+Live failing path found (the zero-message pattern), but NOT on the -p/--profile mechanism this
+step was sent to investigate (which is proven sound). No repair plan written against -p/--profile
+since there is nothing broken there to repair.
+
+$ python3 ... queue/work_items.jsonl (790 total items):
+  status in (pending, blocked, queued, in_progress): 4 items
+    AOS-2026-0020  blocked  local/ops-routing-smoke            updated 2026-07-06
+    AOS-2026-0485  blocked  dashboard/hermes_message           updated 2026-08-04
+    AOS-2026-0521  blocked  dashboard/hermes_message           updated 2026-08-13
+    AOS-2026-0522  blocked  dashboard/hermes_message           updated 2026-08-13
+  All predate STEP U (2026-09-08) and read as held for unrelated reasons (no-send scope hold;
+  operator-contract drafting). None newly blocked since 09-08. Nothing for a repair to release.
+
+=====================================================================
+Q5 — max_iterations / --max-turns, recorded only
+=====================================================================
+$ hermes --help -> no --max-turns at top level.
+$ hermes chat --help -> "--max-turns N ... (default: 500, or agent.max_turns in config)" — but
+  `chat` has no --usage-file. Coordinator never invokes `chat`. --max-turns cannot be passed on
+  the coordinator's invocation shape.
+$ grep max_turns ~/.hermes/profiles/{aos-orchestrator,david}/config.yaml -> "max_turns: 150" (both)
+$ grep max_turns ~/.hermes/profiles/{aos-revenue,aos-marketing,aos-delivery,aos-ops}/config.yaml
+  -> no hits (falls back to Hermes's own built-in default of 500).
+
+=====================================================================
+Canonical-file check
+=====================================================================
+$ cat docs/ttros/SOURCE.sha256; sha256sum docs/ttros/00_...rev7.md docs/ttros/02_...rev7.md
+  -> both match SOURCE.sha256. No mirror divergence. No stop condition triggered.
+$ grep -n "CONTESTED|-p/--profile|--profile" docs/ttros/00_...rev7.md -> no hits
+$ grep -n "CONTESTED|-p/--profile|--profile" docs/ttros/02_...rev7.md -> no hits
+  -> no existing bullet to replace; the T8-BCD claim lives only in scripts/stepT8BCD_*.md and
+     scripts/stepT7_*.md, not yet promoted into 00/02. Proposed ADD wording given in the .md report.
+
+=====================================================================
+Model-call accounting
+=====================================================================
+Declared maximum for this step: 0 (per step authorization: "Declared model calls: 0").
+Actual model calls made: 0.
+Every `hermes` invocation in this transcript was --version, --help, or a parse-only in-process
+call against build_top_level_parser()/_scan_profile_flag() — none spawned the real `hermes`
+binary with -z/--oneshot/a prompt.

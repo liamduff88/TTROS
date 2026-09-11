@@ -1,0 +1,173 @@
+id: source-intake-claim-hermes-water-treatment-summary-trent
+type: claim_record
+source_id: hermes-water-treatment-summary-trent
+source_path: sources/historical_calls/hermes-water-treatment-summary-trent.md
+source_sha256: 7d3871ea24d861088189fc8695df2016e62eb7de0c7faafb59e5b2b233bfe3dc
+generated_at: '2026-09-09T22:39:50.856416Z'
+model: gpt-5.5
+claim_count: 8
+dropped_count: 7
+canonical_truth: false
+claims:
+- claim: The source says Hermes would act as the front-facing AI operations coordinator
+    for requests such as summaries, draft estimates, job status checks, missing reports,
+    and invoice support.
+  type: fact_asserted
+  attribution: group_unattributed
+  status: historical
+  evidence:
+    quote: Hermes would act as the front-facing AI operations coordinator. Lance or
+      an operator could message the system in plain English, attach documents, ask
+      for summaries, request draft estimates, check job status, identify missing technician
+      reports, or prepare invoice support.
+    locator: Executive Summary
+- claim: The source states the control principle that Hermes should delegate into
+    predefined systems rather than winging it.
+  type: advice_received
+  attribution: group_unattributed
+  status: historical
+  evidence:
+    quote: The main design principle is that Hermes should not “wing it.” Hermes should
+      delegate tasks into predefined systems.
+    locator: Hermes Should Be a Delegator, Not a Free-Form Decision Maker
+- claim: 'The source proposes five core systems Hermes could coordinate: Tender Radar,
+    RFP Summary and First-Draft Estimating, Project Timing and Job Tracking, Technician
+    Daily Input and Field Reporting, and Invoice Drafting and Billing Support.'
+  type: offer_made
+  attribution: group_unattributed
+  status: historical
+  evidence:
+    quote: The Five Core Systems Hermes Could Coordinate
+    locator: section heading before System 1
+- claim: The source says the Tender Radar system monitors procurement sources, tender
+    portals, email alerts, and uploaded bid documents for relevant opportunities.
+  type: fact_asserted
+  attribution: group_unattributed
+  status: historical
+  evidence:
+    quote: The Tender Radar system monitors relevant procurement sources, tender portals,
+      email alerts, and uploaded bid documents for water-treatment, stormwater, dewatering,
+      sediment control, pH control, pump, tank, and environmental site-control opportunities.
+    locator: 'System 1: Tender Radar and Opportunity Detection'
+- claim: The source says the RFP Summary and First-Draft Estimating system creates
+    a structured first-draft estimate package from a tender or RFP.
+  type: fact_asserted
+  attribution: group_unattributed
+  status: historical
+  evidence:
+    quote: This system takes a tender or RFP and creates a structured first-draft
+      estimate package.
+    locator: 'System 2: RFP Summary and First-Draft Estimating'
+- claim: The source recommends proving the concept with a folder-based proof of concept
+    using one completed Lance job from RFP to estimate to invoice support.
+  type: advice_received
+  attribution: group_unattributed
+  status: historical
+  evidence:
+    quote: Prove that Hermes can process one completed Lance job from RFP to estimate
+      to invoice support.
+    locator: 'Stage 1: Folder-Based Proof of Concept'
+- claim: The source says the system could become SaaS later but should not start as
+    SaaS.
+  type: advice_received
+  attribution: group_unattributed
+  status: historical
+  evidence:
+    quote: This system could become SaaS later, but it should not start as SaaS.
+    locator: SaaS Potential
+- claim: The source identifies the best next step as building a small proof of concept
+    around one real completed project.
+  type: advice_received
+  attribution: group_unattributed
+  status: historical
+  evidence:
+    quote: The best next step is to build a small proof of concept around one real
+      completed project.
+    locator: Recommended Next Step
+dropped:
+- claim:
+    claim: The source says the strongest angle for Lance is a message-driven operating
+      assistant rather than simply AI for estimating or invoicing.
+    type: fact_asserted
+    attribution: group_unattributed
+    status: historical
+    evidence:
+      quote: The strongest angle for Lance is not simply “AI for estimating” or “AI
+        for invoicing.” The stronger idea is a message-driven operating assistant
+      locator: Executive Summary
+  reason: evidence quote does not resolve as an exact substring of the source
+- claim:
+    claim: The source says Hermes would not be the final authority and customer-facing
+      or financially important outputs would remain human-reviewed and approved.
+    type: decision
+    attribution: group_unattributed
+    status: historical
+    evidence:
+      quote: However, Hermes would not be the final authority. The system would be
+        designed so that Hermes delegates requests into controlled workflows, scripts,
+        skills, templates, and approved company data. All customer-facing or financially
+        important outputs would remain human reviewed and approved before being sent.
+      locator: Executive Summary
+  reason: evidence quote does not resolve as an exact substring of the source
+- claim:
+    claim: The source says AI should draft, summarize, check, and organize while humans
+      approve, send, submit, and finalize.
+    type: advice_received
+    attribution: group_unattributed
+    status: historical
+    evidence:
+      quote: AI can draft, summarize, check, and organize. Humans approve, send, submit,
+        and finalize.
+      locator: Human Review Was Always the Plan
+  reason: evidence quote does not resolve as an exact substring of the source
+- claim:
+    claim: The source says human review should be required before tender responses,
+      quotes, contract terms, invoices, billing amounts, equipment sizing, technical
+      assumptions, or external data sharing.
+    type: advice_received
+    attribution: group_unattributed
+    status: historical
+    evidence:
+      quote: 'Human review should be required before: A tender response is submitted
+        A quote is sent to a customer A contract term is accepted An invoice is issued
+        A billing amount is finalized Equipment sizing is confirmed Technical treatment
+        assumptions are relied on Any sensitive customer or project data is shared
+        externally'
+      locator: Human Review Was Always the Plan
+  reason: evidence quote does not resolve as an exact substring of the source
+- claim:
+    claim: The source says hallucination control should come from approved data sources,
+      scripts, skills, hooks, templates, review gates, and audit logs.
+    type: advice_received
+    attribution: group_unattributed
+    status: historical
+    evidence:
+      quote: 'Hallucination control should come from: Approved data sources'
+      locator: How Hermes Helps Prevent Hallucination
+  reason: evidence quote does not resolve as an exact substring of the source
+- claim:
+    claim: The source says to ask Lance for one RFP or tender package, the submitted
+      estimate, contract or PO, final invoice, rate sheet, technician notes, and standard
+      wording.
+    type: commitment
+    attribution: group_unattributed
+    status: historical
+    evidence:
+      quote: 'Ask Lance for: One RFP or tender package The estimate submitted The
+        awarded contract or PO The final invoice Equipment/rate sheet Any technician
+        notes or daily reports Any standard quote or invoice wording'
+      locator: Recommended Next Step
+  reason: evidence quote does not resolve as an exact substring of the source
+- claim:
+    claim: The source says the offer should be sold as a supervised AI operations
+      assistant rather than AI replacing staff.
+    type: advice_received
+    attribution: group_unattributed
+    status: historical
+    evidence:
+      quote: 'This should not be sold as “AI replacing staff.” It should be sold as:
+        A supervised AI operations assistant that helps Lance find opportunities faster,
+        estimate faster, track jobs better, capture field activity, and prepare invoice
+        support — while keeping human approval in place for every important decision.'
+      locator: Final Positioning
+  reason: evidence quote does not resolve as an exact substring of the source

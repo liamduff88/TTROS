@@ -1,6 +1,15 @@
 # DECISIONS.md — log of decisions that change system behavior
-> Revisit: when a behavior-affecting system decision is made. · Last touched: 2026-08-17.
+> Revisit: when a behavior-affecting system decision is made. · Last touched: 2026-09-01.
 > One entry per behavior-affecting change. Newest first.
+
+## 2026-09-01 — David reuses one assembled context per consultation
+
+A David or named-profile consultation now performs the mandatory Context
+Assembler pass once, uses that exact result for the Hermes prompt, and reports
+context evidence from the same in-memory manifest. The former readiness pass
+and post-response evidence pass assembled equivalent context synchronously but
+did not add a guard or source; removing them preserves fail-closed context
+handling while eliminating two avoidable routing waits per message.
 
 ## 2026-08-17 — Routine operations spend reasoning only where judgment starts
 

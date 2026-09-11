@@ -1,0 +1,214 @@
+id: source-intake-claim-meeting-ken-stanick
+type: claim_record
+source_id: meeting-ken-stanick
+source_path: sources/historical_calls/meeting-ken-stanick.md
+source_sha256: 1b59141c713cd108f0eaf1955688a45fabef28d2f207621b036c93e37f2ed81f
+generated_at: '2026-09-09T22:44:22.181794Z'
+model: gpt-5.5
+claim_count: 19
+dropped_count: 0
+canonical_truth: false
+claims:
+- claim: Them said Quinn AI was a bootstrapped startup that had raised money, had
+    customers and pipeline, crossed one million ARR, and was trying to raise a seed
+    round.
+  type: fact_asserted
+  attribution: Them
+  status: historical
+  evidence:
+    quote: I've been going at it for a couple years now. Kind of bootstrapped the
+      first kind of year, raised a million dollars last year. Have 10 customers now,
+      pretty healthy pipeline. Can I just cross the million ARR? So we are a classic
+      tech startup trying to raise kind of a seed round right now.
+    locator: Them first turn, Quinn AI background
+- claim: Them said Quinn had shifted toward focusing on a rigorous pragmatic data
+    model serving reasoning models that may surface in an app or through an AI client
+    chatbot.
+  type: third_party_statement
+  attribution: Them
+  status: historical
+  evidence:
+    quote: the biggest signal we've had in the last 12 months is we should focus on
+      a really rigorous pragmatic data model that serves the reasoning models that
+      can be in the reasoning models might be surfaced in our application or might
+      be serviced directly through an AI client chatbot.
+    locator: Them first turn, biggest signal in last 12 months
+- claim: Me said he had been trying to set up an agency or consulting scenario to
+    help businesses integrate AI in a way that worked for them.
+  type: liam_position
+  attribution: Me
+  status: historical
+  evidence:
+    quote: about three months ago I decided to try and set up an agency or some kind
+      of consulting scenario where I could help people to integrate AI into their
+      business in a way that actually worked for them.
+    locator: Me first turn, agency or consulting scenario
+- claim: Me said he was unsure whether to keep pushing the AI consulting work full-time
+    or look at other AI-space opportunities.
+  type: open_question
+  attribution: Me
+  status: historical
+  evidence:
+    quote: I'm kind of at a stage where I'm not sure if I could should keep necessarily
+      pushing that as a full-time thing and maybe look at other opportunities in the
+      AI space.
+    locator: Me first turn, stage where unsure
+- claim: Me said he had a potential client with many car dealerships and was helping
+    one dealership with a sales agent for tracking and coaching sales follow-up.
+  type: fact_asserted
+  attribution: Me
+  status: historical
+  evidence:
+    quote: I have one potential client who has a lot of car dealerships and they're
+      interested in talking a little bit more. So I'm helping them one of the dealerships
+      with a kind of a sales. Agent basically to help him track his sales team understand
+      every touch point of the sale and what the follow up is did they follow up on
+      the next steps and then giving him coaching pointers for how to address it with
+      the team
+    locator: Me turn after Them asks about clients
+- claim: Me said AI buyers are more interested when a use case can quickly return
+    revenue or addresses a real pain point.
+  type: liam_position
+  attribution: Me
+  status: historical
+  evidence:
+    quote: If you can show them that they're going to return Revenue very quickly
+      or that there's a real pain point that they have. They're much more interested.
+    locator: Me turn answering appetite and use cases
+- claim: Me said he tries to find pain points rather than generalize an AI application
+    into a business.
+  type: liam_position
+  attribution: Me
+  status: historical
+  evidence:
+    quote: what I've learned I guess is what you're what you're saying is that you
+      can't just try and generalize an AI application into a business. What I try
+      and do is really find the pain points.
+    locator: Me turn after Them discusses generic AI
+- claim: Me said the dealership sales-agent workflow would let salespeople submit
+    Telegram voice notes, prompt them for missing details, log to a dashboard, score
+    items, and enable manager notes.
+  type: fact_asserted
+  attribution: Me
+  status: historical
+  evidence:
+    quote: this agent that I was building for them basically they can just put a voice
+      note in Telegram saying I had somebody come in just now we did this and this.
+      And then essentially Telegram will ask them if they missed anything they said
+      oh did you do that and that and that or did it end there? And then that's it.
+      It's logged and then it goes straight to the dashboard and then inside the dashboard
+      when the sales manager looks at it he can see what he did and it scores everything
+      and then he can actually give him notes.
+    locator: Me turn describing sales pilot
+- claim: Them said Quinn had a hiring freeze until it finalized its raise.
+  type: fact_asserted
+  attribution: Them
+  status: historical
+  evidence:
+    quote: We are. And we're trying to race. So we actually have a hiring freeze right
+      now until we finalize our raise.
+    locator: Them response to how can I help
+- claim: Them said Quinn's working motion was to do free pilots, show value, deploy
+    briefly, and only then ask for payment.
+  type: advice_received
+  attribution: Them
+  status: historical
+  evidence:
+    quote: we go do free pilots. And show them the value before we ever ask them to
+      sign a check.
+    locator: Them guidance after car dealership mention
+- claim: Them advised that if the dealership product works, Me could approach additional
+    dealerships and potentially build a scaling multi-tenant application around common
+    requirements.
+  type: advice_received
+  attribution: Them
+  status: historical
+  evidence:
+    quote: if you go and get something that actually works, well, then you walk to
+      the second dealership, the third dealership, and hopefully before you know,
+      you know it, you actually have an application that is scaling because of multi-tenancy
+      and common denominator and kind of product feature requirements.
+    locator: Them guidance, second dealership third dealership
+- claim: Me said the plan was to build the dealership tool for free, have his friend
+    test it, then improve it and consider other dealerships and use cases if it worked.
+  type: decision
+  attribution: Me
+  status: historical
+  evidence:
+    quote: the plan was I'll build them this thing for free he'll go and test it and
+      if it works well then we'll maybe make a bit better and look at putting in the
+      other dealerships and then also look at kind of doing exactly what you said
+      going into other areas in the dealerships especially the voice agent stuff for
+      the callbacks
+    locator: Me response to free pilot guidance
+- claim: Them said CRMs may be the first applications to disappear because they have
+    historically struggled to get humans to enter data.
+  type: third_party_statement
+  attribution: Them
+  status: historical
+  evidence:
+    quote: I actually have, would submit that the, the first application to disappear
+      are going to be CRMs. Because they are historically have been riddled with the
+      inability to get human Stanford data.
+    locator: Them turn, first application to disappear
+- claim: Them advised validating that the problem exists across multiple customers
+    and finding the MVP common denominator efficiently.
+  type: advice_received
+  attribution: Them
+  status: historical
+  evidence:
+    quote: it's buying a problem. Ask and hopefully validate that the problem exists
+      in multiple different customers and, and then get the MVP common denominator
+      and test it out as efficiently as possible.
+    locator: Them turn, old wise man product hat
+- claim: Them said proactive voice memo, passive voice recorder, and email reader
+    were possible mediums, but passive recording raised liability questions.
+  type: third_party_statement
+  attribution: Them
+  status: historical
+  evidence:
+    quote: let's just talk about the mediums, a proactive voice memo, a passive voice
+      recorder. And then a, an email reader that is constantly looking at one's emails.
+      The, the liability of the issue there is, hey, what happens if someone's wearing
+      a lapel, a recording device all day long?
+    locator: Them turn on recording mediums
+- claim: Them said he did not know the legality of recording customer interactions,
+    though he thought voice notes probably had no legal issue if not misused.
+  type: advice_received
+  attribution: Them
+  status: historical
+  evidence:
+    quote: I think there's probably no legalities, but I don't, I don't know the answer
+      to that.
+    locator: Them turn after Granola example
+- claim: Them said Workday pushed back that nothing could go to cloud and had to be
+    on prem, but framed that as IT pushback unlikely in small business.
+  type: third_party_statement
+  attribution: Them
+  status: historical
+  evidence:
+    quote: okay, well, then nothing going to cloud. It has to be on prem. Well, we're
+      not taking our. So, you know, that's just IT pushback. You're not going to get
+      that with small business.
+    locator: Them turn on Workday on-prem pushback
+- claim: Them said Quinn thinks Microsoft Copilot is horrible, supports it via MCP,
+    is AI-client agnostic, and recommends Claude.
+  type: third_party_statement
+  attribution: Them
+  status: historical
+  evidence:
+    quote: we think it's horrible, but we do support it via mcp and we think claud
+      ultimately provides a better AI client interface and application layer right
+      now. But if they want to use copilot, they can still access all the QIN data
+      and all our staged artifacts via mcp. So we're agnostic to AI client.
+    locator: Them turn on Microsoft co-pilot
+- claim: Them said he probably could not help beyond high-level guidance to keep gritting
+    away.
+  type: offer_made
+  attribution: Them
+  status: historical
+  evidence:
+    quote: I probably can't help you other than maybe the little super high level
+      guidance I gave you in terms of keep on gritting away
+    locator: Them near end, high level guidance
+dropped: []

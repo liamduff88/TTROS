@@ -35,7 +35,7 @@ def require_operator_tools(
 ) -> tuple[str, ...]:
     """Synchronously discover and validate the complete operator tool snapshot."""
     if discover is None:
-        from tools.mcp_tool import discover_mcp_tools
+        from tools.mcp_tool_discovery import discover_mcp_tools
 
         discover = discover_mcp_tools
 

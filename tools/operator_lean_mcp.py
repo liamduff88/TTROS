@@ -12,7 +12,7 @@ import re
 from pathlib import Path
 from typing import Any, Literal
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 
 ROOT = Path(os.environ.get("AOS_ROOT", "/home/liam/agentic-os-live")).resolve()
@@ -29,7 +29,7 @@ ITEM_ID_RE = re.compile(r"^AOS-\d{4}-\d{4}$")
 MAX_TOOL_ROWS = 10
 MAX_RECEIPT_CHARS = 2_000
 
-mcp = FastMCP("operator-lean")
+mcp = MCPServer("operator-lean")
 
 
 def _read_jsonl(path: Path) -> list[dict[str, Any]]:

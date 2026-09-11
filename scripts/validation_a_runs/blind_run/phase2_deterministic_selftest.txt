@@ -1,0 +1,34 @@
+{
+  "a_source_unavailable_suppresses_call": {
+    "status_returned": "SOURCE_UNAVAILABLE",
+    "expected_status": "SOURCE_UNAVAILABLE",
+    "pass": true
+  },
+  "b_invalid_verdict_rejected": {
+    "pass": true,
+    "error": "invalid verdict: 'MAYBE' (must be one of {'SUPPORTED', 'NOT SUPPORTED'})"
+  },
+  "b2_source_unavailable_as_verdict_rejected": {
+    "pass": true,
+    "error": "invalid verdict: 'SOURCE_UNAVAILABLE' (must be one of {'SUPPORTED', 'NOT SUPPORTED'})"
+  },
+  "c_source_unavailable_as_tag_rejected": {
+    "pass": true,
+    "error": "SOURCE_UNAVAILABLE is not a valid reason tag"
+  },
+  "d_unknown_tag_rejected": {
+    "pass": true,
+    "error": "unknown reason tag: 'foo' (allowed: ['attribution', 'essential_qualifier', 'list_coverage', 'locality', 'normalization', 'polarity_assertion', 'prohibited_opposite', 'source_contract', 'temporal_status'])"
+  },
+  "d2_valid_output_accepted": {
+    "pass": true
+  },
+  "e_cap_enforcement": {
+    "pass": true,
+    "error": "model-call budget exhausted: 2/2 already used; refused call for item_id='selftest-over-cap' call_kind='selftest'"
+  },
+  "e2_cap_allows_under_cap": {
+    "pass": true,
+    "index_returned": 1
+  }
+}

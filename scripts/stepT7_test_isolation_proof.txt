@@ -1,0 +1,7 @@
+=== STEP T7 Part B -- test-turn write-gate fixture proof ===
+[marked test turn] marked=True write_thread.called=False append_session_turn.called=False
+[unmarked real turn (same topic)] marked=False write_thread.called=True append_session_turn.called=True
+
+marked-turn-excluded assertion: PASS
+unmarked-turn-still-journalled assertion: PASS
+OVERALL: PASS

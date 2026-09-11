@@ -294,7 +294,7 @@ Keep the response under 150 words."""
             before = queue_path.read_bytes()
             results = []
 
-            def dispatch(chat_id, task, source="telegram", delivery_id=""):
+            def dispatch(chat_id, task, source="telegram", delivery_id="", reply_tag=""):
                 self.assertEqual(task, self.FOUNDER_INTERVIEW_MESSAGE)
                 result = backend.wsl_hermes(backend.TaskRun(
                     task=task,

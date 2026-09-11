@@ -1,0 +1,148 @@
+id: source-intake-claim-andrea-second-call-june-30
+type: claim_record
+source_id: andrea-second-call-june-30
+source_path: sources/historical_calls/andrea-second-call-june-30.md
+source_sha256: d26174810ddeb226bf80c55b04d8154f3fe40104a2671ffa5fe154b8fc28b7f9
+generated_at: '2026-09-09T22:34:59.607690Z'
+model: gpt-5.5
+claim_count: 14
+dropped_count: 1
+canonical_truth: false
+claims:
+- claim: Andrea characterized Ken as intense, highly knowledgeable about AI, and among
+    the cream of the crop in AI work.
+  type: third_party_statement
+  attribution: Andrea
+  status: historical
+  evidence:
+    quote: So what you need to know about Ken, he's super intense. He's a genius.
+      And he's probably in the top 10% of AI knowledge in the world.
+    locator: Them, describing Ken
+- claim: Liam said he would like to speak with Ken and would prepare before meeting
+    him.
+  type: liam_position
+  attribution: Liam
+  status: historical
+  evidence:
+    quote: No, I'd love to speak to him. And, I mean, you never know. Something may
+      come of it or nothing may come with it, but it would be really great to talk
+      to him.
+    locator: Me, after Andrea says Ken would love the intro
+- claim: Liam said he was considering AI consulting as an implant or fractional AI
+    director for companies.
+  type: liam_position
+  attribution: Liam
+  status: historical
+  evidence:
+    quote: one thing I've been looking at trying to do is, is. Maybe do something
+      like the AI Consulting as a, like a, an implant like a fractional kind of AI
+      director or something for companies.
+    locator: Me, explaining what his parents were asking about
+- claim: Liam said he currently had a sole proprietorship set up as a consulting and
+    training company.
+  type: fact_asserted
+  attribution: Liam
+  status: historical
+  evidence:
+    quote: So right now I just have a sole proprietorship and I'm set up as a kind
+      of Consulting and training company.
+    locator: Me, business setup discussion
+- claim: Andrea advised Liam to charge GST from the first invoice rather than waiting
+    for the $30,000 threshold.
+  type: advice_received
+  attribution: Andrea
+  status: historical
+  evidence:
+    quote: I would start charging GST on your first invoice.
+    locator: Them, GST/business numbers advice
+- claim: Liam said he had not yet set up a business bank account and would set it
+    up as soon as possible.
+  type: commitment
+  attribution: Liam
+  status: historical
+  evidence:
+    quote: I'll set it up asap. I actually have it on my to-do list, but I never got
+      around to it.
+    locator: Me, business bank account discussion
+- claim: Andrea advised that consultants should incorporate for liability reasons
+    and that sole proprietors could risk personal assets if sued.
+  type: advice_received
+  attribution: Andrea
+  status: historical
+  evidence:
+    quote: Number one reason for consultants to incorporate is that. The other thing
+      that you'll need is you need liability insurance.
+    locator: Them, incorporation and liability discussion
+- claim: Andrea said she would not do consulting without liability insurance and recommended
+    liability insurance especially for AI work.
+  type: advice_received
+  attribution: Andrea
+  status: historical
+  evidence:
+    quote: But I wouldn't do any consulting without liability insurance.
+    locator: Them, insurance advice
+- claim: Liam said he planned to start as a sole proprietorship for now and switch
+    over once he had momentum.
+  type: liam_position
+  attribution: Liam
+  status: historical
+  evidence:
+    quote: So I just thought I'd just do that for, for now. And then once I start
+      to build some, you know, some momentum, I'll do all that and I can switch over.
+    locator: Me, explaining sole proprietorship choice
+- claim: Andrea offered to introduce Liam to Mike Napp's free consultants happy hour/networking
+    group, and wrote an email introduction during the call.
+  type: offer_made
+  attribution: Andrea
+  status: historical
+  evidence:
+    quote: So I just wrote, hey, mike, I would like you to meet Liam. He is an AI
+      consultant looking to expand his network here in Vancouver.
+    locator: Them, Mike Napp introduction
+- claim: Liam said an automated employment-law template update system for Andrea was
+    viable at a high level.
+  type: liam_position
+  attribution: Liam
+  status: historical
+  evidence:
+    quote: it's definitely viable that the, the main questions are probably for, for
+      Mike in terms of, you know, I don't.
+    locator: Me, discussing automated template updates
+- claim: Liam proposed that building the automated template-update system could cost
+    about $5,000 to set up plus ongoing monthly costs around $250 and an additional
+    $500 for his work.
+  type: offer_made
+  attribution: Liam
+  status: historical
+  evidence:
+    quote: I think what we could do is something like five, 5K to get it all set up.
+    locator: Me, cost estimate after Andrea asks what it would cost
+- claim: Andrea said she would discuss Liam's proposed automation with Mike on Thursday
+    and that Liam should meet Mike after Thursday.
+  type: commitment
+  attribution: Andrea
+  status: historical
+  evidence:
+    quote: Okay, I have a meeting on Thursday with monk. So I will talk to him about
+      it. And so if you're going to meet with Mike, meet with him after Thursday.
+    locator: Them, after Liam gives pricing
+- claim: Andrea was unsure whether automating the legal research and template updates
+    would be worth the money compared with her existing process.
+  type: open_question
+  attribution: Andrea
+  status: historical
+  evidence:
+    quote: So I just have to figure out is it really worth the money to have it automated
+      when it's not that big of a video. I don't know the answer.
+    locator: Them, weighing automation value
+dropped:
+- claim:
+    claim: Andrea said Ken had agreed to an introduction to Liam and that she would
+      make the email introduction after the call.
+    type: commitment
+    attribution: Andrea
+    status: historical
+    evidence:
+      quote: He's like, yeah, go ahead, make the intro.
+      locator: Them, Ken introduction discussion
+  reason: evidence quote does not resolve as an exact substring of the source

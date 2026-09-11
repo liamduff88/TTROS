@@ -1,0 +1,252 @@
+=== PHASE 2B -- DETERMINISTIC DETECTOR REHEARSAL (synthetic fixtures only) ===
+Command: python3 scripts/validation_a_runs/blind_run/detector.py rehearse
+Run at: 2026-09-09T08:03:41Z
+
+{
+  "rehearsal": {
+    "outcomes": [
+      {
+        "fixture_id": "r1-normalization",
+        "expected_verdict": "SUPPORTED",
+        "expected_tags_any": [
+          "normalization"
+        ],
+        "actual_result": {
+          "verdict": "SUPPORTED",
+          "reason_tags": [
+            "normalization"
+          ],
+          "evidence": "The client's plan is a 90-day pilot before any long-term commitment."
+        },
+        "verdict_matched": true,
+        "expected_tags_hit": [
+          "normalization"
+        ],
+        "fixture_pass": true
+      },
+      {
+        "fixture_id": "r2-list-coverage",
+        "expected_verdict": "NOT SUPPORTED",
+        "expected_tags_any": [
+          "list_coverage"
+        ],
+        "actual_result": {
+          "verdict": "NOT SUPPORTED",
+          "reason_tags": [
+            "list_coverage"
+          ],
+          "evidence": "reporting"
+        },
+        "verdict_matched": true,
+        "expected_tags_hit": [
+          "list_coverage"
+        ],
+        "fixture_pass": true
+      },
+      {
+        "fixture_id": "r3-essential-qualifier",
+        "expected_verdict": "NOT SUPPORTED",
+        "expected_tags_any": [
+          "essential_qualifier"
+        ],
+        "actual_result": {
+          "verdict": "NOT SUPPORTED",
+          "reason_tags": [
+            "essential_qualifier"
+          ],
+          "evidence": "The pilot is free for new customers, but only for the first 90 days and only within the UK region."
+        },
+        "verdict_matched": true,
+        "expected_tags_hit": [
+          "essential_qualifier"
+        ],
+        "fixture_pass": true
+      },
+      {
+        "fixture_id": "r4-attribution",
+        "expected_verdict": "NOT SUPPORTED",
+        "expected_tags_any": [
+          "attribution"
+        ],
+        "actual_result": {
+          "verdict": "NOT SUPPORTED",
+          "reason_tags": [
+            "attribution"
+          ],
+          "evidence": "The engineering lead decided to delay the launch due to a testing gap."
+        },
+        "verdict_matched": true,
+        "expected_tags_hit": [
+          "attribution"
+        ],
+        "fixture_pass": true
+      },
+      {
+        "fixture_id": "r5-polarity",
+        "expected_verdict": "NOT SUPPORTED",
+        "expected_tags_any": [
+          "polarity_assertion"
+        ],
+        "actual_result": {
+          "verdict": "NOT SUPPORTED",
+          "reason_tags": [
+            "polarity_assertion"
+          ],
+          "evidence": "The team does not offer a discount to new customers this quarter."
+        },
+        "verdict_matched": true,
+        "expected_tags_hit": [
+          "polarity_assertion"
+        ],
+        "fixture_pass": true
+      },
+      {
+        "fixture_id": "r6-temporal",
+        "expected_verdict": "NOT SUPPORTED",
+        "expected_tags_any": [
+          "temporal_status"
+        ],
+        "actual_result": {
+          "verdict": "NOT SUPPORTED",
+          "reason_tags": [
+            "prohibited_opposite",
+            "temporal_status"
+          ],
+          "evidence": "The pricing review was finalized and closed last month."
+        },
+        "verdict_matched": true,
+        "expected_tags_hit": [
+          "temporal_status"
+        ],
+        "fixture_pass": true
+      },
+      {
+        "fixture_id": "r7-prohibited-opposite",
+        "expected_verdict": "NOT SUPPORTED",
+        "expected_tags_any": [
+          "prohibited_opposite"
+        ],
+        "actual_result": {
+          "verdict": "NOT SUPPORTED",
+          "reason_tags": [
+            "prohibited_opposite",
+            "essential_qualifier"
+          ],
+          "evidence": "The vendor contract remains unconfirmed pending legal review."
+        },
+        "verdict_matched": true,
+        "expected_tags_hit": [
+          "prohibited_opposite"
+        ],
+        "fixture_pass": true
+      },
+      {
+        "fixture_id": "r8-locality",
+        "expected_verdict": "NOT SUPPORTED",
+        "expected_tags_any": [
+          "locality"
+        ],
+        "actual_result": {
+          "verdict": "NOT SUPPORTED",
+          "reason_tags": [
+            "locality"
+          ],
+          "evidence": "Section A: The new hire has approved budget for their role this quarter. | Section B, an unrelated update: a separate contractor finished onboarding last quarter."
+        },
+        "verdict_matched": true,
+        "expected_tags_hit": [
+          "locality"
+        ],
+        "fixture_pass": true
+      },
+      {
+        "fixture_id": "r9-source-contract",
+        "expected_verdict": "NOT SUPPORTED",
+        "expected_tags_any": [
+          "source_contract"
+        ],
+        "actual_result": {
+          "verdict": "NOT SUPPORTED",
+          "reason_tags": [
+            "polarity_assertion",
+            "essential_qualifier",
+            "source_contract"
+          ],
+          "evidence": "The vendor's internal pricing model is discussed only in an internal memo explicitly excluded from this source and not among this source's own declared content."
+        },
+        "verdict_matched": true,
+        "expected_tags_hit": [
+          "source_contract"
+        ],
+        "fixture_pass": true
+      },
+      {
+        "fixture_id": "r10-multitag",
+        "expected_verdict": "NOT SUPPORTED",
+        "expected_tags_any": [
+          "attribution",
+          "polarity_assertion",
+          "prohibited_opposite",
+          "temporal_status"
+        ],
+        "actual_result": {
+          "verdict": "NOT SUPPORTED",
+          "reason_tags": [
+            "attribution",
+            "polarity_assertion",
+            "prohibited_opposite",
+            "essential_qualifier"
+          ],
+          "evidence": "A marketing contractor suggested TTROS might eventually offer a free tier. ; Liam explicitly rejected this and confirmed pricing stays paid-only."
+        },
+        "verdict_matched": true,
+        "expected_tags_hit": [
+          "attribution",
+          "polarity_assertion",
+          "prohibited_opposite"
+        ],
+        "fixture_pass": true
+      },
+      {
+        "fixture_id": "r11-plain-supported-no-tags",
+        "expected_verdict": "SUPPORTED",
+        "expected_tags_any": [],
+        "actual_result": {
+          "verdict": "SUPPORTED",
+          "reason_tags": [],
+          "evidence": "The pilot lasts 90 days for all new customers."
+        },
+        "verdict_matched": true,
+        "expected_tags_hit": [],
+        "fixture_pass": true
+      }
+    ],
+    "all_fixtures_pass": true,
+    "all_nine_tags_hit": [
+      "attribution",
+      "essential_qualifier",
+      "list_coverage",
+      "locality",
+      "normalization",
+      "polarity_assertion",
+      "prohibited_opposite",
+      "source_contract",
+      "temporal_status"
+    ],
+    "tags_missing": [],
+    "verdict_directions_hit": [
+      "NOT SUPPORTED",
+      "SUPPORTED"
+    ],
+    "both_directions_hit": true
+  },
+  "source_unavailable_mechanical_test": {
+    "status_returned": "SOURCE_UNAVAILABLE",
+    "expected_status": "SOURCE_UNAVAILABLE",
+    "pass": true,
+    "structurally_excluded_from_verdicts": true,
+    "structurally_excluded_from_tags": true
+  }
+}
+
+exit_code=0

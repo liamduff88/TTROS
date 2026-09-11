@@ -1,6 +1,6 @@
 """Step 5 deterministic morning-brief acceptance and self-clearing proofs.
 
-Revisit: when Step 5 predicates or authority contracts change. · Last touched: 2026-08-04.
+Revisit: when Step 5 predicates or authority contracts change. · Last touched: 2026-08-16.
 """
 
 from __future__ import annotations

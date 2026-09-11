@@ -1,0 +1,114 @@
+# TTROS Step 5 -- canonical.manifest
+# D4 approved 2026-09-06 (this session). N = 9. Do not edit class membership
+# without a new D4 round. Class 9 unblocked 2026-09-07 by the gated write in
+# scripts/step5_d4_career_filing.py (vault commit ff44cb663eb7bd3d22e2e049a576e1462e374805).
+schema_version: 1
+approved: "D4 approved 2026-09-06"
+n_classes: 9
+
+classes:
+  - id: 1
+    name: business_model
+    sources:
+      - path: memory/company.md
+        extract: "identity/operating-model/stage paragraphs only; strip TODOs"
+
+  - id: 2
+    name: offers
+    sources:
+      - path: memory/offers.md
+        extract: "ladder + principles; strip TODOs"
+
+  - id: 3
+    name: delivery
+    sources:
+      - path: memory/delivery_model.md
+        extract: "delivery-direction + approval-required list; strip TODO"
+
+  - id: 4
+    name: icp
+    sources:
+      - path: memory/positioning.md
+        extract: "buyer/register/anchors"
+      - path: memory/ideal_clients.md
+        extract: "router summary + one-liners only"
+    note: "ideal_clients_A.md / ideal_clients_B.md stay Step-6 depth, never inlined"
+
+  - id: 5
+    name: not_allowed_to_claim
+    sources:
+      - path: memory/offers.md
+        extract: "the 'Do not claim:' block"
+      - path: memory/positioning.md
+        extract: "the 'Do not claim:' block + the 'Scope settled broad -- 2026-09-03' paragraph"
+      - path: memory/company.md
+        extract: "the 'Do not claim:' block"
+      - path: memory/delivery_model.md
+        extract: "the 'Do not do:' block"
+      - path: operating_context/current_priorities.md
+        extract: "the TTROS:HERMES:current_priorities verified-fact block (market scope settled broad; source-tagged ttros-step0-filing-corrections-2026-09-05)"
+    explicit_required_line: "Do not claim that Liam/TTR has niched down; company scope is settled broad."
+    excludes: "unrelated operational prohibitions (e.g. delivery/publishing/CRM approval gates) -- those are class 6/7 or suffix material, not claim boundaries"
+
+  - id: 6
+    name: key_entities_projects
+    sources:
+      - path: operating_context/active_projects.md
+        extract: "identity + relationship/ownership + pointer-to-detail-file only"
+        strip: "status/milestone/test-count/commit-hash/cycle-progress lines"
+      - path: memory/clients.md
+        extract: "identity/contact/naming-rule lines only"
+        strip: "'Status:' and TODO lines"
+      - path: memory/north_shore_sales_coach.md
+        extract: "identity/scope/boundaries only"
+        strip: "TODO"
+      - path: memory/agentic_os.md
+        extract: "identity/memory-boundary/do-not-touch only"
+        strip: "TODO and the machine outcome-index render-contract block"
+      - path: memory/sales_and_revenue.md
+        extract: "the '## Lead Gen Workflow V4.1 (rebuild blueprint)' section only"
+        strip: "everything else in this file (duplicate of decisions/DECISIONS.md LinkedIn split, or tactical)"
+
+  - id: 7
+    name: settled_decisions
+    sources:
+      - path: decisions/DECISIONS.md
+        extract: "the '## Durable Decisions' section, plus any dated entry whose revisit trigger has not fired"
+        currently_included_dated_entries:
+          - "2026-07-16 -- Integrate the LinkedIn prospecting engine as Revenue v0 (revisit trigger: after three real runs / first four-week cycle review -- not yet fired per current_priorities item 3)"
+        strip: "'Decision Log Format' and 'TODO' (meta, not decisions)"
+      - path: operating_context/current_priorities.md
+        extract: "cross-reference only to the class-5 market-scope filing; do not duplicate its text here"
+
+  - id: 8
+    name: brain_taxonomy_pointers
+    sources:
+      - path: index/MEMORY_INDEX.md
+        extract: "full pointer index"
+      - path: operating_context/protected_paths.md
+        extract: "full protected-boundary pointer list"
+
+  - id: 9
+    name: career
+    sources:
+      - path: memory/career.md
+        extract: "full note"
+    status: "unblocked 2026-09-07 via gated write (scripts/step5_d4_career_filing.py, vault commit ff44cb663eb7bd3d22e2e049a576e1462e374805)"
+
+excluded_by_design:
+  - memory/marketing_voice.md          # duplicate of DECISIONS.md LinkedIn split; no unique fact for classes 1-9
+  - memory/website_and_content.md      # tactical content direction; project identity already covered via active_projects.md pointer
+  - memory/prospecting_query_bank.md   # tactical prospecting mechanics, cycle-scoped
+  - memory/prospecting_rotation_plan.md
+  - memory/prospecting_scoring_contract.md
+
+step6_depth_only:
+  - sources/historical_calls/**        # historical call/corpus depth -- Brain MCP tools, never Step-5 map
+  - memory/ideal_clients_A.md
+  - memory/ideal_clients_B.md
+
+volatile_suffix_only:
+  - operating_context/current_priorities.md   # the priority list itself (numbered items, Benched, TODO) -- only its verified-fact block feeds class 5/7
+  - operating_context/open_loops.md
+  - operating_context/executive_view.md
+  - status/milestone/test-count/commit-hash/cycle-progress lines inside active_projects.md and clients.md (see class 6 strip rules)

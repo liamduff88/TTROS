@@ -230,8 +230,12 @@ class HermesComposioTests(unittest.TestCase):
             "executive_brief_included": False,
             "stale": False,
         }
-        with patch.object(backend, "_refresh_executive_context", return_value=(context, "")), \
-             patch.object(backend, "_executive_context_evidence", return_value=context), \
+        assembled = Mock(
+            request="Find revenue", session_id="request-1234", surface="dashboard:executive:aos-revenue",
+            provenance=("fixture:revenue",), total_bytes=12, total_tokens=3, blocks=(),
+        )
+        with patch.object(backend, "assemble_model_context", return_value=assembled) as assemble, \
+             patch.object(backend, "_executive_context_evidence_from_assembled", return_value=context), \
              patch.object(backend, "_executive_queue_snapshot", side_effect=[before, before]), \
              patch.object(backend, "_run_hermes_message", return_value=run_result) as run:
             result = backend._execute_executive_consultation("revenue", "Find revenue", "request-1234")
@@ -242,6 +246,8 @@ class HermesComposioTests(unittest.TestCase):
         self.assertTrue(result["queue_effect"]["unchanged"])
         self.assertEqual(result["queue_effect"]["items_created"], 0)
         self.assertEqual(run.call_args.kwargs["profile"], "aos-revenue")
+        assemble.assert_called_once()
+        self.assertEqual(result["context"], context)
 
     def test_executive_consultation_blocks_silent_profile_fallback(self):
         run_result = {
@@ -251,14 +257,19 @@ class HermesComposioTests(unittest.TestCase):
         }
         snapshot = {"count": 4, "sha256": "same"}
         context = {"classification": "named_department_profile", "sources": [], "stale": False}
-        with patch.object(backend, "_refresh_executive_context", return_value=(context, "")), \
-             patch.object(backend, "_executive_context_evidence", return_value=context), \
+        assembled = Mock(
+            request="Plan a campaign", session_id="request-1234", surface="dashboard:executive:aos-marketing",
+            provenance=(), total_bytes=12, total_tokens=3, blocks=(),
+        )
+        with patch.object(backend, "assemble_model_context", return_value=assembled) as assemble, \
+             patch.object(backend, "_executive_context_evidence_from_assembled", return_value=context), \
              patch.object(backend, "_executive_queue_snapshot", side_effect=[snapshot, snapshot]), \
              patch.object(backend, "_run_hermes_message", return_value=run_result):
             result = backend._execute_executive_consultation("marketing", "Plan a campaign", "request-1234")
         self.assertFalse(result["success"])
         self.assertTrue(result["fallback_occurred"])
         self.assertEqual(result["error"]["code"], "silent_fallback_blocked")
+        assemble.assert_called_once()
 
     def test_executive_consultation_classifies_profile_auth_failure(self):
         code, message = backend._executive_failure({
@@ -2279,6 +2290,10 @@ class HermesComposioTests(unittest.TestCase):
                 "updated_at": "2026-07-05T10:00:00Z",
                 "claim": {"claimed_by": None, "claimed_at": None},
                 "receipts": [],
+                "context": "Local routing proof only.",
+                "allowed_actions": ["local_read"],
+                "stop_conditions": ["external_send"],
+                "definition_of_done": "Routing flags proven with a durable local receipt.",
             }])
             self.write_queue_templates(root)
             commands = []
@@ -4845,7 +4860,7 @@ class HermesComposioTests(unittest.TestCase):
         self.assertEqual(len(sends), 1)
         self.assertIn(item["id"], sends[0][1])
 
-    def test_queue_item_run_pass_sets_human_review_and_attaches_receipt(self):
+    def test_queue_item_run_pass_sets_done_and_attaches_receipt(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.write_queue_items(root, self.sample_queue_items())
@@ -6018,7 +6033,7 @@ class HermesComposioTests(unittest.TestCase):
                     with self.assertRaises(backend.HTTPException) as ctx:
                         backend.run_queue_item(work["id"])
                     saved = backend._queue_find_item(work["id"])
-        # attach_receipt committed human_review to disk before release_item blew
+        # attach_receipt committed done to disk before release_item blew
         # up; the catch-all must not rewrite it to blocked.
         self.assertEqual(saved["status"], "done")
         self.assertEqual(ctx.exception.status_code, 500)

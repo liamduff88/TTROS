@@ -1,0 +1,155 @@
+id: source-intake-claim-mike-knapp-gtm-context-july-22
+type: claim_record
+source_id: mike-knapp-gtm-context-july-22
+source_path: sources/historical_calls/mike-knapp-gtm-context-july-22.md
+source_sha256: 23bfff12a4beff560fa5082584511a78e780b6347d1dfeba316740c6c32081a2
+generated_at: '2026-09-09T22:45:35.631584Z'
+model: gpt-5.5
+claim_count: 13
+dropped_count: 2
+canonical_truth: false
+claims:
+- claim: Mike identified a mismatch between Liam's technical and operational capability
+    and Time to Revenue's market position, message, proof base, and route to customers.
+  type: third_party_statement
+  attribution: Mike
+  status: historical
+  evidence:
+    quote: he identified a mismatch between Liam's substantial technical and operational
+      capability and the current clarity of Time to Revenue's market position, message,
+      proof base, and route to customers.
+    locator: Executive Summary
+- claim: Mike recommended winning narrowly scoped implementation work while building
+    the strategic AI-enabled CTO offering above it.
+  type: advice_received
+  attribution: Mike
+  status: historical
+  evidence:
+    quote: Win narrowly scoped implementation work now, while deliberately building
+      the strategic AI-enabled CTO offering above it.
+    locator: Executive Summary
+- claim: Mike advised partnering with an MSP or strategic IT firm to get in front
+    of trusted SMB buyers.
+  type: advice_received
+  attribution: Mike
+  status: historical
+  evidence:
+    quote: partner with an MSP or strategic IT firm that already has trusted relationships
+      with SMB clients.
+    locator: Executive Summary
+- claim: Mike did not reject Liam from the consultant community, but conditioned the
+    path on course completion, pitch clarity, message refinement, and reassessment
+    later.
+  type: third_party_statement
+  attribution: Mike
+  status: historical
+  evidence:
+    quote: 'Mike did not reject Liam from the community. He advised Liam to: - complete
+      the free Strategic Foundations course, - clarify the pitch and customer, - refine
+      the message, - book Mike again in approximately one month, - and then assess
+      whether Liam is ready for the consultant speed-dating event.'
+    locator: 'Mike Knapp: Relevant Context'
+- claim: Mike advised taking implementation clients now to prove capability while
+    building the strategic methodology in parallel.
+  type: advice_received
+  attribution: Mike
+  status: historical
+  evidence:
+    quote: Mike advised taking implementation clients now to prove capability, while
+      building the strategic methodology in parallel.
+    locator: Mike's recommended sequence
+- claim: The source frames implementation as the entry point and evidence engine,
+    with strategic AI leadership as the destination and differentiator.
+  type: fact_asserted
+  attribution: group_unattributed
+  status: historical
+  evidence:
+    quote: Implementation is the entry point and evidence engine. Strategic AI leadership
+      is the destination and differentiator.
+    locator: Mike's recommended sequence
+- claim: Mike advised narrowing the market because specificity improves sales and
+    supports higher rates, but not choosing a niche randomly.
+  type: advice_received
+  attribution: Mike
+  status: historical
+  evidence:
+    quote: Mike advised that narrowing the market generally makes selling easier and
+      supports higher rates. However, the niche should not be chosen randomly.
+    locator: Niche down because specificity improves sales
+- claim: Mike recommended developing a vertical AI use-case library to support sales
+    conversations, credibility, discovery, pilot design, and repeatable delivery.
+  type: advice_received
+  attribution: Mike
+  status: historical
+  evidence:
+    quote: Mike recommended developing a library of AI use cases for the selected
+      vertical.
+    locator: Build a vertical use-case library
+- claim: Mike suggested an initial risk-reversal pilot with payment due only if the
+    work succeeds, bounded by scope, baseline, criteria, fee, costs, and support limits.
+  type: advice_received
+  attribution: Mike
+  status: historical
+  evidence:
+    quote: Mike suggested finding an initial customer and offering to solve a problem
+      with the fee payable only if the work succeeds.
+    locator: Use backloaded or risk-reversal pilots carefully
+- claim: The source records a decision that Time to Revenue should not abandon the
+    strategic AI-enabled CTO ambition.
+  type: decision
+  attribution: group_unattributed
+  status: historical
+  evidence:
+    quote: Time to Revenue should not abandon the strategic AI-enabled CTO ambition.
+    locator: Decisions Made
+- claim: The source records a decision that MSP partnerships are a priority channel
+    hypothesis because they solve the trust and access problem.
+  type: decision
+  attribution: group_unattributed
+  status: historical
+  evidence:
+    quote: MSP partnerships are a priority channel hypothesis because they solve the
+      trust and access problem.
+    locator: Decisions Made
+- claim: The source records a commitment-like next step for Liam to return to Mike
+    after completing the course and refining the pitch.
+  type: commitment
+  attribution: group_unattributed
+  status: historical
+  evidence:
+    quote: Liam should return to Mike after completing the course and refining the
+      pitch.
+    locator: Decisions Made
+- claim: The source leaves unresolved which industry should become the first vertical
+    test.
+  type: open_question
+  attribution: group_unattributed
+  status: historical
+  evidence:
+    quote: Which industry should become the first vertical test?
+    locator: Open Questions
+dropped:
+- claim:
+    claim: Mike distinguished between implementation work and an AI-enabled CTO or
+      strategic AI operator role for SMBs.
+    type: third_party_statement
+    attribution: Mike
+    status: historical
+    evidence:
+      quote: 'The central strategic insight from Mike was a distinction between two
+        different businesses that had become blurred together: 1. The person who implements
+        AI solutions for a company. 2. An AI-enabled CTO or strategic AI operator
+        for small and mid-sized businesses.'
+      locator: Executive Summary
+  reason: evidence quote does not resolve as an exact substring of the source
+- claim:
+    claim: Mike emphasized that AI should accelerate human thinking, while sensitive
+      or strategic decisions still require human judgment.
+    type: advice_received
+    attribution: Mike
+    status: historical
+    evidence:
+      quote: AI can accelerate research, drafting, analysis, and preparation. Sensitive
+        or strategic decisions still require human judgment.
+      locator: AI should accelerate human thinking, not replace it
+  reason: evidence quote does not resolve as an exact substring of the source

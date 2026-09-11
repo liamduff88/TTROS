@@ -1,0 +1,9 @@
+=== D-STALENESS offline mechanism check ===
+cwd: /home/liam/agentic-os-live
+HERMES_MD path: /home/liam/agentic-os-live/.hermes.md
+[build #1] contains SENTINEL_A: True
+[build #1] contains SENTINEL_B: False
+[build #2, post-invalidate] contains SENTINEL_A: False
+[build #2, post-invalidate] contains SENTINEL_B: True
+RESULT: context files re-read on invalidate+rebuild = True
+This licenses: on this pinned build, agent._invalidate_system_prompt() + agent._build_system_prompt() (the exact pair agent/conversation_compression.py calls on every compression) performs a fresh disk read of .hermes.md, not a reuse of the session-start content. It does NOT license any claim about the update-vault map generator, which does not exist yet -- .hermes.md is used here only because it is the real, already-implemented Hermes context-file mechanism this pinned build has today.

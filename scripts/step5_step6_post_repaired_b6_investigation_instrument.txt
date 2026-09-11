@@ -1,0 +1,146 @@
+STEP 5 / STEP 6_POST -- REPAIRED B6 INVESTIGATION -- §13 STEP 2 PREREQUISITE PASS
+Zero model / Hermes / David / provider calls in this script.
+scripts/step3_b7_harness.py SHA-256: 2d2aef167321ae7bbf0ba639db027ab92320e0a3b9cd5ce3a46b2a061b1200d4
+==============================================================================
+PART 1 -- B1.2 and B3.1 classification (executed against the real frozen predicate)
+==============================================================================
+
+B1.2 frozen fact description: Tailored to the owner's operational friction (time/capacity/revenue) then the practical system
+B1.2 predicate groups (kw): [('friction',)]
+Source bullet (harness doc): "For a service-business owner, tailor that broad position to the operational friction costing them time, capacity or revenue, then the practical system TTR can design and build to fix it"
+
+Executed against score_pass() (real predicate, real question structure):
+  [PRESENT] positive control -- matches the real intended content
+           answer: 'For a service-business owner, we tailor our broad positioning to the specific operational friction costing them time, capacity, or revenue, then design and build the practical system to fix it.'
+  [PRESENT] false positive -- generic, unrelated use of the word, no audience-tailoring, no cost dimension, no system-build clause
+           answer: 'We sometimes see friction between the sales and delivery teams internally.'
+  [ ABSENT] false negative -- conveys the actual substance without the literal word
+           answer: 'We tailor our broad position to what is costing the owner time and capacity, and design the practical system to fix it.'
+
+B1.2 finding: the predicate is a single-substring check on the generic word 'friction' with no requirement that the answer name the service-business-owner audience, the time/capacity/revenue cost dimension, or the practical-system-to-fix-it follow-through. The false-positive test above scores PRESENT despite containing none of those three essential elements, and the false-negative test scores ABSENT despite conveying the actual substance without the bare keyword. This is confirmed executable, not inferred.
+Classification: UNDER-SPECIFIED. Contract §5 category: §5.3 Essential/composite qualifiers -- 'Mentioning the main noun or activity does not establish a composite fact when a material qualifier is absent.' 'friction' is the main noun/activity; the audience-tailoring and system-build clauses are the essential qualifiers the predicate drops entirely.
+
+B3.1 frozen fact description: Core consulting market broader than either prospecting segment
+B3.1 predicate groups (kw): [('broader',)]
+Source bullet (harness doc): "Core consulting market is broader than either prospecting segment: established businesses with meaningful revenue and real workflow, data or operational problems where AI/systems work can create material value"
+
+Executed against score_pass() (real predicate, real question structure):
+  [PRESENT] positive control -- matches the real intended content
+           answer: "Our core consulting market is broader than either prospecting segment -- it's established businesses with meaningful revenue and real operational problems."
+  [PRESENT] false positive -- generic comparative use, unrelated to prospecting segments
+           answer: 'Our client base is broader now than it was two years ago, geographically.'
+  [ ABSENT] false negative -- conveys the actual substance without the word 'broader'
+           answer: "The core consulting market isn't limited to ICP-A or ICP-B -- it covers any established business with a real operational problem worth material value."
+
+B3.1 finding: the predicate is a single-substring check on the generic comparative word 'broader' with no requirement that the comparison be TO the two named prospecting segments, and no requirement that the core-market definition itself be stated. The false-positive test scores PRESENT for a 'broader' claim about something else entirely (geography, not market-vs-segment). The false-negative test scores ABSENT despite correctly conveying that the core market is not limited to either ICP.
+Classification: UNDER-SPECIFIED. Contract §5 category: §5.3 Essential/composite qualifiers -- 'broad market vs prospecting segment' is named verbatim in §5.3's own list of recurring essential classes. B3.1 IS that named class: the predicate drops the essential 'vs prospecting segment' referent entirely.
+
+Neither predicate is ALIGNED (§7.2 note: not applicable here since both were already in the UNDER-SPECIFIED list, not the ALIGNED list -- this run confirms that placement and additionally names which existing §5 category applies, per §7.1's requirement). No repair made to either predicate.
+
+==============================================================================
+PART 2 -- REHEARSAL: force CONTEXT-MISSING, IGNORED, UNDECIDABLE before touching real data
+==============================================================================
+
+Fixture 1 -- target CONTEXT-MISSING (question A4, fact A4.1, empty manifest: no provenance, no actual_reads, no depth-tool reads -- offers.md never arrived):
+  A4.1 -> present=False disposition=CONTEXT-MISSING
+
+Fixture 2 -- target IGNORED (question A4, fact A4.1, manifest provenance shows memory/offers.md arriving live, answer still lacks A4.1's guarantee/approv content):
+  A4.1 -> present=False disposition=IGNORED
+
+Fixture 3 -- target UNDECIDABLE (question E4, fact E4.1, fact-level override requires trent-first-call.md + trent-july-9.md + INDEX.md; only INDEX.md arrives live -> mixed arrival within the fact's own required doc set):
+  E4.1 -> present=False disposition=UNDECIDABLE
+
+Rehearsal result: CONTEXT-MISSING demonstrated=True, IGNORED demonstrated=True, UNDECIDABLE demonstrated=True
+All three dispositions demonstrated: True
+
+==============================================================================
+PART 3 -- PREDICTIONS (written before the first real disposition is computed)
+==============================================================================
+
+Predeclared (rev11 Step 3, contract §13 step 2): "CONTEXT-MISSING dominant."
+
+This instrument's own predictions, committed before running score_pass() on the real step6_b7_pass.raw.json records:
+  Population: 99 non-honesty facts total; 47 currently present (per the unchanged present() predicate, confirmed unchanged by the repair report); so 52 facts are expected to require a disposition.
+  Predicted disposition split of those ~52 facts:
+    CONTEXT-MISSING: ~30 (~58%) -- a small, tight context map (map_bytes=1788 per the step6 harness docstring) plausibly leaves many declared source docs unassembled.
+    IGNORED:         ~12 (~23%)
+    UNDECIDABLE:     ~10 (~19%)
+  Predicted evidence-class split (same ~52 facts, precedence order):
+    fact-level source override:              ~15
+    manifest provenance / actual_reads only:  ~28
+    depth-tool reads:                         ~7  -- step6_post's own tool-surface verification shows 34 of 46 calls were mcp__brain__open_note/open_call, so depth-tool evidence is expected to matter more here than in a pass without those tools.
+    no usable evidence:                       ~2
+  Predicted currently-PRESENT-but-in-48-fact-defect-population count: ~10-15.
+
+These are estimates recorded before measurement, not adjusted afterward.
+
+==============================================================================
+PART 4 -- REAL RUN: repaired three-way B6 disposition over step6_post's stored records
+==============================================================================
+
+Repaired B6 implementation: scripts/step3_b7_harness.py
+SHA-256: 2d2aef167321ae7bbf0ba639db027ab92320e0a3b9cd5ce3a46b2a061b1200d4
+Identified as the REPAIRED version by behaviour (Part 2 rehearsal above, run against this exact loaded module) and by structure: source_arrived() reads manifest 'provenance'/'actual_reads' (never the dead 'sources' key), FACT_SOURCE_OVERRIDES is present with 27 entries, and _disposition_for()'s three-way rule (all-arrived=IGNORED / none-arrived=CONTEXT-MISSING / mixed=UNDECIDABLE) is confirmed reachable in all three directions.
+
+Loaded 25 stored step6_post records (actual_calls=25, declared_max=25, aborted=False).
+
+Note (finding, not acted on beyond what B6 requires): step6_post_full_tool_surface_verification.json does not itself store resolved per-call document identities (only tool names/counts and an empty contamination-candidate list); depth-tool arrival evidence is instead obtained by calling the repaired B6's own extract_tool_reads(session_id) function once per stored session_id -- the same function call_david() already performs live inside step3_b7_harness.py -- rather than re-deriving a new state.db parser.
+
+Depth-tool reads resolved for 10/25 questions (non-empty tool_reads set).
+
+Coverage under current (unchanged) present(), ALL non-honesty sections A-E: 47/99 (47.5%).
+Coverage under current (unchanged) present(), sections A-D ONLY -- this is the denominator rev11's Step 5 bound and contract §15's cited 44.0% actually use (offers/positioning/pipeline/priorities, excludes E=call corpus and F=honesty): 33/75 (44.0%). Reconciles against §15's cited figure: True.
+
+Per-question disposition summary (non-honesty questions):
+  A1: present=6 CONTEXT-MISSING=0 IGNORED=1 UNDECIDABLE=0
+  A2: present=0 CONTEXT-MISSING=4 IGNORED=0 UNDECIDABLE=0
+  A3: present=1 CONTEXT-MISSING=4 IGNORED=0 UNDECIDABLE=0
+  A4: present=0 CONTEXT-MISSING=6 IGNORED=0 UNDECIDABLE=0
+  A5: present=3 CONTEXT-MISSING=1 IGNORED=0 UNDECIDABLE=0
+  B1: present=2 CONTEXT-MISSING=3 IGNORED=0 UNDECIDABLE=0
+  B2: present=3 CONTEXT-MISSING=1 IGNORED=0 UNDECIDABLE=0
+  B3: present=0 CONTEXT-MISSING=0 IGNORED=7 UNDECIDABLE=0
+  B4: present=2 CONTEXT-MISSING=3 IGNORED=0 UNDECIDABLE=0
+  C1: present=3 CONTEXT-MISSING=0 IGNORED=0 UNDECIDABLE=0
+  C2: present=6 CONTEXT-MISSING=0 IGNORED=2 UNDECIDABLE=0
+  C3: present=1 CONTEXT-MISSING=0 IGNORED=1 UNDECIDABLE=0
+  C4: present=0 CONTEXT-MISSING=3 IGNORED=0 UNDECIDABLE=0
+  D1: present=1 CONTEXT-MISSING=0 IGNORED=4 UNDECIDABLE=0
+  D2: present=3 CONTEXT-MISSING=0 IGNORED=0 UNDECIDABLE=0
+  D3: present=1 CONTEXT-MISSING=0 IGNORED=1 UNDECIDABLE=0
+  D4: present=1 CONTEXT-MISSING=0 IGNORED=1 UNDECIDABLE=0
+  E1: present=9 CONTEXT-MISSING=0 IGNORED=0 UNDECIDABLE=0
+  E2: present=1 CONTEXT-MISSING=0 IGNORED=3 UNDECIDABLE=0
+  E3: present=2 CONTEXT-MISSING=2 IGNORED=0 UNDECIDABLE=0
+  E4: present=1 CONTEXT-MISSING=0 IGNORED=0 UNDECIDABLE=2
+  E5: present=1 CONTEXT-MISSING=0 IGNORED=1 UNDECIDABLE=2
+
+THREE-WAY TOTALS over 52 unmet facts, ALL sections A-E (99 total, 47 present, 52 unmet):
+  CONTEXT-MISSING: 27 (51.9%)
+  IGNORED: 21 (40.4%)
+  UNDECIDABLE: 4 (7.7%)
+
+THREE-WAY TOTALS restricted to sections A-D only (75 total, 33 present, 42 unmet) -- this is the population rev11's Step 5 ≥80%-or-investigate bound actually governs:
+  CONTEXT-MISSING: 25 (59.5%)
+  IGNORED: 17 (40.5%)
+  UNDECIDABLE: 0 (0.0%)
+
+EVIDENCE-CLASS BREAKDOWN (each unmet fact counted in exactly one class, precedence fact-level override -> manifest provenance/actual_reads -> depth-tool -> no usable evidence):
+  fact_level_override: total=24  CONTEXT-MISSING=12 IGNORED=10 UNDECIDABLE=2
+  manifest_provenance_or_actual_reads: total=9  CONTEXT-MISSING=0 IGNORED=9 UNDECIDABLE=0
+  depth_tool: total=4  CONTEXT-MISSING=0 IGNORED=2 UNDECIDABLE=2
+  no_usable_evidence: total=15  CONTEXT-MISSING=15 IGNORED=0 UNDECIDABLE=0
+
+Reconciliation: evidence-class totals sum to 52; three-way totals sum to 52. Match: True
+Dominant evidence class: fact_level_override (24/52)
+
+Facts currently scored PRESENT that sit inside the 48-fact defect population (45 under-specified + 2 normalization + 1 source-contract): 24 -- ['A1.1', 'A1.2', 'A1.3', 'A1.4', 'A1.5', 'A1.6', 'A5.1', 'A5.2', 'A5.3', 'B1.2', 'B1.5', 'B2.2', 'B2.3', 'B4.2', 'B4.3', 'C1.1', 'C1.2', 'C1.3', 'D1.1', 'D2.3', 'D3.1', 'D4.1', 'E2.3', 'E5.2']
+This number bounds how far the aggregate coverage can move once the scorer is repaired: each of these facts is a current false PRESENT under the defective predicate and will re-enter the unmet population (with its own B6 disposition) once repaired, without the true unmet set having been re-derived here.
+
+Predeclared prediction check (ALL sections A-E): CONTEXT-MISSING is the largest bucket: True. Strict majority (>50% of unmet): True.
+Verdict on rev11's predeclared 'CONTEXT-MISSING dominant' prediction (A-E): SUPPORTED
+Verdict on rev11's predeclared 'CONTEXT-MISSING dominant' prediction, restricted to A-D only (the bound's actual population): SUPPORTED
+
+==============================================================================
+DONE. Zero model/Hermes/David/provider calls made by this script.
+==============================================================================

@@ -1,0 +1,160 @@
+id: source-intake-claim-d9cb4668fd766474278e414bb53223f944342004f34be23020c161fa4160dd74
+type: claim_record
+source_id: d9cb4668fd766474278e414bb53223f944342004f34be23020c161fa4160dd74
+source_path: sources/intake/records/d9cb4668fd766474278e414bb53223f944342004f34be23020c161fa4160dd74.md
+source_sha256: d9cb4668fd766474278e414bb53223f944342004f34be23020c161fa4160dd74
+generated_at: '2026-09-10T00:08:47.291029Z'
+model: gpt-5.5
+claim_count: 17
+dropped_count: 0
+canonical_truth: false
+claims:
+- claim: Fred Haiderzada suggested that a real-estate-specific project management
+    workflow for transaction checkpoints would be helpful.
+  type: third_party_statement
+  attribution: Fred Haiderzada
+  status: historical
+  evidence:
+    quote: However, on the real estate side, I thought something similar would be
+      really helpful.
+    locator: Fred Haiderzada first substantive turn about project management platform
+- claim: Fred Haiderzada said the essential version of the workflow system would be
+    tracking only.
+  type: third_party_statement
+  attribution: Fred Haiderzada
+  status: historical
+  evidence:
+    quote: At the essential level tracking only.
+    locator: Fred Haiderzada response after Me asks tracking versus document handling
+- claim: Fred Haiderzada said Realty Nuance was essentially cloud storage with document
+    categorization and office email automation, but he did not see enough value for
+    $30 per month.
+  type: third_party_statement
+  attribution: Fred Haiderzada
+  status: historical
+  evidence:
+    quote: I couldn't see any more value beyond that.
+    locator: Fred Haiderzada turn describing realty nuance
+- claim: Fred Haiderzada said there is not a system that fills out real estate forms
+    for them and that they do much of it manually.
+  type: fact_asserted
+  attribution: Fred Haiderzada
+  status: historical
+  evidence:
+    quote: I know there isn't any system like that that fills it out for us. We do
+      a lot of it manually ourselves.
+    locator: Fred Haiderzada answer about whether another system fills forms
+- claim: Fred Haiderzada identified manual tracking of viewed or watched buyer properties
+    in Google Sheets as an annoyance.
+  type: third_party_statement
+  attribution: Fred Haiderzada
+  status: historical
+  evidence:
+    quote: I do a very manual process of that with, like, Google sheet.
+    locator: Fred Haiderzada turn after discussing form filling
+- claim: Fred Haiderzada said that if choosing between property tracking and project
+    management workflow, the project management workflow would probably be more helpful.
+  type: third_party_statement
+  attribution: Fred Haiderzada
+  status: historical
+  evidence:
+    quote: if I pick between the two, probably the project management workflow would
+      be nicer. Probably more difficult, but probably helpful, more helpful.
+    locator: Fred Haiderzada comparison of tracking and project workflow
+- claim: Me said accepting financial documents and IDs would make the workflow system
+    more complex because security would need to be tight.
+  type: liam_position
+  attribution: Me
+  status: historical
+  evidence:
+    quote: if you're going to be accepting documents and IDs and stuff, the security
+      has to be super tight.
+    locator: Me turn about project management security concerns
+- claim: Fred Haiderzada said storing documents was not a pain point and that he wanted
+    a tracker or dashboard showing missing documents by client.
+  type: third_party_statement
+  attribution: Fred Haiderzada
+  status: historical
+  evidence:
+    quote: Like a tracker.
+    locator: Fred Haiderzada after describing OneDrive folders and dashboard request
+- claim: Me offered that syncing Fred Haiderzada's computer folder structure to Google
+    Drive could be automated with a script.
+  type: offer_made
+  attribution: Me
+  status: historical
+  evidence:
+    quote: we can write a kind of script so that where, so that basically just, it
+      also syncs to your Google Drive as well.
+    locator: Me turn after Fred discusses OneDrive and Google Drive backup
+- claim: Fred Haiderzada said a dashboard would be very helpful for busy agents with
+    multiple clients and for him in particular.
+  type: third_party_statement
+  attribution: Fred Haiderzada
+  status: historical
+  evidence:
+    quote: having, like, a dashboard would be very helpful for them. And, I mean,
+      for me in particular would be good.
+    locator: Fred Haiderzada turn after Me discusses Hermes/OpenAI account setup
+- claim: Fred Haiderzada said he might put a basic CRM idea on the back burner because
+    Real Brokerage may release its own CRM-like platform within three to six months.
+  type: third_party_statement
+  attribution: Fred Haiderzada
+  status: historical
+  evidence:
+    quote: Maybe I put that on the back burner a little bit and not worry about a
+      CRM just yet.
+    locator: Fred Haiderzada turn about Remax acquisition and Leo 2.0
+- claim: Fred Haiderzada questioned whether an Instagram MLS lead-generation post
+    would have a useful hook beyond his existing sphere.
+  type: open_question
+  attribution: Fred Haiderzada
+  status: historical
+  evidence:
+    quote: I think the challenge there will be how would people see my post that's
+      not already in my sphere?
+    locator: Fred Haiderzada response to Me's MLS Instagram landing page idea
+- claim: Fred Haiderzada said MLS already sends active buyers branded daily emails
+    for saved search criteria and lets him see last notification and viewing activity.
+  type: fact_asserted
+  attribution: Fred Haiderzada
+  status: historical
+  evidence:
+    quote: on a daily basis, those clients get emails with my branding directly from
+      MLS going to them.
+    locator: Fred Haiderzada turn beginning 'So I guess right now'
+- claim: Fred Haiderzada described a wishlist for buyer-facing weekly market reports
+    summarizing new listings, sales, price drops, and list-versus-sold indicators
+    in their search area.
+  type: third_party_statement
+  attribution: Fred Haiderzada
+  status: historical
+  evidence:
+    quote: I'm thinking would be so cool if my buyers got like a once a week report.
+    locator: Fred Haiderzada wishlist after Me asks about MLS automation
+- claim: Fred Haiderzada said content creation was on his mind because it could differentiate
+    him from realtors relying mostly on sphere of influence or existing networks.
+  type: third_party_statement
+  attribution: Fred Haiderzada
+  status: historical
+  evidence:
+    quote: Well, on my mind right now is kind of content creation.
+    locator: Fred Haiderzada response comparing market intelligence/content versus
+      client servicing routes
+- claim: Fred Haiderzada said he forwarded the SnapStats sheet, and Me committed to
+    getting back in the next few days after thinking about reporting and tracking
+    systems.
+  type: commitment
+  attribution: Me
+  status: historical
+  evidence:
+    quote: I'm gonna go away. I'll get back to you maybe in the next few days.
+    locator: Closing discussion after Fred says 'I forwarded you already'
+- claim: Fred Haiderzada committed to update Me when GVR responds about data access.
+  type: commitment
+  attribution: Fred Haiderzada
+  status: historical
+  evidence:
+    quote: And I'll let you know what gvr tells me when they come back to me.
+    locator: Fred Haiderzada near end of meeting
+dropped: []

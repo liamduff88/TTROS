@@ -1,0 +1,1 @@
+Phase 2A guard extension lifted at 2026-09-09T08:04:39Z, after freeze hash recorded in phase3_freeze.json. Proceeding to read the 14 source documents for mechanical blind scoring only (detector code reads them, not manual inspection to design rules).

@@ -1,0 +1,160 @@
+id: source-intake-claim-call-kenneth-after-first-cci
+type: claim_record
+source_id: call-kenneth-after-first-cci
+source_path: sources/historical_calls/call-kenneth-after-first-cci.md
+source_sha256: 350d9a1f8bc4ea5b2cf275071c0ed8c964abc1df78677fe33ee76ebfaab653eb
+generated_at: '2026-09-09T22:36:51.954879Z'
+model: gpt-5.5
+claim_count: 11
+dropped_count: 4
+canonical_truth: false
+claims:
+- claim: 'Dr Kenneth Moodley identified two linked standout focus areas for CCI: inefficiency
+    from people working across multiple platforms and personalized client targeting.'
+  type: third_party_statement
+  attribution: Dr Kenneth Moodley
+  status: historical
+  evidence:
+    quote: whilst there's, there's multiple focus areas, the 2 standouts for me and
+      they're linked
+    locator: Dr Kenneth Moodley early turn, distinctive phrase “2 standouts”
+- claim: Dr Kenneth Moodley said CCI had people doing work across multiple platforms,
+    creating inefficiencies and extra time.
+  type: third_party_statement
+  attribution: Dr Kenneth Moodley
+  status: historical
+  evidence:
+    quote: they currently have, uh, let's call it people doing work across multiple
+      platforms, which then leads to inefficiencies and extra time
+    locator: Dr Kenneth Moodley early turn, first pain point
+- claim: Dr Kenneth Moodley advised that an AI solution could be overlaid on current
+    processes to improve efficiency and save people time.
+  type: advice_received
+  attribution: Dr Kenneth Moodley
+  status: historical
+  evidence:
+    quote: I think there's opportunity to understand those current processes and then
+      to say, oh, if I can I overlay AI solution on top of it, to improve the efficiency
+    locator: Dr Kenneth Moodley early turn, AI overlay
+- claim: Dr Kenneth Moodley said the second pain point was using a super personalized
+    approach when engaging clients rather than sending blanket emails.
+  type: third_party_statement
+  attribution: Dr Kenneth Moodley
+  status: historical
+  evidence:
+    quote: when they're doing engage with clients, how can they take this super personalized
+      approach, like you, um, you know, like you spoke about with them
+    locator: Dr Kenneth Moodley early turn, second pain point
+- claim: You suggested tracking ages of people in key positions as a way to anticipate
+    operational changes.
+  type: liam_position
+  attribution: You
+  status: historical
+  evidence:
+    quote: one thing that occurred to me is, you know, just tracking people's ages
+      in key positions
+    locator: You turn after first CCI pain points
+- claim: Dr Kenneth Moodley suggested adding time in job to age when judging whether
+    key people may move roles.
+  type: advice_received
+  attribution: Dr Kenneth Moodley
+  status: historical
+  evidence:
+    quote: Also, um, ages, but I was thinking about it as well. I made a note, is
+      time and job.
+    locator: Dr Kenneth Moodley response to age-tracking idea
+- claim: You agreed Kenneth could send the material to CCI if he explained it was
+    raw first-draft output.
+  type: liam_position
+  attribution: You
+  status: historical
+  evidence:
+    quote: I'm happy for you to send it to them. Just, uh, you know, obviously let
+      them know that it's it's a pretty, a pretty raw output and it's, it was a 1st
+      draft.
+    locator: You response to Kenneth sharing work with CCI
+- claim: Dr Kenneth Moodley asked whether You could identify which Facebook groups
+    they should belong to for maximum visibility.
+  type: open_question
+  attribution: Dr Kenneth Moodley
+  status: historical
+  evidence:
+    quote: Can you identify for me? Which groups we should belong to? Basically, that
+      gives us the biggest bang for our buck. In terms of visibility.
+    locator: Dr Kenneth Moodley social media groups question
+- claim: You said LinkedIn was probably better for some groups, Facebook could be
+    good for some groups, and engagement was the key benefit of groups.
+  type: liam_position
+  attribution: You
+  status: historical
+  evidence:
+    quote: LinkedIn is probably better for some of those groups. Facebook is good,
+      um, for some of those groups.
+    locator: You response on Facebook and LinkedIn groups
+- claim: Dr Kenneth Moodley said the focus through the rest of the week and early
+    next week should be CCI, and he would help in whatever shape or form with that.
+  type: decision
+  attribution: Dr Kenneth Moodley
+  status: historical
+  evidence:
+    quote: for this week and let's say next week, Monday, Tuesday, let's say that
+      the focus is going to be on CCI. I'll help you in whatever shape or form with
+      that.
+    locator: Dr Kenneth Moodley scheduling/focus turn
+- claim: You said the CCI pilot should focus on one deliverable around the most painful
+    workflows and then break them into a pilot project.
+  type: liam_position
+  attribution: You
+  status: historical
+  evidence:
+    quote: what I want to do is try and focus in on one deliverable being let's work
+      on. Let's establish which workflows that are the most painful that we can work
+      on as a mini project and see how that goes
+    locator: You response to Kenneth cautioning against overcommitting
+dropped:
+- claim:
+    claim: Dr Kenneth Moodley proposed giving CCI three or four North American multinational
+      client leads from the first piece of work, with CCI chasing them through its
+      back office.
+    type: offer_made
+    attribution: Dr Kenneth Moodley
+    status: historical
+    evidence:
+      quote: Why don't I give you all this? These 3 or 4 people. I'll give it to you
+        all.
+      locator: Dr Kenneth Moodley middle turn, North American clients
+  reason: evidence quote does not resolve as an exact substring of the source
+- claim:
+    claim: Dr Kenneth Moodley said he would not send the report as-is and would instead
+      extract one or two examples with narrative framing.
+    type: commitment
+    attribution: Dr Kenneth Moodley
+    status: historical
+    evidence:
+      quote: what I'll do is I won't send them the report as is. I will actually like
+        take a take out one or 2
+      locator: Dr Kenneth Moodley follow-up on sharing report
+  reason: evidence quote does not resolve as an exact substring of the source
+- claim:
+    claim: Dr Kenneth Moodley committed to putting thoughts down on the SME and social
+      media topics and sharing them by the next week.
+    type: commitment
+    attribution: Dr Kenneth Moodley
+    status: historical
+    evidence:
+      quote: I'm, I will put some thoughts down for the SME stuff and social media
+        stuff and I'll share it with you by next week.
+      locator: Dr Kenneth Moodley scheduling/focus turn
+  reason: evidence quote does not resolve as an exact substring of the source
+- claim:
+    claim: Dr Kenneth Moodley advised not committing to too many CCI pilot items and
+      instead picking one or two things to drive well.
+    type: advice_received
+    attribution: Dr Kenneth Moodley
+    status: historical
+    evidence:
+      quote: you don't want to commit to them, that you're going to do a pilot of
+        3 things. Right? Because that's going to take a ton of time. You'd rather
+        just pick one or 2 things instead of 10.
+      locator: Dr Kenneth Moodley caution about pilot scope
+  reason: evidence quote does not resolve as an exact substring of the source

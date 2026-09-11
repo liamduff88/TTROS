@@ -183,16 +183,28 @@ class LiveRuntimeContractTests(unittest.TestCase):
             self.assertFalse(routed["created"])
             self.assertFalse((root / "queue/work_items.jsonl").exists())
 
-    def test_repository_launcher_exposes_bounded_production_entries(self):
-        launcher = (ROOT / "tools" / "aos-linux-runtime.sh").read_text(encoding="utf-8")
-        self.assertIn('CAPTURE_SCRIPT="${ROOT}/tools/aos_capture_live.py"', launcher)
-        self.assertIn("CAPTURE_TIMEOUT_SECONDS=180", launcher)
-        self.assertIn('exec "$CAPTURE_PYTHON" "$CAPTURE_SCRIPT" poll "$@"', launcher)
-        self.assertIn("exec /usr/bin/timeout --signal=TERM", launcher)
-        self.assertIn('"$CAPTURE_PYTHON" "$CAPTURE_SCRIPT" poll --scheduled "$@"', launcher)
-        self.assertIn('capture-poll) shift; capture_poll "$@" ;;', launcher)
-        self.assertIn('capture-scheduled) shift; capture_scheduled "$@" ;;', launcher)
-        self.assertIn("capture-status) capture_status ;;", launcher)
+    def test_systemd_units_are_the_capture_contract(self):
+        """Replaces the launcher assertion retired 2026-08-15.
+
+        Recurring capture is a systemd user timer plus a oneshot service that
+        calls this module DIRECTLY with the system interpreter. No wrapper. This
+        asserts the arrangement that replaced the launcher, so deleting or
+        rewriting the units fails here rather than silently stopping capture.
+        """
+        unit_dir = Path.home() / ".config" / "systemd" / "user"
+        service = (unit_dir / "aos-gmail-capture.service").read_text(encoding="utf-8")
+        timer = (unit_dir / "aos-gmail-capture.timer").read_text(encoding="utf-8")
+        self.assertIn("Type=oneshot", service)
+        self.assertIn(
+            "ExecStart=/usr/bin/python3 /home/liam/agentic-os-live/tools/aos_capture_live.py poll --scheduled",
+            service,
+        )
+        self.assertIn("/home/liam/.composio", service)
+        self.assertIn("TimeoutStartSec=", service)
+        self.assertNotIn("[Install]", service)
+        self.assertIn("OnCalendar=", timer)
+        self.assertIn("Unit=aos-gmail-capture.service", timer)
+        self.assertIn("[Install]", timer)
 
     def test_poll_lock_is_non_overlapping(self):
         with tempfile.TemporaryDirectory() as tmp:

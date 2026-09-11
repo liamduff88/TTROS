@@ -1,0 +1,139 @@
+STEP X2 — raw transcript, 2026-09-11
+
+=== Part 0.1 — config rewrite attribution ===
+$ stat aos-orchestrator/revenue/marketing/delivery/ops config.yaml
+aos-orchestrator  2026-09-09 14:13:48.446595192 -0700
+aos-revenue       2026-09-09 14:13:48.890399951 -0700
+aos-marketing     2026-09-09 14:13:49.330057003 -0700
+aos-delivery      2026-09-09 14:13:49.786304887 -0700
+aos-ops           2026-09-09 14:13:50.234257356 -0700
+
+$ ls /home/liam/ttros_backups (relevant window) -> nothing timestamped 2026-09-09 13:00-16:00 PDT
+$ Claude Code session logs (~/.claude/projects/-home-liam-agentic-os-live/*.jsonl):
+  grep -l for config.yaml paths -> 10 files matched (content mentions, from later investigating sessions)
+  extracted every "2026-09-09T2[01]" timestamp from each -> zero hits in any of the 10 files
+  (only b767f0a6-...jsonl had any 2026-09-09 timestamps at all: last="2026-09-09T21:49:42.700Z",
+   i.e. after the 21:13Z rewrite window, not during it)
+Conclusion: unknown; surfaces named and checked; no direct attribution recovered.
+
+=== Part 0.2/0.3 — code evidence (see .md for full excerpts and line numbers) ===
+dashboard/backend/main.py:9776-9790  _is_hermes_orchestration_child / _is_executive_objective_child
+dashboard/backend/main.py:10146      max_attempts = 3 if orchestration_child else 2  -> 2 for this item
+dashboard/backend/main.py:10166-10250 attempt loop, worker+review per attempt
+dashboard/backend/main.py:4709-4749  _normalize_chain_proposal, no cap on steps list length
+dashboard/backend/main.py:5027,5532-5535 "cancelled" valid status, _queue_validate_status
+dashboard/backend/main.py:9404-9416  _queue_heartbeat_loop — renews claim only, no cancel check
+dashboard/backend/main.py:784-786    HERMES_EXECUTION_TIMEOUT_SECONDS default 600, per invocation
+
+=== Part 0.4 — baselines ===
+$ systemctl --user status aos-backend.service -> active, running since 2026-09-09 09:46:26 PDT, uvicorn 127.0.0.1:8010
+$ systemctl --user status aos-runner.service  -> active, running since 2026-09-09 09:46:26 PDT,
+  aos-orchestration-runner.py --root /home/liam/agentic-os-live --skip-telegram-escalation --watch --interval 5
+$ curl -s http://127.0.0.1:8010/api/health
+{"status":"ok","version":"0.1.0","timestamp":"2026-09-11T10:12:49.068232Z", ...}
+$ curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8010/  -> 404 (by design)
+
+$ ls "TTROS Business Brain/sessions/" | grep 2026-09-11  -> (empty; no journal yet)
+$ sha256sum sessions/thread_david.md (baseline)
+21cc5b8f6f8edb54b7dfa6d4b60d7f0694c2030280023eb35ece8e3c8bb91bd8
+
+$ wc -l queue/work_items.jsonl -> 791
+$ sha256sum queue/work_items.jsonl -> ef5f3a74334af50a81769acc3307d235f73087df1a70a61e59fe526e7a0fd644
+
+$ sqlite3-via-python: latest started_at per profile
+david:            20260911_000551_4b41e7  2026-09-11T07:05:54.056336Z  (X1's own T9 probe turn)
+aos-orchestrator: 20260909_135449_e27b0f  2026-09-09T20:54:50.971433Z  (failed-at-startup session)
+
+=== Part B — the live call ===
+$ date -u; curl -s -m 280 -X POST http://127.0.0.1:8010/api/dashboard/ask-david \
+    -H "Content-Type: application/json" --data-binary @x2_payload.json -w "\nHTTP_STATUS:%{http_code}\nTIME_TOTAL:%{time_total}\n"
+2026-09-11T10:13:59Z (call start)
+HTTP_STATUS:200
+TIME_TOTAL:61.003362
+2026-09-11T10:15:00Z (call end)
+
+Response (key fields; full JSON captured in scratchpad x2_response.json this session):
+  success: false
+  status: success
+  requested_profile: david, actual_profile: david, fallback_occurred: false
+  response: "Handing this to Operating Hermes as a single-step local connectivity test."
+  kind: david_reply
+  queue_effect: {"action":"none","before":{"count":791,"sha256":"b63ca070..."},
+                 "after":{"count":791,"sha256":"b63ca070..."},"items_created":0,"unchanged":true}
+  token_usage: {"available":true,"input_tokens":20672,"output_tokens":280,"reasoning_tokens":56,
+                "total_tokens":20952,"api_calls":1,"model":"gpt-5.5","provider":"openai-codex",
+                "completed":true,"failed":false,"session_id":"20260911_031416_dad6f0"}
+  elapsed_seconds: 22.985
+  error.code: hermes_objective_failed
+  error.message (truncated by API at ~1200 chars; full text below is the CLI's actual captured output,
+                 which is short and NOT itself truncated):
+    stdout/stderr/output (identical):
+      "hermes -z: agent failed: TTROS model call blocked: mandatory assembled context is absent
+       NEEDS ATTENTION: exact Hermes usage unavailable; Step 6 scope paused"
+    returncode: 78
+    timed_out: false
+    timeout_seconds: 600
+    elapsed_seconds: 13.921
+    token_usage (decomposition attempt): {"available":false,"model":null,"provider":null,
+      "completed":null,"failed":true,
+      "failure":"TTROS model call blocked: mandatory assembled context is absent",
+      "invocation_id":"hermes-ba15ee014b9e4543b1bae00e13d0a1e9"}
+
+=== Post-call session check (state.db) ===
+aos-orchestrator: 1 new row
+  ('20260911_031449_9c0c2a', 1789121691.1795812, 0, 'agent_close')  2026-09-11T10:14:51Z
+  message_count=0, api_call_count=0 (queried separately, confirmed 0/0)
+aos-revenue / aos-marketing / aos-delivery / aos-ops: 0 new rows each
+david: new row
+  ('20260911_031416_dad6f0', 1789121657.085781, 2, 'agent_close')  2026-09-11T10:14:17Z
+  message_count=2 (1 user, 1 assistant)
+
+$ ls queue/context_assemblies/ | tail
+  ... hermes-20260910_215051_018982-...json
+  ... hermes-20260911_000551_4b41e7-...json
+  ... hermes-20260911_031416_dad6f0-...json   <- David's turn only
+  (NO hermes-20260911_031449_9c0c2a-*.json for the aos-orchestrator attempt)
+
+=== Root-cause probe (read-only, two isolated reproductions of the hook, both succeeded) ===
+$ HERMES_HOME=.../profiles/aos-orchestrator AOS_STEP6_WRAPPED=1 \
+  AOS_STEP6_SCOPE_TYPE=work_item AOS_STEP6_SCOPE_ID=AOS-2026-TEST python3 -c "...evaluate(payload)..."
+  -> OK dict_keys(['context'])
+$ same but AOS_STEP6_SCOPE_TYPE=session AOS_STEP6_SCOPE_ID=aos-orchestrator-direct
+  -> OK dict_keys(['context'])
+
+$ journalctl --user -u aos-backend.service --since "2026-09-11 03:14:00" --until "2026-09-11 03:16:00"
+  Sep 11 03:15:00 VRS-GLOBAL python[282]: INFO:     127.0.0.1:33662 - "POST /api/dashboard/ask-david HTTP/1.1" 200 OK
+  (only line; no hook stderr captured anywhere for this window)
+
+$ find /home/liam/.hermes -newermt "2026-09-11 03:00" -iname "*log*"  -> (nothing)
+
+=== Criterion 8 — residue found, backed up, restored ===
+Post-Part-B state:
+  sha256sum thread_david.md -> f819b5cd004f8caebd5e511fd110b0719d6f9ca19bada99dacf8678098eddadf
+  ls sessions/ | grep 2026-09-11 -> 2026-09-11_hermes-cli_7cd4569d6fe3.md (new)
+
+Recovered preimage verification:
+  sha256sum /home/liam/ttros_backups/b7_harness_vault_snapshot_20260910_015654Z/sessions/thread_david.md
+  -> 21cc5b8f6f8edb54b7dfa6d4b60d7f0694c2030280023eb35ece8e3c8bb91bd8   (matches Part 0 baseline exactly)
+
+Preimages of contaminated state saved (Write tool, cp was denied by the permission layer):
+  /home/liam/ttros_backups/stepX2_2026-09-11/thread_david.md.PREIMAGE_postB_20260911T101451Z
+    sha256 f819b5cd004f8caebd5e511fd110b0719d6f9ca19bada99dacf8678098eddadf (verified match)
+  /home/liam/ttros_backups/stepX2_2026-09-11/2026-09-11_hermes-cli_7cd4569d6fe3.md.PREIMAGE_postB
+    sha256 daa03990ca701c501620e5cbdc683cac0e2139f3eadcdbaee8d99865a78f8c68 (verified match)
+
+write_transaction run (scratchpad x2_residue_cleanup.py), expected_hashes pinned to the two hashes above:
+  changed: ('sessions/thread_david.md', 'sessions/2026-09-11_hermes-cli_7cd4569d6fe3.md')
+  commit: 436f5f616377ef4518d053054a61da9bd64167c5
+  thread after hash:  9ff625a8711afb3617749cf3eadf67ee5bd04d25edce079740cc240b17ca56b9
+  journal after hash: ce7ca1dbbc121e4b48c9980d18446eae073cf41bea52b5bc438619477c545922
+
+Verification:
+  grep -c "Turn ·" sessions/2026-09-11_hermes-cli_7cd4569d6fe3.md -> 0
+  grep -i "HANDOFF_OK" sessions/thread_david.md sessions/2026-09-11_hermes-cli_7cd4569d6fe3.md -> no matches
+
+=== Model calls this session ===
+Declared ceiling: 6 (4 base + 2 bounded retry, see .md Part 0.2).
+Used: 1 real model API call (David's turn, session 20260911_031416_dad6f0).
+Decomposition attempt: 0 API calls (blocked pre-model-call by Hermes's native fail-closed guard).
+No second live attempt was made.
