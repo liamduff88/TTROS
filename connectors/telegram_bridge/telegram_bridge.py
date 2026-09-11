@@ -24,6 +24,9 @@ ALLOWED_FILE = BRIDGE_DIR / "allowed_chats.json"
 LOG_DIR = WORKSPACE / "logs"
 RUNTIME_DIR = LOG_DIR / "runtime"
 UPDATE_STATE_FILE = RUNTIME_DIR / "telegram_bridge_updates.json"
+# Conversational state, deliberately NOT in allowed_chats.json, which is
+# authorization/pilot config written non-atomically.
+MODE_STATE_FILE = RUNTIME_DIR / "telegram_bridge_modes.json"
 BRIDGE_LOCK_FILE = RUNTIME_DIR / "telegram_bridge.lock"
 PILOT_ID = "northshore_honda_sales_demo"
 BACKEND = "http://127.0.0.1:8010"
@@ -113,6 +116,13 @@ SUBMISSION_ACK_TIMEOUT_SECONDS = 20
 AGENT_RESPONSE_TIMEOUT_SECONDS = 120
 STATUS_BACKEND_TIMEOUT_SECONDS = 1.5
 STATUS_SEND_TIMEOUT_SECONDS = 3
+# David's executive route measured ~33s end to end (2026-08-11 proof). The
+# delegate default of 20s would time out every call, so it gets its own budget.
+DAVID_TIMEOUT_SECONDS = 180
+MODE_DAVID = "david"
+MODE_ORCHESTRATOR = "orchestrator"
+# FIRST word only. Anchored at ^, so "Ask David, ..." mid-sentence never switches.
+_MODE_SWITCH_RE = re.compile(r"^\s*(david|orchestrator)\s*[,:]\s*", re.IGNORECASE)
 MAX_RECORDED_UPDATE_IDS = 512
 _CAPTURE_COMMAND_RE = re.compile(r"^/(?:inbox|capture)(?:@[A-Za-z0-9_]+)?(?:\s+([\s\S]*))?$", re.IGNORECASE)
 _SUPPORTED_DOCUMENT_EXTENSIONS = {".txt", ".md", ".markdown", ".pdf", ".docx", ".rtf", ".csv", ".json", ".yaml", ".yml"}
@@ -129,6 +139,7 @@ _HERMES_COORDINATION_RE = re.compile(
     re.IGNORECASE,
 )
 _UPDATE_STATE_LOCK = threading.Lock()
+_MODE_STATE_LOCK = threading.Lock()
 _AGENT_REQUEST_LOCK = threading.Lock()
 _ACTIVE_AGENT_REQUESTS = set()
 _BRIDGE_LOCK_HANDLE = None
@@ -621,7 +632,7 @@ def capture_operator_message(message):
     )
 
 
-def format_operator_status(payload, mode="unregistered"):
+def format_operator_status(payload, mode="unregistered", chat_mode=MODE_ORCHESTRATOR):
     """Render only bounded operational fields from the backend status contract."""
     data = payload if isinstance(payload, dict) else {}
     bridge = data.get("bridge") if isinstance(data.get("bridge"), dict) else {}
@@ -641,6 +652,7 @@ def format_operator_status(payload, mode="unregistered"):
         "PASS" if state == "healthy" else "NEEDS ATTENTION",
         f"Overall: {state}",
         f"Bridge: live handler; backend_process={str(bridge.get('state') or 'unknown')[:80]}; mode={mode}",
+        f"Conversation mode: {chat_mode}",
         "Backend: ready",
         f"Queue: {str(queue.get('state') or 'unknown')[:80]}; items={int(queue.get('items') or 0)}; actionable={int(queue.get('actionable') or 0)}",
         f"Runner: {str(runner.get('state') or 'unknown')[:80]}",
@@ -652,11 +664,12 @@ def format_operator_status(payload, mode="unregistered"):
     ))
 
 
-def backend_unavailable_status(mode="unregistered", reason="unavailable"):
+def backend_unavailable_status(mode="unregistered", reason="unavailable", chat_mode=MODE_ORCHESTRATOR):
     return "\n".join((
         "NEEDS ATTENTION",
         "Overall: degraded",
         f"Bridge: live handler; backend_process=unknown; mode={mode}",
+        f"Conversation mode: {chat_mode}",
         "Backend: unavailable",
         "Queue: unknown",
         "Runner: unknown",
@@ -689,14 +702,21 @@ def preserve_agent_result_format(result, summary):
     )
 
 
-def deliver_agent_result(chat_id, result):
+def deliver_agent_result(chat_id, result, reply_tag=""):
     """Deliver one backend result using its explicit formatting contract."""
     summary = summarize_agent_result(result)
+    # Decide format and attachments on the UNTAGGED text so the existing
+    # closeout parsers see exactly what they saw before Patch B.
+    preserve = preserve_agent_result_format(result, summary)
+    documents = document_paths_for_completion(result, summary)
+    if reply_tag:
+        summary = f"{reply_tag} {summary}"
+        preserve = True
     return send(
         chat_id,
         summary,
-        preserve_format=preserve_agent_result_format(result, summary),
-        document_paths=document_paths_for_completion(result, summary),
+        preserve_format=preserve,
+        document_paths=documents,
     )
 
 
@@ -721,7 +741,7 @@ def failed_conversation_reply(failure_class):
     )
 
 
-def _run_agent_request(chat_id, task, source, delivery_id):
+def _run_agent_request(chat_id, task, source, delivery_id, reply_tag=""):
     """Submit one request off the polling thread and send its intake result once."""
     try:
         result = post_agent(
@@ -734,7 +754,7 @@ def _run_agent_request(chat_id, task, source, delivery_id):
         if isinstance(result, dict) and result.get("duplicate"):
             log(f"agent_request_duplicate delivery_id={delivery_id}")
             return
-        deliver_agent_result(chat_id, result)
+        deliver_agent_result(chat_id, result, reply_tag=reply_tag)
     except Exception as exc:
         failure_class = type(exc).__name__
         is_work_request = bool(re.match(r"^\s*/work\b", str(task or ""), re.IGNORECASE))
@@ -751,7 +771,7 @@ def _run_agent_request(chat_id, task, source, delivery_id):
             _ACTIVE_AGENT_REQUESTS.discard(delivery_id)
 
 
-def dispatch_agent_request(chat_id, task, source="telegram", delivery_id=""):
+def dispatch_agent_request(chat_id, task, source="telegram", delivery_id="", reply_tag=""):
     """Single-flight one Telegram delivery while keeping polling responsive."""
     request_id = str(delivery_id or "").strip()
     if not request_id:
@@ -764,7 +784,7 @@ def dispatch_agent_request(chat_id, task, source="telegram", delivery_id=""):
         _ACTIVE_AGENT_REQUESTS.add(request_id)
     worker = threading.Thread(
         target=_run_agent_request,
-        args=(chat_id, task, source, request_id),
+        args=(chat_id, task, source, request_id, reply_tag),
         name=f"telegram-agent-{request_id[-16:]}",
         daemon=True,
     )
@@ -777,11 +797,300 @@ def dispatch_agent_request(chat_id, task, source="telegram", delivery_id=""):
     return True
 
 
+# Lane keys accepted by /delegate. Values are the queue owner, which must be the
+# LANE key from queue/lane_profiles.json, never a Hermes profile name.
+DELEGATION_LANES = {
+    "revenue": "revenue",
+    "marketing": "marketing",
+    "delivery": "delivery",
+    "operations": "operations",
+    "ops": "operations",
+    "orchestrator": "orchestrator",
+}
+
+# next_async_item() in the orchestration runner only ever considers items carrying
+# this tag. Without it an item is created and then never dispatches.
+ASYNC_DISPATCH_TAG = "async_dispatch"
+QUEUE_CREATE_ROUTE = "/api/queue/items"
+ASK_DAVID_ROUTE = "/api/dashboard/ask-david"
+DELEGATE_TIMEOUT_SECONDS = 20
+
+# /chain has to go through David because decomposing the objective is the point.
+# Routed as an explicit /work request so the backend conversation-path guard
+# ("only an explicit /work request may create or execute work") does not apply.
+CHAIN_INSTRUCTION = (
+    "\n\n---\n"
+    "Break the objective above into the smallest sensible sequence of steps.\n"
+    "\n"
+    "Use the queue MCP tool named delegate_task - the one that returns work item ids of "
+    "the form AOS-YYYY-NNNN. Do not use Hermes native delegation or any other handoff "
+    "mechanism. If a delegation returns an id that is not in AOS-YYYY-NNNN form, you used "
+    "the wrong tool: stop and say so rather than continuing.\n"
+    "\n"
+    "Call delegate_task once per step. For each one set:\n"
+    "  delegate_to  - revenue, marketing, delivery, ops or orchestrator\n"
+    "  depends_on   - the AOS id returned by the previous step, as the parameter, not "
+    "as text inside context. The first step leaves it empty.\n"
+    "  context      - self-contained, since the receiving agent has no memory of this.\n"
+    "\n"
+    "Do not do the work yourself and do not poll for results. Reply with the ordered AOS "
+    "ids, the lane each went to, and one line on what each will do."
+)
+
+
+def post_backend_json(route, payload, timeout=DELEGATE_TIMEOUT_SECONDS):
+    """POST one JSON body to the local backend and return the decoded response."""
+    data = json.dumps(payload).encode("utf-8")
+    request = urllib.request.Request(
+        f"{BACKEND}{route}",
+        data=data,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def _load_chat_modes():
+    """Read the per-chat conversation mode map. Missing or corrupt -> empty."""
+    try:
+        payload = json.loads(MODE_STATE_FILE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    modes = payload.get("chat_modes") if isinstance(payload, dict) else {}
+    if not isinstance(modes, dict):
+        return {}
+    return {
+        str(chat_id): str(mode)
+        for chat_id, mode in modes.items()
+        if str(mode) in {MODE_DAVID, MODE_ORCHESTRATOR}
+    }
+
+
+def get_chat_mode(chat_id):
+    """Default is orchestrator: nothing changes until the operator says David."""
+    with _MODE_STATE_LOCK:
+        return _load_chat_modes().get(str(chat_id), MODE_ORCHESTRATOR)
+
+
+def set_chat_mode(chat_id, mode):
+    """Durably persist one chat's mode using the claim_update atomic pattern."""
+    if mode not in {MODE_DAVID, MODE_ORCHESTRATOR}:
+        raise ValueError(f"unknown chat mode: {mode}")
+    with _MODE_STATE_LOCK:
+        modes = _load_chat_modes()
+        modes[str(chat_id)] = mode
+        MODE_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        handle = tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            prefix=".telegram_bridge_modes.",
+            suffix=".tmp",
+            dir=MODE_STATE_FILE.parent,
+            delete=False,
+        )
+        temporary = Path(handle.name)
+        try:
+            with handle:
+                json.dump({"chat_modes": modes}, handle, separators=(",", ":"))
+                handle.write("\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, MODE_STATE_FILE)
+        except Exception:
+            try:
+                temporary.unlink()
+            except OSError:
+                pass
+            raise
+    return mode
+
+
+def resolve_chat_mode(chat_id, text):
+    """Apply a leading "David,"/"Orchestrator:" switch. FIRST word only.
+
+    Returns (mode, remaining_text, switched). Without a leading token the stored
+    mode is returned unchanged, which is what makes the mode sticky.
+    """
+    raw = str(text or "")
+    match = _MODE_SWITCH_RE.match(raw)
+    if not match:
+        return get_chat_mode(chat_id), raw.strip(), False
+    mode = match.group(1).lower()
+    set_chat_mode(chat_id, mode)
+    log(f"chat_mode_switched chat={chat_id} mode={mode}")
+    return mode, raw[match.end():].strip(), True
+
+
+def format_david_reply(result):
+    """Render one ask-david response for Telegram, tagged with the active mode."""
+    data = result if isinstance(result, dict) else {}
+    kind = str(data.get("kind") or "")
+    if kind == "queue_created":
+        item = data.get("item") if isinstance(data.get("item"), dict) else {}
+        item_id = str(item.get("id") or data.get("item_id") or "unavailable")
+        owner = str(data.get("owner") or item.get("owner") or "hermes")
+        lines = [f"[David] Queued {item_id} to {owner}."]
+        handed = str(data.get("handed_objective") or "").strip()
+        if handed:
+            lines.append(f"Handed to Hermes: \"{handed}\"")
+        else:
+            lines.append("Handed to Hermes: (not reported by the backend)")
+        note = str(data.get("david_note") or "").strip()
+        if note:
+            lines.append("")
+            lines.append(note)
+        lines.append("")
+        lines.append("Check progress with /status.")
+        return "\n".join(lines)
+    body = ""
+    for key in ("response", "output", "message", "text", "summary"):
+        candidate = str(data.get(key) or "").strip()
+        if candidate:
+            body = candidate
+            break
+    if not body:
+        body = f"David replied with no text (kind={kind or 'unknown'})."
+    return f"[David] {body}"
+
+
+def _run_david_request(chat_id, text, delivery_id):
+    """Ask David off the polling thread; ~33s is normal for this route."""
+    try:
+        result = post_backend_json(
+            ASK_DAVID_ROUTE,
+            {"text": text},
+            timeout=DAVID_TIMEOUT_SECONDS,
+        )
+        kind = str(result.get("kind") or "unknown") if isinstance(result, dict) else "unknown"
+        log(f"david_reply_delivered chat={chat_id} kind={kind} delivery_id={delivery_id}")
+        send(chat_id, format_david_reply(result), preserve_format=True)
+    except Exception as exc:
+        failure_class = type(exc).__name__
+        log(f"david_request_failed chat={chat_id} failure={failure_class} delivery_id={delivery_id}")
+        send(
+            chat_id,
+            "[David] "
+            + failed_conversation_reply(failure_class)
+            + "\nStill in David mode. Send \"Orchestrator, ...\" to switch back.",
+            preserve_format=True,
+        )
+    finally:
+        with _AGENT_REQUEST_LOCK:
+            _ACTIVE_AGENT_REQUESTS.discard(delivery_id)
+
+
+def dispatch_david_request(chat_id, task, source="telegram", delivery_id=""):
+    """Single-flight David exactly the way dispatch_agent_request single-flights Hermes."""
+    request_id = str(delivery_id or "").strip()
+    if not request_id:
+        digest = hashlib.sha256(f"{chat_id}\0david\0{task}".encode("utf-8")).hexdigest()
+        request_id = f"{source}-david-{digest}"
+    with _AGENT_REQUEST_LOCK:
+        if request_id in _ACTIVE_AGENT_REQUESTS:
+            log(f"david_request_inflight_duplicate delivery_id={request_id}")
+            return False
+        _ACTIVE_AGENT_REQUESTS.add(request_id)
+    worker = threading.Thread(
+        target=_run_david_request,
+        args=(chat_id, task, request_id),
+        name=f"telegram-david-{request_id[-16:]}",
+        daemon=True,
+    )
+    try:
+        worker.start()
+    except Exception:
+        with _AGENT_REQUEST_LOCK:
+            _ACTIVE_AGENT_REQUESTS.discard(request_id)
+        raise
+    return True
+
+
+def _delegation_title(task):
+    """First sentence of the request, bounded to the queue title limit."""
+    stripped = str(task or "").strip()
+    first = re.split(r"(?<=[.!?])\s+", stripped)[0].strip() if stripped else ""
+    return (first or stripped)[:150]
+
+
+def handle_delegate(chat_id, text):
+    """Create one queue item owned by a business lane. No model in the loop."""
+    parts = text.split(" ", 2)
+    usage = "Use: /delegate revenue|marketing|delivery|operations|orchestrator <task>"
+    if len(parts) < 3 or not parts[2].strip():
+        send(chat_id, usage, preserve_format=True)
+        return
+    lane = DELEGATION_LANES.get(parts[1].strip().lower())
+    if not lane:
+        send(chat_id, f"Unknown lane: {parts[1].strip()}\n{usage}", preserve_format=True)
+        return
+
+    task = parts[2].strip()
+    payload = {
+        "title": _delegation_title(task),
+        "owner": lane,
+        "priority": "normal",
+        "tags": ASYNC_DISPATCH_TAG,
+        "source": "telegram/delegate",
+        "context": task,
+        "definition_of_done": (
+            "The task described in context is complete and a receipt records what was done."
+        ),
+    }
+    try:
+        result = post_backend_json(QUEUE_CREATE_ROUTE, payload)
+    except Exception as exc:
+        log(f"delegate_failed lane={lane} error={type(exc).__name__}")
+        send(
+            chat_id,
+            f"NEEDS ATTENTION\nDelegation failed: {type(exc).__name__}. No work item was created.",
+            preserve_format=True,
+        )
+        return
+
+    item = result.get("item") if isinstance(result, dict) else None
+    item_id = (item or {}).get("id") or "unavailable"
+    log(f"delegate_created item={item_id} lane={lane}")
+    send(
+        chat_id,
+        f"Queued {item_id} to {lane}.\nThe runner picks it up within about five seconds.\nCheck progress with /status.",
+        preserve_format=True,
+    )
+
+
+def handle_chain(chat_id, text, source="telegram", delivery_id=""):
+    """Ask David to decompose an objective and file it as a depends_on sequence."""
+    objective = text.split(" ", 1)[1].strip() if " " in text else ""
+    if not objective:
+        send(chat_id, "Use: /chain <objective to break into steps>", preserve_format=True)
+        return
+    # Objective leads so the backend derives a readable work item title from it;
+    # the instruction follows the separator.
+    dispatch_agent_request(
+        chat_id,
+        f"/work hermes {objective}{CHAIN_INSTRUCTION}",
+        source=source,
+        delivery_id=delivery_id,
+    )
+
+
 def handle_operator(chat_id, text, source="telegram", delivery_id=""):
+    if text.startswith("/delegate"):
+        handle_delegate(chat_id, text)
+        return
+
+    if text.startswith("/chain"):
+        handle_chain(chat_id, text, source=source, delivery_id=delivery_id)
+        return
+
     if text.startswith("/work "):
         parts = text.split(" ", 2)
         if len(parts) < 3 or parts[1].lower() not in {"codex", "claude", "hermes"}:
-            send(chat_id, "Use: /work codex|claude|hermes <task>")
+            send(
+                chat_id,
+                "Use: /work codex|claude|hermes <task>\nTo hand work to a business lane use /delegate instead.",
+                preserve_format=True,
+            )
             return
         target = parts[1].lower()
         task = parts[2].strip()
@@ -801,16 +1110,47 @@ def handle_operator(chat_id, text, source="telegram", delivery_id=""):
             allowed_file = _allowed_file()
             allowed_file.parent.mkdir(parents=True, exist_ok=True)
             allowed_file.write_text(json.dumps(data, indent=2), encoding="utf-8")
-            send(chat_id, "Pilot added.")
+            send(chat_id, "Pilot added.", preserve_format=True)
         else:
-            send(chat_id, "Use: /pilot_add <chat_id> <pilot_id>")
+            send(chat_id, "Use: /pilot_add <chat_id> <pilot_id>", preserve_format=True)
         return
 
     if text.startswith("/"):
-        send(chat_id, "Commands: /status, /inbox <text>, /work codex|claude|hermes <task>, /pilot_add <chat_id> <pilot_id>")
+        send(
+            chat_id,
+            "Commands:\n"
+            "/status\n"
+            "/inbox <text>\n"
+            "/delegate <lane> <task>  - hand work to revenue, marketing, delivery, operations or orchestrator\n"
+            "/chain <objective>       - David breaks it into steps and runs them in order\n"
+            "/work codex|claude|hermes <task>\n"
+            "/pilot_add <chat_id> <pilot_id>",
+            preserve_format=True,
+        )
         return
 
-    dispatch_agent_request(chat_id, text, source=source, delivery_id=delivery_id)
+    # Every slash command has already returned above, so mode never sees one.
+    mode, remainder, switched = resolve_chat_mode(chat_id, text)
+    if switched and not remainder:
+        target = "David" if mode == MODE_DAVID else "the orchestrator"
+        send(
+            chat_id,
+            f"[{mode.capitalize()}] Mode set. Messages now go to {target} until you switch back.",
+            preserve_format=True,
+        )
+        return
+
+    if mode == MODE_DAVID:
+        dispatch_david_request(chat_id, remainder, source=source, delivery_id=delivery_id)
+        return
+
+    dispatch_agent_request(
+        chat_id,
+        remainder,
+        source=source,
+        delivery_id=delivery_id,
+        reply_tag="[Orchestrator]",
+    )
 
 
 def handle_message(msg, source="telegram", delivery_id=""):
@@ -824,10 +1164,15 @@ def handle_message(msg, source="telegram", delivery_id=""):
 
     if text.startswith("/status"):
         mode = "operator" if is_operator else ("pilot" if pilot_id else "unregistered")
+        chat_mode = get_chat_mode(chat_id) if is_operator else MODE_ORCHESTRATOR
         try:
-            status = format_operator_status(get_backend_status(), mode=mode)
+            status = format_operator_status(get_backend_status(), mode=mode, chat_mode=chat_mode)
         except Exception as exc:
-            status = backend_unavailable_status(mode=mode, reason=type(exc).__name__)
+            status = backend_unavailable_status(
+                mode=mode,
+                reason=type(exc).__name__,
+                chat_mode=chat_mode,
+            )
         send(chat_id, status, preserve_format=True, api_timeout=STATUS_SEND_TIMEOUT_SECONDS)
         return
 
