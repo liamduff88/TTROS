@@ -141,3 +141,7 @@ scripts/*.usage.json
 # (self-labelled in its own header); EXECUTIVE_BRIEF.md/MORNING_BRIEF_FINDINGS.json
 # remain tracked periodic snapshots by existing convention. STEP 0164 stabilization.
 context/DAVID_MORNING_BRIEF.md
+
+# Runtime-generated executive context
+context/EXECUTIVE_BRIEF.md
+context/MORNING_BRIEF_FINDINGS.json
