@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import re
 import sys
+from functools import lru_cache
 from pathlib import Path, PureWindowsPath
 
 
@@ -44,7 +45,27 @@ def resolve_root_relative(relative_path: str | Path, *, root: str | Path | None 
     if _is_absolute_path_text(path_text):
         raise AosPathError("path must be root-relative")
 
-    root_path = Path(root).expanduser().resolve() if root is not None else aos_root()
+    root_key = str(root) if root is not None else None
+    return _resolve_root_relative_cached(path_text, root_key)
+
+
+@lru_cache(maxsize=256)
+def _resolved_root_cached(root_key: str | None) -> Path:
+    return Path(root_key).expanduser().resolve() if root_key is not None else aos_root()
+
+
+def resolved_path(path: str | Path) -> Path:
+    """Resolve a path once and cache it, keyed by its current string value.
+
+    Safe for repeatedly re-resolving a process-lifetime constant (like BASE_DIR)
+    without re-walking the filesystem on every call.
+    """
+    return _resolved_root_cached(str(path))
+
+
+@lru_cache(maxsize=8192)
+def _resolve_root_relative_cached(path_text: str, root_key: str | None) -> Path:
+    root_path = _resolved_root_cached(root_key)
     target = (root_path / path_text).resolve()
     try:
         target.relative_to(root_path)

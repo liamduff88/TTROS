@@ -1,8 +1,9 @@
 // Revisit: when the Ask David primary Cockpit contract changes. · Last touched: 2026-08-07.
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { AlertCircle, CheckCircle2, ListChecks, Search, Send, Sparkles } from 'lucide-react'
 import { askDavid } from '../api'
+import { loadStoredDraft, loadStoredThread, persistDraft, persistThread } from '../askDavidState'
 import { ActionButton, StatusChip } from './DashboardKit'
 
 const entryId = () => `${Date.now()}-${Math.random().toString(16).slice(2)}`
@@ -62,9 +63,17 @@ function ReplyCard({ entry, onNavigate }) {
 }
 
 export default function AskDavid({ onNavigate, refresh }) {
-  const [text, setText] = useState('')
-  const [thread, setThread] = useState([])
+  const [text, setText] = useState(() => loadStoredDraft(window.sessionStorage))
+  const [thread, setThread] = useState(() => loadStoredThread(window.sessionStorage))
   const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    persistThread(window.sessionStorage, thread)
+  }, [thread])
+
+  useEffect(() => {
+    persistDraft(window.sessionStorage, text)
+  }, [text])
 
   const submit = async event => {
     event.preventDefault()

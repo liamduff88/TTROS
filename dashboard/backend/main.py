@@ -45,7 +45,7 @@ BACKEND_DIR = Path(__file__).resolve().parent
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from aos_paths import AuthorityError, AosPathError, aos_root, assert_authoritative_root, resolve_root_relative
+from aos_paths import AuthorityError, AosPathError, aos_root, assert_authoritative_root, resolve_root_relative, resolved_path
 from aos_codex_policy import (
     CODEX_TARGET,
     CodexPolicyError,
@@ -1802,7 +1802,7 @@ def _read_jsonl_file(path: Path) -> list[dict]:
 
 def _safe_relative(path: Path) -> str:
     try:
-        return path.resolve().relative_to(BASE_DIR.resolve()).as_posix()
+        return path.resolve().relative_to(resolved_path(BASE_DIR)).as_posix()
     except ValueError:
         return path.name
 
@@ -1998,7 +1998,7 @@ def _safe_dashboard_markdown_path(path_value: str, *, require_writable: bool = F
         raise ValueError("path is blocked by dashboard safety policy")
     target = (BASE_DIR / raw).resolve()
     try:
-        rel = target.relative_to(BASE_DIR.resolve()).as_posix()
+        rel = target.relative_to(resolved_path(BASE_DIR)).as_posix()
     except ValueError as exc:
         raise ValueError("path must stay inside the live workspace") from exc
     if _DASHBOARD_MARKDOWN_BLOCK_RE.search(rel):
@@ -5770,7 +5770,7 @@ def _queue_normalize_artifact_path(path_text: str) -> str:
         raw = raw.replace("\\", "/")
     try:
         target = resolve_root_relative(raw, root=BASE_DIR)
-        canonical = target.relative_to(BASE_DIR.resolve()).as_posix()
+        canonical = target.relative_to(resolved_path(BASE_DIR)).as_posix()
     except (AosPathError, ValueError) as exc:
         raise ValueError("artifact path must be root-relative and stay inside the authoritative Linux workspace") from exc
     blocked = _queue_artifact_block_reason(canonical)
@@ -6375,7 +6375,13 @@ def _queue_summary_for_operator(item: dict, latest_receipt: dict | None) -> str:
     )
 
 
-def _queue_detail_item(item: dict, invocation_attributions: dict[str, dict] | None = None) -> dict:
+def _queue_detail_item(
+    item: dict,
+    invocation_attributions: dict[str, dict] | None = None,
+    items: list[dict] | None = None,
+    events: list[dict] | None = None,
+    token_records: list[dict] | None = None,
+) -> dict:
     public = _queue_public_item(item, invocation_attributions)
     latest_receipt = _queue_latest_receipt(item)
     steps = _workflow_steps_for_item(item)
@@ -6435,12 +6441,12 @@ def _queue_detail_item(item: dict, invocation_attributions: dict[str, dict] | No
         "external_handoff_relevant": bool(_external_action_matches(
             f"{item.get('title', '')}\n{item.get('context', '')}"
         )),
-        "final_result": _queue_final_result_for_item(item),
+        "final_result": _queue_final_result_for_item(item, items=items, events=events),
         "integrated_review_artifact": integrated_review,
         "client_scope": item.get("client_scope"),
         "brain_context_used": item.get("brain_context_used") or [],
         "capture_proposal": item.get("capture_proposal"),
-        "pipeline": _queue_pipeline(item),
+        "pipeline": _queue_pipeline(item, items=items, events=events, token_records=token_records),
         "stuck_recovery": _queue_stuck_recovery(item),
         "outreach_review": item.get("outreach_review"),
         "objective": objective,
@@ -6468,8 +6474,13 @@ def _queue_list_item(item: dict, invocation_attributions: dict[str, dict] | None
     return public
 
 
-def _queue_pipeline(item: dict) -> dict:
-    items = _read_queue_items()
+def _queue_pipeline(
+    item: dict,
+    items: list[dict] | None = None,
+    events: list[dict] | None = None,
+    token_records: list[dict] | None = None,
+) -> dict:
+    items = items if items is not None else _read_queue_items()
     item_id = str(item.get("id") or "")
     parent_id = str(item.get("parent_id") or item_id)
     children = sorted(
@@ -6494,7 +6505,7 @@ def _queue_pipeline(item: dict) -> dict:
             "history": [],
         }
     parent = next((row for row in items if row.get("id") == parent_id), {})
-    token_records = _read_token_ledger_records()
+    token_records = token_records if token_records is not None else _read_token_ledger_records()
     token_by_item: dict[str, list[dict]] = {}
     for record in token_records:
         token_by_item.setdefault(_ledger_task_id(record), []).append(record)
@@ -6517,13 +6528,11 @@ def _queue_pipeline(item: dict) -> dict:
             "receipts": row.get("receipts") or [],
             "artifacts": row.get("source_refs") or [],
         })
-    events = [
-        row for row in _read_jsonl_file(BASE_DIR / aos_orchestration.EVENTS_PATH)
-        if str(row.get("parent_id") or "") == parent_id
-    ]
+    raw_events = events if events is not None else _read_jsonl_file(BASE_DIR / aos_orchestration.EVENTS_PATH)
+    parent_events = [row for row in raw_events if str(row.get("parent_id") or "") == parent_id]
     history = [
         {"event": row.get("event"), "item_id": row.get("item_id"), "timestamp": _ledger_timestamp(row), "status": row.get("status") or row.get("result")}
-        for row in events
+        for row in parent_events
         if row.get("event") in {"step_advanced", "acceptance_finalized", "workflow_parent_review_ready"}
     ]
     return {"mode": "workflow_chain", "parent_id": parent_id, "nodes": nodes, "history": history}
@@ -7424,7 +7433,7 @@ def queue_artifact_open_folder(body: QueueArtifactFolderOpen):
     try:
         artifact = _queue_read_artifact(body.path)
         target = resolve_root_relative(artifact["path"], root=BASE_DIR).parent
-        target.relative_to(BASE_DIR.resolve())
+        target.relative_to(resolved_path(BASE_DIR))
         opener = shutil.which("xdg-open")
         if opener:
             subprocess.Popen([opener, str(target)])
@@ -7441,7 +7450,13 @@ def queue_artifact_open_folder(body: QueueArtifactFolderOpen):
 def dashboard_cockpit():
     try:
         invocation_attributions = _queue_invocation_attributions()
-        items = [_queue_detail_item(item, invocation_attributions) for item in _read_queue_items()]
+        all_items = _read_queue_items()
+        all_events = _read_jsonl_file(BASE_DIR / aos_orchestration.EVENTS_PATH)
+        all_token_records = _read_token_ledger_records()
+        items = [
+            _queue_detail_item(item, invocation_attributions, items=all_items, events=all_events, token_records=all_token_records)
+            for item in all_items
+        ]
     except ValueError as exc:
         return {"success": False, "message": "Queue unavailable", "reason": str(exc)}
     counts = {status: 0 for status in _QUEUE_STATUSES}
@@ -7958,8 +7973,15 @@ def _receipt_owner_match(path: Path, component: str) -> bool:
 
 @app.get("/api/dashboard/agents")
 def dashboard_agents():
-    items = [_queue_detail_item(item) for item in _read_queue_items()]
-    token_records = _read_token_ledger_records()
+    invocation_attributions = _queue_invocation_attributions()
+    all_items = _read_queue_items()
+    all_events = _read_jsonl_file(BASE_DIR / aos_orchestration.EVENTS_PATH)
+    all_token_records = _read_token_ledger_records()
+    items = [
+        _queue_detail_item(item, invocation_attributions, items=all_items, events=all_events, token_records=all_token_records)
+        for item in all_items
+    ]
+    token_records = all_token_records
     components = [
         {"id": "hermes", "name": "Hermes", "group": "orchestrator", "owner_filter": {"hermes", "orchestrator"}, "workbench_filter": set()},
         {"id": "revenue", "name": "Revenue", "group": "lane", "owner_filter": {"revenue"}, "workbench_filter": set()},
@@ -8105,7 +8127,14 @@ def _dashboard_schedule_rows(backup: dict, checked_at: str) -> list[dict]:
 
 @app.get("/api/dashboard/system-watch")
 def dashboard_system_watch(stalled_minutes: int = 15):
-    items = [_queue_detail_item(item) for item in _read_queue_items()]
+    invocation_attributions = _queue_invocation_attributions()
+    all_items = _read_queue_items()
+    all_events = _read_jsonl_file(BASE_DIR / aos_orchestration.EVENTS_PATH)
+    all_token_records = _read_token_ledger_records()
+    items = [
+        _queue_detail_item(item, invocation_attributions, items=all_items, events=all_events, token_records=all_token_records)
+        for item in all_items
+    ]
     stalled = _stalled_items(items, stalled_minutes)
     human_needed = _queue_human_needed_items(items)
     log_path = LOGS_DIR / "dashboard_backend.log"
