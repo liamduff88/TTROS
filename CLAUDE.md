@@ -35,7 +35,7 @@ Normal source ingestion is automatic and requires no Liam review: classify → p
 
 
 
-Stop for Liam only for real external/destructive/sensitive actions, including sends/posts/messages, CRM/customer mutation, calendar booking, public deploy/publish, GitHub push, spending money, destructive deletion outside scope, recurring external jobs, provider-account mutation, live customer changes, credential-store access, or a material change to agreed TTROS architecture.
+Stop for Liam only for real external/destructive/sensitive actions, including sends/posts/messages, CRM/customer mutation, calendar booking, public deploy/publish, spending money, destructive deletion outside scope, recurring external jobs, provider-account mutation, live customer changes, credential-store access, or a material change to agreed TTROS architecture.
 
 
 
@@ -51,7 +51,10 @@ Human review is reserved for genuinely consequential canonical promotion, real e
 
 
 
-No GitHub push unless Liam explicitly authorises it.
+Successful scoped implementation pushes automatically: validate → secret/diff check →
+commit → normal push to the tracked remote branch. No force-push, ever. Never bundle
+unrelated dirty work into the commit; isolate it or stop. Stop and say so only when the
+in-scope change cannot be safely separated from unrelated dirty work in the tree.
 
 \---
 
