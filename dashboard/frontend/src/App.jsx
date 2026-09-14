@@ -169,7 +169,7 @@ export default function App() {
 
   return (
     <div className="flex h-screen overflow-hidden bg-ink" data-testid="workbench-shell">
-      <Sidebar activeDestination={activeDestination} onNavigate={navigate} counts={cockpit?.counts || {}} />
+      <Sidebar activeDestination={activeDestination} currentView={view} onNavigate={navigate} counts={cockpit?.counts || {}} />
       <div className="flex flex-col flex-1 overflow-hidden">
         <TopBar activeDestination={activeDestination} backendOk={backendOk} cockpit={cockpit} onNavigate={navigate} onRefresh={() => { getOverview().then(setOverview).catch(() => setOverview({ error: true })); refreshCockpit() }} />
         <CaptureBox />

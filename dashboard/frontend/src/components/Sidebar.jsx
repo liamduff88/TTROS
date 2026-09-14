@@ -1,4 +1,7 @@
-import { Layers, ListChecks, MessageCircle, Search, Settings2 } from 'lucide-react'
+import {
+  BookOpen, Coins, Github, Layers, Link2, ListChecks, MessageCircle, Radio,
+  Search, Settings, Settings2, Share2, Sparkles, UploadCloud, Workflow,
+} from 'lucide-react'
 import { DESTINATIONS } from '../shellState'
 
 // One icon per global destination, shared by the desktop Sidebar and the
@@ -14,10 +17,56 @@ const DESTINATION_ICONS = {
 
 export const NAV_ITEMS = DESTINATIONS.map(destination => ({ ...destination, icon: DESTINATION_ICONS[destination.id] }))
 
-export default function Sidebar({ activeDestination, onNavigate, counts = {} }) {
+// Existing operator tools that the five-destination overhaul folded into a
+// hub's local tabs (Hubs.jsx SearchHub/SystemHub). Each `id` here is one of
+// the existing routable view ids already wired through shellState/App.jsx —
+// navigating to it opens the same existing tool view, just via a direct
+// sidebar entry instead of requiring a detour through the hub's own tab bar.
+const TOOL_ITEMS = [
+  { id: 'memory-intake', label: 'Ingest / Add to Memory', icon: UploadCloud },
+  { id: 'graphify', label: 'Graphify', icon: Share2 },
+  { id: 'repo-ingest', label: 'GitHub', icon: Github },
+  { id: 'workflow-bench', label: 'Workflows', icon: Workflow },
+  { id: 'skills-board', label: 'Skills', icon: Sparkles },
+]
+
+const SYSTEM_ITEMS = [
+  { id: 'mission-control', label: 'System Watch', icon: Radio },
+  { id: 'connections-spine', label: 'Connections', icon: Link2 },
+  { id: 'tokens-roi', label: 'Tokens', icon: Coins },
+  { id: 'settings', label: 'Settings', icon: Settings },
+  { id: 'prompt-library', label: 'Prompts', icon: BookOpen },
+]
+
+function SidebarGroup({ heading, items, currentView, onNavigate }) {
+  return (
+    <div className="mt-4 first:mt-0">
+      <div className="px-2.5 pb-1.5 font-mono text-[10px] font-semibold uppercase tracking-wider text-taupe/70">{heading}</div>
+      {items.map(({ id, label, icon: Icon }) => {
+        const active = currentView === id
+        return (
+          <button
+            key={id}
+            onClick={() => onNavigate(id)}
+            aria-label={label}
+            title={label}
+            aria-current={active ? 'page' : undefined}
+            data-nav-tool={id}
+            className={`mb-1 flex w-full items-center gap-2.5 rounded px-2.5 py-2 text-left text-sm transition-colors ${active ? 'bg-softgraph text-ivory' : 'text-taupe hover:bg-softgraph/50 hover:text-stone'}`}
+          >
+            <Icon size={15} className={`shrink-0 ${active ? 'text-champagne' : ''}`} />
+            <span className="min-w-0 flex-1 truncate">{label}</span>
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+export default function Sidebar({ activeDestination, currentView, onNavigate, counts = {} }) {
   const needs = (counts.human_review || 0) + (counts.needs_input || 0) + (counts.blocked || 0)
   return (
-    <aside className="hidden w-48 flex-shrink-0 flex-col border-r border-softgraph bg-graphite md:flex" data-testid="sidebar">
+    <aside className="hidden w-52 flex-shrink-0 flex-col border-r border-softgraph bg-graphite md:flex" data-testid="sidebar">
       <div className="border-b border-softgraph px-3 py-4">
         <div className="flex items-center gap-2.5">
           <div className="flex h-6 w-6 items-center justify-center rounded bg-champagne">
@@ -48,6 +97,12 @@ export default function Sidebar({ activeDestination, onNavigate, counts = {} }) 
             </button>
           )
         })}
+
+        {/* Existing tools the overhaul buried inside Search/System hub tabs
+            (Hubs.jsx). Restored as direct one-click entries so nothing that
+            existed before the overhaul now takes an extra detour to reach. */}
+        <SidebarGroup heading="Tools" items={TOOL_ITEMS} currentView={currentView} onNavigate={onNavigate} />
+        <SidebarGroup heading="System" items={SYSTEM_ITEMS} currentView={currentView} onNavigate={onNavigate} />
       </nav>
     </aside>
   )
