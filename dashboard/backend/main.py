@@ -1,9 +1,9 @@
 """Agentic OS dashboard backend.
 
-Revisit: when operator routing, queue deletion safety, local-agent CLI contracts, or runtime health changes. · Last touched: 2026-09-01.
+Revisit: when operator routing, queue deletion safety, local-agent CLI contracts, or runtime health changes. · Last touched: 2026-09-13.
 """
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 try:
     from fastapi.responses import JSONResponse, Response
@@ -18,6 +18,7 @@ except ImportError:  # Static-validation stubs intentionally expose JSONResponse
 from pydantic import BaseModel
 from pathlib import Path
 import argparse
+import base64
 import hashlib
 import importlib.util
 import json
@@ -67,6 +68,8 @@ import business_brain_context
 import business_brain_inbox
 import business_brain_scope
 import latitude_telemetry
+import source_intake
+import uploads_store
 from brain_memory import reset_session
 from context_assembler import (
     AssembledContext,
@@ -113,6 +116,8 @@ OUTREACH_HANDOFF_TOOL = BASE_DIR / "workflows" / "prospecting_daily_run" / "outr
 TRACKER_FILE = DATA_DIR / "tracker.json"
 TOKEN_USAGE_FILE = LOGS_DIR / "token_usage.jsonl"
 QUEUE_DIR = BASE_DIR / "queue"
+MEMORY_INTAKE_INBOX_DIR = QUEUE_DIR / "inbox"
+MEMORY_INTAKE_RECEIPTS_DIR = QUEUE_DIR / "receipts" / "memory_intake"
 BACKUP_RECEIPTS_FILE = QUEUE_DIR / "receipts" / "backups.jsonl"
 LINUX_BACKUP_RECEIPTS_FILE = QUEUE_DIR / "receipts" / "linux-backups.jsonl"
 NOTIFICATIONS_FILE = QUEUE_DIR / "notifications.json"
@@ -710,13 +715,24 @@ _QUEUE_ARTIFACT_ALLOWED_PREFIXES = (
     "packets/",
     "logs/",
 )
-_QUEUE_ARTIFACT_EXTENSIONS = {".md", ".txt", ".json", ".jsonl"}
+_QUEUE_ARTIFACT_TEXT_EXTENSIONS = {".md", ".txt", ".json", ".jsonl"}
+_QUEUE_ARTIFACT_BINARY_MIME_TYPES = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+    ".svg": "image/svg+xml",
+    ".pdf": "application/pdf",
+}
+_QUEUE_ARTIFACT_EXTENSIONS = _QUEUE_ARTIFACT_TEXT_EXTENSIONS | set(_QUEUE_ARTIFACT_BINARY_MIME_TYPES)
 _QUEUE_ARTIFACT_SECRET_RE = re.compile(r"(^|[/.])(\.env|env\.|.*secret.*|.*token.*|.*credential.*|.*password.*)", re.IGNORECASE)
 _QUEUE_ARTIFACT_PATH_RE = re.compile(
-    r"(?P<path>(?:queue/receipts|results|workflows|packets|logs)/[^\s`'\"<>]+?\.(?:jsonl|json|md|txt))",
+    r"(?P<path>(?:queue/receipts|results|workflows|packets|logs)/[^\s`'\"<>]+?\.(?:jsonl|json|md|txt|png|jpg|jpeg|gif|webp|svg|pdf))",
     re.IGNORECASE,
 )
 _QUEUE_ARTIFACT_MAX_BYTES = 250_000
+_QUEUE_ARTIFACT_MEDIA_MAX_BYTES = 6_000_000
 
 
 @app.post("/api/packets")
@@ -3812,6 +3828,11 @@ class AskDavidRequest(BaseModel):
     source_refs: list[str] = []
 
 
+class MemoryIntakeIngestRequest(BaseModel):
+    upload_id: str = ""
+    inbox_path: str = ""
+
+
 class Step6FuseOverride(BaseModel):
     scope_type: str
     scope_id: str
@@ -4304,11 +4325,28 @@ def _execute_named_profile_consultation(name: str, profile: str, text: str, requ
         _executive_conversation_id("dashboard-operator") if profile == "david" else request_id
     )
     try:
+        # F-DUPASSEMBLY-1: for "david" specifically, this pre-launch pass is
+        # never what reaches the model -- only assembled.request/.session_id
+        # are used below; Hermes's own pre_llm_call hook re-assembles the
+        # authoritative context from scratch for every turn regardless of
+        # what was computed here. Forcing technical_only + skipping the
+        # artifact write keeps this call cheap (skips scoped-note/Graphify
+        # search and the morning-brief detector, which are the two blocks
+        # actually gated on classification) without weakening the
+        # AssembledContext contract _run_hermes_message enforces, and without
+        # touching context_assembler.py or the Hermes hook. Journey 3 (Brain
+        # recall) is unaffected: the real retrieval Hermes uses happens
+        # inside the hook, not here. Other named profiles (Executive Team)
+        # are untouched -- their evidence panel genuinely displays this
+        # object's content, David's does not (AskDavid.jsx never renders
+        # `context`).
         assembled = assemble_model_context(
             consultation_prompt,
             surface=f"dashboard:executive:{profile}",
             session_id=request_id,
             session_key=consultation_session_key,
+            classification="technical_only" if profile == "david" else None,
+            write_artifact=profile != "david",
         )
         context = _executive_context_evidence_from_assembled(profile, assembled)
     except Exception as exc:
@@ -5774,7 +5812,7 @@ def _queue_artifact_block_reason(path_text: str) -> str | None:
     if _QUEUE_ARTIFACT_SECRET_RE.search(normalized):
         return "path is blocked because it looks like a secret or environment file"
     if Path(normalized).suffix.lower() not in _QUEUE_ARTIFACT_EXTENSIONS:
-        return "only .md, .txt, .json, and .jsonl artifacts are readable"
+        return "only markdown, text, json, jsonl, image (png/jpg/gif/webp/svg), and pdf artifacts are readable"
     if not any(normalized.startswith(prefix) for prefix in _QUEUE_ARTIFACT_ALLOWED_PREFIXES):
         return "artifact path must stay under queue/receipts, results, workflows, packets, or logs"
     return None
@@ -5814,8 +5852,12 @@ def _queue_read_artifact(relative_path: str, *, receipt_only: bool = False) -> d
 
     if target.name == ".gitkeep" or not target.is_file():
         raise FileNotFoundError(path_text)
+    extension = target.suffix.lower()
+    content_type = _QUEUE_ARTIFACT_BINARY_MIME_TYPES.get(extension)
+    is_binary = content_type is not None
     stat = target.stat()
-    if stat.st_size > _QUEUE_ARTIFACT_MAX_BYTES:
+    max_bytes = _QUEUE_ARTIFACT_MEDIA_MAX_BYTES if is_binary else _QUEUE_ARTIFACT_MAX_BYTES
+    if stat.st_size > max_bytes:
         raise ValueError("artifact is too large to display in the dashboard")
 
     cache_key = str(target)
@@ -5823,14 +5865,17 @@ def _queue_read_artifact(relative_path: str, *, receipt_only: bool = False) -> d
     if cached and cached[0] == stat.st_mtime and cached[1] == stat.st_size:
         return {**cached[2], "path": root_relative}
 
+    raw_bytes = target.read_bytes()
     result = {
         "path": root_relative,
         "name": target.name,
-        "extension": target.suffix.lower(),
+        "extension": extension,
         "size_bytes": stat.st_size,
         "modified": datetime.datetime.fromtimestamp(stat.st_mtime, datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
-        "sha256": hashlib.sha256(target.read_bytes()).hexdigest(),
-        "content": target.read_text(encoding="utf-8", errors="replace"),
+        "sha256": hashlib.sha256(raw_bytes).hexdigest(),
+        "is_binary": is_binary,
+        "content_type": content_type or "text/plain",
+        "content": base64.b64encode(raw_bytes).decode("ascii") if is_binary else raw_bytes.decode("utf-8", errors="replace"),
     }
     _QUEUE_ARTIFACT_READ_CACHE[cache_key] = (stat.st_mtime, stat.st_size, result)
     return result
@@ -6358,6 +6403,48 @@ def _queue_review_details(item: dict, latest_receipt: dict | None) -> dict:
     }
 
 
+_NO_EXTERNAL_ACTION_RE = re.compile(
+    r"no external action (?:was )?taken|zero sends?:\s*confirmed|external-action status",
+    re.IGNORECASE,
+)
+_LABELED_LINE_RE = re.compile(r"^[A-Za-z][A-Za-z0-9 /_'-]{0,40}:")
+
+
+def _queue_receipt_prose_summary(content: str) -> str:
+    """Fall back to the first substantive free-text paragraph in a receipt.
+
+    Structured section labels (``_receipt_section_value``) sometimes point at a
+    boilerplate one- or two-word placeholder (for example an upstream synthesis
+    step writing just "Executive result" under "Summary for operator"). Rather
+    than special-case that literal string, this scans the receipt's own prose
+    for the first paragraph that reads like an actual sentence — not a labeled
+    metadata line, a bare status word, or a bullet — and appends a deterministic
+    no-external-action note when the receipt states one, so the summary matches
+    what a human would actually take away from reading the receipt.
+    """
+    text = str(content or "")
+    if not text.strip():
+        return ""
+    for paragraph in re.split(r"\n\s*\n", text):
+        lines = [line.strip() for line in paragraph.splitlines() if line.strip()]
+        if not lines:
+            continue
+        first = lines[0]
+        if first.startswith(("-", "*", "#", "<", "|", "```")):
+            continue
+        if first.upper() == first and len(first.split()) <= 3:
+            continue  # bare status word, e.g. "PASS"
+        if _LABELED_LINE_RE.match(first):
+            continue  # a metadata field, not prose
+        joined = " ".join(lines)
+        if len(joined.split()) < 15:
+            continue
+        if _NO_EXTERNAL_ACTION_RE.search(text) and "external action" not in joined.lower():
+            joined = f"{joined} No external action was taken."
+        return joined
+    return ""
+
+
 def _queue_summary_for_operator(item: dict, latest_receipt: dict | None) -> str:
     """Return a deterministic useful operator summary; never just echo the title."""
     title = str(item.get("title") or "").strip()
@@ -6365,6 +6452,11 @@ def _queue_summary_for_operator(item: dict, latest_receipt: dict | None) -> str:
     candidates = [
         _receipt_section_value(receipt_content, "Summary for operator", ""),
         _receipt_section_value(receipt_content, "Root cause / behavior changed", ""),
+        # Prose comes before the generic Validation/Summary labels: those are
+        # often a thin procedural one-liner (e.g. "N dependent stage(s)
+        # completed"), while the receipt's own prose paragraph is usually the
+        # actual outcome narrative a human would want first.
+        _queue_receipt_prose_summary(receipt_content),
         _receipt_section_value(receipt_content, "Validation", ""),
         _receipt_section_value(receipt_content, "Summary", ""),
         str(item.get("context") or ""),
@@ -6374,6 +6466,8 @@ def _queue_summary_for_operator(item: dict, latest_receipt: dict | None) -> str:
         text = re.sub(r"\s+", " ", str(candidate or "")).strip(" -")
         if not text or text in {"None reported", "No validation reported"}:
             continue
+        if len(text.split()) < 4:
+            continue  # too short to be a useful outcome (e.g. a boilerplate label)
         if title and text.casefold() == title.casefold():
             continue
         if title and text.casefold().startswith(title.casefold()) and len(text) <= len(title) + 24:
@@ -6418,7 +6512,13 @@ def _queue_detail_item(
     )
     if primary_artifact:
         try:
-            primary_artifact = {**primary_artifact, "content": _queue_read_artifact(primary_artifact["path"])["content"]}
+            full = _queue_read_artifact(primary_artifact["path"])
+            # Binary media (image/PDF) is fetched on demand by the artifact viewer instead of
+            # being embedded here, so a large screenshot/PDF never bloats every detail response.
+            if full.get("is_binary"):
+                primary_artifact = {**primary_artifact, "is_binary": True, "content_type": full.get("content_type")}
+            else:
+                primary_artifact = {**primary_artifact, "content": full["content"]}
         except (FileNotFoundError, ValueError, OSError):
             primary_artifact = None
     objective = dict(item.get("objective") or {}) if isinstance(item.get("objective"), dict) else None
@@ -6691,6 +6791,65 @@ def _latest_route_failure() -> dict | None:
             "log_path": "logs/local_agent_route.jsonl",
         }
     return None
+
+
+def _recent_route_failure_signal(window: int = 20) -> dict:
+    """Rolling David/Hermes call-failure visibility for System Watch.
+
+    _latest_route_failure() only ever reports the single most recent call,
+    and reports nothing at all the instant one success follows a run of
+    failures -- so a genuinely unhealthy system reads as clean the moment it
+    produces one lucky success. This scans the last `window` route-log rows
+    (oldest-first is not needed; we only need recency and a simple run
+    length) and reports both a rolling failure count and the current
+    consecutive-failure streak, so "recently failed repeatedly" survives one
+    intervening success.
+    """
+    path = LOCAL_AGENT_ROUTE_LOG if BASE_DIR == _IMPORTED_BASE_DIR else BASE_DIR / "logs" / "local_agent_route.jsonl"
+    empty = {
+        "available": False, "recent_calls": 0, "recent_failures": 0,
+        "consecutive_failures": 0, "last_failure": None, "degraded": False,
+        "log_path": "logs/local_agent_route.jsonl",
+    }
+    if not path.is_file():
+        return empty
+    rows: list[dict] = []
+    for raw in reversed(path.read_text(encoding="utf-8", errors="replace").splitlines()):
+        try:
+            row = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(row, dict) or "success" not in row:
+            continue
+        rows.append(row)
+        if len(rows) >= window:
+            break
+    if not rows:
+        return empty
+    consecutive_failures = 0
+    for row in rows:
+        if row.get("success") is False:
+            consecutive_failures += 1
+        else:
+            break
+    last_failure = next((row for row in rows if row.get("success") is False), None)
+    return {
+        "available": True,
+        "recent_calls": len(rows),
+        "recent_failures": sum(1 for row in rows if row.get("success") is False),
+        "consecutive_failures": consecutive_failures,
+        "last_failure": ({
+            "timestamp": last_failure.get("timestamp"),
+            "route": last_failure.get("route"),
+            "item_id": last_failure.get("item_id"),
+            "failure_class": last_failure.get("failure_class"),
+            "stage": last_failure.get("stage"),
+        } if last_failure else None),
+        # 3 consecutive failed calls, not merely 1, distinguishes a real
+        # unhealthy streak from an isolated transient error.
+        "degraded": consecutive_failures >= 3,
+        "log_path": "logs/local_agent_route.jsonl",
+    }
 
 
 def _operator_system_status_closeout() -> dict:
@@ -7449,7 +7608,7 @@ def queue_artifact(path: str):
         "success": True,
         "available": True,
         **artifact,
-        "token_usage_lines": _queue_token_usage_lines(artifact["content"]),
+        "token_usage_lines": [] if artifact.get("is_binary") else _queue_token_usage_lines(artifact["content"]),
     }
 
 
@@ -7841,6 +8000,310 @@ def dashboard_cockpit_command(body: CockpitCommandCreate):
     }
 
 
+def _memory_intake_receipt_path(key: str) -> Path:
+    safe_key = re.sub(r"[^A-Za-z0-9._-]", "_", str(key or ""))[:120] or "receipt"
+    return MEMORY_INTAKE_RECEIPTS_DIR / f"{safe_key}.json"
+
+
+def _write_memory_intake_receipt(receipt: dict) -> Path:
+    MEMORY_INTAKE_RECEIPTS_DIR.mkdir(parents=True, exist_ok=True)
+    path = _memory_intake_receipt_path(receipt["key"])
+    path.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return path
+
+
+def _recent_memory_intake_receipts(limit: int = 20) -> list[dict]:
+    if not MEMORY_INTAKE_RECEIPTS_DIR.is_dir():
+        return []
+    paths = sorted(MEMORY_INTAKE_RECEIPTS_DIR.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
+    rows = []
+    for path in paths[:limit]:
+        try:
+            rows.append(json.loads(path.read_text(encoding="utf-8")))
+        except (OSError, json.JSONDecodeError):
+            continue
+    return rows
+
+
+def _memory_intake_unfiled_items(limit: int = 50) -> list[dict]:
+    """Files the existing watched Inbox has already discovered (search-indexed
+    only, per queue/ingest_watch.json) that are not yet Business Brain sources.
+    Read-only; never promotes anything -- the operator ingests explicitly."""
+    root = MEMORY_INTAKE_INBOX_DIR
+    if not root.is_dir():
+        return []
+    records_dir = business_brain.BUSINESS_BRAIN_ROOT / source_intake.RECORDS_RELATIVE
+    items = []
+    for path in sorted(root.rglob("*")):
+        if not path.is_file() or path.is_symlink() or path.name.startswith("."):
+            continue
+        try:
+            raw = path.read_bytes()
+        except OSError:
+            continue
+        digest = hashlib.sha256(raw).hexdigest()
+        items.append({
+            "path": _safe_relative(path),
+            "filename": path.name,
+            "size": len(raw),
+            "modified": datetime.datetime.fromtimestamp(path.stat().st_mtime, datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
+            "supported": path.suffix.lower() in uploads_store.INGESTABLE_SUFFIXES,
+            "already_in_brain": (records_dir / f"{digest}.md").is_file(),
+        })
+    items.sort(key=lambda row: row["modified"], reverse=True)
+    return items[:limit]
+
+
+def _safe_memory_intake_inbox_path(raw: str) -> Path:
+    value = str(raw or "").strip().replace("\\", "/")
+    if not value:
+        raise ValueError("inbox_path must not be empty")
+    unresolved = BASE_DIR / value
+    # Symlink-ness must be checked on the path as given -- resolve() below
+    # follows a symlink to its real target, which would otherwise let a
+    # symlink-to-a-file-inside-the-inbox slip through untouched.
+    if unresolved.is_symlink():
+        raise ValueError("inbox_path must not be a symlink")
+    target = unresolved.resolve()
+    inbox_root = MEMORY_INTAKE_INBOX_DIR.resolve()
+    try:
+        target.relative_to(inbox_root)
+    except ValueError as exc:
+        raise ValueError("inbox_path must stay inside the watched inbox") from exc
+    if not target.is_file():
+        raise ValueError("inbox_path does not name a regular file")
+    return target
+
+
+def _verify_memory_intake_original(path: Path, pointer: str) -> tuple[str, Path]:
+    """Verify capture preserved this upload byte-for-byte at its canonical digest path."""
+    raw = path.read_bytes()
+    digest = hashlib.sha256(raw).hexdigest()
+    expected_pointer = f"business_brain:{source_intake.RECORDS_RELATIVE}/{digest}.md"
+    if pointer != expected_pointer:
+        raise source_intake.SourceIntakeError(
+            f"capture returned an unexpected source record: {pointer or 'unavailable'}"
+        )
+    record_path = business_brain.BUSINESS_BRAIN_ROOT / source_intake.RECORDS_RELATIVE / f"{digest}.md"
+    if not record_path.is_file():
+        raise source_intake.SourceIntakeError(f"captured Original is unavailable: {expected_pointer}")
+    preserved = source_intake.extract_exact_bytes(record_path.read_text(encoding="utf-8", errors="strict"))
+    if preserved != raw or hashlib.sha256(preserved).hexdigest() != digest:
+        raise source_intake.SourceIntakeError(f"captured Original failed exact-byte verification: {expected_pointer}")
+    return digest, record_path
+
+
+def _verify_memory_intake_completion(path: Path, pointer: str) -> dict:
+    """Enforce Memory Intake's full-success contract after semantic mode returns."""
+    digest, record_path = _verify_memory_intake_original(path, pointer)
+    card_relative = f"{source_intake.CARDS_RELATIVE}/{digest}.card.md"
+    card_path = business_brain.BUSINESS_BRAIN_ROOT / card_relative
+    if not card_path.is_file():
+        raise source_intake.SourceIntakeError(f"semantic Card is unavailable: business_brain:{card_relative}")
+    index_path = business_brain.BUSINESS_BRAIN_ROOT / source_intake.INDEX_RELATIVE
+    if not index_path.is_file():
+        raise source_intake.SourceIntakeError("sources/intake/INDEX.md is unavailable")
+    index_text = index_path.read_text(encoding="utf-8", errors="strict")
+    source_intake._assert_index_links_source_and_card(index_text, digest)
+    integrity = source_intake.verify_intake_index_integrity(business_brain.BUSINESS_BRAIN_ROOT)
+    if not integrity.get("ok"):
+        raise source_intake.SourceIntakeError(f"source-intake integrity verification failed: {integrity}")
+    return {
+        "digest": digest,
+        "record_path": record_path,
+        "source_card": f"business_brain:{card_relative}",
+        "integrity": integrity,
+    }
+
+
+def _memory_intake_artifact_state(path: Path) -> dict:
+    """Report partial on-disk state without turning any artifact into success."""
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    card_relative = f"{source_intake.CARDS_RELATIVE}/{digest}.card.md"
+    card_present = (business_brain.BUSINESS_BRAIN_ROOT / card_relative).is_file()
+    index_path = business_brain.BUSINESS_BRAIN_ROOT / source_intake.INDEX_RELATIVE
+    index_text = index_path.read_text(encoding="utf-8", errors="strict") if index_path.is_file() else ""
+    original_linked = f"{source_intake.RECORDS_RELATIVE}/{digest}|" in index_text
+    card_linked = f"{source_intake.CARDS_RELATIVE}/{digest}.card|card" in index_text
+    return {
+        "source_card": f"business_brain:{card_relative}" if card_present else None,
+        "source_card_present": card_present,
+        "index_original_linked": original_linked,
+        "index_card_linked": card_linked,
+        "index_updated": original_linked and card_linked,
+    }
+
+
+def _run_memory_intake_capture(path: Path) -> dict:
+    """The one governed entrypoint every Memory Intake ingest action calls --
+    the Memory Intake page, the Cockpit quick-drop card, New & Unfiled, and
+    David's explicit ingest instruction all resolve here. It composes the two
+    existing source-intake modes -- governed capture, then semantic extraction
+    on that preserved record -- and verifies the completed intake contract."""
+    try:
+        capture = source_intake.run_intake(path, mode="capture")
+    except source_intake.SourceIntakeError as exc:
+        return {"success": False, "status": "failed", "error": str(exc)}
+    except Exception as exc:  # noqa: BLE001 - ingestion failure must never crash the request
+        return {"success": False, "status": "failed", "error": f"source intake failed safely: {exc}"}
+    pointer = (capture.imported_pointers or capture.duplicate_pointers or (None,))[0]
+    try:
+        _digest, record_path = _verify_memory_intake_original(path, pointer)
+    except Exception as exc:  # noqa: BLE001 - a capture without a verified Original is a failure
+        return {
+            "success": False, "status": "failed", "source_record": pointer,
+            "original_preserved": False, "error": f"capture verification failed: {exc}",
+            "token_usage_text": capture.token_usage_text,
+        }
+
+    try:
+        semantic = source_intake.run_intake(record_path, mode="semantic")
+    except Exception as exc:  # noqa: BLE001 - retain the governed capture as a truthful partial result
+        artifacts = _memory_intake_artifact_state(path)
+        return {
+            "success": False,
+            "status": "needs_attention",
+            "source_record": pointer,
+            "original_preserved": True,
+            "source_card_created": False,
+            **artifacts,
+            "search_updated": capture.search_status,
+            "graph_updated": capture.graphify_status,
+            "brain_commit": capture.brain_commit,
+            "brain_commits": tuple(value for value in (capture.brain_commit,) if value),
+            "error": f"Original preserved, but semantic Card generation did not complete: {exc}",
+            "token_usage_text": "Token usage: unavailable from current CLI output",
+        }
+
+    try:
+        verified = _verify_memory_intake_completion(path, pointer)
+    except Exception as exc:  # noqa: BLE001 - never claim full ingestion without all postconditions
+        artifacts = _memory_intake_artifact_state(path)
+        return {
+            "success": False,
+            "status": "needs_attention",
+            "source_record": pointer,
+            "original_preserved": True,
+            "source_card_created": bool(semantic.imported),
+            **artifacts,
+            "search_updated": semantic.search_status,
+            "graph_updated": semantic.graphify_status,
+            "brain_commit": semantic.brain_commit or capture.brain_commit,
+            "brain_commits": tuple(value for value in (capture.brain_commit, semantic.brain_commit) if value),
+            "error": f"Original and semantic step completed, but full-ingestion verification failed: {exc}",
+            "token_usage_text": semantic.token_usage_text,
+        }
+
+    status = "ingested" if capture.imported or semantic.imported else "duplicate"
+    return {
+        "success": True,
+        "status": status,
+        "source_record": pointer,
+        "source_card": verified["source_card"],
+        "original_preserved": True,
+        "source_card_created": bool(semantic.imported),
+        "source_card_present": True,
+        "index_updated": True,
+        "integrity_verified": True,
+        "integrity": verified["integrity"],
+        "search_updated": semantic.search_status,
+        "graph_updated": semantic.graphify_status,
+        "brain_commit": semantic.brain_commit or capture.brain_commit,
+        "brain_commits": tuple(value for value in (capture.brain_commit, semantic.brain_commit) if value),
+        "model_invocations": capture.model_invocations + semantic.model_invocations,
+        "token_usage_text": semantic.token_usage_text,
+    }
+
+
+def _memory_intake_ingest_and_record(source_path: Path, *, filename: str, key: str) -> dict:
+    outcome = _run_memory_intake_capture(source_path)
+    receipt = {
+        "key": key,
+        "filename": filename,
+        "at": datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
+        **outcome,
+    }
+    _write_memory_intake_receipt(receipt)
+    latitude_telemetry.trace(
+        "memory_intake.ingest", "source_intake", "ok" if outcome.get("success") else "failed",
+        filename=filename, outcome_status=outcome.get("status"),
+    )
+    return receipt
+
+
+def _ask_david_upload_ids(source_refs: list[str] | None) -> list[str]:
+    return [str(ref).removeprefix("upload:") for ref in (source_refs or []) if str(ref).startswith("upload:")]
+
+
+_ASK_DAVID_EXPLICIT_INGEST_RE = re.compile(r"\b(ingest|add|save|import|put)\b.{0,40}\bbusiness\s+brain\b", re.IGNORECASE)
+
+
+def _try_ask_david_explicit_ingest(text: str, source_refs: list[str] | None) -> dict | None:
+    """Deterministic, zero-model short-circuit for 'Ingest this into the
+    Business Brain' (or equivalent) when Liam has attached a file: routes the
+    upload through the exact same governed source-intake path Memory Intake
+    uses. Only fires when both an explicit ingestion phrase AND an attachment
+    are present -- an attachment alone is source material for this request,
+    never automatically written to the Brain (see _ask_david_attachment_context)."""
+    upload_ids = _ask_david_upload_ids(source_refs)
+    if not upload_ids or not _ASK_DAVID_EXPLICIT_INGEST_RE.search(text):
+        return None
+    results = []
+    for upload_id in upload_ids:
+        try:
+            meta = uploads_store.read_meta(BASE_DIR, upload_id)
+            source_path = uploads_store.upload_file_path(BASE_DIR, upload_id)
+        except uploads_store.UploadError as exc:
+            results.append({"success": False, "status": "failed", "error": str(exc), "upload_id": upload_id})
+            continue
+        filename = meta.get("original_filename") or source_path.name
+        receipt = _memory_intake_ingest_and_record(source_path, filename=filename, key=f"ask-david-{upload_id}")
+        meta["status"] = receipt["status"]
+        meta["ingest_result"] = receipt
+        uploads_store.write_meta(BASE_DIR, upload_id, meta)
+        results.append({**receipt, "upload_id": upload_id})
+    return {
+        "success": all(row.get("success") for row in results),
+        "kind": "memory_intake_ingested",
+        "results": results,
+        "direct_reply": True,
+        "queue_delta": 0,
+        "model_process_count": 0,
+        "worker_process_count": 0,
+        "token_usage_text": (
+            "Token usage: unavailable from current CLI output"
+            if any(row.get("token_usage_text") == "Token usage: unavailable from current CLI output" for row in results)
+            else "Token usage: no agent invocation"
+        ),
+    }
+
+
+def _ask_david_attachment_context(source_refs: list[str] | None, limit: int = 6000) -> str:
+    """Bounded, read-only text for attachments on THIS request only -- never
+    written anywhere, never promoted to the Business Brain. Lets David use an
+    attached file as source material for a normal conversational reply."""
+    upload_ids = _ask_david_upload_ids(source_refs)
+    if not upload_ids:
+        return ""
+    blocks = []
+    for upload_id in upload_ids:
+        try:
+            meta = uploads_store.read_meta(BASE_DIR, upload_id)
+            path = uploads_store.upload_file_path(BASE_DIR, upload_id)
+        except uploads_store.UploadError:
+            continue
+        filename = meta.get("original_filename") or path.name
+        if not meta.get("supported", True):
+            blocks.append(f"### Attached file: {filename}\n[Attached but not readable as text: {meta.get('support_note') or 'unsupported file type'}.]")
+            continue
+        try:
+            content = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        blocks.append(f"### Attached file: {filename}\n{content[:limit]}")
+    return "\n\n".join(blocks)
+
+
 @app.post("/api/dashboard/ask-david")
 def dashboard_ask_david(body: AskDavidRequest):
     """Cockpit primary entry point: David decides what a plain-language request needs.
@@ -7855,6 +8318,10 @@ def dashboard_ask_david(body: AskDavidRequest):
         raise HTTPException(status_code=422, detail="text must not be empty")
     if len(text.encode("utf-8")) > 8_000:
         raise HTTPException(status_code=422, detail="text must contain 8,000 UTF-8 bytes or fewer")
+
+    explicit_ingest = _try_ask_david_explicit_ingest(text, body.source_refs)
+    if explicit_ingest is not None:
+        return explicit_ingest
 
     existing_read = _try_existing_item_read_task(text)
     if existing_read is not None:
@@ -7901,7 +8368,12 @@ def dashboard_ask_david(body: AskDavidRequest):
         }
 
     request_id = uuid.uuid4().hex
-    response = _execute_named_profile_consultation("David", "david", text, request_id)
+    attachment_context = _ask_david_attachment_context(body.source_refs)
+    david_prompt = text if not attachment_context else (
+        f"{text}\n\n---\nAttached source material for this request only (not saved to the "
+        f"Business Brain unless explicitly asked):\n\n{attachment_context}\n---"
+    )
+    response = _execute_named_profile_consultation("David", "david", david_prompt, request_id)
     handoff = _david_execution_handoff(response.get("response") or "") if response.get("success") else None
     if handoff is None:
         # Conversation, or a single clarifying question. Zero queue either way.
@@ -7942,6 +8414,131 @@ def dashboard_ask_david(body: AskDavidRequest):
         "queue_delta": routed.get("queue_delta", 0),
         "token_usage_text": response.get("token_usage_text") or "Token usage: unavailable from current CLI output",
     }
+
+
+@app.post("/api/uploads")
+async def create_upload(file: UploadFile = File(...)):
+    """One shared local upload mechanism, reused by Memory Intake, the Cockpit
+    quick-drop card, and David attachments. Stores real bytes under
+    queue/uploads/<server-generated id>/; the browser only ever gets that
+    opaque id back, never a filesystem path it could resubmit."""
+    chunks = []
+    total = 0
+    while True:
+        chunk = await file.read(1024 * 1024)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > uploads_store.MAX_UPLOAD_BYTES:
+            raise HTTPException(status_code=413, detail=f"file exceeds the {uploads_store.MAX_UPLOAD_BYTES} byte limit")
+        chunks.append(chunk)
+    try:
+        saved = uploads_store.save_upload(BASE_DIR, file.filename or "upload", b"".join(chunks))
+    except uploads_store.UploadError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    latitude_telemetry.trace(
+        "uploads.create", "uploads", "ok",
+        upload_id=saved.upload_id, size=saved.size, supported=saved.supported,
+    )
+    return {
+        "success": True,
+        "upload_id": saved.upload_id,
+        "filename": saved.filename,
+        "size": saved.size,
+        "supported": saved.supported,
+        "token_usage_text": "Token usage: no agent invocation",
+    }
+
+
+@app.get("/api/uploads/{upload_id}")
+def get_upload(upload_id: str):
+    """Bounded text preview for one shared upload -- Memory Intake's Preview
+    action. Unsupported types (e.g. PDF/DOCX) get metadata with no preview
+    body, never a decoded-garbage rendering."""
+    try:
+        meta = uploads_store.read_meta(BASE_DIR, upload_id)
+        path = uploads_store.upload_file_path(BASE_DIR, upload_id)
+    except uploads_store.UploadError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    preview = ""
+    if meta.get("supported"):
+        try:
+            preview = path.read_text(encoding="utf-8", errors="replace")[:8000]
+        except OSError:
+            preview = ""
+    return {**meta, "preview": preview}
+
+
+@app.get("/api/memory-intake/unfiled-preview")
+def memory_intake_unfiled_preview(path: str):
+    """Bounded text preview for one New & Unfiled watched-Inbox file, strictly
+    confined to queue/inbox/ -- the existing dashboard artifact reader's own
+    allowlist deliberately excludes that tree, so this stays a separate,
+    equally narrow reader rather than widening that one."""
+    try:
+        target = _safe_memory_intake_inbox_path(path)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    try:
+        content = target.read_text(encoding="utf-8", errors="replace")[:8000]
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"preview read failed: {exc}")
+    return {"success": True, "path": _safe_relative(target), "preview": content}
+
+
+@app.get("/api/memory-intake")
+def memory_intake_snapshot():
+    ready = [row for row in uploads_store.list_uploads(BASE_DIR) if row.get("status") == "ready"]
+    unfiled = _memory_intake_unfiled_items()
+    recent = _recent_memory_intake_receipts()
+    try:
+        integrity = source_intake.verify_intake_index_integrity(business_brain.BUSINESS_BRAIN_ROOT)
+    except OSError as exc:
+        integrity = {"ok": False, "index_present": False, "error": str(exc)}
+    return {
+        "ready": ready,
+        "unfiled": unfiled,
+        "recent": recent,
+        "counts": {
+            "ready": len(ready),
+            "ingested_recent": sum(1 for row in recent if row.get("status") in {"ingested", "duplicate"}),
+            "failed_recent": sum(1 for row in recent if row.get("status") in {"failed", "needs_attention"}),
+        },
+        "brain_index_integrity": integrity,
+        "token_usage_text": "Token usage: no agent invocation",
+    }
+
+
+@app.post("/api/memory-intake/ingest")
+def memory_intake_ingest(body: MemoryIntakeIngestRequest):
+    """The one governed ingestion action for the dashboard: reuses
+    tools/source_intake.py's capture then semantic modes exactly as the CLI does. Exactly one
+    of upload_id (a shared-upload attachment) or inbox_path (a file the
+    existing watched Inbox already discovered) selects the source."""
+    if bool(body.upload_id) == bool(body.inbox_path):
+        raise HTTPException(status_code=422, detail="exactly one of upload_id or inbox_path is required")
+    if body.upload_id:
+        try:
+            meta = uploads_store.read_meta(BASE_DIR, body.upload_id)
+            source_path = uploads_store.upload_file_path(BASE_DIR, body.upload_id)
+        except uploads_store.UploadError as exc:
+            raise HTTPException(status_code=404, detail=str(exc))
+        filename = meta.get("original_filename") or source_path.name
+        key = f"upload-{body.upload_id}"
+    else:
+        try:
+            source_path = _safe_memory_intake_inbox_path(body.inbox_path)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        filename = source_path.name
+        key = f"inbox-{hashlib.sha256(body.inbox_path.encode('utf-8')).hexdigest()[:16]}"
+
+    receipt = _memory_intake_ingest_and_record(source_path, filename=filename, key=key)
+    if body.upload_id:
+        meta["status"] = receipt["status"]
+        meta["ingest_result"] = receipt
+        uploads_store.write_meta(BASE_DIR, body.upload_id, meta)
+    return receipt
 
 
 @app.post("/api/dashboard/capture")
@@ -8170,9 +8767,12 @@ def dashboard_system_watch(stalled_minutes: int = 15):
     queue_tool_exists = QUEUE_TOOL.exists()
     backup = _backup_status()
     latitude = _public_latitude_status()
+    david_hermes = _recent_route_failure_signal()
     checked_at = datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
     return {
         "backend": {"status": "ok", "checked_at": checked_at},
+        "david_hermes_health": david_hermes,
+        "david_hermes_needs_attention": david_hermes["degraded"],
         "queue_tooling": {"status": "ok" if queue_tool_exists else "missing", "path": _safe_relative(QUEUE_TOOL)},
         "bridge_status": {"status": "read-only check available outside this Phase A endpoint", "freshness": "not mutated"},
         "stalled_window_minutes": stalled_minutes,

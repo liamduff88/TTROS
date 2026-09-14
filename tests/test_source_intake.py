@@ -1,6 +1,6 @@
 """Focused deterministic source-intake contract tests.
 
-Revisit: when source intake, scope, search, or Graphify contracts change. · Last touched: 2026-08-17.
+Revisit: when source intake, scope, search, or Graphify contracts change. · Last touched: 2026-09-13.
 """
 
 from __future__ import annotations
@@ -20,7 +20,13 @@ from tools import aos_indexer
 from tools import context_assembler
 from tools.business_brain_context import ScopedBrainLoader
 from tools.business_brain_scope import ClientScopeError, ClientScopeRegistry
-from tools.source_intake import extract_exact_bytes, run_intake
+from tools.source_intake import (
+    SourceIntakeError,
+    _assert_index_links_source_and_card,
+    extract_exact_bytes,
+    run_intake,
+    verify_intake_index_integrity,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 NOW = "2026-08-17T12:00:00Z"
@@ -419,6 +425,7 @@ class SourceIntakeTest(unittest.TestCase):
             self.assertEqual(len(hermes_calls), 1)
             self.assertEqual(result.model_invocations, 1)
             self.assertEqual((result.scanned, result.imported, result.duplicates), (1, 2, 0))
+            self.assertEqual(result.token_usage_text, "Token usage: unavailable from current CLI output")
 
             # The body sent for extraction is the exact original text (trailing
             # whitespace intact), not the trailing-whitespace-stripped "Searchable
@@ -445,6 +452,19 @@ class SourceIntakeTest(unittest.TestCase):
             self.assertIn(f"[[{original_link}|source]]", card_text)
             self.assertTrue((brain / f"{original_link}.md").is_file())
 
+            # F-SOURCEINTAKE-CARDLINK-1 fix: capture mode's own sources/intake/INDEX.md
+            # entry for this source must now also link the card semantic mode just
+            # generated, in the same governed transaction -- not just the original
+            # record. This is the exact defect the Fred entry was hand-repaired for.
+            intake_index_text = (brain / "sources/intake/INDEX.md").read_text(encoding="utf-8")
+            self.assertIn(f"[[sources/intake/records/{source_id}|", intake_index_text)
+            self.assertIn(f"[[sources/intake/cards/{source_id}.card|card]]", intake_index_text)
+            integrity = verify_intake_index_integrity(brain)
+            self.assertEqual(integrity, {
+                "ok": True, "index_present": True, "record_count": 1, "card_count": 1,
+                "missing_record_links": [], "missing_card_links": [],
+            })
+
             # Production intake must not mutate the historical-only navigation
             # index -- it is a curated table over the pre-existing
             # historical_source imports, not a general card registry.
@@ -459,6 +479,31 @@ class SourceIntakeTest(unittest.TestCase):
             self.assertEqual(record_path.read_text(encoding="utf-8"), record_text_before)
             self.assertEqual(extract_exact_bytes(record_text_before), raw)
             self.assertEqual(len(list((brain / "sources/intake/records").glob("*.md"))), 1)
+
+            # Re-running the same complete sequence is idempotent: capture finds
+            # the byte-identical Original, semantic finds its Card, and neither
+            # invokes Hermes nor duplicates either index link or artifact.
+            capture_again = run_intake(
+                source, repo_root=repo, brain_root=brain,
+                registry_path=registry_path, schema_path=ROOT / "context/client_scope_registry.schema.json",
+                search_db=repo / "search/os_index.db", graphify_root=graph,
+                commit=False, now=lambda: NOW,
+            )
+            self.assertEqual((capture_again.imported, capture_again.duplicates), (0, 1))
+            with mock.patch("tools.source_intake_semantic.subprocess.run") as semantic_call:
+                semantic_again = run_intake(
+                    record_path, repo_root=repo, brain_root=brain,
+                    registry_path=registry_path, schema_path=ROOT / "context/client_scope_registry.schema.json",
+                    search_db=repo / "search/os_index.db", graphify_root=graph,
+                    mode="semantic", commit=False, now=lambda: NOW,
+                )
+            semantic_call.assert_not_called()
+            self.assertEqual((semantic_again.imported, semantic_again.duplicates), (0, 1))
+            self.assertEqual(len(list((brain / "sources/intake/records").glob("*.md"))), 1)
+            self.assertEqual(len(list((brain / "sources/intake/cards").glob("*.card.md"))), 1)
+            intake_index_after_rerun = (brain / "sources/intake/INDEX.md").read_text(encoding="utf-8")
+            self.assertEqual(intake_index_after_rerun.count(f"sources/intake/records/{source_id}|"), 1)
+            self.assertEqual(intake_index_after_rerun.count(f"sources/intake/cards/{source_id}.card|card"), 1)
 
     def test_extract_verbatim_source_rejects_unknown_type(self):
         from tools.source_intake_semantic import SemanticExtractionError, extract_verbatim_source
@@ -493,6 +538,40 @@ class SourceIntakeTest(unittest.TestCase):
                     mode="semantic", commit=False, now=lambda: NOW, semantic_budget=budget,
                 )
             self.assertFalse((brain / "sources/historical_calls/cards/fixture-call.card.md").exists())
+
+    def test_assert_index_links_source_and_card_rehearses_both_answers(self):
+        # Negative case first: an index missing the card link must be rejected,
+        # not silently accepted -- the exact failure mode the Fred entry had.
+        digest = "a" * 64
+        record_only = f"- [[sources/intake/records/{digest}|Title]] — `f.txt` · `sha256:{digest}`\n"
+        with self.assertRaisesRegex(SourceIntakeError, "missing the generated-card link"):
+            _assert_index_links_source_and_card(record_only, digest)
+        # Also missing the original-record link entirely.
+        with self.assertRaisesRegex(SourceIntakeError, "missing the original-record link"):
+            _assert_index_links_source_and_card("nothing relevant here", digest)
+        # Positive case: both links present passes cleanly.
+        both = record_only.rstrip() + f" · [[sources/intake/cards/{digest}.card|card]]\n"
+        _assert_index_links_source_and_card(both, digest)  # must not raise
+
+    def test_verify_intake_index_integrity_detects_missing_card_link(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            brain = Path(temporary) / "brain"
+            digest = "b" * 64
+            write(brain / "sources/intake/records" / f"{digest}.md", f'---\nsource_sha256: {digest}\n---\nbody\n')
+            write(brain / "sources/intake/cards" / f"{digest}.card.md", "card body\n")
+            # INDEX.md links the original but (exactly like the pre-repair Fred
+            # entry) omits the card -- the detector must return the negative case.
+            write(brain / "sources/intake/INDEX.md", f"- [[sources/intake/records/{digest}|Title]] — `f.txt`\n")
+            broken = verify_intake_index_integrity(brain)
+            self.assertFalse(broken["ok"])
+            self.assertEqual(broken["missing_card_links"], [digest])
+            self.assertEqual(broken["missing_record_links"], [])
+
+            # Now the healthy case: the same index also links the card.
+            write(brain / "sources/intake/INDEX.md", f"- [[sources/intake/records/{digest}|Title]] — `f.txt` · [[sources/intake/cards/{digest}.card|card]]\n")
+            healthy = verify_intake_index_integrity(brain)
+            self.assertTrue(healthy["ok"])
+            self.assertEqual(healthy["missing_card_links"], [])
 
     def test_david_capability_matching_finds_source_intake(self):
         block = context_assembler._matching_workflows_block(

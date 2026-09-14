@@ -12,6 +12,14 @@ and agent-initiated third-party actions keep the prior gate. Secret, CRM,
 money, deletion, deploy/publish review, Business Brain, token-fuse, protected-
 path, and North Shore boundaries are unchanged.
 
+## 2026-09-13 — Memory Intake means complete source ingestion
+
+Every explicit Memory Intake action, including David's explicit attached-file
+instruction, now composes the existing governed capture and semantic modes.
+Full success requires the byte-faithful Original, semantic Card, both intake
+index links, and the existing intake integrity check; a semantic or verification
+failure retains the Original and records a needs-attention partial result.
+
 ## 2026-09-01 — David reuses one assembled context per consultation
 
 A David or named-profile consultation now performs the mandatory Context
@@ -1206,3 +1214,10 @@ a subset explicitly. Canonical fuse accounting remains provider input plus
 provider output and never adds cache twice. Orchestration artifact matching
 also prefers the longer `.jsonl` suffix before `.json`, preventing durable
 ledger references from being truncated during dependency propagation.
+
+## 2026-09-13 — Quick capture is the fast Add to Memory surface
+The persistent dashboard capture bar keeps its existing text-only inbox path.
+Attached files use the shared `/api/uploads` mechanism and then the canonical
+Memory Intake endpoint, sequentially, with a separate visible result per file;
+mixed text and files remain two explicit storage outcomes. The management route
+stays `memory-intake`, while its operator-facing label is “Add to Memory”.

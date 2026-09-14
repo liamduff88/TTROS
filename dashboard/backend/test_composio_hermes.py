@@ -61,6 +61,12 @@ if importlib.util.find_spec("fastapi") is None:
     fastapi.FastAPI = _FastAPI
     fastapi.HTTPException = _HTTPException
     fastapi.Request = _Request
+    fastapi.File = lambda *args, **kwargs: None
+
+    class _UploadFile:
+        pass
+
+    fastapi.UploadFile = _UploadFile
     middleware = types.ModuleType("fastapi.middleware")
     cors = types.ModuleType("fastapi.middleware.cors")
     responses = types.ModuleType("fastapi.responses")
@@ -2075,10 +2081,17 @@ class HermesComposioTests(unittest.TestCase):
                 self.assertEqual(blocked_secret.exception.status_code, 400)
 
     def test_queue_completion_card_frontend_contract_is_present(self):
+        # The completed-workflow final artifact used to open through its own
+        # "Open Final Review Package" button. The outcome-first Work Queue pass
+        # consolidated that into the single top-of-panel "Primary result" CTA
+        # (resolvePrimaryDeliverable prefers the final artifact when present),
+        # so the contract now checks for that consolidated surface instead.
         source = (MAIN.parents[1] / "frontend" / "src" / "views" / "Queue.jsx").read_text(encoding="utf-8")
         for text in (
             "Workflow complete",
-            "Open Final Review Package",
+            "Primary result",
+            "open-primary-result",
+            "resolvePrimaryDeliverable",
             "Open Final Receipt",
             "Open Output Folder",
             "View Final Step",
@@ -3708,7 +3721,7 @@ class HermesComposioTests(unittest.TestCase):
             self.assertFalse(secret["success"])
             self.assertIn("secret", secret["reason"])
             self.assertFalse(traversal["success"])
-            self.assertTrue("only .md" in traversal["reason"] or "must stay" in traversal["reason"])
+            self.assertTrue("readable" in traversal["reason"] or "must stay" in traversal["reason"])
             self.assertFalse(missing["success"])
             self.assertIn("not found", missing["reason"])
 
@@ -5162,6 +5175,55 @@ class HermesComposioTests(unittest.TestCase):
         self.assertIn("review-close", detail["summary_for_operator"])
         self.assertNotEqual("Queue refresh repair", detail["summary_for_operator"])
 
+    def test_summary_for_operator_falls_back_to_receipt_prose_when_the_labeled_section_is_boilerplate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            receipt = root / "queue" / "receipts" / "AOS-2026-9020.md"
+            receipt.parent.mkdir(parents=True, exist_ok=True)
+            receipt.write_text(
+                "PASS\n\n"
+                "Work item ID: AOS-2026-9020\n"
+                "Summary for operator:\n- Executive result\n\n"
+                "The workflow produced a decision-ready outreach review package for five ICP-fit prospects, "
+                "with evidence-specific outreach drafts, while preserving every approval gate.\n\n"
+                "External-action status\n\n"
+                "No external action was taken.\n",
+                encoding="utf-8",
+            )
+            item = {
+                "id": "AOS-2026-9020",
+                "title": "Run Internal Outreach Daily",
+                "status": "done",
+                "owner": "revenue",
+                "priority": 5,
+                "receipts": [{"path": "queue/receipts/AOS-2026-9020.md", "status": "done"}],
+            }
+            self.write_queue_items(root, [item])
+            with patch.object(backend, "BASE_DIR", root):
+                result = backend.queue_item("AOS-2026-9020")
+
+        summary = result["item"]["summary_for_operator"]
+        self.assertNotEqual(summary, "Executive result")
+        self.assertIn("five ICP-fit prospects", summary)
+        self.assertIn("No external action was taken.", summary)
+
+    def test_summary_for_operator_honest_fallback_when_nothing_substantive_exists(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            item = {
+                "id": "AOS-2026-9021",
+                "title": "Untitled local task",
+                "status": "done",
+                "owner": "unassigned",
+                "priority": 5,
+            }
+            self.write_queue_items(root, [item])
+            with patch.object(backend, "BASE_DIR", root):
+                result = backend.queue_item("AOS-2026-9021")
+
+        summary = result["item"]["summary_for_operator"]
+        self.assertIn("does not include a substantive closeout summary", summary)
+
     def test_queue_delete_api_returns_only_bounded_result_and_replays_idempotently(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -6165,6 +6227,300 @@ class HermesComposioTests(unittest.TestCase):
         worker.assert_not_called()
         self.assertEqual(ctx.exception.status_code, 409)
         self.assertIn("AOS-2026-0803", str(ctx.exception.detail))
+
+
+class _FakeUploadFile:
+    """Minimal stand-in for fastapi.UploadFile: only what create_upload reads --
+    a filename and an async, chunked .read()."""
+
+    def __init__(self, filename: str, data: bytes):
+        self.filename = filename
+        self._data = data
+        self._offset = 0
+
+    async def read(self, size: int) -> bytes:
+        chunk = self._data[self._offset:self._offset + size]
+        self._offset += len(chunk)
+        return chunk
+
+
+class MemoryIntakeUploadsTests(unittest.TestCase):
+    """The one shared upload mechanism (queue/uploads/) and the Memory Intake
+    endpoints that sit on top of it, reusing tools/source_intake.py's capture
+    then semantic modes -- never a second ingestion pipeline."""
+
+    def test_create_upload_persists_real_bytes_under_the_shared_mechanism(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch.object(backend, "BASE_DIR", root):
+                result = asyncio.run(backend.create_upload(file=_FakeUploadFile("Fred notes.txt", b"hello business brain")))
+            self.assertTrue(result["success"])
+            self.assertTrue(result["supported"])
+            stored = backend.uploads_store.upload_file_path(root, result["upload_id"])
+            self.assertEqual(stored.read_bytes(), b"hello business brain")
+
+    def test_create_upload_rejects_oversized_stream_before_writing_a_meta_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            oversized = b"x" * (backend.uploads_store.MAX_UPLOAD_BYTES + 1)
+            with patch.object(backend, "BASE_DIR", root):
+                with self.assertRaises(backend.HTTPException) as ctx:
+                    asyncio.run(backend.create_upload(file=_FakeUploadFile("big.txt", oversized)))
+            self.assertEqual(ctx.exception.status_code, 413)
+            self.assertEqual(list((root / "queue" / "uploads").glob("*")) if (root / "queue" / "uploads").is_dir() else [], [])
+
+    def test_safe_memory_intake_inbox_path_rejects_traversal_and_symlinks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            inbox = root / "queue" / "inbox"
+            inbox.mkdir(parents=True)
+            real_file = inbox / "note.txt"
+            real_file.write_text("hi", encoding="utf-8")
+            outside = root / "outside.txt"
+            outside.write_text("nope", encoding="utf-8")
+            symlink_outside = inbox / "sneaky.txt"
+            # A symlink pointing INSIDE the inbox is the sharper negative case:
+            # a naive check that resolves the path before testing is_symlink()
+            # would follow it straight to `real_file` and wrongly accept it.
+            symlink_inside = inbox / "inside-link.txt"
+            try:
+                symlink_outside.symlink_to(outside)
+                symlink_inside.symlink_to(real_file)
+            except OSError:
+                symlink_outside = symlink_inside = None  # symlinks unsupported on this filesystem; skip those branches
+            with patch.object(backend, "BASE_DIR", root), patch.object(backend, "MEMORY_INTAKE_INBOX_DIR", inbox):
+                with self.assertRaisesRegex(ValueError, "stay inside the watched inbox"):
+                    backend._safe_memory_intake_inbox_path("../outside.txt")
+                with self.assertRaisesRegex(ValueError, "stay inside the watched inbox"):
+                    backend._safe_memory_intake_inbox_path(f"{outside}")
+                if symlink_outside is not None:
+                    with self.assertRaisesRegex(ValueError, "must not be a symlink"):
+                        backend._safe_memory_intake_inbox_path("queue/inbox/sneaky.txt")
+                    with self.assertRaisesRegex(ValueError, "must not be a symlink"):
+                        backend._safe_memory_intake_inbox_path("queue/inbox/inside-link.txt")
+                resolved = backend._safe_memory_intake_inbox_path("queue/inbox/note.txt")
+                self.assertEqual(resolved, real_file.resolve())
+
+    def test_memory_intake_snapshot_lists_ready_unfiled_and_recent_without_touching_the_real_brain(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            inbox = root / "queue" / "inbox"
+            inbox.mkdir(parents=True)
+            (inbox / "discovered.txt").write_text("watched but unfiled", encoding="utf-8")
+            (inbox / ".gitkeep").write_text("", encoding="utf-8")
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "MEMORY_INTAKE_INBOX_DIR", inbox), \
+                 patch.object(backend, "MEMORY_INTAKE_RECEIPTS_DIR", root / "queue" / "receipts" / "memory_intake"), \
+                 patch.object(backend.source_intake, "verify_intake_index_integrity", return_value={"ok": True, "index_present": True}):
+                asyncio.run(backend.create_upload(file=_FakeUploadFile("ready.md", b"# ready")))
+                snapshot = backend.memory_intake_snapshot()
+            self.assertEqual(snapshot["counts"]["ready"], 1)
+            # .gitkeep is repo plumbing, not an operator source -- it must not
+            # show up as something to ingest.
+            self.assertEqual(len(snapshot["unfiled"]), 1)
+            self.assertEqual(snapshot["unfiled"][0]["filename"], "discovered.txt")
+            self.assertFalse(snapshot["unfiled"][0]["already_in_brain"])
+            self.assertTrue(snapshot["brain_index_integrity"]["ok"])
+
+    def test_memory_intake_ingest_upload_runs_capture_then_semantic_and_records_verified_success(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            capture_result = types.SimpleNamespace(
+                imported_pointers=("business_brain:sources/intake/records/deadbeef.md",),
+                duplicate_pointers=(), imported=1, search_status="ready", graphify_status="build",
+                brain_commit="capture123", model_invocations=0,
+                token_usage_text="Token usage: no agent invocation",
+            )
+            semantic_result = types.SimpleNamespace(
+                imported_pointers=("business_brain:sources/intake/cards/deadbeef.card.md",),
+                duplicate_pointers=(), imported=2, search_status="ready", graphify_status="build",
+                brain_commit="semantic123", model_invocations=1,
+                token_usage_text="Token usage: unavailable from current CLI output",
+            )
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "MEMORY_INTAKE_RECEIPTS_DIR", root / "queue" / "receipts" / "memory_intake"), \
+                 patch.object(backend.source_intake, "run_intake", side_effect=[capture_result, semantic_result]) as run_intake, \
+                 patch.object(backend, "_verify_memory_intake_original", return_value=("deadbeef", root / "brain/record.md")), \
+                 patch.object(backend, "_verify_memory_intake_completion", return_value={
+                     "source_card": "business_brain:sources/intake/cards/deadbeef.card.md",
+                     "integrity": {"ok": True},
+                 }):
+                created = asyncio.run(backend.create_upload(file=_FakeUploadFile("call.md", b"# call notes")))
+                receipt = backend.memory_intake_ingest(backend.MemoryIntakeIngestRequest(upload_id=created["upload_id"]))
+            self.assertEqual([call.kwargs["mode"] for call in run_intake.call_args_list], ["capture", "semantic"])
+            self.assertEqual(run_intake.call_args_list[1].args[0], root / "brain/record.md")
+            self.assertTrue(receipt["success"])
+            self.assertEqual(receipt["status"], "ingested")
+            self.assertEqual(receipt["source_record"], "business_brain:sources/intake/records/deadbeef.md")
+            self.assertTrue(receipt["source_card_created"])
+            self.assertTrue(receipt["source_card_present"])
+            self.assertTrue(receipt["integrity_verified"])
+            meta = backend.uploads_store.read_meta(root, created["upload_id"])
+            self.assertEqual(meta["status"], "ingested")
+            receipt_files = list((root / "queue" / "receipts" / "memory_intake").glob("*.json"))
+            self.assertEqual(len(receipt_files), 1)
+
+    def test_memory_intake_ingest_failure_is_recorded_not_raised(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "MEMORY_INTAKE_RECEIPTS_DIR", root / "queue" / "receipts" / "memory_intake"), \
+                 patch.object(backend.source_intake, "run_intake", side_effect=backend.source_intake.SourceIntakeError("boom")):
+                created = asyncio.run(backend.create_upload(file=_FakeUploadFile("call.md", b"# call notes")))
+                receipt = backend.memory_intake_ingest(backend.MemoryIntakeIngestRequest(upload_id=created["upload_id"]))
+            self.assertFalse(receipt["success"])
+            self.assertEqual(receipt["status"], "failed")
+            self.assertIn("boom", receipt["error"])
+            meta = backend.uploads_store.read_meta(root, created["upload_id"])
+            self.assertEqual(meta["status"], "failed")
+
+    def test_memory_intake_semantic_failure_preserves_original_and_records_needs_attention(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            capture_result = types.SimpleNamespace(
+                imported_pointers=("business_brain:sources/intake/records/deadbeef.md",),
+                duplicate_pointers=(), imported=1, search_status="ready", graphify_status="build",
+                brain_commit="capture123", model_invocations=0,
+                token_usage_text="Token usage: no agent invocation",
+            )
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "MEMORY_INTAKE_RECEIPTS_DIR", root / "queue" / "receipts" / "memory_intake"), \
+                 patch.object(backend.source_intake, "run_intake", side_effect=[capture_result, backend.source_intake.SourceIntakeError("budget exceeded")]), \
+                 patch.object(backend, "_verify_memory_intake_original", return_value=("deadbeef", root / "brain/record.md")), \
+                 patch.object(backend, "_memory_intake_artifact_state", return_value={
+                     "source_card": None, "source_card_present": False,
+                     "index_original_linked": True, "index_card_linked": False, "index_updated": False,
+                 }):
+                created = asyncio.run(backend.create_upload(file=_FakeUploadFile("call.md", b"# call notes")))
+                receipt = backend.memory_intake_ingest(backend.MemoryIntakeIngestRequest(upload_id=created["upload_id"]))
+            self.assertFalse(receipt["success"])
+            self.assertEqual(receipt["status"], "needs_attention")
+            self.assertTrue(receipt["original_preserved"])
+            self.assertFalse(receipt["source_card_present"])
+            self.assertIn("Original preserved", receipt["error"])
+            self.assertIn("budget exceeded", receipt["error"])
+            self.assertEqual(backend.uploads_store.read_meta(root, created["upload_id"])["status"], "needs_attention")
+
+    def test_memory_intake_ingest_requires_exactly_one_selector(self):
+        with self.assertRaises(backend.HTTPException) as ctx:
+            backend.memory_intake_ingest(backend.MemoryIntakeIngestRequest())
+        self.assertEqual(ctx.exception.status_code, 422)
+        with self.assertRaises(backend.HTTPException) as ctx2:
+            backend.memory_intake_ingest(backend.MemoryIntakeIngestRequest(upload_id="a" * 32, inbox_path="queue/inbox/x.txt"))
+        self.assertEqual(ctx2.exception.status_code, 422)
+
+    def test_ask_david_attachment_context_reads_supported_uploads_and_flags_unsupported(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch.object(backend, "BASE_DIR", root):
+                text_upload = asyncio.run(backend.create_upload(file=_FakeUploadFile("notes.txt", b"the fixture text body")))
+                pdf_upload = asyncio.run(backend.create_upload(file=_FakeUploadFile("scan.pdf", b"%PDF-fixture")))
+                context = backend._ask_david_attachment_context([f"upload:{text_upload['upload_id']}", f"upload:{pdf_upload['upload_id']}"])
+            self.assertIn("the fixture text body", context)
+            self.assertIn("notes.txt", context)
+            self.assertIn("scan.pdf", context)
+            self.assertIn("not readable as text", context)
+
+    def test_ask_david_attachment_context_is_empty_without_upload_refs(self):
+        self.assertEqual(backend._ask_david_attachment_context([]), "")
+        self.assertEqual(backend._ask_david_attachment_context(["attachment:plain-filename.txt"]), "")
+
+    def test_explicit_ingest_requires_both_the_phrase_and_an_attachment(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch.object(backend, "BASE_DIR", root):
+                upload = asyncio.run(backend.create_upload(file=_FakeUploadFile("call.md", b"# call")))
+                # An attachment alone, with ordinary conversational text, must not ingest.
+                self.assertIsNone(backend._try_ask_david_explicit_ingest(
+                    "Read this and tell me what you think.", [f"upload:{upload['upload_id']}"],
+                ))
+                # The phrase alone, with no attachment, has nothing to ingest.
+                self.assertIsNone(backend._try_ask_david_explicit_ingest("Ingest this into the Business Brain.", []))
+
+    def test_explicit_ingest_fires_deterministically_and_reuses_the_canonical_capture_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            capture_result = types.SimpleNamespace(
+                imported_pointers=("business_brain:sources/intake/records/deadbeef.md",),
+                duplicate_pointers=(), imported=1, search_status="ready", graphify_status="build",
+                brain_commit="capture123", model_invocations=0, token_usage_text="Token usage: no agent invocation",
+            )
+            semantic_result = types.SimpleNamespace(
+                imported_pointers=("business_brain:sources/intake/cards/deadbeef.card.md",),
+                duplicate_pointers=(), imported=2, search_status="ready", graphify_status="build",
+                brain_commit="semantic123", model_invocations=1,
+                token_usage_text="Token usage: unavailable from current CLI output",
+            )
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "MEMORY_INTAKE_RECEIPTS_DIR", root / "queue" / "receipts" / "memory_intake"), \
+                 patch.object(backend.source_intake, "run_intake", side_effect=[capture_result, semantic_result]) as run_intake, \
+                 patch.object(backend, "_verify_memory_intake_original", return_value=("deadbeef", root / "brain/record.md")), \
+                 patch.object(backend, "_verify_memory_intake_completion", return_value={
+                     "source_card": "business_brain:sources/intake/cards/deadbeef.card.md", "integrity": {"ok": True},
+                 }), \
+                 patch.object(backend, "_execute_named_profile_consultation") as consult:
+                upload = asyncio.run(backend.create_upload(file=_FakeUploadFile("call.md", b"# call")))
+                result = backend._try_ask_david_explicit_ingest(
+                    "Please ingest this into the business brain.", [f"upload:{upload['upload_id']}"],
+                )
+            self.assertEqual([call.kwargs["mode"] for call in run_intake.call_args_list], ["capture", "semantic"])
+            consult.assert_not_called()  # deterministic route: semantic mode owns its bounded extraction call
+            self.assertTrue(result["success"])
+            self.assertEqual(result["kind"], "memory_intake_ingested")
+            self.assertEqual(result["token_usage_text"], "Token usage: unavailable from current CLI output")
+            self.assertEqual(backend.uploads_store.read_meta(root, upload["upload_id"])["status"], "ingested")
+
+    def test_dashboard_ask_david_routes_explicit_ingest_before_any_other_deterministic_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            capture_result = types.SimpleNamespace(
+                imported_pointers=("business_brain:sources/intake/records/deadbeef.md",),
+                duplicate_pointers=(), imported=1, search_status="ready", graphify_status="build",
+                brain_commit="capture123", model_invocations=0, token_usage_text="Token usage: no agent invocation",
+            )
+            semantic_result = types.SimpleNamespace(
+                imported_pointers=("business_brain:sources/intake/cards/deadbeef.card.md",),
+                duplicate_pointers=(), imported=2, search_status="ready", graphify_status="build",
+                brain_commit="semantic123", model_invocations=1,
+                token_usage_text="Token usage: unavailable from current CLI output",
+            )
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "MEMORY_INTAKE_RECEIPTS_DIR", root / "queue" / "receipts" / "memory_intake"), \
+                 patch.object(backend.source_intake, "run_intake", side_effect=[capture_result, semantic_result]), \
+                 patch.object(backend, "_verify_memory_intake_original", return_value=("deadbeef", root / "brain/record.md")), \
+                 patch.object(backend, "_verify_memory_intake_completion", return_value={
+                     "source_card": "business_brain:sources/intake/cards/deadbeef.card.md", "integrity": {"ok": True},
+                 }), \
+                 patch.object(backend, "_try_existing_item_read_task") as existing_read, \
+                 patch.object(backend, "_try_queue_read_task") as queue_read, \
+                 patch.object(backend, "_execute_named_profile_consultation") as consult:
+                upload = asyncio.run(backend.create_upload(file=_FakeUploadFile("call.md", b"# call")))
+                result = backend.dashboard_ask_david(backend.AskDavidRequest(
+                    text="Ingest this into the Business Brain please.", source_refs=[f"upload:{upload['upload_id']}"],
+                ))
+            existing_read.assert_not_called()
+            queue_read.assert_not_called()
+            consult.assert_not_called()
+            self.assertEqual(result["kind"], "memory_intake_ingested")
+
+    def test_dashboard_ask_david_appends_attachment_context_only_to_the_conversational_fallback(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_try_existing_item_read_task", return_value=None), \
+                 patch.object(backend, "_try_queue_read_task", return_value=None), \
+                 patch.object(backend, "_try_local_lookup_answer", return_value=None), \
+                 patch.object(backend, "_is_explicit_command_phrase", return_value=False), \
+                 patch.object(backend, "_execute_named_profile_consultation", return_value={"success": True, "response": "Here is my read."}) as consult:
+                upload = asyncio.run(backend.create_upload(file=_FakeUploadFile("notes.txt", b"the fixture attachment body")))
+                result = backend.dashboard_ask_david(backend.AskDavidRequest(
+                    text="Read this and tell me what you think.", source_refs=[f"upload:{upload['upload_id']}"],
+                ))
+            self.assertEqual(result["kind"], "david_reply")
+            sent_prompt = consult.call_args.args[2]
+            self.assertIn("Read this and tell me what you think.", sent_prompt)
+            self.assertIn("the fixture attachment body", sent_prompt)
+            self.assertIn("not saved to the", sent_prompt)
 
 
 if __name__ == "__main__":

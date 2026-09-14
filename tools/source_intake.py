@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Deterministic historical-source intake for the TTROS Business Brain.
 
-Revisit: when Brain source, search, Graphify, or scope contracts change. · Last touched: 2026-08-17.
+Revisit: when Brain source, search, Graphify, or scope contracts change. · Last touched: 2026-09-13.
 """
 
 from __future__ import annotations
@@ -31,8 +31,10 @@ from tools.business_brain import BUSINESS_BRAIN_ROOT
 from tools.business_brain_scope import ClientScopeRegistry
 
 TOKEN_USAGE_TEXT = "Token usage: no agent invocation"
+SEMANTIC_TOKEN_USAGE_TEXT = "Token usage: unavailable from current CLI output"
 INDEX_RELATIVE = "sources/intake/INDEX.md"
 RECORDS_RELATIVE = "sources/intake/records"
+CARDS_RELATIVE = "sources/intake/cards"
 MAIN_INDEX_RELATIVE = "index/MEMORY_INDEX.md"
 INTAKE_LINK = "[[sources/intake/INDEX|Historical source intake]]"
 BYTES_BEGIN = "<!-- TTROS:SOURCE-BYTES:BEGIN -->"
@@ -224,7 +226,51 @@ def _frontmatter(path: Path) -> dict[str, str]:
     raise SourceIntakeError(f"source record has unterminated frontmatter: {path}")
 
 
-def render_index(brain_root: Path, new_items: list[SourceItem]) -> str:
+def _intake_cards_present(brain_root: Path, extra: frozenset[str] = frozenset()) -> set[str]:
+    """Digests that already have a generated source card on disk, plus any `extra`
+    digest whose card this same call is about to write (not yet on disk when this
+    runs -- see `_run_semantic_intake`)."""
+    cards_dir = brain_root / CARDS_RELATIVE
+    present = {path.name.removesuffix(".card.md") for path in cards_dir.glob("*.card.md")} if cards_dir.is_dir() else set()
+    return present | set(extra)
+
+
+def _assert_index_links_source_and_card(index_text: str, digest: str) -> None:
+    """The exact two-link shape a healthy `sources/intake/INDEX.md` entry has:
+    the preserved original record and, once one exists, its generated card. This
+    is the mechanical check for F-SOURCEINTAKE-CARDLINK-1 -- an existing card
+    with no index link back to it is a needs-attention state, not a success."""
+    if f"{RECORDS_RELATIVE}/{digest}|" not in index_text:
+        raise SourceIntakeError(f"source-intake index is missing the original-record link for {digest}")
+    if f"{CARDS_RELATIVE}/{digest}.card|card" not in index_text:
+        raise SourceIntakeError(f"source-intake index is missing the generated-card link for {digest}")
+
+
+def verify_intake_index_integrity(brain_root: Path) -> dict:
+    """Read-only health check over the whole `sources/intake/` tree: every
+    preserved original record and every generated card must have a working
+    link in `sources/intake/INDEX.md`. Never mutates anything; safe to call at
+    any time, including from the dashboard, as an operator-visible signal."""
+    records_dir = brain_root / RECORDS_RELATIVE
+    cards_dir = brain_root / CARDS_RELATIVE
+    index_path = brain_root / INDEX_RELATIVE
+    index_text = index_path.read_text(encoding="utf-8", errors="strict") if index_path.is_file() else ""
+    record_digests = {path.stem for path in records_dir.glob("*.md")} if records_dir.is_dir() else set()
+    card_digests = {path.name.removesuffix(".card.md") for path in cards_dir.glob("*.card.md")} if cards_dir.is_dir() else set()
+    missing_record_links = sorted(digest for digest in record_digests if f"{RECORDS_RELATIVE}/{digest}|" not in index_text)
+    missing_card_links = sorted(digest for digest in card_digests if f"{CARDS_RELATIVE}/{digest}.card|card" not in index_text)
+    ok = index_path.is_file() and not missing_record_links and not missing_card_links
+    return {
+        "ok": ok if record_digests or card_digests else index_path.is_file(),
+        "index_present": index_path.is_file(),
+        "record_count": len(record_digests),
+        "card_count": len(card_digests),
+        "missing_record_links": missing_record_links,
+        "missing_card_links": missing_card_links,
+    }
+
+
+def render_index(brain_root: Path, new_items: list[SourceItem], cards_present: set[str] | None = None) -> str:
     entries: dict[str, dict[str, str]] = {}
     records = brain_root / RECORDS_RELATIVE
     if records.is_dir():
@@ -238,17 +284,22 @@ def render_index(brain_root: Path, new_items: list[SourceItem]) -> str:
             "title": item.title, "original_filename": item.path.name,
             "source_sha256": item.sha256, "source_date": item.source_date or "",
         }
+    present = cards_present if cards_present is not None else _intake_cards_present(brain_root)
     lines = [
         "---", "id: source-intake-index", "type: index", "status: active", "---",
         "# Historical source intake", "",
-        "> Revisit: when the deterministic source-intake contract changes. · Last touched: 2026-08-17.",
+        "> Revisit: when the deterministic source-intake contract changes. · Last touched: 2026-09-13.",
         "> These records preserve evidence. They do not promote raw communications into canonical truth.", "", "## Sources", "",
     ]
     for digest, fields in sorted(entries.items()):
         label = (fields.get("title") or fields.get("original_filename") or digest).replace("[", "(").replace("]", ")").replace("|", "-")
         date = f" · {fields['source_date']}" if fields.get("source_date") else ""
         filename = fields.get("original_filename", "unknown").replace("`", "'")
-        lines.append(f"- [[{RECORDS_RELATIVE}/{digest}|{label}]] — `{filename}`{date} · `sha256:{digest}`")
+        # STEP MEMORYINTAKE-1, 2026-09-13: an entry whose source already has a
+        # generated card must link the card too -- the Fred repair fixed one
+        # entry by hand; this is what keeps every future one correct.
+        card_suffix = f" · [[{CARDS_RELATIVE}/{digest}.card|card]]" if digest in present else ""
+        lines.append(f"- [[{RECORDS_RELATIVE}/{digest}|{label}]] — `{filename}`{date} · `sha256:{digest}`{card_suffix}")
     return "\n".join(lines) + "\n"
 
 
@@ -302,10 +353,15 @@ def _run_semantic_intake(
     source_id = sis.slug_for(source_path)
     source_sha256 = header_fields.get("source_sha256", "")
     # Production-shape captures (type: source) get their own card/receipt tree
-    # and never touch the historical-only navigation index below -- that index
-    # is a curated table over the 15 pre-existing historical_source imports,
-    # not a general card registry. Legacy historical_source records keep the
-    # exact pre-existing behavior, unchanged (STEP I2, 2026-09-10).
+    # and never touch the historical-only sources/historical_calls/INDEX.md
+    # below -- that index is a curated table over the 15 pre-existing
+    # historical_source imports, not a general card registry. Legacy
+    # historical_source records keep the exact pre-existing behavior,
+    # unchanged (STEP I2, 2026-09-10). Production-shape sources get their own
+    # index update instead -- sources/intake/INDEX.md, the one capture mode
+    # itself writes -- so the record's existing entry there also links its new
+    # card (STEP MEMORYINTAKE-1, 2026-09-13; see the Fred hand-repair this
+    # generalizes).
     is_production_shape = header_fields.get("type") == "source"
     if is_production_shape:
         card_relative = f"sources/intake/cards/{source_id}.card.md"
@@ -349,6 +405,15 @@ def _run_semantic_intake(
 
     if is_production_shape:
         documents = {card_relative: card_text}
+        # Only sources capture mode itself preserved under sources/intake/records/
+        # have an entry in sources/intake/INDEX.md to correct; a production-shape
+        # source outside that tree (not produced by this module's own capture
+        # path) has no such entry to link, and none is invented here.
+        if relative_posix.startswith(f"{RECORDS_RELATIVE}/"):
+            cards_present = _intake_cards_present(brain_root, extra=frozenset({source_id}))
+            index_text = render_index(brain_root, [], cards_present=cards_present)
+            _assert_index_links_source_and_card(index_text, source_id)
+            documents[INDEX_RELATIVE] = index_text
     else:
         index_path = brain_root / index_relative
         if not index_path.is_file():
@@ -419,7 +484,7 @@ def _run_semantic_intake(
     return IntakeResult(
         "success", 1, 2, 0, 1, True,
         (card_pointer, receipt_relative), (), refresh["search"], refresh["graphify"],
-        written.commit, True,
+        written.commit, True, SEMANTIC_TOKEN_USAGE_TEXT,
     )
 
 

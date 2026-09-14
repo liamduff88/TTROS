@@ -9,8 +9,10 @@ const apiGraphify = axios.create({ baseURL: '/api', timeout: 620000 })
 // Measured detailed-list baseline was ~1.6s before compact list rows; 5s keeps
 // a deliberate >3x margin without hiding queue starvation behind a long wait.
 const apiQueue = axios.create({ baseURL: '/api', timeout: 5000 })
-// Uploads can run considerably longer than an ordinary read; same order as apiWsl.
+// Uploads and Business Brain ingestion (git commit + search/Graphify refresh)
+// can run considerably longer than an ordinary read; same order as apiWsl.
 const apiUpload = axios.create({ baseURL: '/api', timeout: 60000 })
+const apiIngest = axios.create({ baseURL: '/api', timeout: 130000 })
 
 export const getHealth = () => api.get('/health').then(r => r.data)
 export const getEntities = () => api.get('/entities').then(r => r.data)
@@ -75,6 +77,10 @@ export const uploadFile = file => {
   return apiUpload.post('/uploads', form).then(r => r.data)
 }
 export const getUpload = upload_id => api.get(`/uploads/${encodeURIComponent(upload_id)}`).then(r => r.data)
+export const getMemoryIntake = () => api.get('/memory-intake').then(r => r.data)
+export const getMemoryIntakeUnfiledPreview = path => api.get('/memory-intake/unfiled-preview', { params: { path } }).then(r => r.data)
+export const ingestMemoryIntakeUpload = upload_id => apiIngest.post('/memory-intake/ingest', { upload_id }).then(r => r.data)
+export const ingestMemoryIntakeInboxPath = inbox_path => apiIngest.post('/memory-intake/ingest', { inbox_path }).then(r => r.data)
 export const getDashboardWorkflows = () => api.get('/dashboard/workflows').then(r => r.data)
 export const getDashboardWorkflow = (id) => api.get(`/dashboard/workflows/${encodeURIComponent(id)}`).then(r => r.data)
 export const saveDashboardWorkflow = (data) => api.post('/dashboard/workflows/save', data).then(r => r.data)
