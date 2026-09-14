@@ -1,14 +1,20 @@
-import { Bot, Circle, Copy, Monitor, RefreshCw, Search } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { Bot, Circle, Copy, MoreVertical, Monitor, RefreshCw, Zap } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
 import { getHermesUiStatus, launchHermesUi } from '../api'
 import { launcherPrompt } from '../launcherPrompts'
+import { DESTINATIONS } from '../shellState'
 
-export default function TopBar({ backendOk, cockpit, onNavigate, onRefresh }) {
+// Compact header: current surface + backend/Needs Me status stay always
+// visible; every launcher/status utility that used to live in a horizontally
+// scrolling row now lives behind the overflow menu (BUILD_SPECIFICATION
+// "Replace the current always-wide utility bar with a compact header").
+export default function TopBar({ activeDestination, backendOk, cockpit, onNavigate, onRefresh }) {
   const [refreshing, setRefreshing] = useState(false)
   const [copied, setCopied] = useState('')
-  const [query, setQuery] = useState('')
   const [hermesUi, setHermesUi] = useState(null)
   const [hermesUiBusy, setHermesUiBusy] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const menuRef = useRef(null)
 
   const counts = cockpit?.counts || {}
   const needs = (counts.human_review || 0) + (counts.needs_input || 0) + (cockpit?.stalled?.length || 0)
@@ -21,9 +27,20 @@ export default function TopBar({ backendOk, cockpit, onNavigate, onRefresh }) {
   const latitudeTitle = latitude.workspace_url
     ? 'Open configured Latitude workspace'
     : (latitude.degraded_reason || 'Latitude workspace URL not configured')
+  const surfaceLabel = DESTINATIONS.find(destination => destination.id === activeDestination)?.label || 'David'
+
   useEffect(() => {
     getHermesUiStatus().then(setHermesUi).catch(() => setHermesUi({ state: 'configuration_missing' }))
   }, [])
+
+  useEffect(() => {
+    if (!menuOpen) return undefined
+    const onClickAway = event => { if (menuRef.current && !menuRef.current.contains(event.target)) setMenuOpen(false) }
+    const onEscape = event => { if (event.key === 'Escape') setMenuOpen(false) }
+    document.addEventListener('mousedown', onClickAway)
+    document.addEventListener('keydown', onEscape)
+    return () => { document.removeEventListener('mousedown', onClickAway); document.removeEventListener('keydown', onEscape) }
+  }, [menuOpen])
 
   const handleRefresh = async () => {
     setRefreshing(true)
@@ -65,59 +82,71 @@ export default function TopBar({ backendOk, cockpit, onNavigate, onRefresh }) {
     }
   }
 
-  const submitSearch = event => {
-    event.preventDefault()
-    const clean = query.trim()
-    if (clean) onNavigate('search', { q: clean })
-  }
-
-  const now = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
   const statusColor = blocked ? 'text-clay fill-clay' : needs ? 'text-champagne fill-champagne' : backendOk ? 'text-olive fill-olive' : 'text-taupe fill-taupe'
+  const statusText = blocked ? `${blocked} blocked` : needs ? `${needs} needs me` : backendOk ? 'ready' : 'API offline'
 
   return (
-    <header className="flex flex-nowrap items-center gap-2 overflow-x-auto bg-graphite px-3 py-2 border-b border-softgraph flex-shrink-0" data-testid="utility-topbar">
-      <div className="flex shrink-0 flex-nowrap items-center gap-1.5">
-        <div className="mr-1 hidden items-center gap-1.5 md:flex">
+    <header className="relative flex flex-shrink-0 items-center justify-between gap-2 border-b border-softgraph bg-graphite px-3 py-2.5" data-testid="utility-topbar">
+      <div className="flex min-w-0 items-center gap-2">
+        <span className="truncate text-sm font-semibold text-ivory" data-testid="topbar-surface-title">{surfaceLabel}</span>
+        <span className="hidden items-center gap-1.5 sm:flex">
           <Circle size={8} className={statusColor} />
-          <span className="text-xs font-mono text-taupe">{blocked ? `${blocked} blocked` : needs ? `${needs} needs me` : backendOk ? 'ready' : 'API offline'}</span>
-        </div>
-          <button onClick={copyTelegramFallback} className="inline-flex h-8 items-center gap-1.5 rounded border border-softgraph bg-ink px-2.5 text-xs text-stone hover:border-champagne/50" title="Copy Telegram instructions; this dashboard does not send messages"><Copy size={13} />{copied === 'telegram' ? 'Copied Telegram instructions' : 'Telegram instructions'}</button>
-          <button
-            onClick={openHermesUi}
-            disabled={hermesUiBusy || hermesUi?.supported === false}
-            title={hermesUi?.reason || hermesUi?.launch_command || 'Start or open the local Hermes dashboard at 127.0.0.1:8081'}
-            className={`inline-flex h-8 items-center gap-1.5 rounded border px-2.5 text-xs ${
-              hermesUi?.http_reachable
-                ? 'border-softgraph bg-softgraph/40 text-stone hover:bg-softgraph'
-                : hermesUi?.supported === false
-                  ? 'border-softgraph bg-ink text-taupe opacity-60'
-                  : 'border-softgraph bg-ink text-stone hover:border-champagne/50'
-            }`}
-          >
-            <Monitor size={13} />{hermesUiBusy ? 'Starting Hermes UI' : hermesUi?.http_reachable ? 'Open Hermes UI' : hermesUi?.supported === false ? 'Hermes UI unavailable' : 'Launch Hermes UI'}
-          </button>
-          <button
-            onClick={() => latitude.workspace_url && window.open(latitude.workspace_url, '_blank')}
-            disabled={!latitude.workspace_url}
-            title={latitudeTitle}
-            className={`inline-flex h-8 items-center gap-1.5 rounded border px-2.5 text-xs ${
-              latitude.workspace_url ? 'border-softgraph bg-ink text-stone hover:border-champagne/50' : 'border-softgraph bg-ink text-taupe opacity-60'
-            }`}
-          >
-            <Bot size={13} />Latitude {latitude.workspace_url ? 'open' : latitudeLabel}
-          </button>
-          <button onClick={() => copyPrompt('codex')} className="inline-flex h-8 items-center gap-1.5 rounded border border-softgraph bg-ink px-2.5 text-xs text-stone hover:border-champagne/50"><Copy size={13} />{copied === 'codex' ? 'Copied Codex' : 'Codex copy-prompt'}</button>
-          <button onClick={() => copyPrompt('claude-code')} className="inline-flex h-8 items-center gap-1.5 rounded border border-softgraph bg-ink px-2.5 text-xs text-stone hover:border-champagne/50"><Copy size={13} />{copied === 'claude-code' ? 'Copied Claude' : 'Claude Code copy-prompt'}</button>
+          <span className="font-mono text-xs text-taupe" data-testid="topbar-status-text">{statusText}</span>
+        </span>
       </div>
-        <form onSubmit={submitSearch} className="flex h-8 min-w-48 shrink-0 items-center rounded border border-softgraph bg-ink px-2 text-xs text-stone focus-within:border-champagne/60">
-          <Search size={13} className="text-taupe" />
-          <input value={query} onChange={event => setQuery(event.target.value)} placeholder="Search local index" className="ml-2 w-44 bg-transparent outline-none placeholder:text-taupe" />
-        </form>
-        <button onClick={() => onNavigate('tokens-roi')} className="rounded border border-softgraph bg-ink px-2.5 py-1.5 text-xs font-mono text-champagne">{tokenChip}</button>
-        <div className="hidden text-xs text-taupe font-mono lg:block">{new Date().toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })} · {now}</div>
-        <button onClick={handleRefresh} className="text-taupe hover:text-stone transition-colors" title="Refresh dashboard">
-          <RefreshCw size={13} className={refreshing ? 'animate-spin' : ''} />
+
+      <div className="flex shrink-0 items-center gap-1.5">
+        <button onClick={() => onNavigate('work-queue', { status: 'human_review' })} className="rounded border border-softgraph bg-ink px-2 py-1.5 font-mono text-[11px] text-champagne sm:hidden" title={statusText}>
+          <Circle size={8} className={`inline ${statusColor}`} /> {needs || blocked || 0}
         </button>
+        <button onClick={handleRefresh} className="rounded p-1.5 text-taupe transition-colors hover:text-stone" title="Refresh dashboard" aria-label="Refresh dashboard">
+          <RefreshCw size={15} className={refreshing ? 'animate-spin' : ''} />
+        </button>
+        <div className="relative" ref={menuRef}>
+          <button
+            onClick={() => setMenuOpen(value => !value)}
+            className="rounded p-1.5 text-taupe transition-colors hover:bg-softgraph hover:text-stone"
+            aria-label="More utilities"
+            aria-expanded={menuOpen}
+            data-testid="topbar-overflow-toggle"
+          >
+            <MoreVertical size={16} />
+          </button>
+          {menuOpen && (
+            <div className="absolute right-0 top-full z-30 mt-1 w-72 max-w-[calc(100vw-1.5rem)] rounded border border-softgraph bg-graphite p-2 shadow-2xl" role="menu" data-testid="topbar-overflow-menu">
+              <div className="rounded border border-softgraph bg-ink px-2.5 py-2 text-xs font-mono text-champagne">{tokenChip}</div>
+              <button onClick={copyTelegramFallback} className="mt-2 flex w-full items-center gap-2 rounded px-2.5 py-2 text-left text-xs text-stone hover:bg-softgraph" title="Copy Telegram instructions; this dashboard does not send messages">
+                <Copy size={13} />{copied === 'telegram' ? 'Copied Telegram instructions' : 'Telegram instructions'}
+              </button>
+              <button
+                onClick={openHermesUi}
+                disabled={hermesUiBusy || hermesUi?.supported === false}
+                className="mt-1 flex w-full items-center gap-2 rounded px-2.5 py-2 text-left text-xs text-stone hover:bg-softgraph disabled:opacity-50"
+                title={hermesUi?.reason || hermesUi?.launch_command || 'Start or open the local Hermes dashboard at 127.0.0.1:8081'}
+              >
+                <Monitor size={13} />{hermesUiBusy ? 'Starting Hermes UI' : hermesUi?.http_reachable ? 'Open Hermes UI' : hermesUi?.supported === false ? 'Hermes UI unavailable' : 'Launch Hermes UI'}
+              </button>
+              <button
+                onClick={() => latitude.workspace_url && window.open(latitude.workspace_url, '_blank')}
+                disabled={!latitude.workspace_url}
+                className="mt-1 flex w-full items-center gap-2 rounded px-2.5 py-2 text-left text-xs text-stone hover:bg-softgraph disabled:opacity-50"
+                title={latitudeTitle}
+              >
+                <Bot size={13} />Latitude {latitude.workspace_url ? 'open' : latitudeLabel}
+              </button>
+              <button onClick={() => copyPrompt('codex')} className="mt-1 flex w-full items-center gap-2 rounded px-2.5 py-2 text-left text-xs text-stone hover:bg-softgraph">
+                <Copy size={13} />{copied === 'codex' ? 'Copied Codex' : 'Codex copy-prompt'}
+              </button>
+              <button onClick={() => copyPrompt('claude-code')} className="mt-1 flex w-full items-center gap-2 rounded px-2.5 py-2 text-left text-xs text-stone hover:bg-softgraph">
+                <Copy size={13} />{copied === 'claude-code' ? 'Copied Claude' : 'Claude Code copy-prompt'}
+              </button>
+              <button onClick={() => onNavigate('system', { tab: 'tokens' })} className="mt-1 flex w-full items-center gap-2 rounded px-2.5 py-2 text-left text-xs text-stone hover:bg-softgraph">
+                <Zap size={13} />Open Tokens
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
     </header>
   )
 }

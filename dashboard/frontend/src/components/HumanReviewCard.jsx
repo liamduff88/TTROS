@@ -3,9 +3,6 @@ import { closeQueueItemReview, getQueueItem, recordQueueOutreachEvent, saveQueue
 import { applyReviewDecision, loadReviewDraft, persistReviewDraft, saveReviewNoteDraft } from '../reviewCardState'
 
 const storage = () => globalThis.localStorage
-const fullDocumentHref = (kind, path) => path
-  ? `/api/queue/${kind}?path=${encodeURIComponent(path)}`
-  : ''
 
 const displayTokenLines = lines => Array.isArray(lines) ? lines.filter(Boolean) : []
 const isoToday = () => new Date().toISOString().slice(0, 10)
@@ -23,7 +20,7 @@ const preparedOutreachCopy = review => {
   return null
 }
 
-export function HumanReviewCard({ item, onSaved, className = '' }) {
+export function HumanReviewCard({ item, onSaved, onOpenArtifact, className = '' }) {
   const [reviewItem, setReviewItem] = useState(item)
   const [draft, setDraft] = useState(() => loadReviewDraft(item.id, storage()))
   const [outreachEvent, setOutreachEvent] = useState('')
@@ -219,7 +216,11 @@ export function HumanReviewCard({ item, onSaved, className = '' }) {
         <section className="rounded border border-softgraph bg-ink p-3" data-testid="review-receipt-content">
           <div className="flex items-center justify-between gap-2">
             <div className="text-[11px] font-semibold uppercase tracking-wider text-taupe">Latest substantive receipt</div>
-            {receipt.path && <a className="text-xs text-champagne hover:text-stone" href={fullDocumentHref('receipt', receipt.path)} target="_blank" rel="noreferrer">Full receipt</a>}
+            {receipt.path && (
+              <button type="button" className="text-xs text-champagne hover:text-stone" onClick={() => onOpenArtifact?.({ path: receipt.path, category: 'Receipt', extension: '.md' })}>
+                Full receipt
+              </button>
+            )}
           </div>
           <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words text-xs leading-5 text-stone">{details.receipt_content || receipt.content || 'Receipt unavailable.'}</pre>
         </section>
@@ -227,7 +228,11 @@ export function HumanReviewCard({ item, onSaved, className = '' }) {
         {artifact && <section className="rounded border border-softgraph bg-ink p-3" data-testid="review-artifact-content">
           <div className="flex items-center justify-between gap-2">
             <div className="text-[11px] font-semibold uppercase tracking-wider text-taupe">Consolidated artifact</div>
-            {artifact.path && <a className="text-xs text-champagne hover:text-stone" href={fullDocumentHref('artifact', artifact.path)} target="_blank" rel="noreferrer">Full artifact</a>}
+            {artifact.path && (
+              <button type="button" className="text-xs text-champagne hover:text-stone" onClick={() => onOpenArtifact?.({ path: artifact.path, category: 'Artifact', extension: artifact.extension, name: artifact.name })}>
+                Full artifact
+              </button>
+            )}
           </div>
           <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words text-xs leading-5 text-stone">{artifact.content || artifact.content_excerpt || 'Artifact preview unavailable.'}</pre>
         </section>}

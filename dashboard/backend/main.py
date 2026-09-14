@@ -6789,6 +6789,13 @@ def _queue_public_item(item: dict, invocation_attributions: dict[str, dict] | No
         "model_turns": attribution.get("model_turns"),
         "needs_me": needs_me,
         "review_card_kind": "outreach" if isinstance(item.get("outreach_review"), dict) else "standard",
+        # Additive, already-present fields every compact projection (list,
+        # queue/summary, cockpit) needs so the frontend can fold a decomposed
+        # workflow's parent/child rows into one card client-side
+        # (BUILD_SPECIFICATION "Internal Outreach Daily classification" /
+        # F-QUEUE-GROUPING) without a per-item detail fetch for every row.
+        "parent_id": item.get("parent_id"),
+        "step_index": item.get("step_index"),
     }
 
 

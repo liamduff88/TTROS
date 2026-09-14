@@ -78,7 +78,7 @@ test('AskDavid hydrates thread and draft from storage on mount, persists on chan
   assert.match(source, /persistThread\(window\.sessionStorage, thread\)/)
   assert.match(source, /loadStoredDraft\(window\.sessionStorage\)/)
   assert.match(source, /persistDraft\(window\.sessionStorage, text\)/)
-  assert.match(source, /askDavid\(clean\)/)
+  assert.match(source, /askDavid\(clean, attachmentRefs\)/)
   assert.doesNotMatch(source, /askDavid\([^)]*thread/)
   assert.match(source, /setText\(''\)/)
 })

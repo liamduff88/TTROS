@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { X, Zap, LockKeyhole, ChevronLeft, ChevronRight } from 'lucide-react'
 import { laneColor, laneName, workbenchColor } from '../shellState'
 import { isReviewCardItem } from '../reviewCardState'
+import { groupWorkflowChildren } from '../queueState'
 import { HumanReviewCard } from './HumanReviewCard'
 
 export const STATUS_LABELS = {
@@ -212,13 +213,71 @@ export function TokenRail({ tokens, onNavigate }) {
   )
 }
 
+// Shared item rendering used by both the David-hub Needs Me panel and the
+// (retained, currently unmounted) collapsible rail below.
+function NeedsMeItems({ items, onNavigate, onRefresh }) {
+  return (
+    <div className="space-y-2">
+      {items.map(item => isReviewCardItem(item) ? (
+        <HumanReviewCard key={item.id} item={item} onSaved={onRefresh} />
+      ) : (
+        <button key={item.id} onClick={() => onNavigate('work-queue', { q: item.id, selectedId: item.id })} className="w-full rounded border bg-ink p-2 text-left" style={{ borderColor: workbenchColor(item.invocation_source, item.status) }} data-needs-me-id={item.id} data-invocation-source={item.invocation_source || 'unattributed'}>
+          <div className="truncate text-xs font-semibold text-stone">{item.title}</div>
+          <div className="mt-1 flex items-center justify-between gap-2 text-[10px] text-taupe">
+            <span>{item.id}</span>
+            <StatusChip status={item.honest_status || item.status}>{item.stalled_minutes ? 'stalled' : item.status}</StatusChip>
+          </div>
+          {Array.isArray(item.needs_me) && item.needs_me.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1">
+              {item.needs_me.map(reason => <span key={reason} className="rounded border border-champagne/50 bg-champagne/10 px-1.5 py-0.5 text-[9px] font-semibold text-champagne">{reason}</span>)}
+            </div>
+          )}
+        </button>
+      ))}
+      {!items.length && <div className="rounded border border-softgraph bg-ink p-3 text-xs text-taupe">Nothing needs you. No stalled, blocked, review, or input items.</div>}
+    </div>
+  )
+}
+
+// Inline panel used by the David hub (BUILD_SPECIFICATION "David dominates
+// the first viewport; Needs Me... answer the five operator questions without
+// opening System") — a plain block, not a page-edge rail, so it sits beside
+// David in a two-column row on desktop and stacks below it on mobile.
+export function NeedsMePanel({ cockpit, onNavigate, onRefresh }) {
+  // Fold a decomposed workflow's parent/child rows into one card here too
+  // (F-QUEUE-GROUPING) — otherwise e.g. Internal Outreach Daily's parent and
+  // child both independently need attention and would double up as two
+  // apparently-duplicate Needs Me cards (BUILD_SPECIFICATION "Parent/child
+  // workflow" / "Internal Outreach Daily classification").
+  const items = groupWorkflowChildren(cockpit?.needs_me || [])
+  const backup = cockpit?.backup || {}
+  return (
+    <section className="flex min-h-0 flex-col rounded border border-champagne/40 bg-graphite/80 p-3" data-testid="needs-me-panel">
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-xs font-mono text-[var(--needs-review-text)]">NEEDS ME</div>
+        <div className="text-lg font-semibold text-ivory" data-testid="needs-me-count">{items.length} active</div>
+      </div>
+      <div className="mt-3 max-h-[48vh] overflow-y-auto pr-1 lg:max-h-none lg:flex-1">
+        <NeedsMeItems items={items} onNavigate={onNavigate} onRefresh={onRefresh} />
+      </div>
+      {backup?.needs_attention && (
+        <button onClick={() => onNavigate('system', { tab: 'watch' })} className="mt-3 w-full rounded border border-clay/70 bg-clay/10 p-3 text-left text-xs hover:border-clay">
+          <div className="font-semibold text-clay">Backup needs attention</div>
+          <div className="mt-1 text-taupe">{backup.state === 'failed' ? 'Latest backup failed.' : 'Latest backup is older than 48 hours.'}</div>
+        </button>
+      )}
+    </section>
+  )
+}
+
+// Retained collapsible rail presentation for a future page-edge use; not
+// currently mounted anywhere (App.jsx no longer renders a global right rail
+// per BUILD_SPECIFICATION "remove global squeeze from right rail").
 export function NeedsMeRail({ cockpit, onNavigate, onRefresh, collapseKey = null }) {
   const [collapsed, setCollapsed] = useState(false)
-  const items = cockpit?.needs_me || []
+  const items = groupWorkflowChildren(cockpit?.needs_me || [])
   const itemCount = items.length
   const strip = cockpit?.tokens?.strip || {}
-  const backup = cockpit?.backup || {}
-  const backupAttention = backup?.needs_attention
   useEffect(() => {
     if (collapseKey) setCollapsed(true)
   }, [collapseKey])
@@ -239,39 +298,36 @@ export function NeedsMeRail({ cockpit, onNavigate, onRefresh, collapseKey = null
         <div><div className="text-xs font-mono text-[var(--needs-review-text)]">NEEDS ME</div><div className="mt-1 text-lg font-semibold text-ivory" data-testid="needs-me-count">{itemCount} active</div></div>
         <button onClick={() => setCollapsed(true)} className="rounded p-1.5 text-taupe hover:bg-well hover:text-stone" aria-label="Collapse Needs Me"><ChevronRight size={14} /></button>
       </div>
-      <div className="mt-4 space-y-2">
-        {items.map(item => isReviewCardItem(item) ? (
-          <HumanReviewCard key={item.id} item={item} onSaved={onRefresh} />
-        ) : (
-          <button key={item.id} onClick={() => onNavigate('work-queue', { q: item.id, selectedId: item.id })} className="w-full rounded border bg-ink p-2 text-left" style={{ borderColor: workbenchColor(item.invocation_source, item.status) }} data-needs-me-id={item.id} data-invocation-source={item.invocation_source || 'unattributed'}>
-            <div className="truncate text-xs font-semibold text-stone">{item.title}</div>
-            <div className="mt-1 flex items-center justify-between gap-2 text-[10px] text-taupe">
-              <span>{item.id}</span>
-              <StatusChip status={item.honest_status || item.status}>{item.stalled_minutes ? 'stalled' : item.status}</StatusChip>
-            </div>
-            {Array.isArray(item.needs_me) && item.needs_me.length > 0 && (
-              <div className="mt-2 flex flex-wrap gap-1">
-                {item.needs_me.map(reason => <span key={reason} className="rounded border border-champagne/50 bg-champagne/10 px-1.5 py-0.5 text-[9px] font-semibold text-champagne">{reason}</span>)}
-              </div>
-            )}
-          </button>
-        ))}
-        {!items.length && <div className="rounded border border-softgraph bg-ink p-3 text-xs text-taupe">No stalled, blocked, review, or input items.</div>}
-      </div>
-      {backupAttention && (
-        <button onClick={() => onNavigate('mission-control')} className="mt-4 w-full rounded border border-clay/70 bg-clay/10 p-3 text-left text-xs hover:border-clay">
-          <div className="font-semibold text-clay">Backup needs attention</div>
-          <div className="mt-1 text-taupe">{backup.state === 'failed' ? 'Latest backup failed.' : 'Latest backup is older than 48 hours.'}</div>
-        </button>
-      )}
+      <div className="mt-4"><NeedsMeItems items={items} onNavigate={onNavigate} onRefresh={onRefresh} /></div>
       <div className="mt-5 rounded border border-softgraph bg-ink p-3 text-xs text-taupe">
         <div className="font-mono text-champagne">TOKENS</div>
         <div className="mt-2">{strip.current_task?.label || 'Token usage: unavailable from current CLI output'}</div>
         <div className="mt-1">{strip.last_task?.label || 'Token usage: unavailable from current CLI output'}</div>
         <div className="mt-1">{strip.today?.label || 'Token usage: unavailable from current CLI output'}</div>
       </div>
-      <button onClick={() => onNavigate('mission-control')} className="mt-4 text-xs font-semibold text-champagne hover:text-stone">Open Mission Control</button>
     </aside>
+  )
+}
+
+// Local workspace tab strip shared by the Results, Search, and System hubs
+// (BUILD_SPECIFICATION "Local report/workspace tabs"). Persisted active tab
+// lives in the caller's viewParams via the existing shell session mechanism.
+export function HubTabs({ tabs, active, onChange }) {
+  return (
+    <div className="mb-4 flex flex-wrap gap-1 overflow-x-auto border-b border-softgraph" role="tablist">
+      {tabs.map(tab => (
+        <button
+          key={tab.id}
+          role="tab"
+          aria-selected={active === tab.id}
+          onClick={() => onChange(tab.id)}
+          data-hub-tab={tab.id}
+          className={`shrink-0 whitespace-nowrap rounded-t px-3 py-2 text-xs font-semibold transition-colors ${active === tab.id ? 'border-b-2 border-champagne text-ivory' : 'text-taupe hover:text-stone'}`}
+        >
+          {tab.label}
+        </button>
+      ))}
+    </div>
   )
 }
 

@@ -9,6 +9,8 @@ const apiGraphify = axios.create({ baseURL: '/api', timeout: 620000 })
 // Measured detailed-list baseline was ~1.6s before compact list rows; 5s keeps
 // a deliberate >3x margin without hiding queue starvation behind a long wait.
 const apiQueue = axios.create({ baseURL: '/api', timeout: 5000 })
+// Uploads can run considerably longer than an ordinary read; same order as apiWsl.
+const apiUpload = axios.create({ baseURL: '/api', timeout: 60000 })
 
 export const getHealth = () => api.get('/health').then(r => r.data)
 export const getEntities = () => api.get('/entities').then(r => r.data)
@@ -67,6 +69,12 @@ export const routeMessageBoardCommand = (data) => api.post('/dashboard/message-b
 export const askHermesMessage = (text, source_refs = [], conversation_id = 'dashboard-operator') => apiWsl.post('/hermes/message', { text, source_refs, conversation_id }).then(r => r.data)
 export const consultExecutive = data => apiWsl.post('/executive-team/consult', data).then(r => r.data)
 export const askDavid = (text, source_refs = []) => apiWsl.post('/dashboard/ask-david', { text, source_refs }).then(r => r.data)
+export const uploadFile = file => {
+  const form = new FormData()
+  form.append('file', file)
+  return apiUpload.post('/uploads', form).then(r => r.data)
+}
+export const getUpload = upload_id => api.get(`/uploads/${encodeURIComponent(upload_id)}`).then(r => r.data)
 export const getDashboardWorkflows = () => api.get('/dashboard/workflows').then(r => r.data)
 export const getDashboardWorkflow = (id) => api.get(`/dashboard/workflows/${encodeURIComponent(id)}`).then(r => r.data)
 export const saveDashboardWorkflow = (data) => api.post('/dashboard/workflows/save', data).then(r => r.data)

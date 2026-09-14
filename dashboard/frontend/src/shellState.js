@@ -13,31 +13,38 @@ export const laneRoutePath = lane => {
 }
 
 export const shellRouteFromPath = pathname => {
-  const match = String(pathname || '').match(/^\/lane\/([^/]+)\/?$/)
-  if (!match) return null
-  let lane
-  try {
-    lane = normalizeLaneRouteName(decodeURIComponent(match[1]))
-  } catch {
-    return null
+  const path = String(pathname || '')
+  const match = path.match(/^\/lane\/([^/]+)\/?$/)
+  if (match) {
+    let lane
+    try {
+      lane = normalizeLaneRouteName(decodeURIComponent(match[1]))
+    } catch {
+      return null
+    }
+    return lane ? { view: 'lane-workspace', viewParams: { lane } } : null
   }
-  return lane ? { view: 'lane-workspace', viewParams: { lane } } : null
+  const destination = PATH_TO_DESTINATION[path.replace(/\/+$/, '') || '/']
+  return destination ? { view: destination, viewParams: {} } : null
 }
 
-export const shellPathForView = (view, viewParams = {}) =>
-  view === 'lane-workspace' ? laneRoutePath(viewParams.lane) || '/' : '/'
+export const shellPathForView = (view, viewParams = {}) => {
+  if (view === 'lane-workspace') return laneRoutePath(viewParams.lane) || '/'
+  return DESTINATION_PATH[destinationForView(view)] || '/'
+}
 
 export const shellViewForNavigation = (view, viewParams = {}) =>
   view === 'work-queue' && laneRoutePath(viewParams.lane) ? 'lane-workspace' : view
 
 export const VIEW_META = {
-  cockpit: { label: 'Cockpit', workbench: 'hermes', pinned: true },
+  cockpit: { label: 'David', workbench: 'hermes', pinned: true },
   'work-queue': { label: 'Work Queue', workbench: 'codex' },
   'lane-workspace': { label: 'Lane Workspace', workbench: 'codex' },
   'workflow-bench': { label: 'Workflow Bench', workbench: 'hermes' },
   'message-board': { label: 'Message Board', workbench: 'hermes' },
   'skills-board': { label: 'Skills Board', workbench: 'hermes' },
   'memory-board': { label: 'Memory Board', workbench: 'hermes' },
+  'memory-intake': { label: 'Add to Memory', workbench: 'hermes' },
   'prompt-library': { label: 'Prompt Library', workbench: 'codex' },
   graphify: { label: 'Graphify', workbench: 'hermes' },
   'repo-ingest': { label: 'Repo Ingest', workbench: 'codex' },
@@ -48,15 +55,73 @@ export const VIEW_META = {
   'mission-control': { label: 'Mission Control', workbench: 'hermes' },
   settings: { label: 'Settings / Launchers', workbench: 'hermes' },
   search: { label: 'Search', workbench: 'hermes' },
+  results: { label: 'Results', workbench: 'hermes' },
+  system: { label: 'System', workbench: 'hermes' },
 }
 
 export const initialSessionTabs = () => [
   { id: 'cockpit', ...VIEW_META.cockpit, preview: false },
-  { id: 'message-board', ...VIEW_META['message-board'], preview: true },
 ]
 
+// The dashboard's five global destinations (BUILD_SPECIFICATION "I —
+// Information hierarchy"). `cockpit` keeps its existing technical id (and
+// every existing test/session-storage value that names it) but is presented
+// throughout the UI as "David" via VIEW_META.cockpit.label above.
+export const DESTINATIONS = [
+  { id: 'cockpit', label: 'David' },
+  { id: 'work-queue', label: 'Work Queue' },
+  { id: 'results', label: 'Results' },
+  { id: 'search', label: 'Search' },
+  { id: 'system', label: 'System' },
+]
+
+// Every routable view id — including legacy views now folded into a hub's
+// local tabs — resolves to exactly one of the five destinations above, so
+// nav active-state and the mobile bottom bar stay correct no matter which
+// internal tab or legacy deep link is actually open.
+const VIEW_DESTINATION = {
+  cockpit: 'cockpit',
+  'message-board': 'cockpit',
+  'work-queue': 'work-queue',
+  'lane-workspace': 'work-queue',
+  results: 'results',
+  'results-receipts': 'results',
+  artifacts: 'results',
+  search: 'search',
+  'memory-board': 'search',
+  'memory-intake': 'search',
+  graphify: 'search',
+  'repo-ingest': 'search',
+  system: 'system',
+  'mission-control': 'system',
+  'connections-spine': 'system',
+  'workflow-bench': 'system',
+  'skills-board': 'system',
+  'tokens-roi': 'system',
+  settings: 'system',
+  'prompt-library': 'system',
+}
+
+export const destinationForView = view => VIEW_DESTINATION[view] || 'cockpit'
+
+// Stable URL for each of the other four destinations (BUILD_SPECIFICATION
+// "Preserve browser back/forward. Extend the existing history/state router
+// with stable routes for the five destinations"), so Back/Forward between
+// them works like the existing /lane/:name pattern. Deliberately excludes
+// `cockpit` — root ('/') must keep resolving to nothing here so a plain
+// reload at '/' still restores whatever view sessionStorage last had
+// (existing behavior every session-restore test already relies on) rather
+// than always snapping back to David.
+const DESTINATION_PATH = {
+  'work-queue': '/queue',
+  results: '/results',
+  search: '/search',
+  system: '/system',
+}
+const PATH_TO_DESTINATION = Object.fromEntries(Object.entries(DESTINATION_PATH).map(([id, path]) => [path, id]))
+
 export function restoreShellSession(raw, pathname = '') {
-  const fallback = { view: 'message-board', viewParams: {}, sessionTabs: initialSessionTabs() }
+  const fallback = { view: 'cockpit', viewParams: {}, sessionTabs: initialSessionTabs() }
   let restored = fallback
   try {
     if (raw) {

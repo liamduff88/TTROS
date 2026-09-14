@@ -35,9 +35,9 @@ import AskDavid from '../components/AskDavid'
 import ExecutiveTeam from '../components/ExecutiveTeam'
 import { validateGitHubRepositoryUrl } from '../graphifyState'
 import { launcherPrompt } from '../launcherPrompts'
-import { laneRoutePath } from '../shellState'
+import { groupWorkflowChildren } from '../queueState'
 import { sourceComponentTotalText, tokenComponentText } from '../tokenDisplay'
-import { ActionButton, DetailPanel, EmptyState, FilterBar, PageHeader, RowButton, SourceChip, StatTile, StatusChip, statusLabel } from '../components/DashboardKit'
+import { ActionButton, DetailPanel, EmptyState, FilterBar, HubTabs, NeedsMePanel, PageHeader, RowButton, SourceChip, StatTile, StatusChip, statusLabel } from '../components/DashboardKit'
 
 const age = value => {
   if (!value) return 'unavailable'
@@ -49,51 +49,6 @@ const age = value => {
 
 const itemLane = item => item?.lane || item?.owner || 'unassigned'
 
-const laneColor = lane => `var(--lane-${lane === 'unassigned' ? 'unassigned' : lane})`
-const laneTitle = lane => lane === 'unassigned' ? 'Unassigned' : `${lane.slice(0, 1).toUpperCase()}${lane.slice(1)}`
-const laneTokenText = usage => usage?.state === 'exact'
-  ? `${Number(usage.total).toLocaleString()} exact · ${Number(usage.input).toLocaleString()} in / ${Number(usage.output).toLocaleString()} out`
-  : 'unavailable'
-
-function LaneActivityCard({ lane, onNavigate }) {
-  const items = lane.items || []
-  const active = lane.current_assigned_work || []
-  const review = Number(lane.counts?.human_review || 0)
-  const border = review ? 'var(--needs-review)' : `var(--wb-${lane.shortcut?.workbench || 'hermes'}-queued)`
-  const href = laneRoutePath(lane.lane) || '/'
-  return (
-    <a
-      href={href}
-      onClick={event => { event.preventDefault(); onNavigate('work-queue', { lane: lane.lane }) }}
-      className="block min-w-0 rounded border bg-graphite/70 p-3 text-left hover:border-champagne/40 focus:outline-none focus:ring-2 focus:ring-champagne/50"
-      style={{ borderColor: border }}
-      data-lane-card={lane.lane}
-      aria-label={`Open ${laneTitle(lane.lane)} lane`}
-    >
-      <div className="flex items-start justify-between gap-2">
-        <div>
-          <span className="rounded px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-ivory" style={{ backgroundColor: laneColor(lane.lane) }}>{laneTitle(lane.lane)}</span>
-          <div className="mt-2 text-xs text-taupe">{items.length} queue items · {lane.degraded ? 'data unavailable' : 'live local data'}</div>
-        </div>
-        {review > 0 && <StatusChip status="human_review">Needs review</StatusChip>}
-      </div>
-      <div className="mt-3 grid grid-cols-4 gap-1 text-center text-[10px] text-taupe">
-        {['agent_todo', 'agent_working', 'blocked', 'human_review'].map(status => <div key={status} className="rounded bg-ink p-1.5"><strong className="block text-sm text-stone">{lane.counts?.[status] || 0}</strong>{status.replace('agent_', '').replace('_', ' ')}</div>)}
-      </div>
-      <div className="mt-3 space-y-2 text-xs">
-        <div><span className="text-taupe">Current:</span> <span className="text-stone">{active.length ? active.map(item => item.id).join(', ') : 'none assigned'}</span></div>
-        <div><span className="text-taupe">Last done:</span> <span className="text-stone">{lane.last_completed_item?.id || 'unavailable'}</span></div>
-        <div className="truncate"><span className="text-taupe">Receipt:</span> <span className="text-stone">{lane.latest_receipt?.path || 'unavailable'}</span></div>
-        <div className="truncate"><span className="text-taupe">Artifact:</span> <span className="text-stone">{lane.latest_artifact?.path || 'unavailable'}</span></div>
-        <div><span className="text-taupe">Tokens:</span> <span className="text-stone">{laneTokenText(lane.token_usage)}</span></div>
-        <div><span className="text-taupe">Last run:</span> <span className="text-stone">{lane.last_successful_run ? (lane.last_successful_run.timestamp || lane.last_successful_run.completed_at || lane.last_successful_run.created_at || 'recorded') : 'unavailable'}</span></div>
-      </div>
-      <div className="mt-3 flex flex-wrap gap-1">
-        {items.slice(0, 8).map(item => <span key={item.id} className="rounded border border-softgraph bg-ink px-1.5 py-1 text-[10px] text-taupe" data-lane-item={item.id}>{item.id} · {item.owner || 'unassigned'} / {item.workbench || 'no workbench'}</span>)}
-      </div>
-    </a>
-  )
-}
 const textMatch = (item, q) => !q || JSON.stringify(item).toLowerCase().includes(q.toLowerCase())
 const byFilters = (item, filters) =>
   (!filters.status || item.status === filters.status) &&
@@ -101,36 +56,6 @@ const byFilters = (item, filters) =>
   (!filters.workbench || item.owner === filters.workbench) &&
   (!filters.source || String(item.source || '').toLowerCase() === filters.source.toLowerCase()) &&
   textMatch(item, filters.q || '')
-
-const backupLabel = state => ({
-  no_receipts: 'No receipts',
-  fresh_success: 'Fresh success',
-  stale: 'Stale',
-  failed: 'Failed',
-}[state] || 'Unavailable')
-
-function BackupStatusCard({ backup }) {
-  const latest = backup?.latest
-  const attention = backup?.needs_attention
-  return (
-    <div className={`rounded border p-4 ${attention ? 'border-clay/70 bg-clay/10' : 'border-softgraph bg-graphite/70'}`}>
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div>
-          <h2 className="text-sm font-semibold text-stone">Automated Backup</h2>
-          <div className="mt-1 text-xs text-taupe">{backup?.token_usage_text || 'Token usage: no agent invocation'}</div>
-        </div>
-        <StatusChip status={attention ? 'Blocked' : 'Done'}>{backupLabel(backup?.state)}</StatusChip>
-      </div>
-      <div className="mt-3 grid gap-2 text-xs text-taupe md:grid-cols-2">
-        <div><span className="text-stone">Last:</span> {latest?.ts || 'no backup receipts yet'}</div>
-        <div><span className="text-stone">Target:</span> {latest?.target || 'D:\\TTROS_Backups'}</div>
-        <div className="md:col-span-2"><span className="text-stone">Snapshot:</span> {latest?.snapshot_path || 'unavailable'}</div>
-        <div className="md:col-span-2"><span className="text-stone">Receipt:</span> {backup?.latest_receipt_path || 'queue/receipts/backups.jsonl'}</div>
-        <div className="md:col-span-2"><span className="text-stone">Log:</span> {backup?.latest_log_path || 'unavailable'}</div>
-      </div>
-    </div>
-  )
-}
 
 function useAsync(loader, deps = []) {
   const [state, setState] = useState({ loading: true, data: null, error: '' })
@@ -147,78 +72,77 @@ function MarkdownPreview({ content }) {
   return <pre className="max-h-[65vh] overflow-auto whitespace-pre-wrap rounded border border-softgraph bg-ink p-3 text-xs leading-5 text-stone">{content || 'unavailable'}</pre>
 }
 
+const ACTIVE_WORK_STATUSES = new Set(['inbox', 'agent_todo', 'agent_working'])
+
 export function Cockpit({ cockpit, onNavigate, refresh }) {
   const [selected, setSelected] = useState(null)
   const [specialistsOpen, setSpecialistsOpen] = useState(false)
   const data = cockpit || {}
-  const counts = data.counts || {}
-  const needs = data.needs_me || []
   const recent = data.recent_output || []
-  const laneActivity = data.lane_activity || []
+  // Active Work groups parent/child steps the same way Work Queue does
+  // (F-QUEUE-GROUPING) so a decomposed workflow — e.g. Internal Outreach
+  // Daily's AOS-2026-0497/0498 — reads as one card here too, not two.
+  const activeWork = groupWorkflowChildren(Array.isArray(data.queue_items) ? data.queue_items : [])
+    .filter(item => ACTIVE_WORK_STATUSES.has(item.status))
+    .sort((a, b) => new Date(b.updated_at || b.created_at || 0) - new Date(a.updated_at || a.created_at || 0))
+
   return (
     <>
-      <PageHeader title="Cockpit" question="What needs me right now, and what is the OS doing/spending?" actions={<ActionButton onClick={refresh}><RefreshCw size={13} />Refresh</ActionButton>} />
-      <AskDavid onNavigate={onNavigate} refresh={refresh} />
-      <section className="rounded border border-champagne/40 bg-graphite p-4">
-        <div className="mb-3 flex items-center justify-between">
-          <div>
-            <div className="text-xs font-mono text-champagne">NEEDS ME</div>
-            <div className="mt-1 text-3xl font-semibold text-ivory">{needs.length} items</div>
+      {/* David dominates the first viewport; Needs Me answers "what needs
+          me" beside it without leaving this page (BUILD_SPECIFICATION "David
+          dominates the first viewport"). */}
+      <div className="grid gap-4 lg:grid-cols-3 lg:items-start">
+        <div className="lg:col-span-2"><AskDavid onNavigate={onNavigate} refresh={refresh} /></div>
+        <NeedsMePanel cockpit={data} onNavigate={onNavigate} onRefresh={refresh} />
+      </div>
+
+      {/* Second row: Active Work and Recent Results as equal outcome panels
+          (BUILD_SPECIFICATION "Second row: Active Work and Recent Results as
+          equal outcome-oriented panels. Each shows 3-5 items and a clear
+          View all action."). */}
+      <div className="mt-4 grid gap-4 lg:grid-cols-2">
+        <section className="rounded border border-softgraph bg-graphite/70 p-4" data-testid="active-work-panel">
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold text-stone">Active Work</h2>
+            <button onClick={() => onNavigate('work-queue', {})} className="text-xs font-semibold text-champagne hover:text-stone">View all</button>
           </div>
-          <div className="grid grid-cols-3 gap-2">
-            <StatTile label="Needs Me" value={counts.human_review || 0} onClick={() => onNavigate('work-queue', { status: 'human_review' })} />
-            <StatTile label="Blocked" value={counts.blocked || 0} onClick={() => onNavigate('work-queue', { status: 'blocked' })} />
-            <StatTile label="Needs Input" value={counts.needs_input || 0} onClick={() => onNavigate('work-queue', { status: 'needs_input' })} />
-          </div>
-        </div>
-        <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-          {needs.slice(0, 6).map(item => (
-            <RowButton key={item.id} title={item.title} meta={`${item.id} · ${itemLane(item)} · ${age(item.updated_at || item.created_at)}`} right={<><SourceChip source={item.source} /><StatusChip status={item.status} /></>} onClick={() => setSelected(item)} />
-          ))}
-          {!needs.length && <EmptyState title="Nothing needs you." detail="No human_review, needs_input, or blocked queue items are active." />}
-        </div>
-      </section>
-      <section className="mt-4 grid gap-4 xl:grid-cols-2">
-        <div className="rounded border border-softgraph bg-graphite/70 p-4">
-          <h2 className="mb-3 text-sm font-semibold text-stone">Queue Snapshot</h2>
-          <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
-            {['inbox', 'agent_todo', 'agent_working', 'needs_input', 'human_review', 'blocked', 'done'].map(status => (
-              <StatTile key={status} label={statusLabel(status)} value={counts[status] || 0} sub={status} onClick={() => onNavigate('work-queue', { status })} />
+          <div className="space-y-2">
+            {activeWork.slice(0, 5).map(item => (
+              <RowButton
+                key={item.id}
+                title={item.title || 'Untitled work item'}
+                meta={`${itemLane(item)} · ${age(item.updated_at || item.created_at)} ago${item.childSteps?.length ? ` · ${item.childSteps.length + 1} steps` : ''}`}
+                right={<StatusChip status={item.status} />}
+                onClick={() => onNavigate('work-queue', { selectedId: item.id })}
+              />
             ))}
+            {!activeWork.length && <EmptyState title="Nothing running." detail="No queued or in-progress work right now." />}
           </div>
-        </div>
-        <BackupStatusCard backup={data.backup} />
-      </section>
-      <section className="mt-4 rounded border border-softgraph bg-graphite/50 p-4" data-testid="lane-activity">
-        <div className="mb-3">
-          <h2 className="text-sm font-semibold text-stone">Lane Activity</h2>
-          <p className="mt-1 text-xs text-taupe">Queue drilldowns grouped by recorded lane tag or lane owner; workbench and status remain separate real fields.</p>
-        </div>
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-          {laneActivity.map(lane => <LaneActivityCard key={lane.lane} lane={lane} onNavigate={onNavigate} />)}
-        </div>
-        {!laneActivity.length && <EmptyState title="Lane activity unavailable" detail="The existing queue and ledgers could not be summarized." />}
-      </section>
-      <section className="mt-4 grid gap-4 xl:grid-cols-2">
-        <div className="rounded border border-softgraph bg-graphite/70 p-4">
-          <h2 className="mb-3 text-sm font-semibold text-stone">Workbench Tiles</h2>
-          <div className="grid gap-2 md:grid-cols-2">
-            {(data.workbenches || []).map(tile => (
-              <button key={tile.id} onClick={() => tile.id === 'graphify' ? onNavigate('graphify') : onNavigate('work-queue', { workbench: tile.id.replace('-code', '') })} className="rounded border border-softgraph bg-ink p-3 text-left hover:border-champagne/40">
-                <div className="flex justify-between gap-2"><span className="text-sm font-semibold text-stone">{tile.name}</span><StatusChip status={tile.status} /></div>
-                <div className="mt-2 truncate text-xs text-taupe">{tile.last_task}</div>
-                <div className="mt-2 text-xs text-champagne">Tokens: {typeof tile.tokens_today === 'number' ? tile.tokens_today.toLocaleString() : 'unavailable'}</div>
-              </button>
+        </section>
+        <section className="rounded border border-softgraph bg-graphite/70 p-4" data-testid="recent-results-panel">
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold text-stone">Recent Results</h2>
+            <button onClick={() => onNavigate('results', {})} className="text-xs font-semibold text-champagne hover:text-stone">View all</button>
+          </div>
+          <div className="space-y-2">
+            {recent.slice(0, 5).map(item => (
+              <RowButton
+                key={item.id}
+                title={item.title || 'Untitled result'}
+                meta={item.source || item.path}
+                right={item.item_id ? undefined : <SourceChip source={item.source} />}
+                onClick={() => item.item_id ? onNavigate('work-queue', { selectedId: item.item_id }) : setSelected(item)}
+              />
             ))}
+            {!recent.length && <EmptyState title="Nothing finished yet." detail="Completed work will appear here as business outcomes." />}
           </div>
-        </div>
-      </section>
-      <section className="mt-4 rounded border border-softgraph bg-graphite/70 p-4">
-        <h2 className="mb-3 text-sm font-semibold text-stone">Recent Output</h2>
-        <div className="grid gap-2 md:grid-cols-2">
-          {recent.slice(0, 6).map(item => <RowButton key={item.id} title={item.title} meta={`${item.source} · ${item.path}`} onClick={() => setSelected(item)} />)}
-        </div>
-      </section>
+        </section>
+      </div>
+
+      {/* Everything below is secondary: reached by disclosure, never ahead of
+          David/Needs Me/Active Work/Recent Results (BUILD_SPECIFICATION
+          "System health, specialist consultation, tokens, receipts,
+          provenance, and raw metadata are secondary"). */}
       <section className="mt-4 rounded border border-softgraph bg-graphite/40 p-4" data-testid="specialist-consultations">
         <button type="button" onClick={() => setSpecialistsOpen(value => !value)} className="flex w-full items-center justify-between gap-2 text-left" aria-expanded={specialistsOpen}>
           <div className="flex items-center gap-2">

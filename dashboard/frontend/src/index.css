@@ -38,15 +38,39 @@
 
     --needs-review: #FFB020;
     --needs-review-text: #4A3000;
+
+    /* Height of the sticky Queue/report tab bar (BUILD_SPECIFICATION "Sticky
+       geometry and responsive behavior"). Selected content's scroll-margin-top
+       uses this so headings land clear of the pinned bar instead of under it. */
+    --sticky-bar-h: 2.5rem;
+  }
+
+  html, body {
+    overflow-x: hidden;
   }
 
   body {
     @apply bg-ink text-ivory font-sans;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--needs-review);
+    outline-offset: 2px;
   }
 }
 
 @layer utilities {
   .font-mono {
     font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  }
+
+  /* Shared scroll-landing offset for anything selected beneath the sticky
+     Queue/report tab bar or the fixed mobile bottom nav. */
+  .scroll-landing {
+    scroll-margin-top: var(--sticky-bar-h);
+  }
+
+  .safe-area-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
   }
 }

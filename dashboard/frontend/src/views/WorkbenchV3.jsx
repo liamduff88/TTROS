@@ -589,13 +589,22 @@ export function MissionControl() {
   const backup = watch?.backup || {}
   const latestBackup = backup?.latest
   const schedule = watch?.schedule || []
+  const davidHermes = watch?.david_hermes_health || {}
+  const davidHermesDegraded = Boolean(watch?.david_hermes_needs_attention)
   return (
     <>
       <PageHeader title="Mission Control" question="Read-only system watch: backend, queue tooling, stalled runs, and log tail." />
-      <div className="grid gap-3 md:grid-cols-3">
+      <div className="grid gap-3 md:grid-cols-4">
         <div className="rounded border border-softgraph bg-graphite/70 p-4"><div className="text-xs text-taupe">Backend</div><div className="mt-1 text-lg text-stone">{watch?.backend?.status || 'loading'}</div></div>
         <div className="rounded border border-softgraph bg-graphite/70 p-4"><div className="text-xs text-taupe">Queue Tooling</div><div className="mt-1 text-lg text-stone">{watch?.queue_tooling?.status || 'loading'}</div></div>
         <div className="rounded border border-softgraph bg-graphite/70 p-4"><div className="text-xs text-taupe">Stalled Runs</div><div className="mt-1 text-lg text-stone">{stalled.length}</div></div>
+        <div className={`rounded border p-4 ${davidHermesDegraded ? 'border-clay/70 bg-clay/10' : 'border-softgraph bg-graphite/70'}`} data-testid="david-hermes-health">
+          <div className="text-xs text-taupe">David / Hermes</div>
+          <div className="mt-1 text-lg text-stone">{davidHermes.available === false ? 'no data yet' : davidHermesDegraded ? `${davidHermes.consecutive_failures} failures in a row` : 'healthy'}</div>
+          {davidHermesDegraded && davidHermes.last_failure ? (
+            <div className="mt-1 text-xs text-clay">Last: {davidHermes.last_failure.failure_class || davidHermes.last_failure.stage || 'unknown'} · {davidHermes.last_failure.timestamp || ''}</div>
+          ) : null}
+        </div>
       </div>
       <section className={`mt-4 rounded border p-4 ${backup?.needs_attention ? 'border-clay/70 bg-clay/10' : 'border-softgraph bg-graphite/70'}`}>
         <div className="flex flex-wrap items-start justify-between gap-2">

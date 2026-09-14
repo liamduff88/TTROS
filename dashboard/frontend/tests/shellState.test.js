@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { MAX_SESSION_TABS, closeSessionTab, initialSessionTabs, laneName, laneRoutePath, needsMeCollapseKey, openSessionTab, pinSessionTab, restoreShellSession, shellPathForView, shellRouteFromPath, shellSessionSnapshot, shellViewForNavigation, workbenchColor } from '../src/shellState.js'
+import { DESTINATIONS, MAX_SESSION_TABS, closeSessionTab, destinationForView, initialSessionTabs, laneName, laneRoutePath, needsMeCollapseKey, openSessionTab, pinSessionTab, restoreShellSession, shellPathForView, shellRouteFromPath, shellSessionSnapshot, shellViewForNavigation, workbenchColor } from '../src/shellState.js'
 
 test('Cockpit stays pinned first and cannot close', () => {
   const tabs = initialSessionTabs()
@@ -67,6 +67,38 @@ test('Needs Me auto-collapse is keyed only to a selected Work Queue item', () =>
 })
 
 test('invalid stored shell state falls back safely', () => {
-  assert.equal(restoreShellSession('{bad json').view, 'message-board')
+  // David-first default (BUILD_SPECIFICATION "David dominates the first
+  // viewport"): an unreadable or missing shell session lands on David
+  // (technical id `cockpit`), not the retired Message Board destination.
+  assert.equal(restoreShellSession('{bad json').view, 'cockpit')
   assert.equal(restoreShellSession({ view: 'not-a-view', sessionTabs: [] }).sessionTabs[0].id, 'cockpit')
+})
+
+test('destinationForView resolves every routable id to one of the five global destinations', () => {
+  assert.equal(destinationForView('cockpit'), 'cockpit')
+  assert.equal(destinationForView('message-board'), 'cockpit')
+  assert.equal(destinationForView('work-queue'), 'work-queue')
+  assert.equal(destinationForView('lane-workspace'), 'work-queue')
+  assert.equal(destinationForView('results'), 'results')
+  assert.equal(destinationForView('results-receipts'), 'results')
+  assert.equal(destinationForView('artifacts'), 'results')
+  assert.equal(destinationForView('search'), 'search')
+  assert.equal(destinationForView('memory-board'), 'search')
+  assert.equal(destinationForView('memory-intake'), 'search')
+  assert.equal(destinationForView('graphify'), 'search')
+  assert.equal(destinationForView('repo-ingest'), 'search')
+  assert.equal(destinationForView('system'), 'system')
+  assert.equal(destinationForView('mission-control'), 'system')
+  assert.equal(destinationForView('connections-spine'), 'system')
+  assert.equal(destinationForView('workflow-bench'), 'system')
+  assert.equal(destinationForView('skills-board'), 'system')
+  assert.equal(destinationForView('tokens-roi'), 'system')
+  assert.equal(destinationForView('settings'), 'system')
+  assert.equal(destinationForView('prompt-library'), 'system')
+  assert.equal(destinationForView('unknown-view'), 'cockpit')
+})
+
+test('DESTINATIONS names exactly the five global destinations in order', () => {
+  assert.deepEqual(DESTINATIONS.map(destination => destination.id), ['cockpit', 'work-queue', 'results', 'search', 'system'])
+  assert.deepEqual(DESTINATIONS.map(destination => destination.label), ['David', 'Work Queue', 'Results', 'Search', 'System'])
 })
