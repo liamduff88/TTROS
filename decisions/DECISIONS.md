@@ -1,6 +1,16 @@
 # DECISIONS.md — log of decisions that change system behavior
-> Revisit: when a behavior-affecting system decision is made. · Last touched: 2026-09-01.
+> Revisit: when a behavior-affecting system decision is made. · Last touched: 2026-09-13.
 > One entry per behavior-affecting change. Newest first.
+
+## 2026-09-13 — Exact authority replaces duplicate external-action approval
+
+The existing queue/connector enforcement now classifies operator/internal
+allowlisted delivery, an exact Liam action+target command, and complete agreed
+Calendar context as already authorized. Generic `send`/`external` tags cannot
+force those actions into `human_review`; ambiguous Calendar actions ask once,
+and agent-initiated third-party actions keep the prior gate. Secret, CRM,
+money, deletion, deploy/publish review, Business Brain, token-fuse, protected-
+path, and North Shore boundaries are unchanged.
 
 ## 2026-09-01 — David reuses one assembled context per consultation
 

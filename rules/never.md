@@ -1,13 +1,14 @@
 # NEVER
-> Revisit: monthly review pass. · Last touched: 2026-08-10.
+> Revisit: monthly review pass. · Last touched: 2026-09-13.
 
 Operator-approved hard prohibitions (pruned 2026-07-08). "Never send Telegram"
 and "no model calls on parse" style LLM-invented absolutes are removed —
 internal sends are governed by rules/always.md #11–12; model spend by #5.
 
-1. Never take a THIRD-PARTY external side effect (clients, prospects, LinkedIn,
-   anyone outside the system) without typed per-action confirmation naming
-   that action. Internal sends per allowlist are exempt (always.md #11).
+1. Never take an AGENT-INITIATED THIRD-PARTY external side effect (clients,
+   prospects, LinkedIn, anyone outside the system) without typed per-action
+   confirmation naming that action and target. Liam's exact command is that
+   confirmation; internal delivery per allowlist is exempt (always.md #11, #13).
 2. Never inspect or modify North Shore application code, client data, or
    workspace internals unless Liam explicitly scopes North Shore work.
    Scoped runtime/supervision maintenance may touch only the minimum
@@ -26,8 +27,11 @@ internal sends are governed by rules/always.md #11–12; model spend by #5.
 9. Never blend two clients' data in one output.
 10. Never contact a lead that failed the email-safe / CASL check.
 11. Never mutate CRM/Gmail/Calendar/Drive/LinkedIn without explicit per-action
-    approval. Routine Git commits and normal pushes of completed, proven TTROS
-    source work follow CODEX.md's completion-boundary rule.
+    approval. An exact Liam command supplies that approval; an unambiguous
+    booking agreed in supplied meeting/transcript context does too. Ambiguous
+    Calendar date/time/participants/timezone requires one clarification.
+    Routine Git commits and normal pushes of completed, proven TTROS source
+    work follow CODEX.md's completion-boundary rule.
 12. Never delete during maintenance — report and recommend only.
 13. Never edit Telegram bridge FILES (read-only process/log status is fine;
     Phase B notifications use the existing send path only).

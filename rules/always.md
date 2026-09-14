@@ -1,5 +1,5 @@
 # ALWAYS
-> Revisit: monthly review pass. · Last touched: 2026-08-17.
+> Revisit: monthly review pass. · Last touched: 2026-09-13.
 
 Operator-approved rule set (pruned 2026-07-08). Absolutes an LLM invented and
 the operator never approved were removed; see rules/never.md for the hard
@@ -25,12 +25,18 @@ prohibitions.
    (rules/completion_contract.md).
 9. Live connector checks go through PowerShell → WSL CLI, never assumed.
 10. When in doubt about scope: stop, write the question into the receipt, ask.
-11. Internal sends are unrestricted: Telegram to the operator, and AgentMail
-    to the operator's Time to Revenue address or any internal agent inbox —
-    enforced by the recipient allowlist in queue/notifications.json.
+11. Internal delivery is automatic: messages, files, artifacts, results, and
+    notifications may go to the allowlisted Telegram operator chat, configured
+    Liam email addresses, or approved internal AgentMail destinations without
+    entering `human_review`. The recipient allowlist in queue/notifications.json
+    is the authority boundary.
 12. Review/blocked/needs_input items surface in the originating channel and
     the Needs Me rail immediately; unanswered after the configured window
     (default 10 min) escalates to Telegram via the existing bridge send path.
+13. Liam's exact command naming a consequential action and exact target is the
+    approval for that action. Do not request duplicate confirmation. An agent-
+    initiated third-party action still stops at the existing approval gate;
+    material action/target ambiguity asks one clarification.
 
 ## Efficient-operation doctrine
 

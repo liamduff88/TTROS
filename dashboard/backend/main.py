@@ -580,6 +580,13 @@ class QueueItemCreate(BaseModel):
     on_complete: str | None = None
     workbench: str | None = None
     review: str = "none"
+    approved_external_action: str = ""
+    approved_external_target: str = ""
+    approved_external_command: str = ""
+    calendar_agreement: dict | None = None
+    publish_review_passed: bool | None = None
+    email_safe: bool | None = None
+    outreach_basis: str = ""
 
 
 class CockpitCommandCreate(BaseModel):
@@ -5161,7 +5168,12 @@ class _QueueToolFallback:
                     "accepted_at": now,
                 }
                 setattr(args, "idempotency_duplicate", False)
-            for key in ("run_prompt_path", "needs_me", "size", "source_binding"):
+            for key in (
+                "run_prompt_path", "needs_me", "size", "source_binding",
+                "approved_external_action", "approved_external_target",
+                "approved_external_command", "calendar_agreement",
+                "publish_review_passed", "email_safe", "outreach_basis",
+            ):
                 value = getattr(args, key, None)
                 if value:
                     if key == "source_binding" and isinstance(value, str):
@@ -5522,6 +5534,13 @@ def _queue_create_dashboard_item(body: QueueItemCreate) -> dict:
         on_complete=(body.on_complete or "").strip() or None,
         workbench=(body.workbench or "").strip() or None,
         review=review,
+        approved_external_action=_queue_split_text(body.approved_external_action),
+        approved_external_target=body.approved_external_target.strip(),
+        approved_external_command=body.approved_external_command.strip(),
+        calendar_agreement=body.calendar_agreement,
+        publish_review_passed=body.publish_review_passed,
+        email_safe=body.email_safe,
+        outreach_basis=body.outreach_basis.strip(),
     )
     item = queue_tool.create_item(BASE_DIR, args)
     if source_refs:
@@ -10268,18 +10287,15 @@ def run_queue_item(item_id: str):
         prior_worker_result: dict | None = None
         max_attempts = 3 if orchestration_child else 2
         # A passing run closes to done. It parks for Liam only when the item
-        # itself asked for a gate (on_complete) or carries an external-effect
-        # tag. Failures/timeouts still route to blocked, and a review that
-        # never passes still routes to needs_input, both handled below.
+        # itself asked for a gate or its external effect lacks an existing
+        # internal/exact-command/agreed-calendar authorization. Generic tags
+        # do not manufacture a second approval step for an authorized action.
         _requested_gate = str(item.get("on_complete") or "").strip()
-        _external_effect = bool(
-            {"external", "outbound", "send", "client_facing", "payment"}
-            & {str(tag).strip().lower() for tag in (item.get("tags") or [])}
-        )
+        _external_review_status = aos_orchestration.external_effect_review_status(BASE_DIR, item)
         if _requested_gate in {"human_review", "needs_input"}:
             passing_status = _requested_gate
-        elif _external_effect:
-            passing_status = "human_review"
+        elif _external_review_status:
+            passing_status = _external_review_status
         else:
             passing_status = "done"
         final_review = {"decision": "REVISE", "instructions": "No review completed."}

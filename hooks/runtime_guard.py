@@ -6,7 +6,7 @@ The script implements the existing hook contracts at Hermes' real
 block the call before execution.  Exact external-action authorization remains
 owned by ``connectors/composio_access_adapter.py``.
 
-Revisit: on a new connector, protected path, or Hermes hook payload change. · Last touched: 2026-07-31.
+Revisit: on a new connector, protected path, or Hermes hook payload change. · Last touched: 2026-09-13.
 """
 
 from __future__ import annotations
@@ -63,6 +63,18 @@ def _strings(value: Any):
             yield from _strings(child)
 
 
+def _path_strings(value: Any):
+    """Yield actual path arguments, not ordinary prose that mentions `.env`."""
+    if not isinstance(value, dict):
+        return
+    for key, child in value.items():
+        normalized_key = str(key).strip().casefold()
+        if normalized_key in {"path", "file", "filepath", "file_path", "filename"}:
+            yield from _strings(child)
+        elif isinstance(child, dict):
+            yield from _path_strings(child)
+
+
 def _block(message: str) -> dict[str, str]:
     return {"action": "block", "message": message}
 
@@ -75,12 +87,14 @@ def evaluate(payload: dict[str, Any]) -> dict[str, str]:
     normalized = combined.replace("\\", "/")
 
     normalized_values = [value.replace("\\", "/") for value in values]
-    if any(SECRET_PATH_RE.search(value) for value in normalized_values):
+    is_terminal = tool_name.lower() in {"terminal", "exec", "shell", "bash"} or "terminal" in tool_name.lower()
+    path_values = [value.replace("\\", "/") for value in _path_strings(tool_input)]
+    command = str(tool_input.get("command") or tool_input.get("cmd") or "").replace("\\", "/")
+    if any(SECRET_PATH_RE.search(value) for value in path_values) or (is_terminal and SECRET_PATH_RE.search(command)):
         return _block("secret-exposure hook blocked access to credential-shaped runtime state")
     if any(pattern.search(combined) for pattern in SECRET_VALUE_RES):
         return _block("secret-exposure hook blocked credential-shaped content before tool execution")
 
-    is_terminal = tool_name.lower() in {"terminal", "exec", "shell", "bash"} or "terminal" in tool_name.lower()
     mutating = bool(WRITE_TOOL_RE.search(tool_name)) or (is_terminal and bool(TERMINAL_MUTATION_RE.search(combined)))
     if mutating and any(
         re.search(pattern, value, re.IGNORECASE)
@@ -90,7 +104,6 @@ def evaluate(payload: dict[str, Any]) -> dict[str, str]:
         return _block("protected-path hook blocked a write to an Agentic OS protected category")
 
     direct_external = bool(EXTERNAL_ACTION_RE.search(combined) or EXTERNAL_ACTION_RE.search(tool_name.upper()) or DIRECT_SEND_RE.search(combined))
-    command = str(tool_input.get("command") or tool_input.get("cmd") or "").replace("\\", "/")
     safe_adapter = bool(
         is_terminal
         and SAFE_ADAPTER_CALL_RE.search(command)

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Thin stdlib-only access spine for the local Composio CLI.
 
-Revisit: when connector mutation approval or Composio CLI contracts change. · Last touched: 2026-07-31.
+Revisit: when connector mutation approval or Composio CLI contracts change. · Last touched: 2026-09-13.
 """
 
 from __future__ import annotations
@@ -109,23 +109,22 @@ def authorize_external_mutation(*, action: str, target: str, work_item_id: str, 
     if _payload_contains_secret(payload):
         return False, "secret-exposure check failed"
     item = _queue_item(work_item_id)
+    from tools.aos_orchestration import action_authorization
+
+    decision = action_authorization(ROOT, item, action=action, target=target)
+    if not decision["authorized"]:
+        if decision["clarification_required"]:
+            return False, "calendar action is ambiguous; exact date, time, participants, and timezone are required"
+        return False, "exact Liam command or internal allowlisted destination is required"
+    if decision["basis"] in {"operator_telegram_allowlist", "internal_mail_allowlist"}:
+        return True, "authorized internal delivery allowlist matched"
     if item is None:
         return False, "exact queue item approval is required"
-    approved_actions = item.get("approved_external_action")
-    if isinstance(approved_actions, str):
-        approved_actions = [approved_actions]
-    approved_actions = {str(value).strip().upper() for value in (approved_actions or [])}
-    if action not in approved_actions:
-        return False, "queue item does not approve this exact action"
-    if not target or str(item.get("approved_external_target") or "").strip() != target:
-        return False, "queue item does not approve this exact target"
-    if not str(item.get("approved_external_command") or "").strip():
-        return False, "typed per-action operator command is missing"
     if verbs.intersection(PUBLISH_VERBS) and item.get("publish_review_passed") is not True:
         return False, "pre-publish review has not passed"
     if "SEND" in verbs and (item.get("email_safe") is not True or not str(item.get("outreach_basis") or "").strip()):
         return False, "email-safe/CASL basis is missing"
-    return True, "exact action, target, operator command, and publication gates matched"
+    return True, f"{decision['basis']} and applicable publication gates matched"
 
 
 def _authorize_or_emit(*, action: str, payload: dict[str, Any], args: argparse.Namespace) -> bool:

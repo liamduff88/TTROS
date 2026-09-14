@@ -4,6 +4,8 @@
 The runner advances local queue state only. It never invokes a model. Telegram
 escalation uses the existing bridge send function when a caller supplies it or
 when the default loader can import it.
+
+Revisit: when queue authorization, notification, or runner contracts change. · Last touched: 2026-09-13.
 """
 
 from __future__ import annotations
@@ -36,6 +38,7 @@ TICK_LOCK_PATH = QUEUE_DIR / "locks" / "orchestration_tick.lock"
 
 GATE_STATUSES = {"human_review", "needs_input"}
 ATTENTION_STATUSES = {"human_review", "needs_input", "blocked"}
+EXTERNAL_EFFECT_TAGS = {"external", "outbound", "send", "client_facing", "payment", "calendar"}
 ADVANCE_FROM_STATUSES = {"inbox"}
 READY_STATUS = "agent_todo"
 DONE_STATUS = "done"
@@ -885,6 +888,93 @@ def load_notifications(root: Path) -> dict:
         "telegram": [str(value) for value in allowlist.get("telegram") or []],
         "agentmail_internal": [str(value) for value in allowlist.get("agentmail_internal") or []],
     }
+
+
+def action_authorization(
+    root: Path,
+    item: dict | None,
+    *,
+    action: str = "",
+    target: str = "",
+) -> dict[str, Any]:
+    """Classify an exact consequential action without manufacturing approval.
+
+    The queue's existing approval fields remain the exact-action contract. The
+    only standing exceptions are operator/internal recipients from the existing
+    notification allowlist and a complete, explicitly agreed calendar record.
+    """
+    item = item if isinstance(item, dict) else {}
+    configured = load_notifications(root)
+    raw_actions = item.get("approved_external_action")
+    if isinstance(raw_actions, str):
+        raw_actions = [raw_actions]
+    approved_actions = {
+        str(value).strip().upper() for value in (raw_actions or []) if str(value).strip()
+    }
+    exact_action = str(action or "").strip().upper()
+    if not exact_action and len(approved_actions) == 1:
+        exact_action = next(iter(approved_actions))
+    exact_target = str(target or item.get("approved_external_target") or "").strip()
+    dispatch = item.get("dispatch") if isinstance(item.get("dispatch"), dict) else {}
+    if not exact_target and (
+        "TELEGRAM" in exact_action
+        or (approved_actions and all("TELEGRAM" in value for value in approved_actions))
+    ):
+        exact_target = str(dispatch.get("reply_to") or "").strip()
+
+    telegram_targets = {str(value).strip() for value in configured["telegram"]}
+    internal_mail_targets = {str(value).strip().casefold() for value in configured["agentmail_internal"]}
+    if "TELEGRAM" in exact_action and exact_target in telegram_targets:
+        return {"authorized": True, "basis": "operator_telegram_allowlist", "clarification_required": False}
+    if approved_actions and all("TELEGRAM" in value for value in approved_actions) and exact_target in telegram_targets:
+        return {"authorized": True, "basis": "operator_telegram_allowlist", "clarification_required": False}
+    if "SEND" in exact_action and exact_target.casefold() in internal_mail_targets:
+        return {"authorized": True, "basis": "internal_mail_allowlist", "clarification_required": False}
+
+    calendar_action = "CALENDAR" in exact_action or "calendar" in {
+        str(tag).strip().casefold() for tag in item.get("tags") or []
+    }
+    agreement = item.get("calendar_agreement") if isinstance(item.get("calendar_agreement"), dict) else {}
+    participants = agreement.get("participants")
+    complete_agreement = (
+        agreement.get("agreed") is True
+        and bool(str(agreement.get("date") or "").strip())
+        and bool(str(agreement.get("time") or "").strip())
+        and bool(str(agreement.get("timezone") or "").strip())
+        and isinstance(participants, list)
+        and bool([value for value in participants if str(value).strip()])
+        and bool(exact_action)
+    )
+    if calendar_action and complete_agreement:
+        return {"authorized": True, "basis": "agreed_calendar_context", "clarification_required": False}
+
+    command = str(item.get("approved_external_command") or "").strip()
+    requested_by_liam = str(item.get("requested_by") or "").strip().casefold() == "liam"
+    exact_match = bool(
+        exact_action
+        and exact_action in approved_actions
+        and exact_target
+        and exact_target == str(item.get("approved_external_target") or "").strip()
+    )
+    if requested_by_liam and command and exact_match:
+        return {"authorized": True, "basis": "explicit_liam_command", "clarification_required": False}
+
+    return {
+        "authorized": False,
+        "basis": "approval_required",
+        "clarification_required": bool(calendar_action),
+    }
+
+
+def external_effect_review_status(root: Path, item: dict) -> str | None:
+    """Return the queue gate required by external-effect tags, if any."""
+    tags = {str(tag).strip().casefold() for tag in item.get("tags") or []}
+    if not tags.intersection(EXTERNAL_EFFECT_TAGS):
+        return None
+    decision = action_authorization(root, item)
+    if decision["authorized"]:
+        return None
+    return "needs_input" if decision["clarification_required"] else "human_review"
 
 
 def log_notification_receipt(

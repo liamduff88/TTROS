@@ -1,6 +1,6 @@
-"""Executable proofs for the five Agentic OS runtime protection contracts.
+"""Executable proofs for the Agentic OS runtime protection contracts.
 
-Revisit: when guard matching or connector approval fields change. · Last touched: 2026-07-31.
+Revisit: when guard matching or connector approval fields change. · Last touched: 2026-09-13.
 """
 
 from __future__ import annotations
@@ -14,6 +14,7 @@ from unittest.mock import patch
 
 from connectors import composio_access_adapter
 from hooks.runtime_guard import evaluate
+from tools import aos_orchestration
 from tools.business_brain_context import BrainContextError, validate_brain_context_used
 
 
@@ -29,6 +30,16 @@ class HermesRuntimeGuardTests(unittest.TestCase):
         value = evaluate({"tool_name": "write_file", "tool_input": {"path": "proof.md", "content": "api_key=abcdefghijklmnopqrstuvwxyz"}})
         self.assertEqual("block", path["action"])
         self.assertEqual("block", value["action"])
+
+    def test_ordinary_work_is_not_blocked_merely_for_mentioning_env_files(self):
+        result = evaluate({
+            "tool_name": "write_file",
+            "tool_input": {
+                "path": "workflows/queue_artifacts/check.md",
+                "content": "Validation confirmed that .env files exist; their contents were not read.",
+            },
+        })
+        self.assertEqual({}, result)
 
     def test_direct_external_publish_is_blocked_but_governed_adapter_is_allowed(self):
         direct = evaluate({"tool_name": "terminal", "tool_input": {"command": "composio execute LINKEDIN_CREATE_POST -d '{}'"}})
@@ -83,6 +94,7 @@ class ExternalActionAdapterTests(unittest.TestCase):
     def write_item(self, **overrides):
         item = {
             "id": "AOS-2026-0996",
+            "requested_by": "Liam",
             "approved_external_action": "LINKEDIN_CREATE_POST",
             "approved_external_target": "Time to Revenue company page",
             "approved_external_command": "Publish the reviewed post to the Time to Revenue company page",
@@ -113,6 +125,119 @@ class ExternalActionAdapterTests(unittest.TestCase):
                 code = composio_access_adapter.command_run(self.args(**overrides))
             self.assertEqual(2, code)
             cli.assert_not_called()
+
+    def test_agent_initiated_third_party_send_remains_gated(self):
+        self.write_item(
+            requested_by="aos-revenue",
+            approved_external_action="AGENT_MAIL_SEND_EMAIL",
+            approved_external_target="prospect@example.net",
+            approved_external_command="Send the note to prospect@example.net",
+        )
+        with patch.object(composio_access_adapter, "ROOT", self.root):
+            allowed, reason = composio_access_adapter.authorize_external_mutation(
+                action="AGENT_MAIL_SEND_EMAIL",
+                target="prospect@example.net",
+                work_item_id="AOS-2026-0996",
+                payload={"body": "safe draft"},
+            )
+        self.assertFalse(allowed)
+        self.assertIn("exact Liam command", reason)
+
+    def test_explicit_liam_third_party_send_does_not_require_duplicate_approval(self):
+        self.write_item(
+            approved_external_action="AGENT_MAIL_SEND_EMAIL",
+            approved_external_target="jane@example.net",
+            approved_external_command="Send this to Jane at jane@example.net",
+        )
+        with patch.object(composio_access_adapter, "ROOT", self.root):
+            allowed, reason = composio_access_adapter.authorize_external_mutation(
+                action="AGENT_MAIL_SEND_EMAIL",
+                target="jane@example.net",
+                work_item_id="AOS-2026-0996",
+                payload={"body": "safe reviewed message"},
+            )
+        self.assertTrue(allowed)
+        self.assertIn("explicit_liam_command", reason)
+
+    def test_allowlisted_internal_email_is_auto_and_still_secret_checked(self):
+        with patch.object(composio_access_adapter, "ROOT", self.root):
+            allowed, reason = composio_access_adapter.authorize_external_mutation(
+                action="AGENT_MAIL_SEND_EMAIL",
+                target="liam@timetorevenue.com",
+                work_item_id="",
+                payload={"body": "ordinary internal result"},
+            )
+            secret_allowed, secret_reason = composio_access_adapter.authorize_external_mutation(
+                action="AGENT_MAIL_SEND_EMAIL",
+                target="liam@timetorevenue.com",
+                work_item_id="",
+                payload={"body": "Bearer " + ("x" * 24)},
+            )
+        self.assertTrue(allowed)
+        self.assertIn("internal delivery", reason)
+        self.assertFalse(secret_allowed)
+        self.assertEqual("secret-exposure check failed", secret_reason)
+
+    def test_telegram_operator_message_and_file_are_auto(self):
+        (self.root / "queue/notifications.json").write_text(json.dumps({
+            "allowlist": {
+                "telegram": ["operator-chat"],
+                "agentmail_internal": ["liam@timetorevenue.com"],
+            }
+        }), encoding="utf-8")
+        for action in ("TELEGRAM_SEND_MESSAGE", "TELEGRAM_SEND_FILE"):
+            with self.subTest(action=action):
+                decision = aos_orchestration.action_authorization(
+                    self.root, {}, action=action, target="operator-chat",
+                )
+                self.assertTrue(decision["authorized"])
+                self.assertEqual("operator_telegram_allowlist", decision["basis"])
+        combined = {
+            "approved_external_action": ["TELEGRAM_SEND_MESSAGE", "TELEGRAM_SEND_FILE"],
+            "approved_external_target": "operator-chat",
+            "tags": ["send", "external"],
+        }
+        self.assertIsNone(aos_orchestration.external_effect_review_status(self.root, combined))
+
+    def test_explicit_and_agreed_calendar_booking_are_auto_but_ambiguity_asks(self):
+        explicit = {
+            "requested_by": "Liam",
+            "approved_external_action": "GOOGLECALENDAR_CREATE_EVENT",
+            "approved_external_target": "Sarah — 2026-09-15 14:00 America/Vancouver",
+            "approved_external_command": "Book Sarah Tuesday at 2pm Pacific",
+            "tags": ["calendar", "external"],
+        }
+        agreed = {
+            "approved_external_action": "GOOGLECALENDAR_CREATE_EVENT",
+            "tags": ["calendar"],
+            "calendar_agreement": {
+                "agreed": True,
+                "date": "2026-09-15",
+                "time": "14:00",
+                "timezone": "America/Vancouver",
+                "participants": ["Sarah", "Liam"],
+            },
+        }
+        ambiguous = {
+            "approved_external_action": "GOOGLECALENDAR_CREATE_EVENT",
+            "tags": ["calendar", "external"],
+            "calendar_agreement": {"agreed": True, "date": "Tuesday", "participants": ["Sarah"]},
+        }
+        self.assertTrue(aos_orchestration.action_authorization(self.root, explicit)["authorized"])
+        self.assertTrue(aos_orchestration.action_authorization(self.root, agreed)["authorized"])
+        self.assertEqual("needs_input", aos_orchestration.external_effect_review_status(self.root, ambiguous))
+
+    def test_generic_external_tag_does_not_override_exact_authorization(self):
+        authorized = {
+            "requested_by": "Liam",
+            "approved_external_action": "AGENT_MAIL_SEND_EMAIL",
+            "approved_external_target": "jane@example.net",
+            "approved_external_command": "Send this to Jane at jane@example.net",
+            "tags": ["send", "external"],
+        }
+        agent_initiated = {**authorized, "requested_by": "aos-revenue"}
+        self.assertIsNone(aos_orchestration.external_effect_review_status(self.root, authorized))
+        self.assertEqual("human_review", aos_orchestration.external_effect_review_status(self.root, agent_initiated))
 
     def test_publish_review_gate_blocks_unreviewed_content(self):
         self.write_item(publish_review_passed=False)

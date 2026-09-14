@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Local Agentic OS work queue and explicit workbench launch boundary.
 
-Revisit: when queue lifecycle, deletion safety, receipt completeness, Codex supervision, or token reconciliation changes. · Last touched: 2026-08-08.
+Revisit: when queue lifecycle, authorization, deletion safety, receipt completeness, Codex supervision, or token reconciliation changes. · Last touched: 2026-09-13.
 
 Queue mutations stay local. The ``codex-run`` command is the one bounded
 exception: it launches the installed Codex CLI for an explicit work-item ID,
@@ -2131,9 +2131,16 @@ def create_item(root: Path, args: argparse.Namespace) -> dict:
         "needs_me": getattr(args, "needs_me", None),
         "size": getattr(args, "size", None),
         "source_binding": _load_json_arg(getattr(args, "source_binding", None)),
+        "approved_external_action": split_csv(getattr(args, "approved_external_action", "")),
+        "approved_external_target": getattr(args, "approved_external_target", None),
+        "approved_external_command": getattr(args, "approved_external_command", None),
+        "calendar_agreement": _load_json_arg(getattr(args, "calendar_agreement", None)),
+        "publish_review_passed": getattr(args, "publish_review_passed", None),
+        "email_safe": getattr(args, "email_safe", None),
+        "outreach_basis": getattr(args, "outreach_basis", None),
     }
     for key, value in optional_values.items():
-        if value is not None and value != "":
+        if value is not None and value != "" and value != []:
             item[key] = value
     items.append(item)
     save_items(root, items)
@@ -2426,6 +2433,13 @@ def build_parser() -> argparse.ArgumentParser:
     create.add_argument("--degraded-context", help="Structured JSON or @path for an explicit safe degradation contract")
     create.add_argument("--promotion-proposal", help="Structured review-tier proposal JSON or @path")
     create.add_argument("--capture-proposal", help="Structured metadata-only capture proposal JSON or @path")
+    create.add_argument("--approved-external-action", default="", help="Exact approved connector action slug(s)")
+    create.add_argument("--approved-external-target", default="", help="Exact target named by Liam")
+    create.add_argument("--approved-external-command", default="", help="Exact Liam command granting the action")
+    create.add_argument("--calendar-agreement", help="Complete agreed Calendar context as JSON or @path")
+    create.add_argument("--publish-review-passed", action=argparse.BooleanOptionalAction, default=None)
+    create.add_argument("--email-safe", action=argparse.BooleanOptionalAction, default=None)
+    create.add_argument("--outreach-basis", default="")
 
     list_parser = subparsers.add_parser("list", help="List local work items")
     list_parser.add_argument("--status")

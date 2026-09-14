@@ -1,5 +1,5 @@
 # EXTERNAL_ACTIONS.md — what's free, what's gated
-> Revisit: on a new connector, a boundary incident, or a compliance change. · Last touched: 2026-07-07.
+> Revisit: on a new connector, a boundary incident, or a compliance change. · Last touched: 2026-09-13.
 
 ## The line
 Native access first, mutation guard second, no permission theatre. Free
@@ -24,9 +24,22 @@ spend money
 touch a production or client-owned system
 ```
 
-"Explicit command" means Liam names the action and the target in that turn —
-a general go-ahead on the task ("build the proposal") is not authorization to
-send it. Approval is per-action, not per-project.
+"Explicit command" means Liam names the action and the target in that turn.
+That command is approval; never ask Liam to approve the same action again. A
+general go-ahead on the task ("build the proposal") is not authorization to
+send it. Approval is per-action, not per-project. Agent-initiated third-party
+actions remain gated.
+
+Operator delivery is internal, not external: messages, files, artifacts,
+results, and notifications to the allowlisted Telegram operator chat,
+configured Liam email addresses, and approved internal AgentMail destinations
+are automatic. Generic `send` or `external` tagging cannot promote these, or an
+exact Liam-authorized action, to `human_review`.
+
+Calendar booking/change/cancellation is automatic on Liam's exact request. A
+clearly agreed booking in supplied meeting/transcript context is also automatic
+only when date, time, participants, and timezone are all unambiguous; otherwise
+ask one clarification.
 
 ## Connector spine
 Composio is the shared access path (Gmail, Calendar, Drive, Docs, Sheets,
@@ -48,4 +61,5 @@ receipt says so — it does not report success from an unverified assumption.
 ## Enforcement
 Hooks: pre_external_action.md (the guard that fires on any gated verb before
 execution) and secret_exposure_check.md (credentials never printed, even to
-confirm an action is safe). Mirrored in rules/never.md #1, #6, #10, #11.
+confirm an action is safe). Mirrored in rules/always.md #11, #13 and
+rules/never.md #1, #6, #10, #11.
