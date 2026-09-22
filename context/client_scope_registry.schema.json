@@ -114,6 +114,14 @@
                     "type": "string"
                   },
                   "uniqueItems": true
+                },
+                "path_prefixes": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "uniqueItems": true
                 }
               },
               "additionalProperties": false

@@ -112,6 +112,47 @@ class BusinessBrainGraphTest(unittest.TestCase):
             self.assertNotIn("client-b", json.dumps(result))
             self.assertNotIn("BODY-SENTINEL", json.dumps(result))
 
+    def test_dynamic_intake_prefixes_are_published_and_weak_matches_fall_back(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            vault, graphify = self.fixture(root)
+            digest = "e5966652b3cb4d4f"
+            record_pointer = f"business_brain:sources/intake/records/{digest}.md"
+            card_pointer = f"business_brain:sources/intake/cards/{digest}.card.md"
+            write_note(
+                vault / f"sources/intake/records/{digest}.md",
+                f"source-intake-{digest}",
+                "Fred Haiderzada system walkthrough",
+                "Raw source evidence.",
+            )
+            write_note(
+                vault / f"sources/intake/cards/{digest}.card.md",
+                f"source-intake-card-{digest}",
+                "Fred source card",
+                "Semantic source card.",
+            )
+            data = make_registry().data
+            data["scopes"]["global"]["brain_pointer_prefixes"] = [
+                "business_brain:sources/intake/records/",
+                "business_brain:sources/intake/cards/",
+            ]
+            data["scopes"]["global"]["graphify_targets"][0]["path_prefixes"] = [
+                "business_brain:sources/intake/records/",
+                "business_brain:sources/intake/cards/",
+            ]
+            registry = make_registry(data)
+            service = BusinessBrainGraphService(graphify_root=graphify, vault_root=vault, registry=registry)
+            service.build()
+            manifest = json.loads((service.published / "source_manifest.json").read_text(encoding="utf-8"))
+            published = {row["source_path"] for row in manifest["files"]}
+            self.assertIn(record_pointer, published)
+            self.assertIn(card_pointer, published)
+            relevant = service.query_targets("Fred Haiderzada system walkthrough", client_scope="global")
+            self.assertEqual(relevant["targets"][0]["path"], record_pointer)
+            unrelated = service.query_targets("offers absent phrase", client_scope="global")
+            self.assertEqual(unrelated["targets"], [])
+            self.assertEqual(unrelated["fallback"]["route"], "pointers_search")
+
 
 if __name__ == "__main__":
     unittest.main()

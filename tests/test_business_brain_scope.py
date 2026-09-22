@@ -72,6 +72,16 @@ class BusinessBrainScopeTest(unittest.TestCase):
         with self.assertRaises((BrainContextError, ClientScopeError)):
             validate_brain_context_used([{**valid, "path": "business_brain:memory/client-b.md"}], client_scope="client-a", registry=make_registry())
 
+    def test_graph_target_prefix_is_scope_checked(self):
+        data = make_registry().data
+        data["scopes"]["global"]["brain_pointer_prefixes"] = ["business_brain:sources/intake/records/"]
+        data["scopes"]["global"]["graphify_targets"][0]["path_prefixes"] = ["business_brain:sources/intake/records/"]
+        registry = make_registry(data)
+        pointer = "business_brain:sources/intake/records/digest.md"
+        self.assertEqual(registry.validate_graph_target("global", "ttros-business-brain", pointer), pointer)
+        with self.assertRaises(ClientScopeError):
+            registry.validate_graph_target("client-a", "ttros-business-brain", pointer)
+
 
 if __name__ == "__main__":
     unittest.main()

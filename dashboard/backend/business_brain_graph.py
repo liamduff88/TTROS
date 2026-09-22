@@ -3,7 +3,7 @@
 Graphify is a derived selector, never the authority. Published targets contain
 canonical logical paths and scores only; note bodies are never returned.
 
-Revisit: when Graphify's Markdown/manifest contracts change. · Last touched: 2026-08-04.
+Revisit: when Graphify's Markdown/manifest contracts change. · Last touched: 2026-09-22.
 """
 
 from __future__ import annotations
@@ -171,8 +171,9 @@ class BusinessBrainGraphService:
         self.extractor_script = extractor_script or TOOLS_DIR / "aos_graphify_markdown_extract.py"
         self.registry = registry or load_registry()
 
-    def _published_target_allowlist(self) -> set[str]:
+    def _published_target_allowlist(self) -> tuple[set[str], tuple[str, ...]]:
         allowed = set()
+        prefixes = []
         denied = set(self.registry.data.get("denied_brain_pointers") or [])
         for record in self.registry.data.get("scopes", {}).values():
             if record.get("enabled") is not True:
@@ -180,14 +181,17 @@ class BusinessBrainGraphService:
             for target in record.get("graphify_targets") or []:
                 if target.get("namespace") == self.namespace:
                     allowed.update(target.get("paths") or [])
-        return allowed - denied
+                    prefixes.extend(str(value) for value in target.get("path_prefixes") or [])
+        return allowed - denied, tuple(sorted(set(prefixes)))
 
     def _notes(self) -> list[Path]:
-        allowed = self._published_target_allowlist()
-        notes = [
-            path for path in canonical_markdown(self.vault_root)
-            if f"business_brain:{path.relative_to(self.vault_root).as_posix()}" in allowed
-        ]
+        allowed, prefixes = self._published_target_allowlist()
+        denied = set(self.registry.data.get("denied_brain_pointers") or [])
+        notes = []
+        for path in canonical_markdown(self.vault_root):
+            pointer = f"business_brain:{path.relative_to(self.vault_root).as_posix()}"
+            if pointer not in denied and (pointer in allowed or any(pointer.startswith(prefix) for prefix in prefixes)):
+                notes.append(path)
         if not notes:
             raise BusinessBrainGraphError("canonical Business Brain has no Markdown notes")
         return notes
@@ -288,7 +292,10 @@ class BusinessBrainGraphService:
             text = path.read_text(encoding="utf-8", errors="strict")
             fields, body = parse_frontmatter(text)
             title = next((line.lstrip("#").strip() for line in body.splitlines() if line.startswith("#")), path.stem)
-            metadata = {key: value for key, value in fields.items() if key in {"id", "type", "status", "date", "last_touched"}}
+            metadata = {
+                key: value for key, value in fields.items()
+                if key in {"id", "type", "status", "date", "last_touched", "original_filename", "entities"}
+            }
             if record.get("entity_type"):
                 metadata["entity_type"] = record["entity_type"]
             note_nodes.append({
@@ -503,6 +510,7 @@ class BusinessBrainGraphService:
             return {"query": query, "targets": [], "graph_state": state["state"], "trusted_for_model": False, "fallback": {"route": "pointers_search", "reason": state["reason"]}, "token_usage_text": TOKEN_USAGE_TEXT}
         normalized_query = str(query).lower()
         terms = set(WORD_RE.findall(normalized_query))
+        minimum_term_matches = 2 if len(terms) >= 3 else 1
         requested_activities = {value.upper() for value in AOS_ACTIVITY_RE.findall(str(query))}
         graph = json.loads((self.published / "graph.json").read_text(encoding="utf-8"))
         headings: dict[str, list[str]] = {}
@@ -527,7 +535,13 @@ class BusinessBrainGraphService:
                     continue
                 score = 100.0
             else:
-                score = float(sum(3 if term in str(node.get("title") or "").lower() else 2 if term in str(node.get("relative_path") or "").lower() else 1 for term in terms if term in searchable))
+                searchable_terms = set(WORD_RE.findall(searchable))
+                matched_terms = terms & searchable_terms
+                if len(matched_terms) < minimum_term_matches:
+                    continue
+                title_terms = set(WORD_RE.findall(str(node.get("title") or "").lower()))
+                path_terms = set(WORD_RE.findall(str(node.get("relative_path") or "").lower()))
+                score = float(sum(3 if term in title_terms else 2 if term in path_terms else 1 for term in matched_terms))
             if not score:
                 continue
             seed_scores[node["id"]] = score
@@ -567,14 +581,15 @@ class BusinessBrainGraphService:
                     f"one-hop reverse {edge.get('edge_kind')} {relation}: {edge.get('relationship_reason')}",
                 )
         ranked = sorted(candidates.values(), key=lambda row: (-row["score"], row["path"]))
+        targets = ranked[: max(1, min(int(limit), 20))]
         return {
             "query": query,
-            "targets": ranked[: max(1, min(int(limit), 20))],
+            "targets": targets,
             "graph_state": "fresh",
             "trusted_for_model": True,
             "client_scope": identity.scope_id,
             "trust_note": "Targets passed the Block 2 scope registry before return; authoritative note loading remains separate.",
-            "fallback": None,
+            "fallback": None if targets else {"route": "pointers_search", "reason": "Graphify found no sufficiently relevant scoped target"},
             "token_usage_text": TOKEN_USAGE_TEXT,
         }
 

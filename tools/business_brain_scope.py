@@ -4,7 +4,7 @@ All content-bearing callers validate a declared scope and exact source identity
 here before opening a note, executing search SQL, loading evidence, or returning
 a Graphify target.
 
-Revisit: when a verified client identity or retrieval boundary is added. · Last touched: 2026-07-15.
+Revisit: when a verified client identity or retrieval boundary is added. · Last touched: 2026-09-22.
 """
 
 from __future__ import annotations
@@ -148,10 +148,12 @@ class ClientScopeRegistry:
         canonical = self.validate_brain_pointer(identity.scope_id, pointer)
         record = self.data["scopes"][identity.scope_id]
         allowed = set()
+        prefixes = []
         for rule in record.get("graphify_targets") or []:
             if rule.get("namespace") == namespace:
                 allowed.update(rule.get("paths") or [])
-        if canonical not in allowed:
+                prefixes.extend(str(value) for value in rule.get("path_prefixes") or [])
+        if canonical not in allowed and not any(canonical.startswith(prefix) for prefix in prefixes):
             raise ClientScopeError(f"Graphify target does not belong to {identity.scope_id}: {canonical}")
         return canonical
 

@@ -1,6 +1,17 @@
 # DECISIONS.md — log of decisions that change system behavior
-> Revisit: when a behavior-affecting system decision is made. · Last touched: 2026-09-13.
+> Revisit: when a behavior-affecting system decision is made. · Last touched: 2026-09-22.
 > One entry per behavior-affecting change. Newest first.
+
+## 2026-09-22 — Dynamic Memory Intake sources participate in Graphify discovery
+
+The existing global Graphify scope now admits the already-governed
+`sources/intake/records/` and `sources/intake/cards/` pointer prefixes, so each
+normal ingest refresh publishes current and future Originals and Cards without
+maintaining per-file allowlist entries. Multi-term Graphify queries reject
+single-term incidental matches; an empty relevant target set keeps the existing
+pointer/Search fallback, preventing unrelated graph hits from blocking ICM's
+authoritative Search index. No index, service, retrieval tier, or model call was
+added.
 
 ## 2026-09-13 — Exact authority replaces duplicate external-action approval
 

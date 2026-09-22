@@ -214,6 +214,10 @@
             ,"business_brain:sources/historical_calls/cards/mike-knapp-july-21.card.md"
             ,"business_brain:sources/historical_calls/cards/trent-first-call.card.md"
             ,"business_brain:sources/historical_calls/cards/trent-july-9.card.md"
+          ],
+          "path_prefixes": [
+            "business_brain:sources/intake/records/",
+            "business_brain:sources/intake/cards/"
           ]
         }
       ],
