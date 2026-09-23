@@ -1,6 +1,6 @@
 """Agentic OS dashboard backend.
 
-Revisit: when operator routing, queue deletion safety, local-agent CLI contracts, or runtime health changes. · Last touched: 2026-09-13.
+Revisit: when operator routing, queue deletion safety, local-agent CLI contracts, or runtime health changes. · Last touched: 2026-09-22.
 """
 
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
@@ -2215,6 +2215,15 @@ def _ledger_no_agent_invocation(record: dict) -> bool:
 
 
 def _ledger_exact_invocation(record: dict) -> bool:
+    exact_usage = record.get("exact_usage") if isinstance(record.get("exact_usage"), dict) else {}
+    canonical_total = exact_usage.get("canonical_total")
+    if (
+        record.get("event") == "model_invocation"
+        and isinstance(canonical_total, int)
+        and not isinstance(canonical_total, bool)
+        and canonical_total >= 0
+    ):
+        return True
     usage = record.get("token_usage") if isinstance(record.get("token_usage"), dict) else {}
     return any(
         isinstance(workbench, dict) and workbench.get("source") == "reported"
@@ -2229,8 +2238,11 @@ def _effective_token_ledger_records(records: list[dict]) -> list[dict]:
     passthrough: list[tuple[int, dict]] = []
     for position, row in enumerate(records):
         item_id = str(row.get("item_id") or row.get("task_id") or "")
-        if item_id in exact_items and not row.get("session_id") and _ledger_no_agent_invocation(row):
-            continue
+        if item_id in exact_items and not row.get("session_id"):
+            effect_id = str(row.get("effect_id") or "")
+            completion_summary = effect_id.startswith("done:") or row.get("event") == "hermes_decomposition"
+            if _ledger_no_agent_invocation(row) or completion_summary:
+                continue
         session_id = str(row.get("session_id") or row.get("invocation_id") or "")
         if not item_id or not session_id:
             passthrough.append((position, row))
@@ -3480,7 +3492,36 @@ def _token_usage_by_route(dated_records: list[tuple[datetime.datetime | None, in
 
 
 def _token_usage_rollup(records: list[dict] | None = None, now: datetime.datetime | None = None) -> dict:
-    records = _read_token_usage_records() if records is None else records
+    # The Overview compatibility response keeps its established shape, but its
+    # operational totals come from the same canonical ledger as Tokens & ROI
+    # and the top-bar chip.  Explicit records remain supported for focused
+    # formatting tests only; logs/token_usage.jsonl is evidence, not accounting.
+    if records is None:
+        records = []
+        for ledger_record in _read_token_ledger_records():
+            view = _token_record_view(ledger_record)
+            no_agent = view["availability_state"] == "no_agent_invocation"
+            available = view["total_tokens"] is not None and not no_agent
+            source = str(view.get("invocation_source") or "unattributed")
+            route = {
+                "Claude Code": "claude",
+                "Codex": "codex",
+                "Hermes": "hermes",
+            }.get(source, source.lower().replace(" ", "-"))
+            records.append({
+                "timestamp": view.get("event_timestamp"),
+                "route": route,
+                "agent": route,
+                "task": view.get("item_id"),
+                "token_usage_text": _token_label(ledger_record),
+                "token_usage": {
+                    "available": available,
+                    "no_agent_invocation": no_agent,
+                    **({"total_tokens": view["total_tokens"]} if available else {}),
+                },
+                "unavailable": not available and not no_agent,
+                "no_agent_invocation": no_agent,
+            })
     now = now or datetime.datetime.now().astimezone()
     if now.tzinfo is None:
         now = now.replace(tzinfo=datetime.timezone.utc)

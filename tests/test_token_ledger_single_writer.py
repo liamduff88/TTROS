@@ -6,12 +6,13 @@ production execution route records exactly one row for one model invocation, in
 500,000-token fuse sees every invocation attributable to a named work item.
 
 Revisit: on a new execution route or a change to the canonical ledger contract.
-· Last touched: 2026-08-08.
+· Last touched: 2026-09-22.
 """
 
 from __future__ import annotations
 
 import importlib.util
+import datetime
 import json
 import shutil
 import subprocess
@@ -30,6 +31,7 @@ if str(TOOLS) not in sys.path:
 
 import step6_cost_control as step6  # noqa: E402
 import aos_orchestration  # noqa: E402
+from tools import source_intake_semantic  # noqa: E402
 
 LEDGER = Path("queue/token_ledger.jsonl")
 
@@ -239,6 +241,45 @@ class OneRowPerInvocationTests(unittest.TestCase):
             self.assertFalse(second)
             self.assertEqual(len(_rows(root)), 1)
 
+    def test_memory_intake_sidecar_records_once_and_replay_is_idempotent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_root(tmp)
+            usage_file = root / "queue" / "context_assemblies" / "semantic.usage.json"
+            usage_file.parent.mkdir(parents=True)
+            usage_file.write_text(json.dumps({
+                "provider": "openai-codex",
+                "model": "gpt-5.5",
+                "input_tokens": 15_868,
+                "output_tokens": 2_098,
+                "cache_read_tokens": 0,
+                "reasoning_tokens": 187,
+                "total_tokens": 17_966,
+                "session_id": "20260922_173614_02857d",
+            }), encoding="utf-8")
+
+            first = source_intake_semantic._record_semantic_usage(
+                usage_file,
+                source_id="fixture-source",
+                fallback_invocation_id="fallback-unused",
+                model="gpt-5.5",
+                root=root,
+            )
+            replay = source_intake_semantic._record_semantic_usage(
+                usage_file,
+                source_id="fixture-source",
+                fallback_invocation_id="fallback-unused",
+                model="gpt-5.5",
+                root=root,
+            )
+
+            self.assertTrue(first["recorded"])
+            self.assertTrue(replay["idempotent"])
+            rows = _rows(root)
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]["invocation_id"], "20260922_173614_02857d")
+            self.assertEqual(rows[0]["input_plus_output"], 17_966)
+            self.assertEqual(rows[0]["surface"], "memory-intake:semantic")
+
 
 class BackendLedgerRoutingTests(unittest.TestCase):
     """The backend writes and reads exactly one ledger."""
@@ -323,6 +364,50 @@ class BackendLedgerRoutingTests(unittest.TestCase):
             self.assertEqual([row["task_id"] for row in records], ["canonical-only"])
             # The legacy file is preserved, not migrated or truncated.
             self.assertIn("legacy-only", legacy.read_text(encoding="utf-8"))
+
+    def test_canonical_memory_intake_row_reaches_both_dashboard_apis(self):
+        backend = self.backend
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_root(tmp)
+            step6.record_invocation(
+                step6.Scope("session", "source-intake-semantic-fixture"),
+                invocation_id="semantic-fixture-session",
+                provider="openai-codex",
+                model="gpt-5.5",
+                usage={"input_tokens": 20, "output_tokens": 5, "cache_read_tokens": 0},
+                root=root,
+                surface="memory-intake:semantic",
+                timestamp=datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
+            )
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "TOKEN_LEDGER_FILE", root / LEDGER), \
+                 patch.object(backend, "_read_claude_local_usage", return_value={"available": False}):
+                token_api = backend.dashboard_tokens()
+                overview_api = backend.get_overview()
+
+            self.assertEqual(token_api["periods"]["today"]["tokens"], 25)
+            self.assertEqual(overview_api["tokenUsage"]["known_tokens_today"], 25)
+            self.assertEqual(token_api["strip"]["today"]["label"], "Token usage: 25 exact today")
+
+    def test_dashboard_suppresses_completion_summary_behind_exact_invocation(self):
+        backend = self.backend
+        invocation = {
+            "event": "model_invocation",
+            "item_id": "AOS-2026-0909",
+            "session_id": "provider-session",
+            "invocation_id": "provider-session",
+            "timestamp": "2026-09-22T12:00:00Z",
+            "exact_usage": {"canonical_total": 25},
+            "token_usage": {"totals": {"input": 20, "output": 5}, "unavailable": []},
+        }
+        completion_summary = {
+            "item_id": "AOS-2026-0909",
+            "timestamp": "2026-09-22T12:00:01Z",
+            "effect_id": "done:fixture:tokens",
+            "token_usage": {"totals": {"input": 20, "output": 5}, "unavailable": []},
+        }
+        effective = backend._effective_token_ledger_records([invocation, completion_summary])
+        self.assertEqual(effective, [invocation])
 
 
 class WorkerFuseScopeTests(unittest.TestCase):

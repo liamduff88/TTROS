@@ -2,6 +2,16 @@
 > Revisit: when a behavior-affecting system decision is made. · Last touched: 2026-09-22.
 > One entry per behavior-affecting change. Newest first.
 
+## 2026-09-22 — Memory Intake usage joins the canonical token ledger
+
+Semantic Memory Intake now passes each Hermes usage sidecar through the
+existing Step 6 writer immediately after the invocation, using the provider
+session as its idempotency identity when available and recording unavailable
+usage honestly otherwise. The legacy Overview token card keeps its response
+shape but now derives totals from `queue/token_ledger.jsonl`, matching the
+existing Tokens page and top-bar counter. Sidecars and `logs/token_usage.jsonl`
+remain evidence only; no historical usage was backfilled.
+
 ## 2026-09-22 — Dynamic Memory Intake sources participate in Graphify discovery
 
 The existing global Graphify scope now admits the already-governed

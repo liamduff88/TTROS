@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Deterministic historical-source intake for the TTROS Business Brain.
 
-Revisit: when Brain source, search, Graphify, or scope contracts change. · Last touched: 2026-09-13.
+Revisit: when Brain source, search, Graphify, or scope contracts change. · Last touched: 2026-09-22.
 """
 
 from __future__ import annotations
@@ -388,7 +388,13 @@ def _run_semantic_intake(
     stamp = now()
     prompt = sis.render_prompt(body)
     budget = semantic_budget if semantic_budget is not None else sis.ModelCallBudget(maximum=30)
-    payload = sis.call_hermes_semantic(prompt, budget=budget, source_id=source_id)
+    payload = sis.call_hermes_semantic(
+        prompt,
+        budget=budget,
+        source_id=source_id,
+        usage_dir=repo_root / "queue" / "context_assemblies",
+        root=repo_root,
+    )
     kept, dropped = sis.validate_claims(payload.get("claims"), body)
     card = payload.get("card") if isinstance(payload.get("card"), dict) else {}
 

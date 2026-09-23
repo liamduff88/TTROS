@@ -14,8 +14,8 @@ scripts/i1_source_intake_semantic_extraction_transcript.md. Production-shape
 support added STEP I2, 2026-09-09; see
 scripts/i2_source_intake_production_path_transcript.md.
 
-Revisit: when the claim/card schema, the extraction template, or the blindness
-contamination guard changes.
+Revisit: when the claim/card schema, the extraction template, the blindness
+contamination guard, or the Hermes usage-sidecar schema changes. · Last touched: 2026-09-22.
 """
 
 from __future__ import annotations
@@ -26,6 +26,7 @@ import os
 import re
 import subprocess
 import sys
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -37,6 +38,14 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from tools.source_intake import SourceIntakeError, _frontmatter, extract_exact_bytes  # noqa: E402
+from tools.step6_cost_control import (  # noqa: E402
+    CostControlError,
+    canonical_usage,
+    derive_scope,
+    preflight,
+    record_invocation,
+    record_unavailable_invocation,
+)
 
 TEMPLATE_PATH = ROOT / "tools" / "source_intake_semantic_extraction_template.md"
 HERMES_PROFILE = "source-intake-semantic"
@@ -169,10 +178,60 @@ class ModelCallBudget:
         self.calls.append(entry)
 
 
+def _record_semantic_usage(
+    usage_file: Path,
+    *,
+    source_id: str,
+    fallback_invocation_id: str,
+    model: str,
+    root: Path,
+) -> dict[str, Any]:
+    """Move one Hermes usage sidecar through the canonical Step 6 writer."""
+    try:
+        usage = json.loads(usage_file.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        usage = None
+    invocation_id = str((usage or {}).get("session_id") or fallback_invocation_id).strip()
+    scope = derive_scope(session_id=f"source-intake-semantic-{source_id}")
+    if isinstance(usage, dict) and usage.get("input_tokens") is not None and usage.get("output_tokens") is not None:
+        try:
+            canonical_usage(usage)
+        except CostControlError as exc:
+            # Provider counters that cannot be normalized are unavailable, not
+            # zero.  Preserve that fact in the same canonical ledger.
+            return record_unavailable_invocation(
+                scope,
+                invocation_id=invocation_id,
+                provider=str(usage.get("provider") or "unknown"),
+                model=str(usage.get("model") or model or "unavailable"),
+                reason=f"Memory Intake usage report invalid: {exc}",
+                root=root,
+                surface="memory-intake:semantic",
+            )
+        return record_invocation(
+            scope,
+            invocation_id=invocation_id,
+            provider=str(usage.get("provider") or "unknown"),
+            model=str(usage.get("model") or model or "unavailable"),
+            usage=usage,
+            root=root,
+            surface="memory-intake:semantic",
+        )
+    return record_unavailable_invocation(
+        scope,
+        invocation_id=invocation_id,
+        provider=str((usage or {}).get("provider") or "unknown"),
+        model=str((usage or {}).get("model") or model or "unavailable"),
+        reason="Memory Intake usage report missing or corrupt",
+        root=root,
+        surface="memory-intake:semantic",
+    )
+
+
 def call_hermes_semantic(
     prompt: str, *, budget: ModelCallBudget, source_id: str,
     model: str = DEFAULT_MODEL, reasoning: str = DEFAULT_REASONING,
-    usage_dir: Path | None = None, timeout: int = 240,
+    usage_dir: Path | None = None, timeout: int = 240, root: Path = ROOT,
 ) -> dict[str, Any]:
     if budget.count >= budget.maximum:
         raise SemanticExtractionError(
@@ -180,9 +239,12 @@ def call_hermes_semantic(
         )
     assert_blind(prompt)
     digest = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
-    usage_dir = usage_dir or (ROOT / "queue" / "context_assemblies")
+    usage_dir = usage_dir or (root / "queue" / "context_assemblies")
     usage_dir.mkdir(parents=True, exist_ok=True)
     usage_file = usage_dir / f"source-intake-semantic-{source_id}-{digest[:12]}.usage.json"
+    fallback_invocation_id = f"source-intake-semantic-{uuid.uuid4().hex}"
+    scope = derive_scope(session_id=f"source-intake-semantic-{source_id}")
+    preflight(scope, root=root)
     env = dict(os.environ)
     env[ENV_SENTINEL] = "1"
     env.pop("HERMES_HOME", None)
@@ -190,13 +252,32 @@ def call_hermes_semantic(
         "hermes", "-p", HERMES_PROFILE, "-m", model, "--reasoning", reasoning, "-t", "",
         "-z", prompt, "--usage-file", str(usage_file),
     ]
-    result = subprocess.run(cmd, cwd="/tmp", env=env, capture_output=True, text=True, timeout=timeout)
+    try:
+        result = subprocess.run(cmd, cwd="/tmp", env=env, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        _record_semantic_usage(
+            usage_file,
+            source_id=source_id,
+            fallback_invocation_id=fallback_invocation_id,
+            model=model,
+            root=root,
+        )
+        raise SemanticExtractionError(f"semantic extraction model call timed out for {source_id}") from exc
     call_entry = {
         "index": budget.count + 1, "source_id": source_id, "prompt_sha256": digest,
         "prompt_bytes": len(prompt.encode("utf-8")), "model": model, "reasoning": reasoning,
         "returncode": result.returncode, "usage_file": str(usage_file),
     }
     budget.record(call_entry)
+    accounting = _record_semantic_usage(
+        usage_file,
+        source_id=source_id,
+        fallback_invocation_id=fallback_invocation_id,
+        model=model,
+        root=root,
+    )
+    call_entry["invocation_id"] = accounting["row"].get("invocation_id")
+    call_entry["usage_recorded"] = bool(accounting.get("recorded"))
     if result.returncode != 0:
         raise SemanticExtractionError(
             f"semantic extraction model call failed for {source_id}: {(result.stderr or result.stdout).strip()[:400]}"
