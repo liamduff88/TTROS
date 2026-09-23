@@ -149,10 +149,9 @@ export function QueueWorkItemCard({ item, lane: laneOverride }) {
       data-queue-card-id={item.id}
       data-invocation-source={item.invocation_source || 'unattributed'}
     >
-      <div className="truncate text-sm font-semibold text-ivory">
-        <span className="font-mono text-[11px] text-champagne">{item.id || 'No ID'}</span> — {item.title || 'Untitled queue item'}
-      </div>
+      <div className="truncate text-sm font-semibold text-ivory">{item.title || 'Untitled task'}</div>
       <div className="mt-2 flex flex-wrap items-center gap-2 font-mono text-[11px] text-taupe">
+        <span>{item.id || 'No ID'}</span>
         <span className="rounded px-1.5 py-0.5 text-[10px] font-bold text-white" style={{ backgroundColor: laneColor(lane) }}>{lane}</span>
         <span>{compactAge(item.updated_at || item.created_at)}</span>
         <StatusChip status={item.status}>{compactStatus(item.status)}</StatusChip>

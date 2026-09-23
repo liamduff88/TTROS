@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Local Agentic OS work queue and explicit workbench launch boundary.
 
-Revisit: when queue lifecycle, authorization, deletion safety, receipt completeness, Codex supervision, or token reconciliation changes. · Last touched: 2026-09-13.
+Revisit: when queue lifecycle, authorization, naming, deletion safety, receipt completeness, Codex supervision, or token reconciliation changes. · Last touched: 2026-09-22.
 
 Queue mutations stay local. The ``codex-run`` command is the one bounded
 exception: it launches the installed Codex CLI for an explicit work-item ID,
@@ -44,6 +44,7 @@ from aos_codex_policy import (
     validate_runtime as validate_codex_runtime,
 )
 from aos_queue_storage import QueueStorageError, durable_replace_text, fsync_directory, queue_write_lock
+from aos_task_titles import derive_task_title
 from business_brain_context import BrainContextError, validate_completion_context
 from step6_cost_control import (
     CostControlError as Step6CostControlError,
@@ -2084,9 +2085,16 @@ def create_item(root: Path, args: argparse.Namespace) -> dict:
                 setattr(args, "idempotency_duplicate", True)
                 return existing
     timestamp = now_iso()
+    title = derive_task_title(
+        title=getattr(args, "title", ""),
+        workflow_id=getattr(args, "workflow_id", "") or getattr(args, "workflow", ""),
+        action_name=getattr(args, "action_name", "") or getattr(args, "action", ""),
+        context=getattr(args, "context", ""),
+        tags=getattr(args, "tags", ""),
+    )
     item = {
         "id": next_id(items, timestamp, root),
-        "title": args.title,
+        "title": title,
         "status": args.status,
         "priority": args.priority,
         "requested_by": args.requested_by,

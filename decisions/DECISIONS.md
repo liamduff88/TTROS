@@ -2,6 +2,16 @@
 > Revisit: when a behavior-affecting system decision is made. · Last touched: 2026-09-22.
 > One entry per behavior-affecting change. Newest first.
 
+## 2026-09-22 — Work-item titles are semantic; AOS IDs are identity only
+
+The shared queue creation boundary now resolves a human-readable title from an
+explicit semantic title, workflow/action metadata, or the recorded request,
+with `Untitled task` as the honest final fallback. It never uses a model and
+never substitutes the immutable `AOS-YYYY-NNNN` identity as the title. API
+projections apply the same resolver to historical records without rewriting
+them, and Dashboard task surfaces lead with the title while retaining the ID
+as muted metadata or in technical detail views.
+
 ## 2026-09-22 — Memory Intake usage joins the canonical token ledger
 
 Semantic Memory Intake now passes each Hermes usage sidecar through the

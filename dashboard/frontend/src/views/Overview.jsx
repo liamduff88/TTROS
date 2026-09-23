@@ -206,7 +206,8 @@ const QueueOverviewCard = ({ state = {} }) => {
             <div className="font-mono uppercase tracking-wider text-taupe">Top active item</div>
             {topItem ? (
               <div className="mt-2 space-y-1">
-                <div className="font-semibold text-ivory">{topItem.id} | {topItem.title || 'Untitled queue item'}</div>
+                <div className="font-semibold text-ivory">{topItem.title || 'Untitled task'}</div>
+                <div className="font-mono text-[10px] text-taupe">{topItem.id}</div>
                 <div className="font-mono text-taupe">
                   {topItem.owner || 'unassigned'} | {String(topItem.status || '').replace(/_/g, ' ')}
                 </div>

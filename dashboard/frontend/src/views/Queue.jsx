@@ -1022,9 +1022,9 @@ export default function Queue({ initialFilters = {}, onViewParamsChange, refresh
       {focusMode && (
         <div className="flex gap-1 overflow-x-auto rounded border border-softgraph bg-graphite p-2" data-testid="focus-mini-rail">
           {filteredItems.filter(item => item.id !== selectedId).map(item => (
-            <button key={item.id} onClick={() => selectQueueItem(item.id)} className="relative flex h-9 shrink-0 items-center gap-2 overflow-hidden rounded border border-softgraph bg-ink pl-3 pr-2 font-mono text-[10px] text-stone" aria-label={`Focus ${item.id}`}>
+            <button key={item.id} onClick={() => selectQueueItem(item.id)} className="relative flex h-9 max-w-56 shrink-0 items-center gap-2 overflow-hidden rounded border border-softgraph bg-ink pl-3 pr-2 text-[10px] text-stone" aria-label={`Focus ${item.title || 'Untitled task'} (${item.id})`} title={`${item.title || 'Untitled task'} · ${item.id}`}>
               <span className="absolute inset-y-0 left-0 w-1" style={{ backgroundColor: workbenchColor(item.invocation_source, item.status) }} />
-              <span>{item.id}</span><span className="h-2 w-2 rounded-full" style={{ backgroundColor: workbenchColor(item.invocation_source, item.status) }} />
+              <span className="truncate font-semibold">{item.title || 'Untitled task'}</span><span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: workbenchColor(item.invocation_source, item.status) }} />
             </button>
           ))}
         </div>
@@ -1217,7 +1217,10 @@ export default function Queue({ initialFilters = {}, onViewParamsChange, refresh
                     aria-pressed={selectedId === item.id}
                   >
                     {listCollapsed ? (
-                      <div className="truncate text-[11px] text-stone"><span className="font-mono text-champagne">{item.id || 'No ID'}</span> — {item.title || 'Untitled queue item'}</div>
+                      <div>
+                        <div className="truncate text-[11px] font-semibold text-stone">{item.title || 'Untitled task'}</div>
+                        <div className="mt-0.5 truncate font-mono text-[9px] text-taupe">{item.id || 'No ID'}</div>
+                      </div>
                     ) : (
                       <>
                         <div className="flex items-start justify-between gap-3">
@@ -1310,8 +1313,9 @@ export default function Queue({ initialFilters = {}, onViewParamsChange, refresh
           <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <h2 className="text-xs font-semibold uppercase tracking-wider text-taupe">Selected item</h2>
-              <div className="mt-2 flex items-center gap-2 text-xs text-champagne">
-                <span>{selected ? `${selected.id} — ${selected.title || 'Untitled queue item'}` : 'No item selected'}</span>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <span className="text-base font-semibold text-ivory">{selected ? selected.title || 'Untitled task' : 'No item selected'}</span>
+                {selected && <span className="font-mono text-[10px] text-taupe">{selected.id}</span>}
                 {selected && <span className="rounded px-1.5 py-0.5 text-[10px] font-bold text-white" style={{ backgroundColor: laneColor(laneName(selected)) }}>{laneName(selected)}</span>}
               </div>
             </div>

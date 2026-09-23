@@ -62,6 +62,7 @@ from aos_codex_policy import (
 )
 import aos_orchestration
 from aos_queue_storage import QueueStorageError, durable_append_text, durable_replace_text, queue_write_lock
+from aos_task_titles import title_for_item
 import aos_indexer
 import business_brain
 import business_brain_context
@@ -5211,9 +5212,16 @@ class _QueueToolFallback:
                         setattr(args, "idempotency_duplicate", True)
                         return existing
             now = self.now_iso()
+            title = title_for_item({
+                "title": getattr(args, "title", ""),
+                "workflow_id": getattr(args, "workflow_id", "") or getattr(args, "workflow", ""),
+                "action_name": getattr(args, "action_name", "") or getattr(args, "action", ""),
+                "context": getattr(args, "context", ""),
+                "tags": _queue_split_text(getattr(args, "tags", "")),
+            })
             item = {
             "id": self._next_id(root, items, now),
-            "title": args.title,
+            "title": title,
             "requested_by": args.requested_by,
             "owner_type": args.owner_type,
             "owner": args.owner,
@@ -6653,7 +6661,7 @@ def _queue_pipeline(
             "parent_id": item_id,
             "nodes": [{
                 "id": item_id,
-                "name": item.get("title") or item_id,
+                "name": title_for_item(item),
                 "status": item.get("status") or "unavailable",
                 "timestamp": item.get("updated_at") or item.get("created_at"),
                 "execution": "unavailable from recorded evidence",
@@ -6678,7 +6686,7 @@ def _queue_pipeline(
         execution = "deterministic" if record and _ledger_no_agent_invocation(record) else "model spend recorded" if record and _ledger_tokens_basis(record)[0] is not None else "token evidence unavailable"
         nodes.append({
             "id": row_id,
-            "name": row.get("title") or row_id,
+            "name": title_for_item(row),
             "step_index": row.get("step_index"),
             "status": row.get("status") or "unavailable",
             "timestamp": row.get("updated_at") or row.get("created_at"),
@@ -6974,7 +6982,7 @@ def _queue_public_item(item: dict, invocation_attributions: dict[str, dict] | No
     needs_me = _queue_needs_me_reasons(item, attribution)
     return {
         "id": item.get("id", ""),
-        "title": aos_orchestration.operator_task_title(item),
+        "title": title_for_item(item),
         "status": item.get("status", ""),
         "owner": item.get("owner", "unassigned"),
         "priority": item.get("priority", 0),

@@ -193,9 +193,10 @@ export function HumanReviewCard({ item, onSaved, onOpenArtifact, className = '' 
     <article className={`overflow-hidden rounded-lg border border-champagne/60 bg-graphite ${className}`} data-review-card-id={item.id}>
       <header className="border-b border-softgraph px-3 py-3">
         <div className="flex items-start justify-between gap-3">
-          <h2 className="break-words text-sm font-semibold leading-5 text-ivory">
-            <span className="font-mono text-champagne">{reviewItem.id}</span> — {reviewItem.title}
-          </h2>
+          <div>
+            <h2 className="break-words text-sm font-semibold leading-5 text-ivory">{reviewItem.title || 'Untitled task'}</h2>
+            <div className="mt-1 font-mono text-[10px] text-taupe">{reviewItem.id}</div>
+          </div>
           <span className="shrink-0 rounded border border-champagne/40 bg-champagne/10 px-2 py-1 text-[10px] font-semibold uppercase text-champagne">Human review</span>
         </div>
       </header>

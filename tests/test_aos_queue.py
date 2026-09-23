@@ -17,6 +17,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from tools import aos_queue_storage as storage
+from tools.aos_task_titles import title_for_item
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -1154,6 +1155,52 @@ class AosQueueTest(unittest.TestCase):
             self.assertEqual("AOS-2026-0001", item["parent_id"])
             self.assertEqual(["AOS-2026-0001"], item["depends_on"])
             self.assertEqual("human_review", item["on_complete"])
+
+    def test_create_keeps_technical_id_separate_from_deterministic_human_title(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            result = run_cli(
+                root, "create", "--title", "AOS-2026-9999",
+                "--context", "memory intake: personal-brand-strategy (1).md",
+                "--tags", "memory,intake",
+            )
+            self.assertEqual(0, result.returncode, result.stderr)
+            item = parse_json(result.stdout)
+            self.assertRegex(item["id"], r"^AOS-\d{4}-\d{4}$")
+            self.assertEqual("Ingest Personal Brand Strategy", item["title"])
+            self.assertNotEqual(item["id"], item["title"])
+
+    def test_related_items_derive_distinct_titles_from_workflow_and_request_metadata(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            parent = run_cli(
+                root, "create", "--title", "AOS-2026-0001",
+                "--tags", "workflow:internal_outreach_daily", "--owner-type", "workflow",
+                "--owner", "hermes",
+            )
+            self.assertEqual(0, parent.returncode, parent.stderr)
+            parent_item = parse_json(parent.stdout)
+            child = run_cli(
+                root, "create", "--title", "AOS-2026-0002",
+                "--context", "Generate internal outreach report",
+                "--parent-id", parent_item["id"], "--step-index", "1",
+            )
+            self.assertEqual(0, child.returncode, child.stderr)
+            child_item = parse_json(child.stdout)
+            self.assertEqual("Internal Outreach Daily", parent_item["title"])
+            self.assertEqual("Generate Internal Outreach Report", child_item["title"])
+            self.assertNotEqual(parent_item["title"], child_item["title"])
+
+    def test_historical_id_title_uses_metadata_without_mutating_record(self):
+        item = {
+            "id": "AOS-2026-0162",
+            "title": "AOS-2026-0162",
+            "tags": ["workflow:review_fred_buyer_workflow"],
+            "context": "",
+        }
+        before = dict(item)
+        self.assertEqual(title_for_item(item), "Review Fred Buyer Workflow")
+        self.assertEqual(item, before)
 
     def test_workflow_parent_is_never_next_or_claimable(self):
         with tempfile.TemporaryDirectory() as tmp:

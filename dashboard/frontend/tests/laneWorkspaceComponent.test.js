@@ -51,6 +51,7 @@ test('lane workspace renders six scoped counts and reuses the compact review car
   assert.equal(count(markup, />Reject</g), 1)
   assert.equal(count(markup, />Block</g), 1)
   assert.match(markup, /data-queue-card-id="OPS-READY"/)
+  assert.match(markup, /data-queue-card-id="OPS-READY"[\s\S]*?>Run this<[\s\S]*?>OPS-READY</)
   assert.match(markup, /data-lane-action="run"/)
   assert.match(markup, />Run now<\/button>/)
   assert.match(markup, /data-lane-action="cancel"/)

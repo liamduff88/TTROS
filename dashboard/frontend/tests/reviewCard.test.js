@@ -49,6 +49,7 @@ test('human-review card renders actual receipt, artifact, review facts, note sav
   assert.match(markup, /Focused tests passed/)
   assert.match(markup, /Total input: 100/)
   assert.match(markup, /Review note for ITEM-1/)
+  assert.match(markup, /data-review-card-id="ITEM-1"[\s\S]*?>Readable review title<[\s\S]*?>ITEM-1</)
   assert.match(markup, />Save review note<\/button>/)
   assert.match(markup, />Approve<\/button>/)
   assert.match(markup, />Needs changes<\/button>/)

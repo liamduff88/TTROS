@@ -111,7 +111,7 @@ export function Cockpit({ cockpit, onNavigate, refresh }) {
               <RowButton
                 key={item.id}
                 title={item.title || 'Untitled work item'}
-                meta={`${itemLane(item)} · ${age(item.updated_at || item.created_at)} ago${item.childSteps?.length ? ` · ${item.childSteps.length + 1} steps` : ''}`}
+                meta={`${item.id} · ${itemLane(item)} · ${age(item.updated_at || item.created_at)} ago${item.childSteps?.length ? ` · ${item.childSteps.length + 1} steps` : ''}`}
                 right={<StatusChip status={item.status} />}
                 onClick={() => onNavigate('work-queue', { selectedId: item.id })}
               />
@@ -129,7 +129,7 @@ export function Cockpit({ cockpit, onNavigate, refresh }) {
               <RowButton
                 key={item.id}
                 title={item.title || 'Untitled result'}
-                meta={item.source || item.path}
+                meta={[item.item_id, item.source || item.path].filter(Boolean).join(' · ')}
                 right={item.item_id ? undefined : <SourceChip source={item.source} />}
                 onClick={() => item.item_id ? onNavigate('work-queue', { selectedId: item.item_id }) : setSelected(item)}
               />
