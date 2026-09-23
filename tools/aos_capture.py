@@ -633,7 +633,14 @@ class CaptureTriage:
             invocation = f"stage2-{stable_hash(record_id, json.dumps(payload, sort_keys=True))[:20]}"
             decision = TriageDecision(record_id, "needs_input" if result else "triaged", "survivor_unresolved" if result else "discard", None, classification, invocation, result)
         else:
-            decision = TriageDecision(record_id, "needs_input", "unresolved_identity", None, classification)
+            # An unmapped sender is not itself a decision: most inbox mail is
+            # from people/companies who are not (yet) a registered client
+            # scope, and there is no artifact or consequential next step to
+            # put in front of Liam for it. Preserve and index it like any
+            # other capture; only genuine scope conflicts (ambiguous/
+            # conflicting above) or a classifier-flagged survivor ask a real
+            # question.
+            decision = TriageDecision(record_id, "triaged", "unresolved_identity", None, classification)
         self.storage.append_derived(decision.client_scope, "triage", decision.to_safe_dict())
         return decision
 

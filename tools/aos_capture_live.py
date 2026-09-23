@@ -534,7 +534,13 @@ def _prepare_delta(
     }
 
 
-def _projection_for_discard(storage: CaptureStorage, decision: Any) -> None:
+def _projection_for_discard(storage: CaptureStorage, decision: Any, *, proposal_state: str = "discarded") -> None:
+    """Record a non-material decision as evidence-only: preserved, indexed,
+    retrievable by David, but never routed to a review digest. Used both for
+    actual noise (newsletters/notifications) and for triaged-but-unscoped
+    capture (e.g. mail from a sender not mapped to any client scope) -- the
+    latter is real, kept evidence, not junk, so it is labeled distinctly
+    (`captured_no_review`) rather than reusing the "discarded" label."""
     raw = storage.raw_record(decision.record_id)
     row = CaptureMetadataProjection(
         record_id=str(raw["record_id"]),
@@ -545,14 +551,14 @@ def _projection_for_discard(storage: CaptureStorage, decision: Any) -> None:
         timestamp=str(raw["timestamp"]),
         source_type="gmail",
         triage_state=decision.state,
-        proposal_state="discarded",
+        proposal_state=proposal_state,
     )
     storage.append_derived(decision.client_scope, "metadata", row.to_dict())
     storage.append_derived(decision.client_scope, "operational_receipts", {
         "record_id": row.record_id,
         "reference_path": row.reference_path,
         "client_scope": row.client_scope,
-        "proposal_state": "discarded",
+        "proposal_state": proposal_state,
         "linked_item_id": "",
         "token_usage_text": "Token usage: no agent invocation",
     })
@@ -653,10 +659,18 @@ def _route_captured_messages(
     for decision in decisions:
         triage_counts[decision.route] += 1
         evidence_records.append(_write_gmail_evidence(storage, decision, evidence_root=evidence_root))
-        if decision.route == "discard":
+        # Materiality (whether this record earns a place in the review digest)
+        # is the triage STATE, not the route label: "needs_input" is the only
+        # state where the system has a specific, answerable question for
+        # Liam. Everything else -- noise discards and unscoped-but-ordinary
+        # mail (route "unresolved_identity") alike -- is preserved as
+        # evidence and indexed, never surfaced for review.
+        if decision.state == "needs_input":
+            material.append(decision)
+        elif decision.route == "discard":
             _projection_for_discard(storage, decision)
         else:
-            material.append(decision)
+            _projection_for_discard(storage, decision, proposal_state="captured_no_review")
     if not material:
         return {
             "item": None,
