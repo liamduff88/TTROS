@@ -519,6 +519,7 @@ class BusinessBrainGraphService:
                 headings.setdefault(edge["source"], []).append(edge["target"])
         nodes = {node["id"]: node for node in graph["nodes"]}
         seed_scores: dict[str, float] = {}
+        seed_matches: dict[str, int] = {}
         for node in graph["nodes"]:
             if node.get("kind") not in {"note", "activity"}:
                 continue
@@ -545,10 +546,11 @@ class BusinessBrainGraphService:
             if not score:
                 continue
             seed_scores[node["id"]] = score
+            seed_matches[node["id"]] = len(terms) if requested_activities else len(matched_terms)
 
         candidates: dict[str, dict[str, Any]] = {}
 
-        def add_candidate(node_id: str, score: float, reason: str) -> None:
+        def add_candidate(node_id: str, score: float, reason: str, matched_term_count: int) -> None:
             node = nodes.get(node_id) or {}
             if node.get("kind") != "note":
                 return
@@ -556,13 +558,19 @@ class BusinessBrainGraphService:
                 scoped_path = gate.validate_graph_target(identity.scope_id, self.namespace, str(node.get("source_path") or ""))
             except _CLIENT_SCOPE_ERRORS:
                 return
-            record = candidates.setdefault(scoped_path, {"path": scoped_path, "score": score, "relationship_reasons": []})
+            record = candidates.setdefault(scoped_path, {
+                "path": scoped_path,
+                "score": score,
+                "relationship_reasons": [],
+                "_matched_term_count": matched_term_count,
+            })
             record["score"] = max(float(record["score"]), float(score))
+            record["_matched_term_count"] = max(int(record["_matched_term_count"]), matched_term_count)
             if reason not in record["relationship_reasons"]:
                 record["relationship_reasons"].append(reason)
 
         for node_id, score in seed_scores.items():
-            add_candidate(node_id, score, "direct deterministic query match")
+            add_candidate(node_id, score, "direct deterministic query match", seed_matches[node_id])
         for edge in graph["edges"]:
             relation = str(edge.get("relation") or "")
             if relation not in SEMANTIC_RELATIONS:
@@ -573,14 +581,24 @@ class BusinessBrainGraphService:
                     target,
                     seed_scores[source] + 10.0,
                     f"one-hop {edge.get('edge_kind')} {relation}: {edge.get('relationship_reason')}",
+                    seed_matches[source],
                 )
             if target in seed_scores:
                 add_candidate(
                     source,
                     seed_scores[target] + 5.0,
                     f"one-hop reverse {edge.get('edge_kind')} {relation}: {edge.get('relationship_reason')}",
+                    seed_matches[target],
                 )
-        ranked = sorted(candidates.values(), key=lambda row: (-row["score"], row["path"]))
+        best_match_count = max((int(row["_matched_term_count"]) for row in candidates.values()), default=0)
+        ranked = sorted(
+            (
+                {key: value for key, value in row.items() if not key.startswith("_")}
+                for row in candidates.values()
+                if int(row["_matched_term_count"]) == best_match_count
+            ),
+            key=lambda row: (-row["score"], row["path"]),
+        )
         targets = ranked[: max(1, min(int(limit), 20))]
         return {
             "query": query,

@@ -96,6 +96,27 @@ class BusinessBrainContextTest(unittest.TestCase):
                 self.assertEqual(search_result.brain_context_used[0]["retrieval_route"], "search")
                 self.assertEqual(search_result.graph_state["state"], "stale")
 
+                write_note(vault / "memory/client-a-other.md", "note-a-other", "Other", "source-specific exact phrase")
+                data = make_registry().data
+                data["scopes"]["client-a"]["brain_pointers"].append("business_brain:memory/client-a-other.md")
+                data["scopes"]["client-a"]["search_source_identities"][0]["paths"].append("business_brain:memory/client-a-other.md")
+                data["scopes"]["client-a"]["graphify_targets"][0]["paths"].append("business_brain:memory/client-a-other.md")
+                stronger_registry = make_registry(data)
+                aos_indexer.scan(db, roots=[vault], registry=stronger_registry)
+                graph.query_targets.return_value = {
+                    "targets": [{"path": "business_brain:memory/client-a.md", "score": 2.0}],
+                    "graph_state": "fresh", "fallback": None,
+                }
+                stronger_loader = ScopedBrainLoader(
+                    registry=stronger_registry, vault_root=vault, graph_service=graph, search_db_path=db,
+                )
+                stronger = stronger_loader.retrieve(
+                    work={"client_scope": "client-a"}, query="source-specific exact phrase",
+                    discovery_mode="relationship_dependent",
+                )
+                self.assertEqual(stronger.brain_context_used[0]["path"], "business_brain:memory/client-a-other.md")
+                self.assertEqual(stronger.brain_context_used[0]["retrieval_route"], "search")
+
                 direct = pointer_loader.retrieve(work={"client_scope": "client-a"}, direct_fallback="business_brain:memory/client-a.md")
                 self.assertEqual(direct.brain_context_used[0]["retrieval_route"], "direct_fallback")
             finally:

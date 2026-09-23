@@ -1,6 +1,6 @@
 """Focused deterministic source-intake contract tests.
 
-Revisit: when source intake, scope, search, or Graphify contracts change. · Last touched: 2026-09-13.
+Revisit: when source intake, scope, search, or Graphify contracts change. · Last touched: 2026-09-22.
 """
 
 from __future__ import annotations
@@ -20,6 +20,7 @@ from tools import aos_indexer
 from tools import context_assembler
 from tools.business_brain_context import ScopedBrainLoader
 from tools.business_brain_scope import ClientScopeError, ClientScopeRegistry
+from dashboard.backend.business_brain_graph import BusinessBrainGraphService
 from tools.source_intake import (
     SourceIntakeError,
     _assert_index_links_source_and_card,
@@ -95,6 +96,10 @@ class SourceIntakeTest(unittest.TestCase):
         })
         global_scope["search_source_identities"][-2]["paths"].append("business_brain:sources/intake/INDEX.md")
         global_scope["graphify_targets"][0]["paths"].append("business_brain:sources/intake/INDEX.md")
+        global_scope["graphify_targets"][0]["path_prefixes"] = [
+            "business_brain:sources/intake/records/",
+            "business_brain:sources/intake/cards/",
+        ]
         write(repo / "context/client_scope_registry.json", json.dumps(data, indent=2) + "\n")
         write(brain / "README.md", note("root", "Root", "[[index/MEMORY_INDEX|Index]]"))
         write(brain / "index/MEMORY_INDEX.md", note("index", "Index", "[[memory/global|Global]]"))
@@ -386,6 +391,16 @@ class SourceIntakeTest(unittest.TestCase):
             record_text_before = record_path.read_text(encoding="utf-8")
             self.assertIn("type: source\n", record_text_before)
             self.assertEqual(record_path.stem, source_id)
+            capture_graph = BusinessBrainGraphService(
+                graphify_root=graph, vault_root=brain,
+                registry=ClientScopeRegistry(
+                    registry_path=registry_path,
+                    schema_path=ROOT / "context/client_scope_registry.schema.json",
+                ),
+            )
+            capture_manifest = json.loads((capture_graph.published / "source_manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(capture_graph.status()["state"], "fresh")
+            self.assertIn(record_pointer, {row["source_path"] for row in capture_manifest["files"]})
 
             payload = {
                 "claims": [{
@@ -436,6 +451,18 @@ class SourceIntakeTest(unittest.TestCase):
             claim_path = repo / f"queue/receipts/source_intake/claims/{source_id}.claims.yaml"
             self.assertTrue(card_path.is_file())
             self.assertTrue(claim_path.is_file())
+            semantic_graph = BusinessBrainGraphService(
+                graphify_root=graph, vault_root=brain,
+                registry=ClientScopeRegistry(
+                    registry_path=registry_path,
+                    schema_path=ROOT / "context/client_scope_registry.schema.json",
+                ),
+            )
+            semantic_manifest = json.loads((semantic_graph.published / "source_manifest.json").read_text(encoding="utf-8"))
+            published_paths = {row["source_path"] for row in semantic_manifest["files"]}
+            self.assertEqual(semantic_graph.status()["state"], "fresh")
+            self.assertIn(record_pointer, published_paths)
+            self.assertIn(f"business_brain:{card_relative}", published_paths)
             card_text = card_path.read_text(encoding="utf-8")
             self.assertIn("canonical_truth: false", card_text)
             claim_document = yaml.safe_load(claim_path.read_text(encoding="utf-8"))

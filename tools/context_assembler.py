@@ -5,7 +5,7 @@ The assembler emits an immutable object with visible per-block byte/token
 counts.  It selects relevant Brain sources instead of dumping the vault and
 never truncates a selected block silently.
 
-Revisit: when a model surface, Brain retrieval source, or context block changes. · Last touched: 2026-08-17.
+Revisit: when a model surface, Brain retrieval source, or context block changes. · Last touched: 2026-09-22.
 """
 
 from __future__ import annotations
@@ -388,6 +388,22 @@ def relevance_query(request: str) -> str:
     return match.group("message").strip() if match else str(request or "").strip()
 
 
+CARD_QUERY_STOP_TERMS = frozenset({
+    "this", "that", "with", "from", "have", "what", "when", "where", "which", "about", "into",
+    "please", "could", "would", "should", "proceed", "who", "are", "identify", "distinguish",
+    "distinguishing", "verified", "fact", "interpretation", "hypothesis", "uncertainty", "stale",
+    "the", "and", "for", "find", "show", "tell", "does", "did", "our", "any", "all", "material",
+})
+
+
+def _normalized_terms(value: str) -> set[str]:
+    return {
+        term.casefold().strip(".'’-")
+        for term in TERM_RE.findall(value)
+        if len(term.casefold().strip(".'’-")) > 2
+    }
+
+
 def _query_terms(query: str) -> set[str]:
     stop = {
         "this", "that", "with", "from", "have", "what", "when", "where", "which", "about", "into",
@@ -395,6 +411,10 @@ def _query_terms(query: str) -> set[str]:
         "distinguishing", "verified", "fact", "interpretation", "hypothesis", "uncertainty", "stale",
     }
     return {term.casefold() for term in TERM_RE.findall(query) if len(term) > 2 and term.casefold() not in stop}
+
+
+def _card_query_terms(query: str) -> set[str]:
+    return _normalized_terms(query) - CARD_QUERY_STOP_TERMS
 
 
 def _entity_name_terms(query: str) -> set[str]:
@@ -459,6 +479,7 @@ def _card_search_pointers(
     *,
     client_scope: str,
     registry: ClientScopeRegistry,
+    vault_root: Path = VAULT_ROOT,
     search_db_path: Path | None = None,
     limit: int = 3,
 ) -> list[str]:
@@ -483,7 +504,7 @@ def _card_search_pointers(
     is silent and cheap: the caller's existing exact-search/graph/
     direct-fallback tier still runs unchanged.
     """
-    terms = _query_terms(query) | _entity_name_terms(query)
+    terms = _card_query_terms(query) | _entity_name_terms(query)
     if not terms:
         return []
     strong = _strong_terms(query)
@@ -517,19 +538,52 @@ def _card_search_pointers(
         )
     except Exception:
         return []
-    pointers: list[str] = []
+    candidates: list[tuple[str, int, int, float]] = []
     for group in (result.get("groups") or {}).values():
         for row in group:
             path = str(row.get("path") or "")
-            if not CARD_POINTER_RE.match(path) or path in pointers:
+            if not CARD_POINTER_RE.match(path) or any(existing[0] == path for existing in candidates):
                 continue
-            stem_terms = " ".join(re.findall(r"[a-z0-9]+", Path(path).stem.replace(".card", "").casefold()))
-            haystack = str(row.get("title") or "").casefold() + " " + stem_terms
-            matched_generic = {term for term in terms if term in haystack and len(term) >= 4}
-            matched_strong = {term for term in terms if term in haystack} & strong
+            metadata_values = [str(row.get("title") or ""), Path(path).stem.replace(".card", "")]
+            try:
+                card = registry.resolve_brain_pointer(client_scope, path, root=vault_root)
+                card_fields, _card_body = _frontmatter_body(card.resolved_path.read_text(encoding="utf-8"))
+                metadata_values.extend(str(card_fields.get(key) or "") for key in (
+                    "source_date", "kind", "participants", "entities", "source_sha256", "type",
+                ))
+                source_relative = str(card_fields.get("source_path") or "").strip()
+                if source_relative:
+                    source_pointer = source_relative if source_relative.startswith("business_brain:") else f"business_brain:{source_relative}"
+                    source = registry.resolve_brain_pointer(client_scope, source_pointer, root=vault_root)
+                    source_fields: dict[str, str] = {}
+                    with source.resolved_path.open("r", encoding="utf-8", errors="strict") as handle:
+                        if handle.readline().rstrip() == "---":
+                            frontmatter_lines = []
+                            for line in handle:
+                                if line.rstrip() == "---":
+                                    loaded = yaml.safe_load("".join(frontmatter_lines)) or {}
+                                    source_fields = loaded if isinstance(loaded, dict) else {}
+                                    break
+                                frontmatter_lines.append(line)
+                    metadata_values.extend(str(source_fields.get(key) or "") for key in (
+                        "title", "original_filename", "source_date", "source_sha256", "content_type", "type",
+                    ))
+            except (ClientScopeError, OSError, UnicodeError, yaml.YAMLError):
+                pass
+            haystack_terms = _normalized_terms(" ".join(metadata_values))
+            matched = terms & haystack_terms
+            matched_generic = {term for term in matched if len(term) >= 4}
+            matched_strong = matched & strong
             if len(matched_generic) >= 2 or matched_strong:
-                pointers.append(path)
-    return pointers[:limit]
+                candidates.append((path, len(matched), len(matched_strong), float(row.get("rank") or 0.0)))
+    if not candidates:
+        return []
+    best_overlap = max(candidate[1] for candidate in candidates)
+    ranked = sorted(
+        (candidate for candidate in candidates if candidate[1] == best_overlap),
+        key=lambda candidate: (-candidate[2], candidate[3], candidate[0]),
+    )
+    return [candidate[0] for candidate in ranked[:limit]]
 
 
 def _scoped_note_block(
@@ -577,7 +631,8 @@ def _scoped_note_block(
     card_pointers: list[str] = []
     if not pointers:
         card_pointers = _card_search_pointers(
-            query, client_scope=client_scope, registry=gate, search_db_path=search_db_path,
+            query, client_scope=client_scope, registry=gate, vault_root=vault_root,
+            search_db_path=search_db_path,
         )
         if card_pointers:
             result = loader.retrieve(work={"client_scope": client_scope}, pointers=card_pointers, query=query)

@@ -13,6 +13,19 @@ pointer/Search fallback, preventing unrelated graph hits from blocking ICM's
 authoritative Search index. No index, service, retrieval tier, or model call was
 added.
 
+The existing Card-first Context Assembler tier ranks only bounded Search
+candidates, using each Card's current provenance pointer and its Original's
+frontmatter metadata. Specific source/topic terms select the strongest Card;
+equal top matches remain distinct for collection queries. This follows the
+existing Card → Original link and does not inspect raw Original bodies during
+candidate selection.
+
+Graphify likewise retains only candidates tied for the strongest query-term
+coverage. The existing scoped loader cross-checks nonempty Graphify results
+against exact FTS: a non-overlapping exact Search hit wins, while overlap keeps
+the Graphify route. This prevents a weak graph hit from suppressing stronger
+existing Search evidence without adding a retrieval engine or model call.
+
 ## 2026-09-13 — Exact authority replaces duplicate external-action approval
 
 The existing queue/connector enforcement now classifies operator/internal

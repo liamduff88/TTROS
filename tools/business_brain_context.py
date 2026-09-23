@@ -1,6 +1,6 @@
 """Scoped Business Brain retrieval, actual-read provenance, and work classification.
 
-Revisit: when retrieval hierarchy or completion context rules change. · Last touched: 2026-07-31.
+Revisit: when retrieval hierarchy or completion context rules change. · Last touched: 2026-09-22.
 """
 
 from __future__ import annotations
@@ -277,6 +277,22 @@ class ScopedBrainLoader:
             }
             targets = [str(row.get("path") or "") for row in graph_result.get("targets") or []]
             if targets:
+                search_result = self.search_module.search(
+                    query,
+                    source="business_brain",
+                    limit=limit,
+                    db_path=self.search_db_path,
+                    client_scope=client_scope,
+                    registry=self.registry,
+                    exact=True,
+                    path_only=True,
+                )
+                search_paths = self._search_paths(search_result)
+                if search_paths and not set(targets).intersection(search_paths):
+                    return ScopedRetrievalResult(
+                        reads=[self._open(client_scope=client_scope, pointer=pointer, route="search") for pointer in search_paths[:limit]],
+                        graph_state=graph_state,
+                    )
                 return ScopedRetrievalResult(
                     reads=[self._open(client_scope=client_scope, pointer=pointer, route="graphify") for pointer in targets[:limit]],
                     graph_state=graph_state,

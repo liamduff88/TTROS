@@ -14,6 +14,7 @@ from unittest import mock
 
 from tools import brain_memory
 from tools import context_assembler
+from tests.business_brain_test_support import make_registry, registry_data
 
 
 NOTE = """---
@@ -118,6 +119,51 @@ class BrainTransactionTests(unittest.TestCase):
 
 
 class ContextAssemblerTests(unittest.TestCase):
+    def test_card_candidate_selection_uses_exact_source_metadata_and_keeps_collection_ties(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = Path(tmp)
+            digest_a, digest_b = "a" * 64, "b" * 64
+            for digest, filename, title in (
+                (digest_a, "Acme workflow system walkthrough.txt", "Acme workflow notes"),
+                (digest_b, "Acme kickoff meeting.txt", "Acme kickoff notes"),
+            ):
+                record = vault / f"sources/intake/records/{digest}.md"
+                card = vault / f"sources/intake/cards/{digest}.card.md"
+                record.parent.mkdir(parents=True, exist_ok=True)
+                card.parent.mkdir(parents=True, exist_ok=True)
+                record.write_text(
+                    f'---\nid: source-{digest}\ntype: source\ntitle: "{filename}"\n'
+                    f'original_filename: "{filename}"\nsource_sha256: {digest}\n---\n# {filename}\n',
+                    encoding="utf-8",
+                )
+                card.write_text(
+                    f'---\nid: card-{digest}\ntype: source_card\nsource_path: "sources/intake/records/{digest}.md"\n'
+                    f'source_sha256: {digest}\n---\n# {title}\n',
+                    encoding="utf-8",
+                )
+            data = registry_data()
+            scope = data["scopes"]["global"]
+            scope["brain_pointer_prefixes"] = [
+                "business_brain:sources/intake/records/", "business_brain:sources/intake/cards/",
+            ]
+            registry = make_registry(data)
+            rows = [
+                {"path": f"business_brain:sources/intake/cards/{digest_a}.card.md", "title": "Acme workflow notes", "rank": -2.0},
+                {"path": f"business_brain:sources/intake/cards/{digest_b}.card.md", "title": "Acme kickoff notes", "rank": -3.0},
+            ]
+            search_result = {"groups": {"memory": rows}}
+            with mock.patch.object(context_assembler.aos_indexer, "search", return_value=search_result):
+                specific = context_assembler._card_search_pointers(
+                    "Find the Acme workflow system walkthrough", client_scope="global",
+                    registry=registry, vault_root=vault,
+                )
+                collection = context_assembler._card_search_pointers(
+                    "What source material do we have for Acme", client_scope="global",
+                    registry=registry, vault_root=vault,
+                )
+            self.assertEqual(specific, [f"business_brain:sources/intake/cards/{digest_a}.card.md"])
+            self.assertEqual(set(collection), {row["path"] for row in rows})
+
     def test_recent_outcomes_projection_omits_only_none_values(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
