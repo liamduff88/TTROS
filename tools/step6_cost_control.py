@@ -6,7 +6,7 @@ control-evidence store.  Every model invocation is recorded separately.  A
 provider's input total is authoritative; cached input is displayed and priced
 separately when available, but is never added to input again.
 
-Revisit: on provider usage-schema or model-pricing changes. · Last touched: 2026-08-06.
+Revisit: on provider usage-schema or model-pricing changes. · Last touched: 2026-09-23.
 """
 
 from __future__ import annotations
@@ -630,6 +630,13 @@ def record_invocation(
         "reasoning": reasoning if reasoning is not None else UNAVAILABLE,
         "input_plus_output": normalized["canonical_total"],
     }
+    if provider == "openai-codex":
+        slot = usage.get("credential_slot")
+        label = usage.get("credential_account_label")
+        if isinstance(slot, str) and re.fullmatch(r"[a-zA-Z0-9_-]{1,32}", slot):
+            row["credential_slot"] = slot
+        if label in {"Account A", "Account B"}:
+            row["credential_account_label"] = label
     recorded, durable_row = _append_row(root, ledger_path, row)
     if not recorded:
         recorded_total = (durable_row.get("fuse") or {}).get("invocation_tokens")

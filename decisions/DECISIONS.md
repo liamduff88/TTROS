@@ -1,6 +1,21 @@
 # DECISIONS.md — log of decisions that change system behavior
-> Revisit: when a behavior-affecting system decision is made. · Last touched: 2026-09-22.
+> Revisit: when a behavior-affecting system decision is made. · Last touched: 2026-09-23.
 > One entry per behavior-affecting change. Newest first.
+
+## 2026-09-23 — Operating Hermes Codex capacity gate
+The `aos-orchestrator` profile owns two distinct Hermes OAuth grants, labelled
+Account A and Account B, with priorities 0 and 1 under `fill_first`. Before its
+substantive Codex request, the live Hermes preflight gate uses the provider's
+read-only usage API for both Session and Weekly windows. A slot at 97% used in
+either window enters Hermes' native pool cooldown; the next healthy slot serves
+the request. Missing usage evidence also benches that slot briefly. If neither
+slot is healthy, the turn stops before a model request. Native hard-error pool
+failover remains in place. The live Hermes edit is in
+`agent/turn_preflight_gate.py`; `agent/turn_context.py` is unchanged. One-shot
+usage reports and Step 6 ledger rows can carry the non-secret serving slot and
+account label. Recheck this live runtime seam after a Hermes upgrade.
+Implementation and focused tests are complete; live production failover proof
+is pending a real capacity-boundary event.
 
 ## 2026-09-22 — Work-item titles are semantic; AOS IDs are identity only
 
