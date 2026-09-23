@@ -48,6 +48,13 @@ queue/receipts/*.patch
 !queue/receipts/AOS-2026-0125-phase-6b-capture-live.json
 !queue/receipts/gmail-draft-eaf7ea6500a619a6e2c05220.json
 
+# Local intake receipts, validation captures, and upload staging
+queue/receipts/memory_intake/
+queue/receipts/source_intake/claims/*.claims.yaml
+!queue/receipts/source_intake/claims/d9cb4668fd766474278e414bb53223f944342004f34be23020c161fa4160dd74.claims.yaml
+queue/receipts/*.png
+queue/uploads/
+
 # Generated handoff/output archives
 archive/
 packets/
