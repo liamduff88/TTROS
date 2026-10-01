@@ -1,6 +1,14 @@
 # DECISIONS.md — log of decisions that change system behavior
-> Revisit: when a behavior-affecting system decision is made. · Last touched: 2026-09-23.
+> Revisit: when a behavior-affecting system decision is made. · Last touched: 2026-10-01.
 > One entry per behavior-affecting change. Newest first.
+
+## 2026-09-23 — DriveFS memory intake uses a Windows copy adapter
+The Windows poller reads only the specified DriveFS Inbox and defaults to
+reconciliation without ingestion. On activation it copies stable source bytes
+into `queue/inbox/staging/drive/`; a deterministic WSL helper normalizes
+supported formats and calls the existing Memory Intake capture and semantic
+spine. Staging is omitted from general search scans and the unfiled list so a
+copy cannot appear as retrieved memory before canonical ingestion succeeds.
 
 ## 2026-09-23 — Operating Hermes Codex capacity gate
 The `aos-orchestrator` profile owns two distinct Hermes OAuth grants, labelled

@@ -346,16 +346,18 @@ def upsert_document(conn: sqlite3.Connection, doc: dict) -> bool:
 def iter_indexable(root: Path):
     if not root.exists():
         return
+    staging = LIVE_ROOT / "queue/inbox/staging"
     for dirpath, dirnames, filenames in os.walk(root):
         current = Path(dirpath)
         dirnames[:] = [
             name
             for name in dirnames
             if not is_excluded(current / name, root=root)
+            and not (current / name).resolve().is_relative_to(staging.resolve())
         ]
         for name in filenames:
             path = current / name
-            if is_excluded(path, root=root):
+            if is_excluded(path, root=root) or path.resolve().is_relative_to(staging.resolve()):
                 continue
             if path.suffix.lower() in INDEXABLE_EXTENSIONS:
                 yield path

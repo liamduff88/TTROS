@@ -54,6 +54,8 @@ queue/receipts/source_intake/claims/*.claims.yaml
 !queue/receipts/source_intake/claims/d9cb4668fd766474278e414bb53223f944342004f34be23020c161fa4160dd74.claims.yaml
 queue/receipts/*.png
 queue/uploads/
+# Drive Memory Intake copies and normalized source material are private runtime data.
+queue/inbox/staging/
 
 # Generated handoff/output archives
 archive/

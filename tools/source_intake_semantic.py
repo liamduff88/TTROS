@@ -15,7 +15,7 @@ support added STEP I2, 2026-09-09; see
 scripts/i2_source_intake_production_path_transcript.md.
 
 Revisit: when the claim/card schema, the extraction template, the blindness
-contamination guard, or the Hermes usage-sidecar schema changes. · Last touched: 2026-09-22.
+contamination guard, the Hermes launch environment, or the usage-sidecar schema changes. · Last touched: 2026-09-23.
 """
 
 from __future__ import annotations
@@ -248,6 +248,7 @@ def call_hermes_semantic(
     env = dict(os.environ)
     env[ENV_SENTINEL] = "1"
     env.pop("HERMES_HOME", None)
+    env["PATH"] = f"{Path.home() / '.local' / 'bin'}{os.pathsep}{env.get('PATH', '')}"
     cmd = [
         "hermes", "-p", HERMES_PROFILE, "-m", model, "--reasoning", reasoning, "-t", "",
         "-z", prompt, "--usage-file", str(usage_file),

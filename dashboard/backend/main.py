@@ -8084,7 +8084,8 @@ def _memory_intake_unfiled_items(limit: int = 50) -> list[dict]:
     records_dir = business_brain.BUSINESS_BRAIN_ROOT / source_intake.RECORDS_RELATIVE
     items = []
     for path in sorted(root.rglob("*")):
-        if not path.is_file() or path.is_symlink() or path.name.startswith("."):
+        if (not path.is_file() or path.is_symlink() or path.name.startswith(".")
+                or path.is_relative_to(root / "staging")):
             continue
         try:
             raw = path.read_bytes()
@@ -8264,13 +8265,15 @@ def _run_memory_intake_capture(path: Path) -> dict:
     }
 
 
-def _memory_intake_ingest_and_record(source_path: Path, *, filename: str, key: str) -> dict:
+def _memory_intake_ingest_and_record(source_path: Path, *, filename: str, key: str,
+                                     source_provenance: dict | None = None) -> dict:
     outcome = _run_memory_intake_capture(source_path)
     receipt = {
         "key": key,
         "filename": filename,
         "at": datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
         **outcome,
+        **(source_provenance or {}),
     }
     _write_memory_intake_receipt(receipt)
     latitude_telemetry.trace(

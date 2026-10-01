@@ -1,12 +1,14 @@
 """Focused deterministic source-intake contract tests.
 
-Revisit: when source intake, scope, search, or Graphify contracts change. · Last touched: 2026-09-22.
+Revisit: when source intake, scope, search, or Graphify contracts change. · Last touched: 2026-09-23.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+import os
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -238,6 +240,36 @@ class SourceIntakeTest(unittest.TestCase):
                     commit=False, now=lambda: NOW,
                 )
             self.assertEqual(hashes(root), before)
+
+    def test_semantic_hermes_resolves_without_interactive_path(self):
+        from tools import source_intake_semantic as sis
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            home = root / "home"
+            launcher = home / ".local/bin/hermes"
+            write(launcher, "#!/bin/sh\nexit 0\n")
+            launcher.chmod(0o755)
+            payload = {"claims": [], "card": {}}
+
+            def fake_run(cmd, **kwargs):
+                self.assertEqual(cmd[0], "hermes")
+                self.assertEqual(shutil.which("hermes", path=kwargs["env"]["PATH"]), str(launcher))
+                self.assertEqual(kwargs["env"][sis.ENV_SENTINEL], "1")
+                self.assertNotIn("HERMES_HOME", kwargs["env"])
+                return subprocess.CompletedProcess(cmd, 0, json.dumps(payload), "")
+
+            with mock.patch.dict(os.environ, {"HOME": str(home), "PATH": "/usr/bin:/bin",
+                                           "HERMES_HOME": "/unrelated/profile"}), \
+                 mock.patch.object(sis, "preflight"), \
+                 mock.patch.object(sis, "_record_semantic_usage", return_value={"row": {}, "recorded": False}), \
+                 mock.patch.object(sis.subprocess, "run", side_effect=fake_run) as run_mock:
+                result = sis.call_hermes_semantic(
+                    sis.render_prompt("Fixture source."), budget=sis.ModelCallBudget(maximum=1),
+                    source_id="fixture", usage_dir=root / "usage", root=root,
+                )
+            self.assertEqual(result, payload)
+            run_mock.assert_called_once()
 
     def test_semantic_extraction_backfill_writes_card_and_claim_record(self):
         with tempfile.TemporaryDirectory() as temporary:
