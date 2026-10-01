@@ -1288,3 +1288,9 @@ Attached files use the shared `/api/uploads` mechanism and then the canonical
 Memory Intake endpoint, sequentially, with a separate visible result per file;
 mixed text and files remain two explicit storage outcomes. The management route
 stays `memory-intake`, while its operator-facing label is “Add to Memory”.
+
+## 2026-10-01 — Memory Exchange v2 import is deterministic
+The directory-v1 importer validates the full package before writing, maps historical evidence to `sources/historical_calls/`, and records durable import intent before file writes so reruns reconcile by hashes. Canonical replacement requires a complete comparison and exact base hash. Search uses the existing indexer; Graphify runs only for existing allowlisted pointers. Live Drive moves require explicit transport configuration and `--move`.
+
+## 2026-10-01 — Memory Exchange importer follows the accepted v2 manifest
+The first real Kenneth acceptance package established the frozen v2 field layout: `source_count`/`sources`, `size_bytes`, `package_path`, `requires_human_review`, and nested target refs and paths. The importer validates those fields directly while preserving fixed historical and canonical target roots, hash checks, collision guards, durable intent, and refresh gating. The first full search scan was blocked by an unrelated unresolved capture projection, so import refresh indexes only the validated targets with the existing indexer and preserves the rest of the published index.

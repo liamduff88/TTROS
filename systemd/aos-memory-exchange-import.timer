@@ -1,0 +1,11 @@
+# Revisit: when Memory Exchange polling cadence changes. Last touched: 2026-10-01.
+[Unit]
+Description=Poll TTROS Memory Exchange ready packages every 15 minutes
+
+[Timer]
+OnCalendar=*:0/15
+RandomizedDelaySec=60
+Unit=aos-memory-exchange-import.service
+
+[Install]
+WantedBy=timers.target
