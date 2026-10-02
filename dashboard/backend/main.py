@@ -64,6 +64,7 @@ import aos_orchestration
 from aos_queue_storage import QueueStorageError, durable_append_text, durable_replace_text, queue_write_lock
 from aos_task_titles import title_for_item
 import aos_indexer
+import aos_entity_index
 import business_brain
 import business_brain_context
 import business_brain_inbox
@@ -9266,6 +9267,220 @@ def dashboard_save_memory(body: DashboardMemorySave):
         "modified": datetime.datetime.fromtimestamp(target.stat().st_mtime).isoformat(),
         "refresh": refresh,
     }
+
+
+# --- Memory entity browser -------------------------------------------------
+# Deterministic, zero-model reads over the existing search index plus the
+# derived entity tables in tools/aos_entity_index.py. Business Brain files stay
+# authoritative; reads are limited to pointers the search index already exposes
+# to the global scope, and edits still go through /api/dashboard/memory/save.
+
+_MEMORY_GRAPH_CACHE: dict = {"mtime": None, "nodes": {}, "by_pointer": {}, "neighbours": {}}
+
+
+class MemoryOpenRequest(BaseModel):
+    path: str
+    kind: str = "file"
+
+
+def _memory_windows_path(path: Path) -> str:
+    text = path.as_posix()
+    match = re.match(r"^/mnt/([a-zA-Z])(/.*)?$", text)
+    if not match:
+        return ""
+    return f"{match.group(1).upper()}:" + (match.group(2) or "/").replace("/", "\\")
+
+
+_MEMORY_EVIDENCE_TYPES = {"historical_source", "source", "source_card"}
+
+
+def _memory_readable_pointer(pointer: str) -> Path:
+    """Resolve a Business Brain pointer the global search scope may read (read-only)."""
+    registry = business_brain_scope.load_registry()
+    canonical = registry.canonical_pointer(pointer)
+    if registry.scope_for_search_identity("business_brain", canonical) != "global":
+        raise ValueError("pointer is outside the global Memory scope")
+    return business_brain.resolve_business_brain_pointer(canonical).resolved_path
+
+
+def _memory_edit_block(pointer: str, frontmatter: dict) -> str:
+    """Empty when the existing /api/dashboard/memory/save gate accepts the note; never widens it.
+
+    Preserved evidence (historical sources, source records, source cards) is
+    additionally read-only here even when the registry would allow a write.
+    """
+    try:
+        _dashboard_memory_note_path(pointer)
+    except business_brain_scope.ClientScopeError:
+        return "Read-only: this file is outside the editable Business Brain scope."
+    except (business_brain.BusinessBrainPointerError, ValueError) as exc:
+        return f"Read-only: {exc}"
+    if str(frontmatter.get("type") or "").lower() in _MEMORY_EVIDENCE_TYPES or str(frontmatter.get("canonical_truth") or "").lower() == "false":
+        return "Read-only: preserved source evidence is not edited from the Memory browser."
+    return ""
+
+
+def _memory_vault_dir(relative: str) -> Path:
+    vault = Path(business_brain.BUSINESS_BRAIN_ROOT).resolve()
+    clean = str(relative or "").strip().strip("/").replace("\\", "/")
+    if any(part in {"..", ""} or part.startswith(".") for part in clean.split("/") if clean):
+        raise ValueError("folder must be a plain Business Brain relative path")
+    target = (vault / clean).resolve() if clean else vault
+    target.relative_to(vault)
+    if not target.is_dir():
+        raise FileNotFoundError(clean)
+    return target
+
+
+def _memory_graph_neighbours(pointer: str) -> dict:
+    graph_path = GRAPHIFY_BRAIN_DIR / "document_graphs" / "ttros-business-brain" / "published" / "graph.json"
+    try:
+        mtime = graph_path.stat().st_mtime
+    except OSError:
+        return {"available": False, "reason": "Business Brain Graphify projection is not published."}
+    if _MEMORY_GRAPH_CACHE["mtime"] != mtime:
+        try:
+            graph = json.loads(graph_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return {"available": False, "reason": "Business Brain Graphify projection is unreadable."}
+        nodes = {node["id"]: node for node in graph.get("nodes", []) if node.get("kind") == "note"}
+        by_pointer = {node.get("source_path"): node for node in nodes.values()}
+        neighbours: dict[str, set] = {}
+        for edge in graph.get("edges", []):
+            if edge.get("relation") == "wiki_link" and edge.get("source") in nodes and edge.get("target") in nodes:
+                neighbours.setdefault(edge["source"], set()).add(edge["target"])
+                neighbours.setdefault(edge["target"], set()).add(edge["source"])
+        _MEMORY_GRAPH_CACHE.update({"mtime": mtime, "nodes": nodes, "by_pointer": by_pointer, "neighbours": neighbours, "built": datetime.datetime.fromtimestamp(mtime).date().isoformat()})
+    nodes = _MEMORY_GRAPH_CACHE["nodes"]
+    node = _MEMORY_GRAPH_CACHE["by_pointer"].get(pointer)
+    if node is None:
+        return {"available": True, "in_graph": False, "graph_built": _MEMORY_GRAPH_CACHE.get("built"), "links": []}
+    links = [{"path": nodes[other]["source_path"], "title": nodes[other].get("title") or nodes[other]["relative_path"]}
+             for other in sorted(_MEMORY_GRAPH_CACHE["neighbours"].get(node["id"], ()))]
+    return {"available": True, "in_graph": True, "node_id": node["id"], "graph_built": _MEMORY_GRAPH_CACHE.get("built"), "links": links}
+
+
+@app.get("/api/memory/search")
+def memory_search(q: str = "", limit: int = 30):
+    started = time.perf_counter()
+    refresh = aos_entity_index.ensure_current()
+    entities = aos_entity_index.search_entities(q)
+    result = aos_indexer.search(q, source="business_brain", client_scope="global", limit=limit) if q.strip() else {"groups": {}}
+    rows = [row for group in result.get("groups", {}).values() for row in group]
+    meta = aos_entity_index.document_meta([row["path"] for row in rows])
+    knowledge, sources = [], []
+    for row in rows:
+        doc = meta.get(row["path"]) or {"role": "knowledge", "type_label": "Business Brain note", "date": "", "date_text": "", "entities": []}
+        item = {**doc, "path": row["path"], "title": row.get("title") or doc.get("title"), "snippet": row.get("snippet", "")[:240]}
+        (sources if doc.get("role") == "source" else knowledge).append(item)
+    return {
+        "query": q, "resolution": entities["resolution"], "entities": entities["entities"],
+        "knowledge": knowledge, "sources": sources, "index_refresh": refresh.get("status"),
+        "latency_ms": round((time.perf_counter() - started) * 1000, 2), "model_invoked": False,
+        "token_usage_text": "Token usage: no agent invocation",
+    }
+
+
+@app.get("/api/memory/entity")
+def memory_entity(id: str):
+    aos_entity_index.ensure_current()
+    view = aos_entity_index.entity_view(id)
+    if view is None:
+        raise HTTPException(status_code=404, detail="entity not found in the derived entity index")
+    return {**view, "model_invoked": False}
+
+
+@app.get("/api/memory/document")
+def memory_document(path: str):
+    try:
+        target = _memory_readable_pointer(path)
+        if target.stat().st_size > _MEMORY_NOTE_MAX_BYTES:
+            raise ValueError("document exceeds the reader size limit")
+        content = target.read_text(encoding="utf-8", errors="replace")
+    except (business_brain.BusinessBrainPointerError, business_brain_scope.ClientScopeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except OSError as exc:
+        raise HTTPException(status_code=404, detail=f"document unavailable: {exc}")
+    aos_entity_index.ensure_current()
+    meta = aos_entity_index.document_meta([path]).get(path, {})
+    frontmatter, body = aos_indexer.parse_frontmatter(content)
+    edit_block = _memory_edit_block(path, frontmatter)
+    return {
+        "path": path,
+        "title": meta.get("title") or _markdown_title(body, target.name),
+        "content": content,
+        "revision": _workflow_revision(content),
+        "editable": not edit_block,
+        "edit_block_reason": edit_block,
+        "windows_path": _memory_windows_path(target),
+        "windows_folder": _memory_windows_path(target.parent),
+        "wsl_path": str(target),
+        "modified": datetime.datetime.fromtimestamp(target.stat().st_mtime).isoformat(),
+        "meta": meta,
+        "frontmatter_type": frontmatter.get("type"),
+        "graphify": _memory_graph_neighbours(path),
+        "model_invoked": False,
+    }
+
+
+@app.get("/api/memory/browse")
+def memory_browse(dir: str = ""):
+    """List exactly one Business Brain folder (no recursive scan)."""
+    try:
+        target = _memory_vault_dir(dir)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="folder not found")
+    vault = Path(business_brain.BUSINESS_BRAIN_ROOT).resolve()
+    registry = business_brain_scope.load_registry()
+    folders, files = [], []
+    with os.scandir(target) as entries:
+        for entry in entries:
+            if entry.name.startswith("."):
+                continue
+            try:
+                relative = Path(entry.path).resolve().relative_to(vault).as_posix()
+            except ValueError:
+                continue  # link that leaves the vault
+            if entry.is_dir():
+                folders.append({"name": entry.name, "dir": relative})
+            elif entry.is_file():
+                pointer = f"business_brain:{relative}"
+                readable = registry.scope_for_search_identity("business_brain", pointer) == "global"
+                files.append({"name": entry.name, "path": pointer, "readable": readable, "size_bytes": entry.stat().st_size})
+    folders.sort(key=lambda item: item["name"].lower())
+    files.sort(key=lambda item: item["name"].lower())
+    relative_dir = target.relative_to(vault).as_posix() if target != vault else ""
+    return {"dir": relative_dir, "windows_path": _memory_windows_path(target), "folders": folders, "files": files, "model_invoked": False}
+
+
+@app.post("/api/memory/open")
+def memory_open(body: MemoryOpenRequest):
+    """Open a readable Business Brain file (or its folder) with Windows Explorer."""
+    try:
+        if body.kind == "dir":
+            target = _memory_vault_dir(body.path)
+        else:
+            if body.kind not in {"file", "folder"}:
+                raise ValueError("kind must be file, folder or dir")
+            target = _memory_readable_pointer(body.path)
+            if not target.is_file():
+                raise FileNotFoundError(body.path)
+    except (business_brain.BusinessBrainPointerError, business_brain_scope.ClientScopeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="path not found")
+    windows_path = _memory_windows_path(target)
+    explorer = Path("/mnt/c/Windows/explorer.exe")
+    if not windows_path or not explorer.is_file():
+        raise HTTPException(status_code=500, detail="Windows Explorer is not reachable from this runtime")
+    argv = [str(explorer), f"/select,{windows_path}"] if body.kind == "folder" else [str(explorer), windows_path]
+    try:
+        subprocess.Popen(argv, cwd="/mnt/c", stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"local open failed: {exc}")
+    return {"success": True, "windows_path": windows_path, "kind": body.kind, "model_invoked": False}
 
 
 @app.get("/api/dashboard/prompts")

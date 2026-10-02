@@ -106,3 +106,10 @@ export const getSearchStatus = () => api.get('/search/status').then(r => r.data)
 export const reindexSearch = () => api.post('/search/reindex').then(r => r.data)
 export const ingestTick = () => api.post('/ingest/tick').then(r => r.data)
 export const getArtifacts = (params) => api.get('/artifacts', { params: { client_scope: 'global', ...params } }).then(r => r.data)
+
+// Memory entity browser — deterministic, zero-model reads (tools/aos_entity_index.py).
+export const searchMemory = q => api.get('/memory/search', { params: { q } }).then(r => r.data)
+export const getMemoryEntity = id => api.get('/memory/entity', { params: { id } }).then(r => r.data)
+export const getMemoryDocument = path => api.get('/memory/document', { params: { path } }).then(r => r.data)
+export const browseMemory = dir => api.get('/memory/browse', { params: { dir } }).then(r => r.data)
+export const openMemoryPath = (path, kind = 'file') => api.post('/memory/open', { path, kind }).then(r => r.data)

@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { HubTabs } from '../components/DashboardKit'
-import { ResultsReceipts, ConnectionsSpine, PromptLibrary, GraphifyPage, RepoIngest, SettingsLaunchers, WorkflowBench, SkillsBoard, TokensROI, MemoryBoard } from './DashboardV1'
+import { ResultsReceipts, ConnectionsSpine, PromptLibrary, GraphifyPage, RepoIngest, SettingsLaunchers, WorkflowBench, SkillsBoard, TokensROI } from './DashboardV1'
 import { ArtifactsPage, MissionControl, SearchPage } from './WorkbenchV3'
 import MemoryIntake from './MemoryIntake'
+import MemoryBrain from './MemoryBrain'
 
 // Shared local-tab container for the Results, Search, and System destinations
 // (BUILD_SPECIFICATION "Local report/workspace tabs"). The active tab is
@@ -44,7 +45,7 @@ export function ResultsHub(props) {
 export function SearchHub(props) {
   const tabs = [
     { id: 'search', label: 'Search', component: SearchPage },
-    { id: 'memory', label: 'Memory', component: MemoryBoard },
+    { id: 'memory', label: 'Memory', component: MemoryBrain },
     { id: 'graphify', label: 'Graphify', component: GraphifyPage },
     { id: 'add-to-memory', label: 'Add to Memory', component: MemoryIntake },
     { id: 'repo-ingest', label: 'Repo Ingest', component: RepoIngest },
