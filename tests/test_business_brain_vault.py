@@ -37,6 +37,9 @@ class BusinessBrainVaultValidationTest(unittest.TestCase):
             backup = vault / "_backups" / "memory" / "company.md"
             backup.parent.mkdir(parents=True)
             backup.write_text("# Backup\n", encoding="utf-8")
+            generated = vault / "prospects" / "_runs" / "run.md"
+            generated.parent.mkdir(parents=True)
+            generated.write_text("# Generated run without a canonical ID or link\n", encoding="utf-8")
             before = vault / "before.sha256"
             before.write_text("".join(f"{hashlib.sha256(body.encode()).hexdigest()}  ./{relative}\n" for relative, body in originals.items()), encoding="utf-8")
             result = analyze_vault(vault, before_manifest=before)
@@ -44,6 +47,7 @@ class BusinessBrainVaultValidationTest(unittest.TestCase):
             self.assertEqual(result["checks"]["canonical_note_count"], 3)
             self.assertEqual(result["root_distances"]["memory/company.md"], 1)
             self.assertNotIn("_backups/memory/company.md", result["canonical_paths"])
+            self.assertNotIn("prospects/_runs/run.md", result["canonical_paths"])
 
 
 if __name__ == "__main__":

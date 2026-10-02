@@ -1,6 +1,6 @@
 """Deterministic structural validation for the canonical Business Brain vault.
 
-Revisit: when the vault metadata or Obsidian wiki-link contract changes. · Last touched: 2026-08-04.
+Revisit: when the vault metadata or Obsidian wiki-link contract changes. · Last touched: 2026-10-02.
 """
 
 from __future__ import annotations
@@ -23,6 +23,8 @@ WIKI_LINK_RE = re.compile(r"(?<!!)\[\[([^\]]+)\]\]")
 ROOTS = ("README.md", "index/MEMORY_INDEX.md")
 OBSIDIAN_JSON = ("app.json", "appearance.json", "core-plugins.json", "graph.json", "workspace.json")
 INTAKE_PREFIXES = ("inbox/source_notes/", "inbox/distilled_packets/")
+GENERATED_PREFIXES = ("prospects/_runs/",)
+NONCANONICAL_PREFIXES = INTAKE_PREFIXES + GENERATED_PREFIXES
 NAVIGATION_EXEMPT_PREFIXES = ("sessions/",)
 NAVIGATION_EXEMPT_NAMES = (
     "TTROS_ARCHITECTURE_",
@@ -39,7 +41,7 @@ def canonical_markdown(vault: Path) -> list[Path]:
         for path in vault.rglob("*.md")
         if path.is_file()
         and "_backups" not in {part.lower() for part in path.relative_to(vault).parts}
-        and not path.relative_to(vault).as_posix().startswith(INTAKE_PREFIXES)
+        and not path.relative_to(vault).as_posix().startswith(NONCANONICAL_PREFIXES)
     )
 
 
