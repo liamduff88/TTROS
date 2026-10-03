@@ -105,6 +105,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+SHARED_BRAIN_HTTP_ENABLED = os.environ.get("TTROS_SHARED_BRAIN_HTTP", "").strip().lower() in {"1", "true", "yes"}
+if SHARED_BRAIN_HTTP_ENABLED:
+    from shared_brain_http import install as install_shared_brain_http
+    install_shared_brain_http(app)
+
 BASE_DIR = aos_root()
 PACKETS_DIR = BASE_DIR / "packets"
 LOGS_DIR = BASE_DIR / "logs"
@@ -170,6 +175,12 @@ def _require_authority() -> Path:
 @app.middleware("http")
 async def linux_authority_boundary(request: Request, call_next):
     """Reject every HTTP mutation before an endpoint can create side effects."""
+    host = getattr(request, "headers", {}).get("host", "").split(":", 1)[0].lower()
+    path = getattr(getattr(request, "url", None), "path", "")
+    if host == "brain.timetorevenue.com" and not path.startswith("/api/brain/"):
+        return JSONResponse(status_code=404, content={"detail": "Not Found"})
+    if path.startswith("/api/brain/") and host not in {"brain.timetorevenue.com", "127.0.0.1", "localhost"}:
+        return JSONResponse(status_code=404, content={"detail": "Not Found"})
     if request.method.upper() not in {"GET", "HEAD", "OPTIONS"}:
         try:
             _require_authority()
