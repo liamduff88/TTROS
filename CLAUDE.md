@@ -1,4 +1,16 @@
 # CLAUDE.md — TTROS repo rules
+> **Shared Brain track — pointer, added 2026-10-03.** For TTROS Shared Brain work only, the
+> authoritative plan is
+> `/mnt/c/Users/Admin/Documents/A-Time to revenue/TTROS Shared Brain Build/00_SHARED_BRAIN_BUILD_PLAN.md`.
+> Read it, then `CURRENT_STEP.md` and `BUILD_LOG.md` in the same folder, before doing anything.
+> Liam approved the following on 2026-10-03. Where that plan differs from this file, the plan
+> wins **for that track only**:
+> its section 4 permission header sets the push rule (Codex never pushes; Claude Code pushes
+> the code repo after review); fixed pass/fail checks replace written predictions; a runtime
+> dependency may be installed only where a stage names it. The main plan is now rev 12
+> (`TTROS_BUILD_PLAN_2026-10-03_rev12.md`), a three-amendment index over rev 11; the "do not
+> propose a rev 12" line below is superseded by it, and rev 11's design is still closed.
+> Everything else in this file stands for all work.
 
 > Repo root: `/home/liam/agentic-os-live`. This file governs every Claude Code session in this
 > repo. Where it conflicts with a step prompt, this file wins; where Liam gives an explicit
