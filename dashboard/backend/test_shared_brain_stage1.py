@@ -163,7 +163,9 @@ class HttpContractTests(unittest.TestCase):
                                 tools = (await session.list_tools()).tools
                                 self.assertEqual([tool.name for tool in tools], ["search", "read", "entity", "checkpoint", "resume"])
                                 self.assertTrue(all("READ:" in tool.description for tool in tools[:3]))
-                                self.assertEqual(tools[3].description, shared_brain_read.CHECKPOINT_GUIDANCE)
+                                self.assertEqual(tools[3].description, shared_brain_read.CHECKPOINT_GUIDANCE + "\n"
+                                                 + shared_brain_read.LARGE_WORK_PRODUCT_GUIDANCE)
+                                self.assertIn(shared_brain_read.LARGE_WORK_PRODUCT_GUIDANCE, init.instructions)
                                 self.assertIn(shared_brain_read.CHECKPOINT_GUIDANCE, init.instructions)
                                 self.assertIn("RESUME:", tools[4].description)
                                 for query in ("TTROS", "Liam", "Shared Brain", "Graphify", "Memory Exchange"):

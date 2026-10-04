@@ -1,5 +1,5 @@
 # TTROS Memory Exchange importer
-> Revisit: when the frozen v2 manifest or transport changes. · Last touched: 2026-10-03.
+> Revisit: when the frozen v2 manifest or transport changes. · Last touched: 2026-10-04.
 
 The importer accepts `directory-v1` package folders immediately beneath a materialized `03_READY_FOR_TTROS` directory. `--dry-run --package PATH` validates one package and reports planned Brain paths without modifying the Brain, receipt ledger, search index, Graphify, or Drive. `--ready PATH` processes immediate children only; combine `--ready PATH --package PATH/ID` to select exactly one ready package. The default ready path can come from `TTROS_MEMORY_READY`.
 
@@ -33,3 +33,13 @@ When ChatGPT has no direct Brain connector, it places one typed package immediat
 ```
 
 The 15-minute systemd timer invokes the importer with `--checkpoint-only`, leaving all non-checkpoint ready packages untouched. A missing DriveFS mount yields no ready packages and does not prevent direct checkpoints. The existing `memory_exchange_import.py` consumer dispatches this type to the same `shared_brain_checkpoint.checkpoint()` function used by the HTTP and David stdio tools. It preserves the frozen v2 ingest manifest path unchanged. With `TTROS_SHARED_BRAIN_WRITE` off, a checkpoint package stays in the ready folder and is not consumed or moved. The consumer sets ChatGPT Drive-channel attribution itself; values supplied in the package cannot override it. Stale versions and invalid fields are rejected. The package is moved to the existing imported or rejected folder by the existing transport. The current note is projected to `TTROS Memory Exchange/06_WORKSTREAMS_READ/<workstream_id>.md` for ChatGPT to read. That folder is a copy of working state; the Brain note is authoritative. It is not a durable submit, Git commit or memory import.
+
+## Large working artifacts (Stage 4 repair, 2026-10-04)
+
+The note stays capped at 2,500 characters. An unfinished work product too large for it (a prompt, research package, draft, plan or report) lives as a working artifact at `TTROS Memory Exchange/07_WORKSTREAM_ARTIFACTS/<workstream_id>/<name>`, and the note's `work_product_reference` is `artifact:<workstream_id>/<name>`. Names are lowercase letters, digits, `-`, `_` and `.`, ending `.md` or `.txt`; content is at most 20,000 characters.
+
+- Direct clients (Claude, David) pass `work_product: {name, content}` to the existing `checkpoint`. Under the workstream lock and after the version check, TTROS writes the file, then the note. A stale version, an over-size note or unavailable Drive storage writes neither.
+- ChatGPT on the Drive handoff saves the file there itself, then sends an ordinary `CHECKPOINT.json` whose `work_product_reference` names it. The package format is unchanged; TTROS refuses a reference to a missing file or to another workstream's artifact.
+- `resume` of that workstream returns the artifact (bounded to 20,000 characters) with the note, so the receiver opens it before continuing. ChatGPT reads the same file in Drive.
+
+Artifacts are working storage. They are not Brain content, not indexed and not committed, and `submit` does not accept them as source references. A finished result still goes through `submit`.
