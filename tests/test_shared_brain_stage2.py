@@ -204,6 +204,20 @@ class Stage2Tests(unittest.TestCase):
         self.assertEqual((projection / "sample-workstream.md").read_text(),
                          (self.brain / "sessions/workstreams/sample-workstream.md").read_text())
 
+    def test_stdio_write_flag_reaches_david_without_inherited_env(self):
+        from tools import brain_memory_mcp as bmm
+        flag = Path(self.temp.name) / "ttros-shared-brain.env"
+        with mock.patch.object(bmm, "SHARED_BRAIN_WRITE_FLAG_FILE", flag):
+            with mock.patch.dict(os.environ, {"TTROS_SHARED_BRAIN_WRITE": ""}):
+                self.assertFalse(bmm._shared_brain_write_enabled())
+                flag.write_text("TTROS_SHARED_BRAIN_WRITE=1\n", encoding="utf-8")
+                self.assertTrue(bmm._shared_brain_write_enabled())
+                flag.write_text("TTROS_SHARED_BRAIN_WRITE=0\n", encoding="utf-8")
+                self.assertFalse(bmm._shared_brain_write_enabled())
+                flag.write_text("TTROS_SHARED_BRAIN_WRITE=1\n", encoding="utf-8")
+            with mock.patch.dict(os.environ, {"TTROS_SHARED_BRAIN_WRITE": "0"}):
+                self.assertFalse(bmm._shared_brain_write_enabled())
+
 
 if __name__ == "__main__":
     unittest.main()

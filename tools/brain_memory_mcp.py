@@ -59,7 +59,30 @@ mcp = MCPServer("brain")
 # mcp_servers.brain.env.AOS_BRAIN_DEPTH_TOOLS gains the depth tools; every other
 # client keeps the original two-tool surface unchanged.
 DEPTH_TOOLS_ENABLED = os.environ.get("AOS_BRAIN_DEPTH_TOOLS", "").strip().lower() in {"1", "true", "yes"}
-SHARED_BRAIN_WRITE_ENABLED = os.environ.get("TTROS_SHARED_BRAIN_WRITE", "").strip().lower() in {"1", "true", "yes"}
+
+# Hermes launches stdio MCP servers with a filtered environment (PATH, HOME, ...
+# plus the profile's own mcp_servers.<name>.env), so TTROS_SHARED_BRAIN_WRITE set
+# on the backend or bridge service never reaches David's server, and David's
+# profile is not edited for this track. An explicit env value still wins
+# (including "0"); otherwise this one flag file decides. Deleting it is rollback.
+SHARED_BRAIN_WRITE_FLAG_FILE = Path.home() / ".config" / "ttros-shared-brain.env"
+
+
+def _shared_brain_write_enabled() -> bool:
+    value = os.environ.get("TTROS_SHARED_BRAIN_WRITE", "").strip()
+    if not value:
+        try:
+            lines = SHARED_BRAIN_WRITE_FLAG_FILE.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            return False
+        for line in lines:
+            key, sep, raw = line.partition("=")
+            if sep and key.strip() == "TTROS_SHARED_BRAIN_WRITE":
+                value = raw.strip().strip('"').strip("'")
+    return value.lower() in {"1", "true", "yes"}
+
+
+SHARED_BRAIN_WRITE_ENABLED = _shared_brain_write_enabled()
 
 KnowledgeState = Literal["verified_fact", "interpretation", "hypothesis", "uncertainty", "operator_correction"]
 COMMITMENT_RE = re.compile(
