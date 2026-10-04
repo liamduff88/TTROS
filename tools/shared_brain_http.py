@@ -130,6 +130,9 @@ def install(app: Any) -> None:
     lifespans = []
     for surface in ("claude", "chatgpt"):
         server = _server()
+        # Live evidence of what this process serves; reviewers read it from the journal.
+        _log.info("shared_brain mount surface=%s tools=%s", surface,
+                  ",".join(tool.name for tool in server._tool_manager.list_tools()))
         transport = server.streamable_http_app(
             streamable_http_path="/", json_response=True, stateless_http=True,
             transport_security=TransportSecuritySettings(

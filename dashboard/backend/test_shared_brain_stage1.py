@@ -95,6 +95,15 @@ class ReadContractTests(unittest.TestCase):
 
 
 class HttpContractTests(unittest.TestCase):
+    def test_install_logs_served_tools_per_address(self):
+        for enabled, tools in ((False, "search,read,entity"), (True, "search,read,entity,checkpoint,resume")):
+            with patch.object(shared_brain_http, "WRITE_ENABLED", enabled), \
+                 self.assertLogs(shared_brain_http._log, level="INFO") as logs:
+                shared_brain_http.install(FastAPI())
+            self.assertEqual([line for line in logs.output if "shared_brain mount" in line],
+                             [f"INFO:ttros.shared_brain:shared_brain mount surface={surface} tools={tools}"
+                              for surface in ("claude", "chatgpt")])
+
     def test_stage2_attribution_and_write_flag(self):
         with patch.object(shared_brain_http, "WRITE_ENABLED", False):
             self.assertEqual([tool.name for tool in shared_brain_http._server()._tool_manager.list_tools()],
