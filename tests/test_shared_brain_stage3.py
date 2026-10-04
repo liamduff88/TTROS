@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from tools import aos_entity_index, aos_indexer, brain_git_closure, brain_memory, brain_memory_mcp, memory_exchange_import, shared_brain_http, shared_brain_read, shared_brain_submit
+from tools import aos_entity_index, aos_indexer, brain_git_closure, brain_memory, brain_memory_mcp, memory_exchange_import, shared_brain_confirm, shared_brain_http, shared_brain_read, shared_brain_submit
 
 
 def git(root: Path, *args: str) -> str:
@@ -297,3 +297,108 @@ def test_timer_typed_only_skips_full_ingest_packages(brain, monkeypatch, tmp_pat
     assert memory_exchange_import.main() == 0
     output = json.loads(capsys.readouterr().out.split("\nToken usage")[0])
     assert output == [{"outcome": "validated", "operation": "submit"}]
+
+
+def _live_shaped_submit(root):
+    # The live Brain ignores the intake directory; continuity files are dirty, as on the host.
+    (root / ".gitignore").write_text("inbox/distilled_packets/*\n!inbox/distilled_packets/.gitkeep\n")
+    (root / "sessions").mkdir()
+    (root / "sessions/thread_david.md").write_text("---\nid: thread-david\ntype: session\n---\n# Thread\n")
+    git(root, "add", ".gitignore", "sessions/thread_david.md")
+    git(root, "-c", "user.name=Test", "-c", "user.email=test@local", "commit", "-m", "live shape")
+    git(root, "push", "origin", "main")
+    result = submit(key="shared-brain-stage3-live-20261003", title="Shared Brain durable submit live",
+                    body="Milestone reached.")
+    assert result["success"] and result["sync_status"] == "synced", result
+    (root / "sessions/thread_david.md").write_text("---\nid: thread-david\ntype: session\n---\n# Thread\nDavid note.\n")
+    (root / "sessions/workstreams").mkdir()
+    (root / "sessions/workstreams/s311.md").write_text("continuity")
+    return result
+
+
+def test_confirm_flips_unconfirmed_submit_and_syncs_without_continuity(brain):
+    root, remote = brain
+    submitted = _live_shaped_submit(root)
+    relative = submitted["reference"].removeprefix("business_brain:")
+    before = (root / relative).read_text()
+    continuity = {path: (root / path).read_bytes() for path in ("sessions/thread_david.md", "sessions/workstreams/s311.md")}
+    result = shared_brain_confirm.confirm(submitted["record_id"])
+    assert result["success"] and result["previous_status"] == "unconfirmed" and result["status"] == "confirmed", result
+    assert not result["already_confirmed"] and result["sync_status"] == "synced"
+    assert result["commit"] == git(root, "rev-parse", "HEAD") == git(remote, "rev-parse", "main")
+    assert git(root, "show", "--name-only", "--format=", "HEAD").splitlines() == [relative]
+    after = (root / relative).read_text()
+    fields, _ = brain_memory.parse_frontmatter(after)
+    assert fields["status"] == "confirmed" and fields["hermes_last_write"]["source"] == "shared-brain-confirm"
+    # Only the status line and Hermes's provenance block change; the submitted payload is untouched.
+    changed = {line for line in before.splitlines() if line not in after.splitlines()}
+    assert {line for line in changed if not line.startswith("  ")} == {"status: unconfirmed"}
+    assert after.split("\n---\n", 1)[1] == before.split("\n---\n", 1)[1]
+    assert {path: (root / path).read_bytes() for path in continuity} == continuity
+    assert git(root, "status", "--short", "sessions/thread_david.md") == "M sessions/thread_david.md"
+    assert subprocess.run(["git", "-C", str(remote), "cat-file", "-e", "main:sessions/workstreams/s311.md"],
+                          capture_output=True).returncode != 0
+    assert str(root) not in json.dumps(result)
+
+
+def test_confirm_repeat_is_idempotent(brain, capsys):
+    root, _remote = brain
+    submitted = _live_shaped_submit(root)
+    first = shared_brain_confirm.confirm(submitted["record_id"])
+    count = git(root, "rev-list", "--count", "HEAD")
+    assert shared_brain_confirm.main([submitted["reference"]]) == 0
+    again = json.loads(capsys.readouterr().out)
+    assert again["success"] and again["already_confirmed"] and again["status"] == "confirmed"
+    assert again["commit"] == first["commit"] and again["sync_status"] == "synced"
+    assert git(root, "rev-list", "--count", "HEAD") == count
+
+
+def test_confirm_refuses_unknown_and_unrelated_records(brain):
+    root, _remote = brain
+    submitted = _live_shaped_submit(root)
+    relative = submitted["reference"].removeprefix("business_brain:")
+    # A committed record in the intake directory that submit did not write.
+    other_id = "shared-submit-" + "0" * 32
+    (root / f"inbox/distilled_packets/{other_id}.md").write_text(
+        f"---\nid: {other_id}\ntype: milestone\nstatus: unconfirmed\ntitle: \"Other\"\n---\n# Other\n\nBody\n")
+    git(root, "add", "--force", f"inbox/distilled_packets/{other_id}.md")
+    git(root, "-c", "user.name=Test", "-c", "user.email=test@local", "commit", "-m", "unrelated")
+    head = git(root, "rev-parse", "HEAD")
+    for record in ("shared-submit-" + "f" * 32, "memory/company", "../memory/company", "company",
+                   "shared-submit-" + "A" * 32, other_id, ""):
+        result = shared_brain_confirm.confirm(record)
+        assert not result["success"], (record, result)
+        assert git(root, "rev-parse", "HEAD") == head
+    assert shared_brain_confirm.main(["memory/company"]) == 1
+    # David's direct hand edit: refused, and his bytes are left for the operator.
+    hand_edited = (root / relative).read_text().replace("status: unconfirmed", "status: confirmed")
+    (root / relative).write_text(hand_edited)
+    assert shared_brain_confirm.confirm(submitted["record_id"])["error"].startswith("record has uncommitted changes")
+    assert (root / relative).read_text() == hand_edited and git(root, "rev-parse", "HEAD") == head
+    git(root, "checkout", "--", relative)
+    # A committed body that no longer matches the submitted fingerprint is refused.
+    tampered = (root / relative).read_text().replace("Milestone reached.", "Different claim.")
+    (root / relative).write_text(tampered)
+    git(root, "-c", "user.name=Test", "-c", "user.email=test@local", "commit", "-m", "tamper", "--", relative)
+    head = git(root, "rev-parse", "HEAD")
+    assert "fingerprint" in shared_brain_confirm.confirm(submitted["record_id"])["error"]
+    assert git(root, "rev-parse", "HEAD") == head
+
+
+def test_confirm_skill_is_selected_for_the_aos_confirmation_request():
+    from tools import context_assembler
+    # AOS-2026-0524's worker request, as worker_context_pack builds it.
+    request = "\n".join((
+        "Work item AOS-2026-0524: Inspect Shared Brain record and run existing confirmation path only if unconfirmed",
+        'Find the Shared Brain milestone titled "Shared Brain durable submit live" and inspect record '
+        "shared-submit-4aa6ab0fb5595f52032e5d4a8dd9087b. Report current status, source references, and attribution. "
+        "If and only if the record is currently unconfirmed, confirm that same record through the existing TTROS "
+        "confirmation path. Do not create another durable submission, checkpoint, queue item, connector mutation, "
+        "draft, send, post, publish, deployment, Git commit, or Git push.",
+        "Source references: ",
+    ))
+    block = context_assembler._matching_workflows_block(request)
+    selected = [line for line in block.content.splitlines() if line.startswith("### ")]
+    assert selected[0].startswith("### 1. READ_SOURCE=submit-confirm/SKILL.md"), selected
+    assert "python3 tools/shared_brain_confirm.py shared-submit-<32 hex>" in block.content
+    assert "submit-confirm" not in context_assembler._matching_workflows_block("Prepare a fit call brief for Mike Knapp").content

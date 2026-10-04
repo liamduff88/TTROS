@@ -741,7 +741,8 @@ _QUEUE_ARTIFACT_BINARY_MIME_TYPES = {
 _QUEUE_ARTIFACT_EXTENSIONS = _QUEUE_ARTIFACT_TEXT_EXTENSIONS | set(_QUEUE_ARTIFACT_BINARY_MIME_TYPES)
 _QUEUE_ARTIFACT_SECRET_RE = re.compile(r"(^|[/.])(\.env|env\.|.*secret.*|.*token.*|.*credential.*|.*password.*)", re.IGNORECASE)
 _QUEUE_ARTIFACT_PATH_RE = re.compile(
-    r"(?P<path>(?:queue/receipts|results|workflows|packets|logs)/[^\s`'\"<>]+?\.(?:jsonl|json|md|txt|png|jpg|jpeg|gif|webp|svg|pdf))",
+    # The lookbehind keeps `inbox/distilled_packets/x.md` from reading as the claim `packets/x.md`.
+    r"(?<![\w.-])(?P<path>(?:queue/receipts|results|workflows|packets|logs)/[^\s`'\"<>]+?\.(?:jsonl|json|md|txt|png|jpg|jpeg|gif|webp|svg|pdf))",
     re.IGNORECASE,
 )
 _QUEUE_ARTIFACT_MAX_BYTES = 250_000
