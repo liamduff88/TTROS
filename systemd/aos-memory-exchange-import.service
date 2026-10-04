@@ -1,4 +1,4 @@
-# Revisit: when Memory Exchange transport or importer command changes. Last touched: 2026-10-01.
+# Revisit: when Memory Exchange transport or importer command changes. Last touched: 2026-10-03.
 [Unit]
 Description=TTROS deterministic Memory Exchange import poll
 After=network-online.target
@@ -8,6 +8,7 @@ Type=oneshot
 WorkingDirectory=/home/liam/agentic-os-live
 Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=AOS_DISABLE_TELEMETRY=1
+Environment=TTROS_SHARED_BRAIN_WRITE=1
 EnvironmentFile=%h/.config/ttros-memory-exchange.env
-ExecStart=/home/liam/agentic-os-live/.venv/bin/python /home/liam/agentic-os-live/tools/memory_exchange_import.py --imported ${TTROS_MEMORY_IMPORTED} --rejected ${TTROS_MEMORY_REJECTED} --move
+ExecStart=/home/liam/agentic-os-live/.venv/bin/python /home/liam/agentic-os-live/tools/memory_exchange_import.py --imported ${TTROS_MEMORY_IMPORTED} --rejected ${TTROS_MEMORY_REJECTED} --move --checkpoint-only
 TimeoutStartSec=300

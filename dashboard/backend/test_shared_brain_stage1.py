@@ -6,6 +6,7 @@ import asyncio
 import json
 import os
 import sqlite3
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -94,6 +95,30 @@ class ReadContractTests(unittest.TestCase):
 
 
 class HttpContractTests(unittest.TestCase):
+    def test_stage2_attribution_and_write_flag(self):
+        with patch.object(shared_brain_http, "WRITE_ENABLED", False):
+            self.assertEqual([tool.name for tool in shared_brain_http._server()._tool_manager.list_tools()],
+                             ["search", "read", "entity"])
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "brain"
+            root.mkdir()
+            subprocess.run(["git", "init", "-q", str(root)], check=True)
+            stamp = {"authenticated_identity": "verified@example.com", "surface": "claude",
+                     "actor_class": "authorised_client", "surface_source": "address"}
+            fields = {"goal": "Continue", "done": "First step", "decisions": "One note",
+                      "work_product_reference": "https://example.com/work", "next_action": "Next step",
+                      "open_questions": "None", "surface": "chatgpt", "authenticated_identity": "spoofed"}
+            token = shared_brain_http._attribution.set(stamp)
+            try:
+                with patch.object(shared_brain_http.shared_brain_checkpoint, "VAULT_ROOT", root), \
+                     patch.object(shared_brain_http.shared_brain_checkpoint, "_mirror", return_value="test_only"):
+                    result = shared_brain_http._call("checkpoint", workstream_id="http-workstream",
+                                                     fields=fields, expected_version=0)
+                self.assertTrue(result["success"], result)
+                self.assertEqual({key: result["note"][key] for key in stamp}, stamp)
+            finally:
+                shared_brain_http._attribution.reset(token)
+
     def test_server_stamped_call_is_logged(self):
         stamp = {
             "authenticated_identity": "verified@example.com",
@@ -113,7 +138,8 @@ class HttpContractTests(unittest.TestCase):
     def test_mcp_and_host_boundary(self):
         async def run():
             app = FastAPI()
-            shared_brain_http.install(app)
+            with patch.object(shared_brain_http, "WRITE_ENABLED", True):
+                shared_brain_http.install(app)
             with patch.object(shared_brain_http, "verify_access_jwt", side_effect=lambda value: "test@example.com" if value == "valid" else None):
                 async with app.router.lifespan_context(app):
                     transport = httpx2.ASGITransport(app=app)
@@ -126,8 +152,11 @@ class HttpContractTests(unittest.TestCase):
                                 init = await session.initialize()
                                 self.assertEqual(init.instructions, shared_brain_read.CLIENT_INSTRUCTIONS)
                                 tools = (await session.list_tools()).tools
-                                self.assertEqual([tool.name for tool in tools], ["search", "read", "entity"])
-                                self.assertTrue(all("READ:" in tool.description for tool in tools))
+                                self.assertEqual([tool.name for tool in tools], ["search", "read", "entity", "checkpoint", "resume"])
+                                self.assertTrue(all("READ:" in tool.description for tool in tools[:3]))
+                                self.assertEqual(tools[3].description, shared_brain_read.CHECKPOINT_GUIDANCE)
+                                self.assertIn(shared_brain_read.CHECKPOINT_GUIDANCE, init.instructions)
+                                self.assertIn("RESUME:", tools[4].description)
                                 for query in ("TTROS", "Liam", "Shared Brain", "Graphify", "Memory Exchange"):
                                     result = (await session.call_tool("search", {"query": query, "limit": 3})).structured_content
                                     self.assertEqual(result["matches"], shared_brain_read.search(query, 3)["matches"])

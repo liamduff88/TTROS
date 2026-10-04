@@ -231,6 +231,47 @@ def append(path: Path, row: dict) -> None:
         os.fsync(handle.fileno())
 
 
+def process_checkpoint_package(package: Path, *, brain: Path, dry_run: bool = False) -> dict:
+    """Route a typed Drive checkpoint to the same function as HTTP and stdio."""
+    from tools import shared_brain_checkpoint
+
+    if not dry_run and os.environ.get("TTROS_SHARED_BRAIN_WRITE", "").strip().lower() not in {"1", "true", "yes"}:
+        return {"outcome": "disabled", "operation": "checkpoint",
+                "reason": "Shared Brain checkpoint writes are disabled"}
+
+    source = package / "CHECKPOINT.json"
+    try:
+        if package.is_symlink() or not package.is_dir() or source.is_symlink():
+            raise ImportFailure("unsafe checkpoint package")
+        if {p.name for p in package.iterdir()} != {"CHECKPOINT.json"} or not source.is_file():
+            raise ImportFailure("checkpoint package must contain only CHECKPOINT.json")
+        raw = source.read_bytes()
+        if len(raw) > 8_000:
+            raise ImportFailure("checkpoint package exceeds 8000 bytes")
+        payload = json.loads(raw.decode("utf-8"))
+        if not isinstance(payload, dict) or payload.get("schema_version") != "shared-brain-checkpoint-v1" or payload.get("operation") != "checkpoint":
+            raise ImportFailure("invalid checkpoint package schema")
+        if set(payload) - {"schema_version", "operation", "workstream_id", "fields", "expected_version", "actor", "identity", "surface", "authenticated_identity", "actor_class", "surface_source"}:
+            raise ImportFailure("unknown checkpoint package field")
+        result = shared_brain_checkpoint.checkpoint(
+            payload.get("workstream_id"), payload.get("fields"), payload.get("expected_version"),
+            attribution={"authenticated_identity": "liam-drive-channel", "surface": "chatgpt",
+                         "actor_class": "authorised_client", "surface_source": "address"}, root=brain,
+            validate_only=dry_run,
+        )
+        if not result["success"]:
+            return {"outcome": "rejected", "operation": "checkpoint", "reason": result["error"],
+                    "current": result.get("current")}
+        if dry_run:
+            return {"outcome": "validated", "operation": "checkpoint", "workstream_id": payload["workstream_id"]}
+        return {"outcome": "imported", "operation": "checkpoint", "note": result["note"],
+                "drive_projection": result["drive_projection"]}
+    except ImportFailure as exc:
+        return {"outcome": "rejected", "operation": "checkpoint", "reason": str(exc)}
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return {"outcome": "rejected", "operation": "checkpoint", "reason": "checkpoint package unavailable or malformed"}
+
+
 def _refresh(paths: list[str], brain: Path, root: Path) -> tuple[dict, dict]:
     from tools import aos_indexer
     from tools.business_brain_scope import load_registry
@@ -257,6 +298,8 @@ def _refresh(paths: list[str], brain: Path, root: Path) -> tuple[dict, dict]:
 
 def process(package: Path, *, brain: Path = BUSINESS_BRAIN_ROOT, root: Path = ROOT,
             dry_run: bool = False, refresh=None) -> dict:
+    if (package / "CHECKPOINT.json").exists():
+        return process_checkpoint_package(package, brain=brain, dry_run=dry_run)
     ledger = root / "queue/receipts/memory_exchange_import.jsonl"
     with locked(root / "queue/locks/memory_exchange_import.lock") if not dry_run else _null_context():
         try:
@@ -360,7 +403,8 @@ def _null_context():
 def list_ready(ready: Path) -> list[Path]:
     if not ready.is_dir():
         return []
-    return sorted(p for p in ready.iterdir() if p.is_dir() and not p.is_symlink() and (p / "INGEST_MANIFEST.json").is_file())
+    return sorted(p for p in ready.iterdir() if p.is_dir() and not p.is_symlink()
+                  and ((p / "INGEST_MANIFEST.json").is_file() or (p / "CHECKPOINT.json").is_file()))
 
 
 class DirectoryTransport:
@@ -408,6 +452,7 @@ def main() -> int:
     parser.add_argument("--imported", type=Path, help="configured 04_IMPORTED directory")
     parser.add_argument("--rejected", type=Path, help="configured rejection directory")
     parser.add_argument("--move", action="store_true", help="move completed packages; operator authorization required")
+    parser.add_argument("--checkpoint-only", action="store_true", help="process only CHECKPOINT.json packages")
     args = parser.parse_args()
     if not (args.ready or args.package):
         parser.error("provide --ready or --package")
@@ -418,9 +463,14 @@ def main() -> int:
         packages = [transport.materialize(args.package)]
     else:
         packages = [args.package] if args.package else transport.list_ready_packages()
+    if args.checkpoint_only:
+        packages = [package for package in packages if (package / "CHECKPOINT.json").is_file()]
     results = []
     for package in packages:
         result = process(package, brain=args.brain, root=args.root, dry_run=args.dry_run)
+        if result["outcome"] == "disabled":
+            results.append(result)
+            continue
         if args.move and not args.dry_run and transport:
             try:
                 if result["outcome"] in {"imported", "already_imported"} and args.imported:
@@ -435,7 +485,7 @@ def main() -> int:
         results.append(result)
     print(json.dumps(results, indent=2))
     print(TOKEN_USAGE)
-    return 1 if any(r["outcome"] in {"rejected", "refresh_pending"} or
+    return 1 if any(r["outcome"] in {"rejected", "refresh_pending", "disabled"} or
                     str(r.get("external_package_move", "")).startswith("pending:") for r in results) else 0
 
 
