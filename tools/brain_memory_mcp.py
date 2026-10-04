@@ -4,7 +4,7 @@
 Formal commitments and destructive/sensitive records are intentionally outside
 this tool. Those remain explicit Liam-confirmation paths.
 
-Revisit: when Hermes cognition boundaries or canonical note placement changes. · Last touched: 2026-08-04.
+Revisit: when Hermes cognition boundaries or canonical note placement changes. · Last touched: 2026-10-03.
 """
 
 from __future__ import annotations
@@ -206,6 +206,8 @@ def remember_brain_knowledge(
         content=f"Knowledge state: `{knowledge_state}`\n\n{body}",
         source=str(source),
         session_id=str(session_id),
+        attribution={"authenticated_identity": "david", "surface": "david",
+                     "actor_class": "authorised_client", "surface_source": "local-stdio"},
     )
     return {
         "success": True,
@@ -216,6 +218,7 @@ def remember_brain_knowledge(
         "review_required": False,
         "promotion_boundary": "formal commitments and consequential classes remain outside this ungated writer",
         "commit": result.commit,
+        "sync_status": result.sync_status,
         "changed_paths": list(result.changed_paths),
         "external_action": False,
         "note": "Durable Brain update complete; do not repeat it.",
@@ -360,6 +363,10 @@ def search_history(query: str, limit: int = 8) -> dict[str, Any]:
 @mcp.tool()
 def brain_memory_status() -> dict[str, Any]:
     """READ: Check One Brain availability before asserting current memory state."""
+    if __package__:
+        from . import brain_git_closure
+    else:
+        import brain_git_closure
     required = (
         "memory/company.md",
         "operating_context/current_priorities.md",
@@ -368,10 +375,12 @@ def brain_memory_status() -> dict[str, Any]:
         "inbox/contradictions.md",
     )
     return {
-        "authority": str(VAULT_ROOT),
+        "authority": "business_brain",
         "native_profile_memory_authority": False,
-        "required_notes": {relative: (VAULT_ROOT / relative).is_file() for relative in required},
-        "automatic_push": False,
+        "required_notes": {f"business_brain:{relative}": (VAULT_ROOT / relative).is_file()
+                           for relative in required},
+        "automatic_push": brain_git_closure.enabled(),
+        **brain_git_closure.status(VAULT_ROOT),
     }
 
 

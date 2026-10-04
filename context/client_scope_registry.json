@@ -65,6 +65,7 @@
         ,"business_brain:sources/historical_calls/trent-july-9.md"
       ],
       "brain_pointer_prefixes": [
+        "business_brain:inbox/distilled_packets/",
         "business_brain:sources/intake/records/",
         "business_brain:sources/intake/cards/",
         "business_brain:sources/historical_calls/cards/"
@@ -72,6 +73,7 @@
       "search_source_identities": [
         {"source": "agentic_os_live", "path_prefix": "agentic_os_live:"},
         {"source": "capture_metadata", "path_prefix": "capture:global:"},
+        {"source": "business_brain", "path_prefix": "business_brain:inbox/distilled_packets/"},
         {"source": "business_brain", "path_prefix": "business_brain:sources/intake/records/"},
         {"source": "business_brain", "path_prefix": "business_brain:sources/historical_calls/"},
         {

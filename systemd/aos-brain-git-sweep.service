@@ -1,0 +1,13 @@
+# Revisit: when Shared Brain Git recovery or alert routing changes. Last touched: 2026-10-03.
+[Unit]
+Description=TTROS Business Brain pending commit recovery
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/liam/agentic-os-live
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=AOS_DISABLE_TELEMETRY=1
+Environment=TTROS_BRAIN_AUTOPUSH=1
+ExecStart=/home/liam/agentic-os-live/.venv/bin/python -m tools.brain_git_closure
+TimeoutStartSec=90

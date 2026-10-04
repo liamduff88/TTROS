@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Atomic, provenance-bearing writes to the canonical TTROS Business Brain.
 
-The Obsidian vault is the only durable knowledge authority.  This module never
-uses Hermes profile memory, never pushes, and stages/commits only the exact
+The Obsidian vault is the only durable knowledge authority. This module never
+uses Hermes profile memory and stages/commits only the exact
 vault paths in the completed transaction.
 
-Revisit: when the One Brain write transaction or vault Git contract changes. · Last touched: 2026-08-04.
+Revisit: when the One Brain write transaction or vault Git contract changes. · Last touched: 2026-10-03.
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ import re
 import subprocess
 import tempfile
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
 from typing import Callable, Mapping
 
@@ -67,6 +67,8 @@ class BrainWriteResult:
     session_id: str
     source: str
     validation: str = "markdown/frontmatter/git-index validated"
+    sync_status: str = "local_only"
+    index_status: str = "not_run"
 
 
 def utc_now() -> str:
@@ -258,7 +260,7 @@ def _git(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
     return result
 
 
-def write_transaction(
+def _write_transaction_inner(
     documents: Mapping[str, str],
     *,
     source: str,
@@ -267,6 +269,8 @@ def write_transaction(
     commit: bool = True,
     post_write_validator: Callable[[tuple[str, ...]], None] | None = None,
     failure_injection: str | None = None,
+    require_absent: bool = False,
+    attribution: Mapping[str, str] | None = None,
 ) -> BrainWriteResult:
     """Validate, atomically replace, verify, and commit exactly these notes."""
     if not documents:
@@ -300,6 +304,8 @@ def write_transaction(
             original = path.read_bytes() if path.exists() else None
             originals[relative] = original
             current_hashes[relative] = sha256_bytes(original) if original is not None else None
+            if require_absent and original is not None:
+                raise BrainMemoryError("record ID or idempotency key already exists")
             expected = (expected_hashes or {}).get(relative, current_hashes[relative])
             if current_hashes[relative] != expected:
                 raise ConcurrentEditError(f"concurrent edit detected before write: {relative}")
@@ -368,7 +374,21 @@ def write_transaction(
                 commit_hash = _git("rev-parse", "HEAD").stdout.strip()
             else:
                 commit_hash = None
-            return BrainWriteResult(tuple(changed), commit_hash, session_id, source)
+            sync_status = "local_only"
+            if commit_hash:
+                try:
+                    if __package__:
+                        from . import brain_git_closure
+                    else:
+                        import brain_git_closure
+                    sync_status = brain_git_closure.push_commit(VAULT_ROOT, commit_hash)
+                    brain_git_closure.record(last_write={"commit": commit_hash, "source": source,
+                        "session_id": session_id, "sync_status": sync_status,
+                        "attribution": dict(attribution) if attribution else None})
+                except Exception:
+                    sync_status = "pending"
+            return BrainWriteResult(tuple(changed), commit_hash, session_id, source,
+                                    sync_status=sync_status)
         except Exception:
             # Restore only files still containing our candidate.  If another
             # writer won after replacement, preserve that writer's bytes.
@@ -393,6 +413,37 @@ def write_transaction(
                 path.unlink(missing_ok=True)
 
 
+def write_transaction(
+    documents: Mapping[str, str], *, source: str, session_id: str,
+    expected_hashes: Mapping[str, str | None] | None = None, commit: bool = True,
+    post_write_validator: Callable[[tuple[str, ...]], None] | None = None,
+    failure_injection: str | None = None, require_absent: bool = False,
+    attribution: Mapping[str, str] | None = None,
+) -> BrainWriteResult:
+    result = _write_transaction_inner(
+        documents, source=source, session_id=session_id,
+        expected_hashes=expected_hashes, commit=commit,
+        post_write_validator=post_write_validator,
+        failure_injection=failure_injection, require_absent=require_absent,
+        attribution=attribution,
+    )
+    if result.commit:
+        try:
+            if __package__:
+                from . import aos_entity_index, aos_indexer
+            else:
+                import aos_entity_index, aos_indexer
+            statuses = [aos_indexer.index_one(str(VAULT_ROOT / relative)).get("status")
+                        for relative in result.changed_paths]
+            if any(status != "success" for status in statuses):
+                raise BrainMemoryError("search index skipped a committed record")
+            aos_entity_index.ensure_current()
+            result = replace(result, index_status="refreshed")
+        except Exception:
+            result = replace(result, index_status="pending")
+    return result
+
+
 def update_note_section(
     relative: str,
     *,
@@ -401,6 +452,7 @@ def update_note_section(
     content: str,
     source: str,
     session_id: str,
+    attribution: Mapping[str, str] | None = None,
 ) -> BrainWriteResult:
     path = _target(relative)
     if not path.is_file():
@@ -420,6 +472,7 @@ def update_note_section(
         source=source,
         session_id=session_id,
         expected_hashes={relative: expected},
+        attribution=attribution,
     )
 
 

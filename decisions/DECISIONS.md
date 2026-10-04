@@ -1,6 +1,9 @@
 # DECISIONS.md — log of decisions that change system behavior
-> Revisit: when a behavior-affecting system decision is made. · Last touched: 2026-10-01.
+> Revisit: when a behavior-affecting system decision is made. · Last touched: 2026-10-03.
 > One entry per behavior-affecting change. Newest first.
+
+## 2026-10-03 — Shared Brain Stage 3 closes durable writes through Git
+Authenticated `submit` adds one unconfirmed note under `inbox/distilled_packets/`; the typed Drive handoff calls the same function. The existing Memory Exchange importer routes live Git-backed writes through `write_transaction()`. Every scoped durable commit attempts a bounded Brain push, retains valid local commits as pending on failure, and is retried by a five-minute sweep that stops and alerts on remote divergence. David keeps his existing durable write tool.
 
 ## 2026-09-23 — DriveFS memory intake uses a Windows copy adapter
 The Windows poller reads only the specified DriveFS Inbox and defaults to

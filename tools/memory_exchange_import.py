@@ -1,6 +1,6 @@
 """Deterministic TTROS Memory Exchange directory-v1 importer.
 
-Revisit: when the frozen Memory Ingest manifest contract changes. · Last touched: 2026-10-01.
+Revisit: when the frozen Memory Ingest manifest contract changes. · Last touched: 2026-10-03.
 """
 from __future__ import annotations
 
@@ -272,6 +272,40 @@ def process_checkpoint_package(package: Path, *, brain: Path, dry_run: bool = Fa
         return {"outcome": "rejected", "operation": "checkpoint", "reason": "checkpoint package unavailable or malformed"}
 
 
+def process_submit_package(package: Path, *, brain: Path, dry_run: bool = False) -> dict:
+    """A typed Drive submit uses exactly the remote submit implementation."""
+    from tools import shared_brain_submit
+    if os.environ.get("TTROS_SHARED_BRAIN_SUBMIT", "").strip().lower() not in {"1", "true", "yes"}:
+        return {"outcome": "disabled", "operation": "submit", "reason": "Shared Brain submit is disabled"}
+    source = package / "SUBMIT.json"
+    try:
+        if package.is_symlink() or not package.is_dir() or source.is_symlink():
+            raise ImportFailure("unsafe submit package")
+        if {p.name for p in package.iterdir()} != {"SUBMIT.json"} or not source.is_file():
+            raise ImportFailure("submit package must contain only SUBMIT.json")
+        raw = source.read_bytes()
+        if len(raw) > 32_000:
+            raise ImportFailure("submit package exceeds 32000 bytes")
+        payload = json.loads(raw.decode("utf-8"))
+        if not isinstance(payload, dict) or payload.get("schema_version") != "shared-brain-submit-v1" or payload.get("operation") != "submit":
+            raise ImportFailure("invalid submit package schema")
+        allowed = {"schema_version", "operation", "type", "title", "body", "source_refs", "workstream_id", "idempotency_key"}
+        if set(payload) - allowed:
+            raise ImportFailure("unknown submit package field")
+        arguments = {key: payload.get(key) for key in ("type", "title", "body", "source_refs", "idempotency_key", "workstream_id")}
+        error = shared_brain_submit._validate(**arguments)
+        if error:
+            raise ImportFailure(error)
+        if dry_run:
+            return {"outcome": "validated", "operation": "submit"}
+        result = shared_brain_submit.submit(**arguments, attribution={
+            "authenticated_identity": "liam-drive-channel", "surface": "chatgpt",
+            "actor_class": "authorised_client", "surface_source": "address"})
+        return {"outcome": "imported" if result["success"] else "rejected", "operation": "submit", **result}
+    except (ImportFailure, OSError, UnicodeError, ValueError, TypeError) as exc:
+        return {"outcome": "rejected", "operation": "submit", "reason": str(exc)}
+
+
 def _refresh(paths: list[str], brain: Path, root: Path) -> tuple[dict, dict]:
     from tools import aos_indexer
     from tools.business_brain_scope import load_registry
@@ -300,6 +334,8 @@ def process(package: Path, *, brain: Path = BUSINESS_BRAIN_ROOT, root: Path = RO
             dry_run: bool = False, refresh=None) -> dict:
     if (package / "CHECKPOINT.json").exists():
         return process_checkpoint_package(package, brain=brain, dry_run=dry_run)
+    if (package / "SUBMIT.json").exists():
+        return process_submit_package(package, brain=brain, dry_run=dry_run)
     ledger = root / "queue/receipts/memory_exchange_import.jsonl"
     with locked(root / "queue/locks/memory_exchange_import.lock") if not dry_run else _null_context():
         try:
@@ -320,6 +356,8 @@ def process(package: Path, *, brain: Path = BUSINESS_BRAIN_ROOT, root: Path = RO
                 if target.exists():
                     current = digest(target.read_bytes())
                     if current == output["sha256"]:
+                        output["action"] = "already_present"
+                    elif previous and previous.get("fingerprint") == fingerprint and previous.get("outcome") in {"committed", "imported", "refresh_pending"}:
                         output["action"] = "already_present"
                     elif output["operation"] == "canonical_replace" and current == output["expected_base_sha256"]:
                         output["action"] = "replace"
@@ -345,31 +383,47 @@ def process(package: Path, *, brain: Path = BUSINESS_BRAIN_ROOT, root: Path = RO
             # from destination hashes without opening the batch to a new ID.
             append(ledger, {**receipt, "outcome": "in_progress", "timestamp": dt.datetime.now(dt.timezone.utc).isoformat()})
             staged = []
-            try:
-                for output in outputs:
-                    if output["action"] == "already_present":
-                        continue
-                    target = Path(output["target"])
-                    target.parent.mkdir(parents=True, exist_ok=True)
-                    fd, tmp = tempfile.mkstemp(prefix=".memory-exchange-", dir=target.parent)
-                    staged.append((Path(tmp), target))
-                    with os.fdopen(fd, "wb") as handle:
-                        handle.write(plan["bytes"][output["source"]])
-                        handle.flush()
-                        os.fsync(handle.fileno())
-                # Recheck all targets after staging, before the first commit.
-                for output in outputs:
-                    target = Path(output["target"])
-                    current = digest(target.read_bytes()) if target.is_file() and not target.is_symlink() else None
-                    allowed = (output["sha256"],) if output["action"] == "already_present" else (
-                        (output["expected_base_sha256"],) if output["action"] == "replace" else (None,))
-                    if current not in allowed:
-                        raise ImportFailure(f"target changed during staging: {output['pointer']}")
-                for tmp, target in staged:
-                    os.replace(tmp, target)
-            finally:
-                for tmp, _ in staged:
-                    tmp.unlink(missing_ok=True)
+            from tools import brain_memory
+            use_transaction = (brain / ".git").is_dir() and brain.resolve() == brain_memory.VAULT_ROOT
+            if use_transaction:
+                documents = {Path(o["target"]).relative_to(brain).as_posix():
+                             plan["bytes"][o["source"]].decode("utf-8") for o in outputs if o["action"] != "already_present"}
+                if documents:
+                    write = brain_memory.write_transaction(
+                        documents, source="memory-exchange-import", session_id=manifest["package_id"],
+                        expected_hashes={relative: digest((brain / relative).read_bytes()) if (brain / relative).is_file() else None
+                                         for relative in documents},
+                        attribution={"authenticated_identity": "liam-drive-channel", "surface": "chatgpt",
+                                     "actor_class": "authorised_client", "surface_source": "address"},
+                    )
+                    receipt["commit"] = write.commit
+                    receipt["sync_status"] = write.sync_status
+            else:
+                try:
+                    for output in outputs:
+                        if output["action"] == "already_present":
+                            continue
+                        target = Path(output["target"])
+                        target.parent.mkdir(parents=True, exist_ok=True)
+                        fd, tmp = tempfile.mkstemp(prefix=".memory-exchange-", dir=target.parent)
+                        staged.append((Path(tmp), target))
+                        with os.fdopen(fd, "wb") as handle:
+                            handle.write(plan["bytes"][output["source"]])
+                            handle.flush()
+                            os.fsync(handle.fileno())
+                    # Recheck all targets after staging, before the first commit.
+                    for output in outputs:
+                        target = Path(output["target"])
+                        current = digest(target.read_bytes()) if target.is_file() and not target.is_symlink() else None
+                        allowed = (output["sha256"],) if output["action"] == "already_present" else (
+                            (output["expected_base_sha256"],) if output["action"] == "replace" else (None,))
+                        if current not in allowed:
+                            raise ImportFailure(f"target changed during staging: {output['pointer']}")
+                    for tmp, target in staged:
+                        os.replace(tmp, target)
+                finally:
+                    for tmp, _ in staged:
+                        tmp.unlink(missing_ok=True)
             receipt["timestamp"] = dt.datetime.now(dt.timezone.utc).isoformat()
             append(ledger, receipt)
             fn = refresh or (lambda pointers: _refresh(pointers, brain, root))
@@ -404,7 +458,7 @@ def list_ready(ready: Path) -> list[Path]:
     if not ready.is_dir():
         return []
     return sorted(p for p in ready.iterdir() if p.is_dir() and not p.is_symlink()
-                  and ((p / "INGEST_MANIFEST.json").is_file() or (p / "CHECKPOINT.json").is_file()))
+                  and ((p / "INGEST_MANIFEST.json").is_file() or (p / "CHECKPOINT.json").is_file() or (p / "SUBMIT.json").is_file()))
 
 
 class DirectoryTransport:
