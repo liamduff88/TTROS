@@ -13,7 +13,10 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
+TOOLS_DIR = Path(__file__).resolve().parents[2] / "tools"
+_PRE_IMPORT_PATH = list(sys.path)
+_PRE_IMPORT_MODULES = set(sys.modules)
+sys.path.insert(0, str(TOOLS_DIR))
 
 import httpx2
 import jwt
@@ -26,6 +29,15 @@ import aos_entity_index
 import aos_indexer
 import shared_brain_http
 import shared_brain_read
+
+# Pytest imports every test module before running any. Leaving tools/ on sys.path, or its
+# modules cached under bare names, makes tools.brain_memory_mcp bind a second brain_memory
+# that tests patching tools.brain_memory cannot reach.
+sys.path[:] = _PRE_IMPORT_PATH
+for _name in set(sys.modules) - _PRE_IMPORT_MODULES:
+    _file = getattr(sys.modules[_name], "__file__", None) or ""
+    if "." not in _name and Path(_file).parent == TOOLS_DIR:
+        del sys.modules[_name]
 
 
 class ReadContractTests(unittest.TestCase):
@@ -125,7 +137,36 @@ class HttpContractTests(unittest.TestCase):
                                 for query in ("Liam", "Kenneth"):
                                     result = (await session.call_tool("entity", {"query_or_id": query})).structured_content
                                     self.assertEqual(result["entities"], shared_brain_read.entity(query)["entities"])
+                                    for entity_id in [row["entity_id"] for row in result["entities"]]:
+                                        view = (await session.call_tool("entity", {"query_or_id": entity_id})).structured_content
+                                        self.assert_matches_entity_view(entity_id, view)
         asyncio.run(run())
+
+    def assert_matches_entity_view(self, entity_id, response):
+        """S1-3: the HTTP view is entity_view() itself, cut only by the 8,000-character bound."""
+        direct = aos_entity_index.entity_view(entity_id)
+        view, omitted = response["view"], response["omitted"]
+        self.assertTrue(response["success"])
+        self.assertLessEqual(len(json.dumps(response, ensure_ascii=False)), 8_000)
+        self.assertEqual(set(view), set(direct) - {"token_usage_text"})
+        for field, value in direct.items():
+            if field == "token_usage_text":
+                continue
+            if not isinstance(value, list):
+                self.assertEqual(view[field], value, field)
+                continue
+            if field in ("knowledge", "sources", "timeline", "import_dated"):
+                value = [row for row in value if shared_brain_read._indexed_target(str(row.get("path") or ""))]
+            self.assertEqual(view[field], value[:len(view[field])], field)
+            self.assertEqual(len(view[field]) + omitted.get(field, 0), len(value), field)
+
+    def test_entity_view_bound_refuses_to_hide_truncation(self):
+        """[must refuse] A view cut to the bound must report what it dropped."""
+        response = shared_brain_read.entity("person:liam-duff")
+        self.assertGreater(sum(response["omitted"].values()), 0)
+        response["omitted"] = {}
+        with self.assertRaises(AssertionError):
+            self.assert_matches_entity_view("person:liam-duff", response)
 
 
 if __name__ == "__main__":

@@ -144,12 +144,15 @@ def entity(query_or_id: str) -> dict[str, Any]:
         for field in ("knowledge", "sources", "timeline", "import_dated"):
             view[field] = [r for r in view[field] if _indexed_target(str(r.get("path") or ""))]
         view.pop("token_usage_text", None)
-        response = {"success": True, "view": view, "data_notice": DATA_NOTICE}
+        # Lists are cut from the end to fit the bound; `omitted` says how many items each lost.
+        omitted: dict[str, int] = {}
+        response = {"success": True, "view": view, "omitted": omitted, "data_notice": DATA_NOTICE}
         while len(json.dumps(response, ensure_ascii=False)) > MAX_ENTITY:
             largest = max(("knowledge", "sources", "timeline", "import_dated", "related", "similar_not_merged"), key=lambda k: len(view.get(k, [])))
             if not view.get(largest):
                 break
             view[largest].pop()
+            omitted[largest] = omitted.get(largest, 0) + 1
         if len(json.dumps(response, ensure_ascii=False)) > MAX_ENTITY:
             return {"success": False, "error": "entity view exceeds 8000 characters", "data_notice": DATA_NOTICE}
         return response
