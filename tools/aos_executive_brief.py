@@ -28,7 +28,6 @@ except ModuleNotFoundError:
 
 ROOT = Path(os.environ.get("AOS_ROOT", Path(__file__).resolve().parents[1])).resolve()
 BRIEF_REL = Path("context/EXECUTIVE_BRIEF.md")
-HEADER_REL = Path("context/EXECUTIVE_HEADER.txt")
 FINDINGS_REL = Path("context/MORNING_BRIEF_FINDINGS.json")
 ACTIVE_STATUSES = frozenset({"inbox", "agent_todo", "agent_working", "needs_input", "human_review", "blocked"})
 DECISION_STATUSES = ("human_review", "needs_input")
@@ -925,10 +924,6 @@ def _atomic_write_artifacts(artifacts: list[tuple[Path, str]]) -> None:
         raise
 
 
-def _atomic_write_pair(brief_path: Path, brief: str, header_path: Path, header: str) -> None:
-    _atomic_write_artifacts([(brief_path, brief), (header_path, header + "\n")])
-
-
 def _atomic_write(path: Path, text: str) -> None:
     temp = _write_temp(path, text)
     try:
@@ -983,7 +978,6 @@ def refresh(
     now = (now or datetime.now(UTC)).astimezone(UTC)
     brain_root = Path(brain_root) if brain_root is not None else None
     brief_path = root / BRIEF_REL
-    header_path = root / HEADER_REL
     findings_path = root / FINDINGS_REL
     try:
         previous = brief_path.read_text(encoding="utf-8") if brief_path.exists() else ""
@@ -1015,7 +1009,6 @@ def refresh(
         findings_json = json.dumps(detection.to_dict(), ensure_ascii=False, indent=2, sort_keys=True) + "\n"
         _atomic_write_artifacts([
             (brief_path, brief),
-            (header_path, header + "\n"),
             (findings_path, findings_json),
         ])
         return RefreshOutcome(0, header, brief, duration_seconds=time.monotonic() - started)
@@ -1024,15 +1017,12 @@ def refresh(
         if good_previous:
             # Failure publishes nothing: the entire prior usable artifact set
             # remains byte-exact rather than becoming a mixed-generation pair.
-            try:
-                header = header_path.read_text(encoding="utf-8").strip()
-            except OSError:
-                header = "brief stale; prior usable Markdown retained"
+            header = _stale_header(good_previous, now)
             return RefreshOutcome(1, header, good_previous, reason, time.monotonic() - started)
         brief = _unavailable_brief(now)
         header = "brief unavailable"
         try:
-            _atomic_write_pair(brief_path, brief, header_path, header)
+            _atomic_write_artifacts([(brief_path, brief)])
         except Exception as unavailable_exc:
             reason = f"{reason}; unavailable artifact write failed: {_clean(unavailable_exc, 180)}"
         return RefreshOutcome(1, header, brief, reason, time.monotonic() - started)

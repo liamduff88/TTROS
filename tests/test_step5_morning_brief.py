@@ -362,7 +362,7 @@ class Step5PublicationTests(Step5Fixture):
     def test_atomic_publication_and_failed_generation_preserve_complete_prior_set(self):
         first = self.refresh()
         self.assertEqual(0, first.exit_code, first.reason)
-        paths = [self.root / generator.BRIEF_REL, self.root / generator.HEADER_REL, self.root / generator.FINDINGS_REL]
+        paths = [self.root / generator.BRIEF_REL, self.root / generator.FINDINGS_REL]
         before = {path: path.read_bytes() for path in paths}
         (self.root / "queue/prospects.jsonl").write_text("{malformed}\n", encoding="utf-8")
         failed = self.refresh()
@@ -371,7 +371,7 @@ class Step5PublicationTests(Step5Fixture):
 
     def test_injected_replace_failure_rolls_back_every_artifact(self):
         self.assertEqual(0, self.refresh().exit_code)
-        paths = [self.root / generator.BRIEF_REL, self.root / generator.HEADER_REL, self.root / generator.FINDINGS_REL]
+        paths = [self.root / generator.BRIEF_REL, self.root / generator.FINDINGS_REL]
         before = {path: path.read_bytes() for path in paths}
         real_replace = generator.os.replace
         counter = 0

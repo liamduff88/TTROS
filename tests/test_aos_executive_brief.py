@@ -77,7 +77,7 @@ class ExecutiveBriefTests(unittest.TestCase):
         self.assertEqual(0, outcome.exit_code, outcome.reason)
         self.assertLess(brief.token_count(outcome.header), brief.HEADER_TOKEN_LIMIT)
         self.assertLess(brief.token_count(outcome.brief), brief.BRIEF_TOKEN_LIMIT)
-        self.assertEqual(1, len((self.root / brief.HEADER_REL).read_text(encoding="utf-8").splitlines()))
+        self.assertNotIn("\n", outcome.header)
         positions = [outcome.brief.index(f"## {name}") for name in brief.SECTION_NAMES]
         self.assertEqual(positions, sorted(positions))
         for name in ("Attention", "Open", "Changed", "Decisions"):
@@ -257,7 +257,7 @@ class ExecutiveBriefTests(unittest.TestCase):
         self.assertEqual(0, outcome.exit_code, outcome.reason)
         targets = [target for _source, target in replaced]
         self.assertEqual(
-            [self.root / brief.BRIEF_REL, self.root / brief.HEADER_REL, self.root / brief.FINDINGS_REL],
+            [self.root / brief.BRIEF_REL, self.root / brief.FINDINGS_REL],
             targets,
         )
         self.assertTrue(all(source.parent == target.parent for source, target in replaced))
@@ -266,7 +266,6 @@ class ExecutiveBriefTests(unittest.TestCase):
     def test_failed_refresh_retains_complete_last_good_artifact_set(self):
         first = self.refresh()
         expected_brief = first.brief
-        expected_header = (self.root / brief.HEADER_REL).read_bytes()
         expected_findings = (self.root / brief.FINDINGS_REL).read_bytes()
         for relative in ("queue/work_items.jsonl", "queue/run_ledger.jsonl", "queue/prospects.jsonl"):
             (self.root / relative).unlink()
@@ -278,7 +277,7 @@ class ExecutiveBriefTests(unittest.TestCase):
         outcome = self.refresh(NOW + timedelta(hours=5))
         self.assertNotEqual(0, outcome.exit_code)
         self.assertEqual(expected_brief, (self.root / brief.BRIEF_REL).read_text(encoding="utf-8"))
-        self.assertEqual(expected_header, (self.root / brief.HEADER_REL).read_bytes())
+        self.assertIn("STALE", outcome.header)
         self.assertEqual(expected_findings, (self.root / brief.FINDINGS_REL).read_bytes())
 
     def test_no_previous_complete_failure_emits_unavailable_artifacts(self):
@@ -286,7 +285,8 @@ class ExecutiveBriefTests(unittest.TestCase):
         (empty_root / "context").mkdir(parents=True)
         outcome = brief.refresh(root=empty_root, brain_root=Path(self.temp.name) / "missing", now=NOW)
         self.assertNotEqual(0, outcome.exit_code)
-        self.assertEqual("brief unavailable\n", (empty_root / brief.HEADER_REL).read_text(encoding="utf-8"))
+        self.assertEqual("brief unavailable", outcome.header)
+        self.assertFalse((empty_root / "context/EXECUTIVE_HEADER.txt").exists())
         generated = (empty_root / brief.BRIEF_REL).read_text(encoding="utf-8")
         for name in brief.SECTION_NAMES:
             self.assertIn(f"## {name}\nnone", generated)
@@ -297,7 +297,7 @@ class ExecutiveBriefTests(unittest.TestCase):
         self.assertNotEqual(0, outcome.exit_code)
         self.assertIn("authoritative source malformed", outcome.reason)
 
-    def test_generation_writes_nothing_outside_three_artifacts(self):
+    def test_generation_writes_nothing_outside_two_artifacts(self):
         before = {
             path.relative_to(self.root): path.read_bytes()
             for path in self.root.rglob("*") if path.is_file()
@@ -309,7 +309,7 @@ class ExecutiveBriefTests(unittest.TestCase):
             for path in self.root.rglob("*") if path.is_file()
         }
         changed = {path for path in before.keys() | after.keys() if before.get(path) != after.get(path)}
-        self.assertEqual({brief.BRIEF_REL, brief.HEADER_REL, brief.FINDINGS_REL}, changed)
+        self.assertEqual({brief.BRIEF_REL, brief.FINDINGS_REL}, changed)
 
     def test_pending_gmail_proposals_are_counted_without_body_or_attachment_reads(self):
         item = self.item(
@@ -373,7 +373,7 @@ class ExecutiveBriefWiringTests(unittest.TestCase):
             )
             self.assertEqual(0, result.returncode, result.stderr)
             self.assertTrue((root / brief.BRIEF_REL).is_file())
-            self.assertTrue((root / brief.HEADER_REL).is_file())
+            self.assertFalse((root / "context/EXECUTIVE_HEADER.txt").exists())
 
 
 if __name__ == "__main__":
