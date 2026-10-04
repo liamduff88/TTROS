@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
 from pathlib import Path
 from typing import Any
@@ -26,6 +27,19 @@ MAX_BODY = 20_000
 MAX_REFS = 20
 MAX_REF = 300
 RECORD_ID_RE = re.compile(r"record:[a-z0-9][a-z0-9_-]{2,127}\Z")
+# Lines `git diff --check` reads as leftover merge conflicts; the commit gate would refuse them.
+CONFLICT_MARKER_RE = re.compile(r"^(?:<{7}|={7}|>{7}|\|{7})(?:[ \t]|$)", re.MULTILINE)
+_log = logging.getLogger("shared_brain")
+
+
+def _normalise(text: str) -> str:
+    """Remove the whitespace the Brain commit gate (`git diff --check`) refuses.
+
+    Clients routinely send a trailing newline, Markdown hard breaks or CRLF line ends.
+    """
+    lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    lines = [re.sub(r"^[ \t]+", lambda m: m.group(0).expandtabs(4), line).rstrip() for line in lines]
+    return "\n".join(lines).strip("\n")
 
 
 def _indexed_record_id(reference: str) -> bool:
@@ -61,6 +75,8 @@ def _validate(type: str, title: str, body: str, source_refs: list[str],
         return "title cannot contain host paths or control characters"
     if not isinstance(body, str) or not body.strip() or len(body) > MAX_BODY:
         return "body must contain 1-20000 characters"
+    if CONFLICT_MARKER_RE.search(body):
+        return "body cannot contain Git conflict-marker lines"
     if not isinstance(source_refs, list) or len(source_refs) > MAX_REFS:
         return "source_refs may contain at most 20 references"
     if workstream_id is not None and not WORKSTREAM_RE.fullmatch(str(workstream_id)):
@@ -89,6 +105,10 @@ def _validate(type: str, title: str, body: str, source_refs: list[str],
 def submit(type: str, title: str, body: str, source_refs: list[str],
            idempotency_key: str, workstream_id: str | None = None, *,
            attribution: dict[str, str]) -> dict[str, Any]:
+    if isinstance(title, str):
+        title = title.strip()
+    if isinstance(body, str):
+        body = _normalise(body)
     error = _validate(type, title, body, source_refs, workstream_id, idempotency_key)
     if error:
         return {"success": False, "error": error}
@@ -128,6 +148,7 @@ def submit(type: str, title: str, body: str, source_refs: list[str],
         if target.exists():
             return submit(type, title, body, source_refs, idempotency_key, workstream_id,
                           attribution=attribution)
+        _log.warning("shared_brain submit write failed record=%s: %s", record_id, exc)
         # Git stderr can name the host vault path; never return it to a client.
         message = str(exc)
         if _host_path(message) or "/" in message or "\\" in message:

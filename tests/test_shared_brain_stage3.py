@@ -233,6 +233,27 @@ def test_submit_write_error_does_not_leak_host_path(brain, monkeypatch):
     assert result == {"success": False, "error": "Brain write failed; nothing was stored"}
 
 
+def test_submit_accepts_client_whitespace_the_commit_gate_refuses(brain):
+    # S3-11: a real Claude body ending in a newline failed `git diff --check` and was masked.
+    root, _remote = brain
+    cases = {"eof-newline-1": "Finished result.\n", "hard-break-1": "Line one.  \nLine two.",
+             "crlf-lines-1": "Line one.\r\nLine two.\r\n", "tab-indent-1": "List:\n \titem"}
+    for key, body in cases.items():
+        result = submit(key=key, body=body, title="Shared Brain milestone ")
+        assert result["success"], (key, result)
+        assert result["sync_status"] == "synced" and result["commit"] == git(root, "rev-parse", "origin/main")
+    again = submit(key="eof-newline-1", body="Finished result.\n", title="Shared Brain milestone ")
+    assert again["success"] and again["duplicate"]
+
+
+def test_submit_refuses_conflict_marker_body_without_commit(brain):
+    root, _remote = brain
+    head = git(root, "rev-parse", "HEAD")
+    result = submit(key="conflict-mark-1", body="Heading\n=======\nText")
+    assert result == {"success": False, "error": "body cannot contain Git conflict-marker lines"}
+    assert git(root, "rev-parse", "HEAD") == head
+
+
 def test_timer_typed_only_skips_full_ingest_packages(brain, monkeypatch, tmp_path, capsys):
     ready = tmp_path / "ready"
     (ready / "submit-package").mkdir(parents=True)
