@@ -271,6 +271,7 @@ def _write_transaction_inner(
     failure_injection: str | None = None,
     require_absent: bool = False,
     attribution: Mapping[str, str] | None = None,
+    force_add: bool = False,
 ) -> BrainWriteResult:
     """Validate, atomically replace, verify, and commit exactly these notes."""
     if not documents:
@@ -357,7 +358,8 @@ def _write_transaction_inner(
                 post_write_validator(tuple(changed))
 
             if commit:
-                _git("add", "--", *changed)
+                # force_add stages these exact paths inside a Brain-ignored intake directory.
+                _git("add", *(("--force",) if force_add else ()), "--", *changed)
                 indexed = [line for line in _git("diff", "--cached", "--name-only").stdout.splitlines() if line]
                 if sorted(indexed) != sorted(changed):
                     raise BrainMemoryError("vault Git staged paths do not match the memory transaction")
@@ -418,14 +420,14 @@ def write_transaction(
     expected_hashes: Mapping[str, str | None] | None = None, commit: bool = True,
     post_write_validator: Callable[[tuple[str, ...]], None] | None = None,
     failure_injection: str | None = None, require_absent: bool = False,
-    attribution: Mapping[str, str] | None = None,
+    attribution: Mapping[str, str] | None = None, force_add: bool = False,
 ) -> BrainWriteResult:
     result = _write_transaction_inner(
         documents, source=source, session_id=session_id,
         expected_hashes=expected_hashes, commit=commit,
         post_write_validator=post_write_validator,
         failure_injection=failure_injection, require_absent=require_absent,
-        attribution=attribution,
+        attribution=attribution, force_add=force_add,
     )
     if result.commit:
         try:

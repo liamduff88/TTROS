@@ -246,6 +246,33 @@ def test_submit_accepts_client_whitespace_the_commit_gate_refuses(brain):
     assert again["success"] and again["duplicate"]
 
 
+def test_submit_commits_into_brain_ignored_intake_directory(brain):
+    # S3-11 attempts 1-2: the live Brain ignores inbox/distilled_packets/*, so `git add`
+    # refused the record ("The following paths are ignored by one of your .gitignore files").
+    root, remote = brain
+    (root / ".gitignore").write_text("inbox/distilled_packets/*\n!inbox/distilled_packets/.gitkeep\n")
+    (root / "inbox/distilled_packets").mkdir(parents=True)
+    (root / "inbox/distilled_packets/.gitkeep").write_text("\n")
+    (root / "inbox/distilled_packets/raw-intake.md").write_text("---\nid: raw\ntype: note\n---\n# Raw\n")
+    git(root, "add", ".gitignore", "inbox/distilled_packets/.gitkeep")
+    git(root, "-c", "user.name=Test", "-c", "user.email=test@local", "commit", "-m", "live ignore rule")
+    git(root, "push", "origin", "main")
+    result = submit(key="shared-brain-stage3-live-20261003", title="Shared Brain durable submit live",
+                    body="Milestone reached.\n")
+    assert result["success"], result
+    assert result["sync_status"] == "synced" and result["commit"] == git(root, "rev-parse", "origin/main")
+    relative = result["reference"].removeprefix("business_brain:")
+    assert git(root, "show", "--name-only", "--format=", "HEAD").splitlines() == [relative]
+    assert git(root, "ls-files", "inbox/distilled_packets/raw-intake.md") == ""
+    assert submit(key="shared-brain-stage3-live-20261003", title="Shared Brain durable submit live",
+                  body="Milestone reached.\n")["duplicate"]
+    # Only submit force-adds: an ordinary Brain write to an ignored path is still refused.
+    with pytest.raises(brain_memory.BrainMemoryError, match="ignored"):
+        brain_memory.write_transaction({"inbox/distilled_packets/other.md": "---\nid: other\ntype: note\n---\n# Other\n"},
+                                       source="test", session_id="ignored-path", require_absent=True)
+    assert not (root / "inbox/distilled_packets/other.md").exists()
+
+
 def test_submit_refuses_conflict_marker_body_without_commit(brain):
     root, _remote = brain
     head = git(root, "rev-parse", "HEAD")

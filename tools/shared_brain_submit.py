@@ -142,7 +142,8 @@ def submit(type: str, title: str, body: str, source_refs: list[str],
     try:
         result = brain_memory.write_transaction(
             {relative: document}, source="shared-brain-submit", session_id=record_id,
-            require_absent=True, attribution=stamp,
+            # The Brain ignores inbox/distilled_packets/*; a submit record is committed there by design.
+            require_absent=True, attribution=stamp, force_add=True,
         )
     except brain_memory.BrainMemoryError as exc:
         if target.exists():
