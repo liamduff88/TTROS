@@ -106,6 +106,7 @@ def _alert(message: str) -> None:
 def sweep(brain: Path, *, alert=_alert) -> dict:
     """Push existing durable commits only; stop on remote divergence."""
     with brain_lock(brain):
+        previous = state().get("last_sweep")
         try:
             fetched = git(brain, "fetch", "origin", "main")
             if fetched.returncode:
@@ -122,7 +123,8 @@ def sweep(brain: Path, *, alert=_alert) -> dict:
         except (OSError, subprocess.TimeoutExpired, ValueError):
             outcome = "pending_remote_unreachable"
         record(last_sweep=outcome)
-    if outcome == "stopped_remote_diverged":
+    # One alert when the sweep stops, not one per five-minute tick while it stays stopped.
+    if outcome == "stopped_remote_diverged" and previous != outcome:
         try:
             alert("TTROS Shared Brain Git sweep stopped: remote diverged. No push was attempted.")
         except Exception:

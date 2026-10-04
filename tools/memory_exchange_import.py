@@ -507,6 +507,8 @@ def main() -> int:
     parser.add_argument("--rejected", type=Path, help="configured rejection directory")
     parser.add_argument("--move", action="store_true", help="move completed packages; operator authorization required")
     parser.add_argument("--checkpoint-only", action="store_true", help="process only CHECKPOINT.json packages")
+    parser.add_argument("--typed-only", action="store_true",
+                        help="process only typed Shared Brain CHECKPOINT.json and SUBMIT.json packages")
     args = parser.parse_args()
     if not (args.ready or args.package):
         parser.error("provide --ready or --package")
@@ -519,6 +521,9 @@ def main() -> int:
         packages = [args.package] if args.package else transport.list_ready_packages()
     if args.checkpoint_only:
         packages = [package for package in packages if (package / "CHECKPOINT.json").is_file()]
+    if args.typed_only:
+        packages = [package for package in packages
+                    if (package / "CHECKPOINT.json").is_file() or (package / "SUBMIT.json").is_file()]
     results = []
     for package in packages:
         result = process(package, brain=args.brain, root=args.root, dry_run=args.dry_run)

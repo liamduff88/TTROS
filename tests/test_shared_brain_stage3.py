@@ -124,6 +124,9 @@ def test_concurrency_pending_recovery_and_divergence(brain, monkeypatch):
     alerts = []
     stopped = brain_git_closure.sweep(root, alert=alerts.append)
     assert stopped["result"] == "stopped_remote_diverged" and len(alerts) == 1
+    # Still diverged on the next tick: stays stopped, does not alert again.
+    assert brain_git_closure.sweep(root, alert=alerts.append)["result"] == "stopped_remote_diverged"
+    assert len(alerts) == 1
     assert git(root, "rev-parse", "HEAD") != git(remote, "rev-parse", "main")
 
 
@@ -219,3 +222,30 @@ def test_legacy_importer_uses_transaction(brain, tmp_path):
     again = memory_exchange_import.process(package, brain=root, root=tmp_path,
                                            dry_run=False, refresh=refresh)
     assert again["outcome"] == "already_imported"
+
+
+def test_submit_write_error_does_not_leak_host_path(brain, monkeypatch):
+    def fail(*_args, **_kwargs):
+        raise brain_memory.BrainMemoryError(
+            "fatal: Unable to create '/mnt/c/Brain/.git/index.lock': File exists.")
+    monkeypatch.setattr(brain_memory, "write_transaction", fail)
+    result = submit(key="leak-check-123")
+    assert result == {"success": False, "error": "Brain write failed; nothing was stored"}
+
+
+def test_timer_typed_only_skips_full_ingest_packages(brain, monkeypatch, tmp_path, capsys):
+    ready = tmp_path / "ready"
+    (ready / "submit-package").mkdir(parents=True)
+    (ready / "ingest-package").mkdir()
+    (ready / "submit-package" / "SUBMIT.json").write_text(json.dumps({
+        "schema_version": "shared-brain-submit-v1", "operation": "submit",
+        "type": "milestone", "title": "Typed timer milestone", "body": "Finished result.",
+        "source_refs": [], "idempotency_key": "timer-key-123",
+    }))
+    (ready / "ingest-package" / "INGEST_MANIFEST.json").write_text("{}")
+    monkeypatch.setenv("TTROS_SHARED_BRAIN_SUBMIT", "1")
+    monkeypatch.setattr("sys.argv", ["memory_exchange_import.py", "--ready", str(ready),
+                                     "--brain", str(brain[0]), "--dry-run", "--typed-only"])
+    assert memory_exchange_import.main() == 0
+    output = json.loads(capsys.readouterr().out.split("\nToken usage")[0])
+    assert output == [{"outcome": "validated", "operation": "submit"}]

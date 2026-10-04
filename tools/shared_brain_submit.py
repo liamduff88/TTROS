@@ -128,7 +128,11 @@ def submit(type: str, title: str, body: str, source_refs: list[str],
         if target.exists():
             return submit(type, title, body, source_refs, idempotency_key, workstream_id,
                           attribution=attribution)
-        return {"success": False, "error": str(exc)}
+        # Git stderr can name the host vault path; never return it to a client.
+        message = str(exc)
+        if _host_path(message) or "/" in message or "\\" in message:
+            message = "Brain write failed; nothing was stored"
+        return {"success": False, "error": message}
     return {"success": True, "record_id": record_id, "reference": reference,
             "commit": result.commit, "sync_status": result.sync_status,
             "index_status": result.index_status,

@@ -12,5 +12,5 @@ Environment=TTROS_SHARED_BRAIN_WRITE=1
 Environment=TTROS_SHARED_BRAIN_SUBMIT=1
 Environment=TTROS_BRAIN_AUTOPUSH=1
 EnvironmentFile=%h/.config/ttros-memory-exchange.env
-ExecStart=/home/liam/agentic-os-live/.venv/bin/python /home/liam/agentic-os-live/tools/memory_exchange_import.py --imported ${TTROS_MEMORY_IMPORTED} --rejected ${TTROS_MEMORY_REJECTED} --move
+ExecStart=/home/liam/agentic-os-live/.venv/bin/python /home/liam/agentic-os-live/tools/memory_exchange_import.py --imported ${TTROS_MEMORY_IMPORTED} --rejected ${TTROS_MEMORY_REJECTED} --move --typed-only
 TimeoutStartSec=300
