@@ -954,12 +954,36 @@ def format_david_reply(result):
     return f"[David] {body}"
 
 
-def _run_david_request(chat_id, text, delivery_id):
+REPLY_CONTEXT_TEXT_LIMIT = 4096
+
+
+def reply_context_for(message):
+    """Bounded view of the message Liam replied to, or None when it is not a reply.
+
+    Only text, message_id and from_bot cross to the backend (AskDavidRequest.reply_context);
+    the raw reply_to_message never does.
+    """
+    reply = message.get("reply_to_message") if isinstance(message, dict) else None
+    if not isinstance(reply, dict) or not reply:
+        return None
+    message_id = reply.get("message_id")
+    sender = reply.get("from") if isinstance(reply.get("from"), dict) else {}
+    return {
+        "text": str(reply.get("text") or reply.get("caption") or "")[:REPLY_CONTEXT_TEXT_LIMIT],
+        "message_id": message_id if isinstance(message_id, int) and not isinstance(message_id, bool) else None,
+        "from_bot": sender.get("is_bot") is True,
+    }
+
+
+def _run_david_request(chat_id, text, delivery_id, reply_context=None):
     """Ask David off the polling thread; ~33s is normal for this route."""
     try:
+        payload = {"text": text}
+        if reply_context:
+            payload["reply_context"] = reply_context
         result = post_backend_json(
             ASK_DAVID_ROUTE,
-            {"text": text},
+            payload,
             timeout=DAVID_TIMEOUT_SECONDS,
         )
         kind = str(result.get("kind") or "unknown") if isinstance(result, dict) else "unknown"
@@ -980,7 +1004,7 @@ def _run_david_request(chat_id, text, delivery_id):
             _ACTIVE_AGENT_REQUESTS.discard(delivery_id)
 
 
-def dispatch_david_request(chat_id, task, source="telegram", delivery_id=""):
+def dispatch_david_request(chat_id, task, source="telegram", delivery_id="", reply_context=None):
     """Single-flight David exactly the way dispatch_agent_request single-flights Hermes."""
     request_id = str(delivery_id or "").strip()
     if not request_id:
@@ -993,7 +1017,7 @@ def dispatch_david_request(chat_id, task, source="telegram", delivery_id=""):
         _ACTIVE_AGENT_REQUESTS.add(request_id)
     worker = threading.Thread(
         target=_run_david_request,
-        args=(chat_id, task, request_id),
+        args=(chat_id, task, request_id, reply_context),
         name=f"telegram-david-{request_id[-16:]}",
         daemon=True,
     )
@@ -1074,7 +1098,7 @@ def handle_chain(chat_id, text, source="telegram", delivery_id=""):
     )
 
 
-def handle_operator(chat_id, text, source="telegram", delivery_id=""):
+def handle_operator(chat_id, text, source="telegram", delivery_id="", reply_context=None):
     if text.startswith("/delegate"):
         handle_delegate(chat_id, text)
         return
@@ -1141,7 +1165,13 @@ def handle_operator(chat_id, text, source="telegram", delivery_id=""):
         return
 
     if mode == MODE_DAVID:
-        dispatch_david_request(chat_id, remainder, source=source, delivery_id=delivery_id)
+        dispatch_david_request(
+            chat_id,
+            remainder,
+            source=source,
+            delivery_id=delivery_id,
+            reply_context=reply_context,
+        )
         return
 
     dispatch_agent_request(
@@ -1193,7 +1223,13 @@ def handle_message(msg, source="telegram", delivery_id=""):
         return
 
     if is_operator:
-        handle_operator(chat_id, text, source=source, delivery_id=delivery_id)
+        handle_operator(
+            chat_id,
+            text,
+            source=source,
+            delivery_id=delivery_id,
+            reply_context=reply_context_for(msg),
+        )
         return
 
     if pilot_id == PILOT_ID:
