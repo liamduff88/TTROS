@@ -4,20 +4,25 @@ Start: David's `start_workflow` brain tool calls `start()`. It opens a new works
 through the existing `checkpoint()` (expected_version 0) with a working-artifact brief, and
 hands the next action to Claude, so the existing Claude handoff watcher runs it unattended.
 The brief carries a named TTROS workflow's method (from `workflows/workflow_registry.json`)
-or, when none matches, an ad-hoc bounded brief. Bound: one unattended Claude pass; no submit,
-send, publish or external action; the finished result comes back as `work_product` result.md.
+or, when none matches, an ad-hoc bounded brief. Bound: one unattended Claude pass; no send,
+publish or external action; the result comes back as `work_product` result.md.
 
 Finish: `report()` runs on the same 2-minute timer as the Claude watcher. When a workstream
 started here is handed back to Liam (`next_action` begins "Liam"), or Claude's pass for it
 ended without a checkpoint, it sends Liam one short Telegram message through the existing
 orchestration bridge send: the result's title, the done line and clickable Google Drive links to
-the result artifact and its workstream folder. The links come from Drive for Desktop's own local
+the result artifact and its workstream folder. When Claude marks the result finished
+(`next_action` "Liam: review the finished result"), it is first closed through the existing
+`shared_brain_submit.submit()` (one deliverable record, unconfirmed, idempotency key fixed per
+note version, so reruns cannot duplicate it) and the workstream gets one COMPLETE checkpoint
+that names the record. A blocked or unfinished result ("Liam: answer the open questions") is
+never submitted; it goes back to Liam as a working result. The links come from Drive for Desktop's own local
 index of the files it syncs (read-only copy; no API call). Only when no link can be produced is
 the result inlined. No model calls. No new queue, store or daemon: the bounded log below records
 starts and reports, as the watcher's log does.
 
 Revisit: when the checkpoint note schema, the Claude watcher's assignment rule, the workflow
-registry shape or Drive for Desktop's index schema changes. Last touched: 2026-10-05.
+registry shape, the submit contract or Drive for Desktop's index schema changes. Last touched: 2026-10-05.
 """
 
 from __future__ import annotations
@@ -57,6 +62,12 @@ DRIVE_INDEX_GLOB = "/mnt/c/Users/*/AppData/Local/Google/DriveFS/[0-9]*/metadata_
 DRIVE_ID_RE = re.compile(r"[A-Za-z0-9_-]{10,}\Z")
 DRIVE_LINK_GRACE = dt.timedelta(minutes=10)
 LIAM_RE = re.compile(r"\s*\**\s*liam\b", re.I)
+FINISHED_RE = re.compile(r"\s*\**\s*liam\s*:\s*review the finished result", re.I)
+RECORD_ID_RE = re.compile(r"shared-submit-[0-9a-f]{32}")
+# Who closes a finished workflow: TTROS's local workflow layer, acting for the David-started workflow.
+FINISH_STAMP = {"authenticated_identity": "david", "surface": "david",
+                "actor_class": "authorised_client", "surface_source": "local-workflow"}
+COMPLETE_NEXT = "Liam: COMPLETE. Nothing is pending; review the finished result whenever you like."
 HOST_PATH_RE = re.compile(r"(?:/(?:home|mnt|tmp|etc|usr|var)/\S*|[A-Za-z]:\\\S*)")
 STOPWORDS = set("""a an and the to of for with on in into this that these my me our please can could
 would you start run kick off begin shared brain workflow workstream bring back finished result
@@ -134,11 +145,11 @@ Started {_now().date().isoformat()} from Liam's request through David. This brie
 - One unattended Claude pass. Use the Shared Brain read tools for TTR context and cite the record references you rely on.
 - Produce the finished result in full, not a plan for it.
 - Where a step needs a local tool, live data you cannot read, a send, a publish, money, or any external action, do not do it: name what is needed in open_questions.
-- Do not submit. Liam decides whether the result becomes a durable record.
+- Do not submit it yourself. When you mark the result finished, TTROS records it once as a durable Brain deliverable (unconfirmed) and sends Liam the link.
 
 ## Finish
 
-Make exactly one checkpoint for `{workstream_id}` with work_product {{name: "{RESULT_NAME}", content: the finished result, at most 20,000 characters}}, a one-line summary in done, and next_action beginning "Liam: review the finished result". If you cannot finish, still checkpoint what you have and begin next_action with "Liam: answer the open questions".
+Make exactly one checkpoint for `{workstream_id}` with work_product {{name: "{RESULT_NAME}", content: the finished result, at most 20,000 characters}}, a one-line summary in done, and next_action beginning "Liam: review the finished result". Use that only when the result is finished and needs nothing from Liam. If you cannot finish, are blocked, or need Liam's input, still checkpoint what you have and begin next_action with "Liam: answer the open questions"; that result stays a working artifact and is not submitted.
 """
 
 
@@ -200,8 +211,8 @@ def start(request: str, workflow_id: str = "", workstream_id: str = "", *,
         "goal": f"Shared Brain workflow ({label}): " + (summary if len(summary) <= 600 else summary[:597] + "..."),
         "done": "Started from Liam's request through David. Nothing done yet.",
         "decisions": (f"Workflow: {label}. Bound: one unattended Claude pass, result as work_product "
-                      f"{RESULT_NAME}, then back to Liam on Telegram. No submit, send, publish or "
-                      "external action without Liam."),
+                      f"{RESULT_NAME}; a finished result is submitted once as a durable Brain record, then "
+                      "back to Liam on Telegram. No send, publish or external action without Liam."),
         "work_product_reference": "",
         "next_action": NEXT_ACTION,
         "open_questions": "",
@@ -308,8 +319,72 @@ def _excerpt(note: Mapping[str, Any], root: Path | None) -> str:
     return f"Result: {reference}"
 
 
+def _submit_enabled() -> bool:
+    return os.environ.get("TTROS_SHARED_BRAIN_SUBMIT", "").strip().lower() in {"1", "true", "yes"}
+
+
+def _is_complete(note: Mapping[str, Any]) -> bool:
+    return note.get("surface_source") == FINISH_STAMP["surface_source"] and str(note.get("done", "")).startswith("COMPLETE.")
+
+
+def _finished_result(note: Mapping[str, Any], root: Path | None) -> str | None:
+    """Claude's finished result text, or None when this note is not one (blocked, unfinished,
+    needs Liam's input, not Claude's, or the result file is missing or over the limit)."""
+    ws = note["workstream_id"]
+    if note.get("surface") != "claude" or not FINISHED_RE.match(str(note.get("next_action", ""))):
+        return None
+    if note.get("work_product_reference") != f"artifact:{ws}/{RESULT_NAME}":
+        return None
+    artifact = checkpoint_store._open_artifact(note["work_product_reference"], ws, root or checkpoint_store.VAULT_ROOT)
+    content = str(artifact.get("content") or "")
+    if not artifact.get("available") or artifact.get("truncated") or not content.strip():
+        return None
+    return content
+
+
+def _clip(text: str, limit: int) -> str:
+    return text if len(text) <= limit else text[:limit - 3] + "..."
+
+
+def close_finished(note: Mapping[str, Any], content: str, root: Path | None,
+                   submit: Callable[..., Mapping[str, Any]]) -> dict[str, Any]:
+    """Submit Claude's finished result through the existing submit, once, and mark the note COMPLETE.
+
+    The idempotency key is fixed per note version, so a rerun after a crash returns the same
+    record (`duplicate`) instead of a second one; the COMPLETE note is not Claude's, so it is
+    never submitted again."""
+    ws, version = note["workstream_id"], note["version"]
+    title = _title(note, root) or f"Shared Brain workflow result: {ws}"
+    try:
+        out = submit("deliverable", title, content, [ws], f"workflow-{ws}-v{version}", ws, attribution=FINISH_STAMP)
+    except Exception as exc:  # index or Git errors must not stop the other workstreams' reports
+        out = {"success": False, "error": type(exc).__name__}
+    if not out.get("success"):
+        return {"success": False, "error": str(out.get("error") or "submit failed")[:300]}
+    record = f"Durable record {out['reference']} ({out.get('status', 'unconfirmed')}), submitted once by TTROS from Claude's finished result v{version}."
+    done, decisions = f"COMPLETE. {note['done']}", f"{record} {note['decisions']}".strip()
+    for _ in range(12):  # keep the note inside its 2,500-character cap; the full result stays in result.md
+        fields = {"goal": note["goal"], "done": _clip(done, checkpoint_store.MAX_FIELD_CHARS),
+                  "decisions": _clip(decisions, checkpoint_store.MAX_FIELD_CHARS),
+                  "work_product_reference": note["work_product_reference"], "next_action": COMPLETE_NEXT,
+                  "open_questions": note["open_questions"]}
+        check = checkpoint_store.checkpoint(ws, fields, version, attribution=FINISH_STAMP, root=root, validate_only=True)
+        if check.get("success") or "2500" not in str(check.get("error")):
+            break
+        if len(decisions) > len(record) + 100:
+            decisions = decisions[:max(len(record), len(decisions) - 250)]
+        else:
+            done = done[:max(40, len(done) - 250)]
+    written = checkpoint_store.checkpoint(ws, fields, version, attribution=FINISH_STAMP, root=root)
+    if not written.get("success"):
+        return {"success": False, "error": "submitted, but the COMPLETE checkpoint failed: " + str(written.get("error"))[:200],
+                "submit": out}
+    return {"success": True, "note": written["note"], "submit": out}
+
+
 def compose(note: Mapping[str, Any], started: Mapping[str, Any], kind: str, root: Path | None,
-            run: Mapping[str, Any] | None = None, links: Mapping[str, str] | None = None) -> str:
+            run: Mapping[str, Any] | None = None, links: Mapping[str, str] | None = None,
+            submit_error: str = "") -> str:
     ws = note["workstream_id"]
     head = [f"Shared Brain workflow {ws}", f"Workflow: {started.get('workflow', 'ad-hoc')}"]
     if kind == "stalled":
@@ -318,16 +393,29 @@ def compose(note: Mapping[str, Any], started: Mapping[str, Any], kind: str, root
                  f"The note is unchanged at v{note['version']}; nothing was retried.",
                  f"Next: ask David to resume {ws}, or hand it to Claude again."]
         return "\n".join(head)
+    complete = kind == "complete"
+    done = note["done"].removeprefix("COMPLETE. ") if complete else note["done"]
+    record = RECORD_ID_RE.search(note.get("decisions", "")) if complete else None
+    if complete:
+        saved = [f"Saved to the Brain as a durable record{' ' + record.group(0) if record else ''} (unconfirmed)."]
+    else:
+        saved = [f"Not saved to the Brain: the durable submit failed ({submit_error})."] if submit_error else []
+    next_line = "Next: nothing pending; review the result whenever you like." if complete else f"Next: {note['next_action']}"
     if links:
         title = _title(note, root)
-        lines = [f"Shared Brain workflow finished: {ws}", *([title] if title else []), f"Done: {note['done']}"]
+        lines = [f"Shared Brain workflow {'COMPLETE' if complete else 'finished'}: {ws}", *([title] if title else []),
+                 f"Done: {done}"]
         if note.get("open_questions"):
             lines.append(f"Open questions: {note['open_questions']}")
-        lines += [f"Result: {links['result']}", f"Folder: {links['folder']}", f"Next: {note['next_action']}"]
+        lines += [*saved, f"Result: {links['result']}", f"Folder: {links['folder']}", next_line]
         text = "\n".join(lines)
         return text if len(text) <= MAX_MESSAGE_CHARS else text[:MAX_MESSAGE_CHARS]
-    head += [f"Back with you at v{note['version']} (from {note.get('surface')}).",
-             f"Next: {note['next_action']}", f"Done: {note['done']}"]
+    if complete:
+        head[0] = f"Shared Brain workflow COMPLETE: {ws}"
+        head += [*saved, next_line, f"Done: {done}"]
+    else:
+        head += [f"Back with you at v{note['version']} (from {note.get('surface')}).", *saved,
+                 next_line, f"Done: {done}"]
     if note.get("open_questions"):
         head.append(f"Open questions: {note['open_questions']}")
     text = "\n".join(head) + "\n\n" + _excerpt(note, root)
@@ -339,8 +427,10 @@ def compose(note: Mapping[str, Any], started: Mapping[str, Any], kind: str, root
 
 def report(*, root: Path | None = None, log: Path = LOG_PATH, watcher_log: Path = watcher.LOG_PATH,
            send: Callable[[str, str], Any] | None = None, recipient: str | None = None,
+           submit: Callable[..., Mapping[str, Any]] | None = None,
            dry_run: bool = False) -> list[dict[str, Any]]:
-    """Tell Liam once per note version when a started workstream comes back to him."""
+    """Tell Liam once per note version when a started workstream comes back to him; close a
+    finished result through the existing submit first."""
     entries = watcher._read_log(log)
     cutoff = _now() - dt.timedelta(days=REPORT_WINDOW_DAYS)
     starts: dict[str, dict[str, Any]] = {}
@@ -361,7 +451,7 @@ def report(*, root: Path | None = None, log: Path = LOG_PATH, watcher_log: Path 
         note = current["note"]
         run = runs.get(note["id"])
         if note["version"] > started["version"] and LIAM_RE.match(note["next_action"]):
-            kind = "returned"
+            kind = "complete" if _is_complete(note) else "returned"
         elif run is not None and not run.get("checkpointed"):
             kind = "stalled"
         else:
@@ -369,12 +459,39 @@ def report(*, root: Path | None = None, log: Path = LOG_PATH, watcher_log: Path 
         key = f"{note['id']}:{kind}"
         if key in done or failures.get(key, 0) >= MAX_REPORT_ATTEMPTS:
             continue
-        links = drive_links(note, root) if kind == "returned" else {}
+        submit_error = ""
+        content = _finished_result(note, root) if kind == "returned" and _submit_enabled() else None
+        submit_key = f"{note['id']}:submit"
+        if content is not None and failures.get(submit_key, 0) < MAX_REPORT_ATTEMPTS:
+            if dry_run:
+                actions.append({"key": submit_key, "kind": "complete", "dry_run": True, "would_submit": True})
+                continue
+            if submit is None:
+                try:
+                    import shared_brain_submit
+                except ModuleNotFoundError:
+                    from tools import shared_brain_submit
+                submit = shared_brain_submit.submit
+            closed = close_finished(note, content, root, submit)
+            if not closed["success"]:
+                actions.append(_log(log, "report_failed", key=submit_key, reason=closed["error"],
+                                    reference=(closed.get("submit") or {}).get("reference", "")))
+                continue  # retried next tick with the same key; after the bound, sent as a working result
+            out = closed["submit"]
+            actions.append(_log(log, "submitted", key=submit_key, workstream_id=ws, reference=out["reference"],
+                                record_id=out["record_id"], commit=out.get("commit", ""),
+                                sync_status=out.get("sync_status", ""), duplicate=bool(out.get("duplicate")),
+                                complete_version=closed["note"]["version"], model_calls=0))
+            note, kind = closed["note"], "complete"
+            key = f"{note['id']}:{kind}"
+        elif content is not None:
+            submit_error = f"{MAX_REPORT_ATTEMPTS} attempts; see the workflow log"
+        links = drive_links(note, root) if kind in {"returned", "complete"} else {}
         if links is None:
             updated = dt.datetime.fromisoformat(str(note.get("updated") or "1970-01-01T00:00:00Z").replace("Z", "+00:00"))
             if _now() - updated < DRIVE_LINK_GRACE:
                 continue  # Drive for Desktop has not uploaded it yet; try again next tick
-        text = compose(note, started, kind, root, run, links)
+        text = compose(note, started, kind, root, run, links, submit_error)
         if dry_run:
             actions.append({"key": key, "kind": kind, "dry_run": True, "characters": len(text),
                             "drive_link": bool(links)})

@@ -1,4 +1,4 @@
-# Revisit: when the Claude handoff watcher, the Shared Brain workflow reporter, the Claude CLI location or the connector name changes. Last touched: 2026-10-04.
+# Revisit: when the Claude handoff watcher, the Shared Brain workflow reporter, the Claude CLI location or the connector name changes. Last touched: 2026-10-05.
 [Unit]
 Description=TTROS Shared Brain Claude handoff watcher (one headless Claude run per handed-off note version)
 After=network-online.target aos-backend.service
@@ -8,6 +8,8 @@ Type=oneshot
 WorkingDirectory=/home/liam/agentic-os-live
 Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=AOS_DISABLE_TELEMETRY=1
+# The workflow reporter closes a finished result through the existing submit (same flag as the importer).
+Environment=TTROS_SHARED_BRAIN_SUBMIT=1
 Environment=TTROS_CLAUDE_BIN=/home/liam/.local/npm/bin/claude
 Environment=PATH=/home/liam/.local/bin:/home/liam/.local/npm/bin:/usr/local/bin:/usr/bin:/bin
 # Shared Brain workflow finish reports first (no model calls); its failure never blocks the watcher.
