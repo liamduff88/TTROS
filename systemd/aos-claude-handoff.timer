@@ -1,0 +1,12 @@
+# Revisit: when Claude handoff polling cadence changes. Last touched: 2026-10-04.
+[Unit]
+Description=Check Shared Brain workstreams for a handoff to Claude every 2 minutes
+
+[Timer]
+# One minute after each Memory Exchange import tick, so a ChatGPT handoff is seen promptly.
+OnCalendar=*:1/2
+AccuracySec=5s
+Unit=aos-claude-handoff.service
+
+[Install]
+WantedBy=timers.target
