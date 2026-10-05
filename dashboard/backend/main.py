@@ -3878,9 +3878,17 @@ class ExecutiveConsultation(BaseModel):
     request_id: str
 
 
+class AskDavidReplyContext(BaseModel):
+    """The Telegram message Liam replied to: bounded fields only, never the raw update."""
+    text: str = ""
+    message_id: int | None = None
+    from_bot: bool = False
+
+
 class AskDavidRequest(BaseModel):
     text: str
     source_refs: list[str] = []
+    reply_context: AskDavidReplyContext | None = None
 
 
 class MemoryIntakeIngestRequest(BaseModel):
@@ -8379,6 +8387,42 @@ def _ask_david_attachment_context(source_refs: list[str] | None, limit: int = 60
     return "\n\n".join(blocks)
 
 
+def _try_ask_david_workstream_answer(text: str, reply: AskDavidReplyContext | None) -> dict | None:
+    """Deterministic, zero-model: Liam's Telegram reply to a TTROS Shared Brain workstream
+    question is recorded on exactly the workstream/version named in the replied-to bot message
+    (`shared_brain_workflow.answer`). None for any other message, so it reaches David unchanged."""
+    if reply is None or not reply.from_bot or not reply.text.strip():
+        return None
+    if os.environ.get("TTROS_SHARED_BRAIN_WRITE", "").strip().lower() not in {"1", "true", "yes"}:
+        return None
+    import shared_brain_workflow
+
+    result = shared_brain_workflow.answer(reply.text[:4096], text)
+    if not result.get("handled"):
+        return None
+    latitude_telemetry.trace(
+        "ask_david.workstream_answer",
+        "shared_brain",
+        "ok" if result.get("success") else "rejected",
+        workstream_id=result.get("workstream_id"),
+        version=result.get("version"),
+        reason=result.get("reason", ""),
+        reply_message_id=reply.message_id,
+    )
+    return {
+        "success": bool(result.get("success")),
+        "kind": "shared_brain_workstream_answer",
+        "response": result["message"],
+        "output": result["message"],
+        "workstream_answer": {key: value for key, value in result.items() if key not in {"handled", "message"}},
+        "direct_reply": True,
+        "queue_delta": 0,
+        "model_process_count": 0,
+        "worker_process_count": 0,
+        "token_usage_text": "Token usage: no agent invocation",
+    }
+
+
 @app.post("/api/dashboard/ask-david")
 def dashboard_ask_david(body: AskDavidRequest):
     """Cockpit primary entry point: David decides what a plain-language request needs.
@@ -8393,6 +8437,10 @@ def dashboard_ask_david(body: AskDavidRequest):
         raise HTTPException(status_code=422, detail="text must not be empty")
     if len(text.encode("utf-8")) > 8_000:
         raise HTTPException(status_code=422, detail="text must contain 8,000 UTF-8 bytes or fewer")
+
+    workstream_answer = _try_ask_david_workstream_answer(text, body.reply_context)
+    if workstream_answer is not None:
+        return workstream_answer
 
     explicit_ingest = _try_ask_david_explicit_ingest(text, body.source_refs)
     if explicit_ingest is not None:

@@ -1,10 +1,11 @@
 """Claude handoff watcher: one headless Claude Code run per workstream version handed to Claude.
 
 The Claude-side counterpart of the ChatGPT handoff watcher. Each tick reads the existing
-workstream notes through `shared_brain_checkpoint.resume()`. When exactly one current note
-hands its `next_action` to Claude, it re-reads that note, records the claim, and runs
-`claude -p` once with only the Shared Brain connector tools, so Claude resumes and checkpoints
-through the existing contract. No queue and no state store: the bounded run log is also the
+workstream notes through `shared_brain_checkpoint.resume()`. Of the current notes that hand
+their `next_action` to Claude and have not run, it takes the oldest (by `updated`, then
+workstream_id), re-reads it, records the claim, and runs `claude -p` once with only the Shared
+Brain connector tools, so Claude resumes and checkpoints through the existing contract. One run
+per tick: the next pending workstream runs on a later tick, never in parallel. No queue and no state store: the bounded run log is also the
 record of which note versions have run, so a version is never run twice.
 
 "Current" means written by TTROS within FRESH_HOURS. TTROS stamps `updated` on this same host,
@@ -21,7 +22,7 @@ The log keeps its last MAX_LOG_LINES entries; a claim only matters while its not
 and waiting states are logged once per change, so trimming never re-arms a run.
 
 Revisit: when the checkpoint note schema, the Claude connector name or the Claude CLI flags
-change. Last touched: 2026-10-04.
+change. Last touched: 2026-10-05.
 """
 
 from __future__ import annotations
@@ -105,6 +106,11 @@ def candidates(now: dt.datetime, hours: float, root: Path | None = None) -> list
         if result.get("success") and _eligible(result["note"], now, hours):
             notes.append(result["note"])
     return notes
+
+
+def select(pending: list[dict[str, Any]]) -> dict[str, Any]:
+    """The one handoff this tick runs: the oldest current one, tie-broken by workstream_id."""
+    return min(pending, key=lambda note: (str(note.get("updated", "")), note["workstream_id"]))
 
 
 def _read_log(path: Path) -> list[dict[str, Any]]:
@@ -234,15 +240,13 @@ def main(argv: list[str] | None = None, *, root: Path | None = None) -> int:
     pending = [note for note in candidates(now, args.fresh_hours, root) if note["id"] not in claimed]
     if args.dry_run:
         print(json.dumps({"dry_run": True, "pending": [note["id"] for note in pending],
+                          "next": select(pending)["id"] if pending else None,
                           "already_run": sorted(claimed)}))
         return 0
     if not pending:
         print(json.dumps({"event": "idle"}))
         return 0
-    if len(pending) > 1:
-        _log_once(args.log, "ambiguous", note_ids=sorted(note["id"] for note in pending))
-        return 0
-    note = pending[0]
+    note = select(pending)
     blocked = _preflight(args.claude)
     if blocked:
         _log_once(args.log, "waiting", note_id=note["id"], reason=blocked)

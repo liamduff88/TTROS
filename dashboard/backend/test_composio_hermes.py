@@ -6546,5 +6546,65 @@ class MemoryIntakeUploadsTests(unittest.TestCase):
             self.assertIn("not saved to the", sent_prompt)
 
 
+    def _ask_david_conversation_only(self, request, answer=None):
+        """Run ask-david with every deterministic route empty; returns (result, consult mock, answer mock)."""
+        import shared_brain_workflow
+        with patch.dict("os.environ", {"TTROS_SHARED_BRAIN_WRITE": "1"}), \
+             patch.object(shared_brain_workflow, "answer", side_effect=answer or (lambda *a, **k: {"handled": False})) as answered, \
+             patch.object(backend, "_try_existing_item_read_task", return_value=None), \
+             patch.object(backend, "_try_queue_read_task", return_value=None), \
+             patch.object(backend, "_try_local_lookup_answer", return_value=None), \
+             patch.object(backend, "_is_explicit_command_phrase", return_value=False), \
+             patch.object(backend, "_execute_named_profile_consultation", return_value={"success": True, "response": "Here is my read."}) as consult:
+            result = backend.dashboard_ask_david(request)
+        return result, consult, answered
+
+    def test_dashboard_ask_david_without_reply_context_is_unchanged(self):
+        self.assertIsNone(backend.AskDavidRequest(text="hi").reply_context)
+        result, consult, answered = self._ask_david_conversation_only(backend.AskDavidRequest(text="How is Acme going?"))
+        answered.assert_not_called()
+        self.assertEqual(result["kind"], "david_reply")
+        self.assertEqual(consult.call_args.args[2], "How is Acme going?")
+
+    def test_dashboard_ask_david_records_a_reply_to_a_workstream_question_without_david(self):
+        handled = {"handled": True, "success": True, "workstream_id": "stream-a", "answered_version": 2, "version": 3,
+                   "resume_actor": "Claude", "message": "Recorded your answer on stream-a (v2 -> v3)."}
+        request = backend.AskDavidRequest(text="US$29.", reply_context={
+            "text": "TTROS WORKSTREAM stream-a v2\nShared Brain workflow finished: stream-a", "message_id": 77, "from_bot": True})
+        result, consult, answered = self._ask_david_conversation_only(request, answer=lambda *a, **k: handled)
+        consult.assert_not_called()
+        self.assertEqual(answered.call_args.args, ("TTROS WORKSTREAM stream-a v2\nShared Brain workflow finished: stream-a", "US$29."))
+        self.assertEqual((result["kind"], result["success"], result["response"], result["model_process_count"], result["queue_delta"]),
+                         ("shared_brain_workstream_answer", True, handled["message"], 0, 0))
+        self.assertEqual(result["workstream_answer"]["workstream_id"], "stream-a")
+
+    def test_dashboard_ask_david_rejected_workstream_reply_does_not_reach_david(self):
+        rejected = {"handled": True, "success": False, "reason": "stale", "workstream_id": "stream-a", "version": 2,
+                    "message": "That question (stream-a v2) is out of date. Nothing was recorded."}
+        request = backend.AskDavidRequest(text="US$29.", reply_context={"text": "TTROS WORKSTREAM stream-a v2", "from_bot": True})
+        result, consult, _ = self._ask_david_conversation_only(request, answer=lambda *a, **k: rejected)
+        consult.assert_not_called()
+        self.assertEqual((result["success"], result["response"]), (False, rejected["message"]))
+
+    def test_dashboard_ask_david_non_ttros_or_non_bot_reply_goes_to_david_unchanged(self):
+        for reply in ({"text": "Morning brief: three calls today.", "from_bot": True},
+                      {"text": "TTROS WORKSTREAM stream-a v2", "from_bot": False},
+                      {"text": "", "from_bot": True}):
+            with self.subTest(reply=reply):
+                result, consult, answered = self._ask_david_conversation_only(
+                    backend.AskDavidRequest(text="What do you think?", reply_context=reply))
+                self.assertEqual(result["kind"], "david_reply")
+                self.assertEqual(consult.call_args.args[2], "What do you think?")
+                if not reply["from_bot"] or not reply["text"]:
+                    answered.assert_not_called()
+
+    def test_dashboard_ask_david_reply_routing_needs_the_shared_brain_write_flag(self):
+        import shared_brain_workflow
+        request = backend.AskDavidRequest(text="US$29.", reply_context={"text": "TTROS WORKSTREAM stream-a v2", "from_bot": True})
+        with patch.dict("os.environ", {"TTROS_SHARED_BRAIN_WRITE": ""}), \
+             patch.object(shared_brain_workflow, "answer") as answered:
+            self.assertIsNone(backend._try_ask_david_workstream_answer("US$29.", request.reply_context))
+        answered.assert_not_called()
+
 if __name__ == "__main__":
     unittest.main()

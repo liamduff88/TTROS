@@ -18,6 +18,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from tools import shared_brain_chatgpt_wake as wake
 from tools import shared_brain_checkpoint as store
 from tools import shared_brain_claude_watcher as watcher
 from tools import shared_brain_workflow as workflow
@@ -45,9 +46,10 @@ class FakeSubmit:
 
 REQUEST = ("Start a Shared Brain workflow to validate this digital-product idea: a Notion client "
            "tracker for freelancers. Bring me back the finished result.")
+REQUEST_B = "Start a Shared Brain workflow to draft the Etsy listing copy for the Notion client tracker."
 
 
-class WorkflowTests(unittest.TestCase):
+class WorkflowFixture(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
@@ -78,6 +80,30 @@ class WorkflowTests(unittest.TestCase):
                                send=send or (lambda chat, text: self.sent.append(text)), recipient="operator",
                                submit=self.submit)
 
+    def claim(self, ws, version):
+        with self.watcher_log.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps({"event": "claimed", "note_id": f"workstream:{ws}:v{version}"}) + "\n")
+
+    def ask_liam(self, ws, version, surface="claude", next_action="Liam: answer the open questions.",
+                 questions="Which launch price: US$29 or US$34?"):
+        fields = dict(goal="g", done="Drafted the offer.", decisions="Etsy-first.", work_product_reference="",
+                      next_action=next_action, open_questions=questions)
+        out = store.checkpoint(ws, fields, version, attribution=dict(CLAUDE, surface=surface), root=self.root,
+                               work_product={"name": "result.md", "content": "# Draft offer\nUS$29 or US$34"})
+        self.assertTrue(out["success"], out)
+        return out["note"]
+
+    def waiting_for_liam(self, request=REQUEST, **kwargs):
+        """A started workflow whose unattended pass handed a question back to Liam (v2)."""
+        ws = self.start(request)["workstream_id"]
+        self.claim(ws, 1)
+        self.ask_liam(ws, 1, **kwargs)
+        return ws
+
+    def questions_sent(self):
+        """Each Telegram question by the workstream named on its first line."""
+        return {text.splitlines()[0].split()[2]: text for text in self.sent if text.startswith("TTROS WORKSTREAM ")}
+
     def claude_returns(self, ws, version, next_action="Liam: review the finished result.", result="# Verdict\nGO"):
         fields = dict(goal="g", done="Validated the idea.", decisions="GO at US$29.", work_product_reference="",
                       next_action=next_action, open_questions="")
@@ -85,6 +111,8 @@ class WorkflowTests(unittest.TestCase):
                                work_product={"name": "result.md", "content": result})
         self.assertTrue(out["success"], out)
 
+
+class WorkflowTests(WorkflowFixture):
     def test_adhoc_start_opens_a_note_the_claude_watcher_runs(self):
         out = self.start()
         self.assertTrue(out["success"], out)
@@ -118,12 +146,23 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(store.resume(root=self.root)["workstreams"], [])
         self.assertFalse(self.log.exists())
 
-    def test_second_start_waits_for_a_pending_claude_handoff(self):
+    def test_unrelated_start_is_not_blocked_by_a_pending_claude_handoff(self):
+        first = self.start()
+        second = self.start(REQUEST_B)
+        self.assertTrue(second["success"], second)
+        self.assertEqual(sorted(note["workstream_id"] for note in watcher.candidates(workflow._now(), 12, self.root)),
+                         sorted([first["workstream_id"], second["workstream_id"]]))
+
+    def test_duplicate_start_of_the_same_waiting_workflow_is_refused(self):
         first = self.start()
         refused = self.start()
         self.assertFalse(refused["success"])
         self.assertEqual(refused["pending_workstreams"], [first["workstream_id"]])
-        self.watcher_log.write_text(json.dumps({"event": "claimed", "note_id": f"workstream:{first['workstream_id']}:v1"}) + "\n")
+        same_id = workflow.start(REQUEST_B, "", first["workstream_id"], attribution=DAVID, root=self.root,
+                                 log=self.log, watcher_log=self.watcher_log)
+        self.assertIn("already exists", same_id["error"])
+        self.assertEqual(store.resume(first["workstream_id"], root=self.root)["note"]["version"], 1)
+        self.claim(first["workstream_id"], 1)
         second = self.start()
         self.assertTrue(second["success"], second)
         self.assertEqual(second["workstream_id"], first["workstream_id"] + "-2")
@@ -392,6 +431,136 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotIn("{named}", bmm.start_workflow.__doc__)
         rule = (workflow.REPO / "rules/david_execution_handoff.md").read_text(encoding="utf-8")
         self.assertIn("`start_workflow`", rule)
+
+
+class LiamReplyRoutingTests(WorkflowFixture):
+    """Telegram reply -> the exact workstream/version named in the replied-to question."""
+
+    def test_question_for_liam_starts_with_its_workstream_marker(self):
+        ws = self.waiting_for_liam()
+        self.assertEqual([a["event"] for a in self.report()], ["reported"])
+        lines = self.sent[0].splitlines()
+        self.assertEqual(lines[0], f"TTROS WORKSTREAM {ws} v2")
+        self.assertIn("Which launch price", self.sent[0])
+        self.assertTrue(lines[-1].startswith(f"Reply to this message to answer; Claude continues {ws}"), lines[-1])
+        self.assertLessEqual(len(self.sent[0]), workflow.MAX_MESSAGE_CHARS)
+
+    def test_two_waiting_workstreams_route_each_reply_to_its_own(self):
+        a, b = self.waiting_for_liam(), self.waiting_for_liam(REQUEST_B)
+        self.assertNotEqual(a, b)
+        self.report()
+        questions = self.questions_sent()
+        self.assertEqual(sorted(questions), sorted([a, b]))
+        self.assertEqual(questions[a].splitlines()[0], f"TTROS WORKSTREAM {a} v2")
+        self.assertEqual(questions[b].splitlines()[0], f"TTROS WORKSTREAM {b} v2")
+
+        out = workflow.answer(questions[a], "US$29 for launch.", root=self.root)
+        self.assertEqual((out["handled"], out["success"], out["workstream_id"], out["version"], out["resume_actor"]),
+                         (True, True, a, 3, "Claude"), out)
+        note_a = store.resume(a, root=self.root)["note"]
+        self.assertEqual((note_a["version"], note_a["surface"], note_a["authenticated_identity"]), (3, "telegram", "liam"))
+        self.assertTrue(note_a["next_action"].startswith(f"Claude should continue {a} with Liam's answer"))
+        self.assertIn("US$29 for launch.", note_a["open_questions"])
+        self.assertIn("Which launch price", note_a["open_questions"])
+        self.assertEqual(note_a["work_product_reference"], f"artifact:{a}/result.md")
+        self.assertEqual(store.resume(b, root=self.root)["note"]["version"], 2)  # B untouched
+
+        out = workflow.answer(questions[b], "Lead with the client-tracking pain.", root=self.root)
+        self.assertEqual((out["success"], out["workstream_id"], out["version"]), (True, b, 3), out)
+        note_b = store.resume(b, root=self.root)["note"]
+        self.assertIn("client-tracking pain", note_b["open_questions"])
+        self.assertNotIn("US$29 for launch", note_b["open_questions"])
+        self.assertEqual(store.resume(a, root=self.root)["note"], note_a)  # A untouched by B's answer
+        self.assertEqual(self.report(), [])  # both are Claude's turn again, nothing to tell Liam
+
+    def test_resume_to_claude_is_eligible_for_the_claude_watcher(self):
+        ws = self.waiting_for_liam()
+        self.report()
+        workflow.answer(self.sent[0], "US$29.", root=self.root)
+        note = store.resume(ws, root=self.root)["note"]
+        claimed = watcher._claimed(watcher._read_log(self.watcher_log))
+        self.assertEqual([n["id"] for n in watcher.candidates(workflow._now(), 12, self.root) if n["id"] not in claimed],
+                         [note["id"]])
+        self.assertEqual(wake.candidates(workflow._now(), 12, self.root), [])
+
+    def test_resume_to_chatgpt_is_eligible_for_the_chatgpt_wake(self):
+        ws = self.waiting_for_liam(surface="chatgpt")
+        self.report()
+        self.assertIn("ChatGPT continues", self.sent[0])
+        out = workflow.answer(self.sent[0], "US$34.", root=self.root)
+        self.assertEqual(out["resume_actor"], "ChatGPT", out)
+        note = store.resume(ws, root=self.root)["note"]
+        self.assertTrue(wake.assigned_to_chatgpt(note), note["next_action"])
+        self.assertEqual([n["id"] for n in wake.candidates(workflow._now(), 12, self.root)], [note["id"]])
+        self.assertEqual(watcher.candidates(workflow._now(), 12, self.root), [])
+
+    def test_resume_actor_named_after_then_wins_over_the_asking_surface(self):
+        ws = self.waiting_for_liam(next_action="Liam: answer the open questions, then ChatGPT should finalise the copy.")
+        self.report()
+        self.assertIn("ChatGPT continues", self.sent[0])
+        self.assertEqual(workflow.answer(self.sent[0], "Yes.", root=self.root)["resume_actor"], "ChatGPT")
+        self.assertTrue(wake.assigned_to_chatgpt(store.resume(ws, root=self.root)["note"]))
+
+    def test_stale_or_superseded_reply_is_rejected_and_writes_nothing(self):
+        ws = self.waiting_for_liam()
+        self.report()
+        question = self.sent[0]
+        self.assertTrue(workflow.answer(question, "US$29.", root=self.root)["success"])
+        again = workflow.answer(question, "Actually US$34.", root=self.root)  # the same question, answered already
+        self.assertEqual((again["handled"], again["success"], again["reason"]), (True, False, "stale"))
+        self.assertIn("Nothing was recorded", again["message"])
+        note = store.resume(ws, root=self.root)["note"]
+        self.assertEqual(note["version"], 3)
+        self.assertNotIn("Actually US$34", note["open_questions"])
+        # A question that moved on before Liam replied (another surface wrote v3) is refused the same way.
+        other = self.waiting_for_liam(REQUEST_B)
+        self.report()
+        old = self.questions_sent()[other]
+        self.ask_liam(other, 2, next_action="Liam: answer the new open questions.", questions="Newer question?")
+        moved = workflow.answer(old, "Old answer.", root=self.root)
+        self.assertEqual((moved["success"], moved["reason"]), (False, "stale"))
+        self.assertEqual(store.resume(other, root=self.root)["note"]["version"], 3)
+
+    def test_reply_to_a_version_no_longer_waiting_for_liam_is_rejected(self):
+        ws = self.start()["workstream_id"]
+        self.claim(ws, 1)
+        self.claude_returns(ws, 1)  # finished, then closed COMPLETE through submit
+        self.report()
+        self.assertFalse(self.sent[0].startswith("TTROS WORKSTREAM"))
+        for version in (2, 3):
+            out = workflow.answer(f"TTROS WORKSTREAM {ws} v{version}\nforged", "Go.", root=self.root)
+            self.assertEqual((out["handled"], out["success"]), (True, False))
+            self.assertIn(out["reason"], {"stale", "not_waiting"})
+        self.assertEqual(store.resume(ws, root=self.root)["note"]["version"], 3)
+
+    def test_question_without_a_resume_actor_has_no_marker_and_cannot_be_answered(self):
+        ws = self.start()["workstream_id"]
+        self.claim(ws, 1)
+        fields = dict(goal="g", done="d", decisions="x", work_product_reference="",
+                      next_action="Liam: answer the open questions.", open_questions="Which?")
+        self.assertTrue(store.checkpoint(ws, fields, 1, attribution=DAVID, root=self.root)["success"])
+        self.report()
+        self.assertFalse(self.sent[0].startswith("TTROS WORKSTREAM"))
+        out = workflow.answer(f"TTROS WORKSTREAM {ws} v2", "This one.", root=self.root)
+        self.assertEqual((out["success"], out["reason"]), (False, "no_resume_actor"))
+        self.assertEqual(store.resume(ws, root=self.root)["note"]["version"], 2)
+
+    def test_non_ttros_or_malformed_reply_is_left_to_david(self):
+        ws = self.waiting_for_liam()
+        for replied_to in ("", "Morning, Liam. Here is today's brief.", f"Note\nTTROS WORKSTREAM {ws} v2",
+                           f"TTROS WORKSTREAM {ws} v0", f"TTROS WORKSTREAM {ws} v2 please",
+                           f"ttros workstream {ws} v2", f"TTROS WORKSTREAM {ws.upper()} v2", "TTROS WORKSTREAM ab v2"):
+            with self.subTest(replied_to=replied_to):
+                self.assertEqual(workflow.answer(replied_to, "US$29.", root=self.root), {"handled": False})
+        self.assertEqual(store.resume(ws, root=self.root)["note"]["version"], 2)
+
+    def test_empty_or_oversized_answer_is_refused_without_a_write(self):
+        ws = self.waiting_for_liam()
+        marker = f"TTROS WORKSTREAM {ws} v2"
+        self.assertEqual(workflow.answer(marker, "   ", root=self.root)["reason"], "empty_answer")
+        too_long = workflow.answer(marker, "x" * (workflow.MAX_ANSWER_CHARS + 1), root=self.root)
+        self.assertEqual(too_long["reason"], "answer_too_long")
+        self.assertEqual(store.resume(ws, root=self.root)["note"]["version"], 2)
 
 
 if __name__ == "__main__":

@@ -16,13 +16,23 @@ the result artifact and its workstream folder. When Claude marks the result fini
 `shared_brain_submit.submit()` (one deliverable record, unconfirmed, idempotency key fixed per
 note version, so reruns cannot duplicate it) and the workstream gets one COMPLETE checkpoint
 that names the record. A blocked or unfinished result ("Liam: answer the open questions") is
-never submitted; it goes back to Liam as a working result. The links come from Drive for Desktop's own local
+never submitted; it goes back to Liam as a working result. A result that needs Liam's input
+starts with the line `TTROS WORKSTREAM <workstream_id> v<version>` and names who resumes.
+
+Answer: when Liam replies on Telegram to that message, the backend passes the replied-to text
+to `answer()`. The workstream and version come only from that marker, never from "the latest
+pending question". The note is re-read; only if that version is still current and still waiting
+for Liam is his answer checkpointed onto the same workstream (expected_version = that version),
+with next_action handed to the resume actor: the surface that asked (Claude or ChatGPT), or the
+one next_action names after "then". The existing Claude watcher or ChatGPT wake then continues.
+The links come from Drive for Desktop's own local
 index of the files it syncs (read-only copy; no API call). Only when no link can be produced is
 the result inlined. No model calls. No new queue, store or daemon: the bounded log below records
 starts and reports, as the watcher's log does.
 
 Revisit: when the checkpoint note schema, the Claude watcher's assignment rule, the workflow
-registry shape, the submit contract or Drive for Desktop's index schema changes. Last touched: 2026-10-05.
+registry shape, the submit contract, the Telegram reply context or Drive for Desktop's index schema
+changes. Last touched: 2026-10-05.
 """
 
 from __future__ import annotations
@@ -64,6 +74,15 @@ DRIVE_LINK_GRACE = dt.timedelta(minutes=10)
 LIAM_RE = re.compile(r"\s*\**\s*liam\b", re.I)
 FINISHED_RE = re.compile(r"\s*\**\s*liam\s*:\s*review the finished result", re.I)
 RECORD_ID_RE = re.compile(r"shared-submit-[0-9a-f]{32}")
+QUESTION_MARKER = "TTROS WORKSTREAM {ws} v{version}"
+QUESTION_MARKER_RE = re.compile(r"TTROS WORKSTREAM ([a-z0-9][a-z0-9-]{2,63}) v([1-9][0-9]{0,8})\Z")
+# "Liam: answer the open questions, then ChatGPT should …" names the resume actor explicitly.
+THEN_ACTOR_RE = re.compile(r"\bthen\s+\**\s*(claude|chatgpt)\b", re.I)
+ACTORS = {"claude": "Claude", "chatgpt": "ChatGPT"}
+MAX_ANSWER_CHARS = 900
+# Who records Liam's Telegram answer: Liam himself, through TTROS's Telegram reply path.
+ANSWER_STAMP = {"authenticated_identity": "liam", "surface": "telegram",
+                "actor_class": "authorised_client", "surface_source": "telegram-reply"}
 # Who closes a finished workflow: TTROS's local workflow layer, acting for the David-started workflow.
 FINISH_STAMP = {"authenticated_identity": "david", "surface": "david",
                 "actor_class": "authorised_client", "surface_source": "local-workflow"}
@@ -176,11 +195,10 @@ def _workstream_id(request: str, requested: str, root: Path | None) -> tuple[str
     return None, "could not allocate a new workstream id; pass workstream_id"
 
 
-def _pending_claude_handoffs(root: Path | None, watcher_log: Path) -> list[str]:
-    """Notes the watcher would still run. Two at once make it refuse both (plan section 18)."""
+def _pending_claude_handoffs(root: Path | None, watcher_log: Path) -> list[dict[str, Any]]:
+    """Notes the watcher would still run; it runs them one per tick, oldest first."""
     claimed = watcher._claimed(watcher._read_log(watcher_log))
-    return [note["workstream_id"] for note in watcher.candidates(_now(), watcher.FRESH_HOURS, root)
-            if note["id"] not in claimed]
+    return [note for note in watcher.candidates(_now(), watcher.FRESH_HOURS, root) if note["id"] not in claimed]
 
 
 def start(request: str, workflow_id: str = "", workstream_id: str = "", *,
@@ -198,17 +216,19 @@ def start(request: str, workflow_id: str = "", workstream_id: str = "", *,
         return {"success": False, "error": "unknown workflow_id; leave it empty for an ad-hoc workstream",
                 "named_workflows": sorted(workflows)}
     workflow = workflows.get(workflow_id)
-    pending = _pending_claude_handoffs(root, watcher_log)
-    if pending:
-        return {"success": False, "error": "another Claude hand-off is waiting to run; start this workflow "
-                "after it has run", "pending_workstreams": pending}
+    label = f"named workflow {workflow_id}" if workflow else "ad-hoc bounded workstream"
+    summary = " ".join(request.split())
+    goal = f"Shared Brain workflow ({label}): " + (summary if len(summary) <= 600 else summary[:597] + "...")
+    # Other workstreams may be waiting for Claude; the same request already waiting is a duplicate start.
+    duplicate = [note["workstream_id"] for note in _pending_claude_handoffs(root, watcher_log) if note["goal"] == goal]
+    if duplicate:
+        return {"success": False, "error": "this workflow is already waiting to run; do not start it again",
+                "pending_workstreams": duplicate}
     ws, problem = _workstream_id(request, str(workstream_id or "").strip(), root)
     if problem:
         return {"success": False, "error": problem}
-    label = f"named workflow {workflow_id}" if workflow else "ad-hoc bounded workstream"
-    summary = " ".join(request.split())
     fields = {
-        "goal": f"Shared Brain workflow ({label}): " + (summary if len(summary) <= 600 else summary[:597] + "..."),
+        "goal": goal,
         "done": "Started from Liam's request through David. Nothing done yet.",
         "decisions": (f"Workflow: {label}. Bound: one unattended Claude pass, result as work_product "
                       f"{RESULT_NAME}; a finished result is submitted once as a durable Brain record, then "
@@ -382,9 +402,118 @@ def close_finished(note: Mapping[str, Any], content: str, root: Path | None,
     return {"success": True, "note": written["note"], "submit": out}
 
 
+def resume_actor(note: Mapping[str, Any]) -> str | None:
+    """Who continues once Liam answers: the actor next_action names after "then", else the
+    surface that handed the question to Liam. None when neither is Claude or ChatGPT."""
+    named = THEN_ACTOR_RE.search(str(note.get("next_action", "")))
+    actor = (named.group(1) if named else str(note.get("surface", ""))).lower()
+    return actor if actor in ACTORS else None
+
+
+def awaiting_liam(note: Mapping[str, Any]) -> bool:
+    """Handed to Liam for input; a finished or COMPLETE result is not waiting for an answer."""
+    action = str(note.get("next_action", ""))
+    return bool(LIAM_RE.match(action)) and not FINISHED_RE.match(action) and not _is_complete(note)
+
+
+def question_marker(note: Mapping[str, Any]) -> str:
+    """First line of a Telegram question Liam can answer by replying; empty when the reply
+    could not be routed (not waiting for Liam, or no resume actor recorded)."""
+    if not awaiting_liam(note) or resume_actor(note) is None:
+        return ""
+    return QUESTION_MARKER.format(ws=note["workstream_id"], version=note["version"])
+
+
+def parse_marker(text: str) -> tuple[str, int] | None:
+    """(workstream_id, version) from the first non-empty line of a replied-to message, or None."""
+    for line in str(text or "").splitlines():
+        if line.strip():
+            match = QUESTION_MARKER_RE.fullmatch(line.strip())
+            return (match.group(1), int(match.group(2))) if match else None
+    return None
+
+
+def answer(reply_text: str, answer_text: str, *, root: Path | None = None) -> dict[str, Any]:
+    """Record Liam's Telegram reply to a workstream question on that same workstream.
+
+    `{"handled": False}` when the replied-to message carries no TTROS question marker: the
+    caller continues with the normal David conversation. Otherwise the result is handled, and
+    `message` tells Liam what happened. The optimistic version check in `checkpoint()` makes a
+    reply to a superseded version fail safely even if the note moves during this call."""
+    marker = parse_marker(reply_text)
+    if marker is None:
+        return {"handled": False}
+    ws, version = marker
+
+    def rejected(reason: str, message: str) -> dict[str, Any]:
+        return {"handled": True, "success": False, "reason": reason, "workstream_id": ws,
+                "version": version, "message": message + " Nothing was recorded."}
+
+    text = str(answer_text or "").strip()
+    if not text:
+        return rejected("empty_answer", f"Your reply to {ws} v{version} was empty.")
+    if len(text) > MAX_ANSWER_CHARS:
+        return rejected("answer_too_long", f"Your reply to {ws} v{version} is over {MAX_ANSWER_CHARS} characters; "
+                        f"shorten it, or ask David to resume {ws}.")
+    current = checkpoint_store.resume(ws, root=root)
+    if not current.get("success"):
+        return rejected("unknown_workstream", f"Workstream {ws} could not be read.")
+    note = current["note"]
+    stale = (f"That question ({ws} v{version}) is out of date: the workstream is now at v{note['version']}, "
+             f"next: {_clip(note['next_action'], 200)}")
+    if note["version"] != version:
+        return rejected("stale", stale)
+    if not awaiting_liam(note):
+        return rejected("not_waiting", f"{ws} v{version} is not waiting for your answer.")
+    actor = resume_actor(note)
+    if actor is None:
+        return rejected("no_resume_actor", f"{ws} v{version} does not record who continues after your answer; "
+                        f"ask David to resume {ws}.")
+    name, reference = ACTORS[actor], note["work_product_reference"]
+    keep = f", keep the result as work_product {reference.split('/', 1)[1]}" if reference.startswith("artifact:") else ""
+    answered = f"Liam's answer (Telegram reply to v{version}): {text}"
+    asked = f" Asked: {note['open_questions']}" if note["open_questions"] else ""
+    fields = {"goal": note["goal"], "done": note["done"], "decisions": note["decisions"],
+              "work_product_reference": reference,
+              "next_action": (f"{name} should continue {ws} with Liam's answer in open_questions{keep}, and set "
+                              "next_action to 'Liam: review the finished result' when it is finished, or "
+                              "'Liam: answer the open questions' if it is still blocked."),
+              "open_questions": _clip(answered + asked, checkpoint_store.MAX_FIELD_CHARS)}
+    if not checkpoint_store.checkpoint(ws, fields, version, attribution=ANSWER_STAMP, root=root,
+                                       validate_only=True).get("success"):
+        fields["open_questions"] = answered  # the question itself stays in the previous version
+    written = checkpoint_store.checkpoint(ws, fields, version, attribution=ANSWER_STAMP, root=root)
+    if not written.get("success"):
+        error = str(written.get("error") or "checkpoint failed")
+        if "stale" in error:
+            return rejected("stale", f"That question ({ws} v{version}) was answered or moved on meanwhile.")
+        if "2500" in error:
+            return rejected("answer_too_long", f"Your reply does not fit in the {ws} note; shorten it.")
+        return rejected("checkpoint_failed", f"Your answer to {ws} v{version} could not be saved ({error[:200]}).")
+    new = written["note"]
+    how = ("Claude picks it up within a few minutes." if actor == "claude"
+           else "ChatGPT is woken by email; its hourly check is the fallback.")
+    return {"handled": True, "success": True, "workstream_id": ws, "answered_version": version,
+            "version": new["version"], "resume_actor": name,
+            "message": f"Recorded your answer on {ws} (v{version} -> v{new['version']}). {how}"}
+
+
 def compose(note: Mapping[str, Any], started: Mapping[str, Any], kind: str, root: Path | None,
             run: Mapping[str, Any] | None = None, links: Mapping[str, str] | None = None,
             submit_error: str = "") -> str:
+    text = _compose_body(note, started, kind, root, run, links, submit_error)
+    marker = question_marker(note) if kind == "returned" else ""
+    if not marker:
+        return text
+    head = marker + "\n"
+    tail = (f"\n\nReply to this message to answer; {ACTORS[resume_actor(note)]} continues "
+            f"{note['workstream_id']} with your answer.")
+    return head + text[:MAX_MESSAGE_CHARS - len(head) - len(tail)] + tail
+
+
+def _compose_body(note: Mapping[str, Any], started: Mapping[str, Any], kind: str, root: Path | None,
+                  run: Mapping[str, Any] | None = None, links: Mapping[str, str] | None = None,
+                  submit_error: str = "") -> str:
     ws = note["workstream_id"]
     head = [f"Shared Brain workflow {ws}", f"Workflow: {started.get('workflow', 'ad-hoc')}"]
     if kind == "stalled":

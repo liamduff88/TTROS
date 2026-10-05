@@ -1,7 +1,7 @@
 """Claude handoff watcher: selection, at-most-once runs per note version, and the run shape.
 
 Runs against a temporary Brain root and a stub `claude` binary; no model call, live Brain untouched.
-Revisit: when tools/shared_brain_claude_watcher.py changes. Last touched: 2026-10-04.
+Revisit: when tools/shared_brain_claude_watcher.py changes. Last touched: 2026-10-05.
 """
 import datetime as dt
 import json
@@ -171,13 +171,42 @@ class WatcherTest(Fixture):
         self.assertEqual([entry.get("note_id") for entry in watcher._read_log(self.log) if entry["event"] == "claimed"],
                          ["workstream:dp-stage4:v1", "workstream:dp-stage4:v3"])
 
-    def test_two_handoffs_are_ambiguous_and_logged_once(self):
+    def test_two_handoffs_run_oldest_first_one_per_tick(self):
+        note(self.root, "stream-b", "Claude should do b.")  # older, although its id sorts later
+        note(self.root, "stream-a", "Claude should do a.")
+        os.environ["STUB_MODE"] = "no-checkpoint"
+        self.tick()
+        self.assertEqual(len(self.runs()), 1)
+        self.assertIn("Workstream `stream-b` version 1", self.runs()[0]["prompt"])
+        self.assertNotIn("stream-a", self.runs()[0]["prompt"])
+        self.tick()
+        self.assertEqual(len(self.runs()), 2)
+        self.assertIn("Workstream `stream-a` version 1", self.runs()[1]["prompt"])
+        self.tick()
+        self.assertEqual(len(self.runs()), 2)
+        self.assertEqual([entry.get("note_id") for entry in watcher._read_log(self.log) if entry["event"] == "claimed"],
+                         ["workstream:stream-b:v1", "workstream:stream-a:v1"])
+        self.assertNotIn("ambiguous", self.events())
+        # Neither run moved the other workstream's note.
+        self.assertEqual([store.resume(ws, root=self.root)["note"]["version"] for ws in ("stream-a", "stream-b")], [1, 1])
+
+    def test_one_run_writes_only_its_own_workstream(self):
         note(self.root, "stream-a", "Claude should do a.")
         note(self.root, "stream-b", "Claude should do b.")
+        os.environ.update(STUB_WS="stream-a", STUB_VERSION="1")
         self.tick()
+        self.assertEqual([store.resume(ws, root=self.root)["note"]["version"] for ws in ("stream-a", "stream-b")], [2, 1])
+        self.assertEqual(store.resume("stream-b", root=self.root)["note"]["next_action"], "Claude should do b.")
+        os.environ.update(STUB_WS="stream-b", STUB_VERSION="1")
         self.tick()
-        self.assertEqual(self.runs(), [])
-        self.assertEqual(self.events(), ["ambiguous"])
+        self.assertEqual([store.resume(ws, root=self.root)["note"]["version"] for ws in ("stream-a", "stream-b")], [2, 2])
+
+    def test_equal_timestamps_tie_break_by_workstream_id(self):
+        pending = [{"id": f"workstream:{ws}:v1", "workstream_id": ws, "updated": "2026-10-05T00:00:00Z"}
+                   for ws in ("stream-c", "stream-a", "stream-b")]
+        self.assertEqual(watcher.select(pending)["workstream_id"], "stream-a")
+        pending[2]["updated"] = "2026-10-04T23:59:59Z"
+        self.assertEqual(watcher.select(pending)["workstream_id"], "stream-b")
 
     def test_version_moved_before_run_is_not_executed(self):
         note(self.root, "dp-stage4", "Claude should review it.")
