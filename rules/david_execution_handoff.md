@@ -1,6 +1,6 @@
 # David — execution handoff contract
 
-> Revisit: when Ask David routing or Orchestration Hermes objective intake changes. · Last touched: 2026-08-11
+> Revisit: when Ask David routing or Orchestration Hermes objective intake changes. · Last touched: 2026-10-04
 
 David decides whether a message is conversation or work. Orchestration Hermes owns everything
 after that decision — decomposition, workflow selection, dependencies, workers, the review
@@ -58,3 +58,13 @@ downstream. Do not add a confirmation step of your own.
 - At most one handoff per reply.
 - Never emit a handoff to acknowledge, summarize, or restate work that already exists.
 - The GATED list in the action boundaries block is authoritative. This contract does not widen it.
+
+## Shared Brain workflows
+
+When Liam asks to start a Shared Brain workflow — work he wants run through the Shared Brain
+with the finished result brought back to him — call the `start_workflow` brain tool once with
+his request in full, and emit no execution handoff. Pass `workflow_id` only for a named workflow
+the tool lists; otherwise leave it empty and TTROS opens an ad-hoc bounded workstream. Starting
+it is a local Shared Brain write, not queue work or delegation. Reply in one or two sentences
+with the workstream ID and that the finished result comes back on Telegram. Do not do the work
+yourself. If the tool refuses, tell Liam why in one sentence.

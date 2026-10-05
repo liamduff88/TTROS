@@ -18,8 +18,10 @@ from mcp.server.mcpserver import MCPServer
 
 try:
     import shared_brain_checkpoint
+    import shared_brain_workflow
 except ModuleNotFoundError:
     from tools import shared_brain_checkpoint
+    from tools import shared_brain_workflow
 
 try:
     from brain_memory import (
@@ -400,6 +402,19 @@ def resume(workstream_id: str | None = None, version: int | None = None) -> dict
     return shared_brain_checkpoint.resume(workstream_id, version)
 
 
+def start_workflow(request: str, workflow_id: str = "", workstream_id: str = "") -> dict[str, Any]:
+    """START: When Liam asks to start a Shared Brain workflow (work run through the Shared Brain with the finished result brought back to him), call this once instead of emitting an execution handoff. It is a local Shared Brain write, not queue work, delegation or an external action. Pass Liam's request in full as `request`. Set `workflow_id` only when the request names or clearly matches a named TTROS workflow: {named}. Otherwise leave it empty and TTROS opens an ad-hoc bounded workstream. Claude runs it unattended within minutes and TTROS sends the finished result to Liam on Telegram. Tell Liam the workstream_id in one sentence; do not do the work yourself."""
+    return shared_brain_workflow.start(
+        request, workflow_id, workstream_id,
+        attribution={"authenticated_identity": "david", "surface": "david",
+                     "actor_class": "authorised_client", "surface_source": "local-stdio"},
+    )
+
+
+start_workflow.__doc__ = start_workflow.__doc__.replace(
+    "{named}", ", ".join(sorted(shared_brain_workflow.named_workflows())) or "none")
+
+
 if DEPTH_TOOLS_ENABLED:
     mcp.tool()(search_calls)
     mcp.tool()(open_call)
@@ -408,6 +423,7 @@ if DEPTH_TOOLS_ENABLED:
     if SHARED_BRAIN_WRITE_ENABLED:
         mcp.tool()(checkpoint)
         mcp.tool()(resume)
+        mcp.tool()(start_workflow)
 
 
 if __name__ == "__main__":
