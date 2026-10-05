@@ -27,8 +27,17 @@ STUB = textwrap.dedent("""\
     sys.path.insert(0, {repo!r})
     from tools import shared_brain_checkpoint as store
     prompt = sys.stdin.read()
-    with open(os.environ["STUB_CALLS"], "a") as handle:
+    probe = "--model" in sys.argv and sys.argv[sys.argv.index("--model") + 1] == {probe_model!r}
+    with open(os.environ["STUB_CALLS"] + (".probe" if probe else ""), "a") as handle:
         handle.write(json.dumps({{"argv": sys.argv[1:], "prompt": prompt}}) + "\\n")
+    status = os.environ.get("STUB_CONNECTOR", "connected")
+    servers = [{{"name": "claude.ai Claude Docs", "status": "connected"}},
+               {{"name": "claude.ai TTROS Shared Brain", "status": status}}]
+    tools = ["mcp__claude_ai_TTROS_Shared_Brain__resume"] if status == "connected" else []
+    print(json.dumps({{"type": "system", "subtype": "init", "mcp_servers": servers, "tools": tools}}), flush=True)
+    if probe:
+        print(json.dumps({{"type": "result", "is_error": True, "total_cost_usd": 0}}))
+        sys.exit(1)
     if os.environ.get("STUB_MODE") == "checkpoint":
         ws, version = os.environ["STUB_WS"], int(os.environ["STUB_VERSION"])
         fields = dict(goal="g", done="reviewed", decisions="PASS", work_product_reference="",
@@ -36,8 +45,8 @@ STUB = textwrap.dedent("""\
         stamp = {{"authenticated_identity": "liam", "surface": "claude",
                   "actor_class": "authorised_client", "surface_source": "address"}}
         store.checkpoint(ws, fields, version, attribution=stamp, root=__import__("pathlib").Path(os.environ["STUB_ROOT"]))
-    print(json.dumps({{"is_error": False, "num_turns": 3, "total_cost_usd": 0.0, "permission_denials": [],
-                      "result": "v2, next owner ChatGPT"}}))
+    print(json.dumps({{"type": "result", "is_error": False, "num_turns": 3, "total_cost_usd": 0.0,
+                      "permission_denials": [], "result": "v2, next owner ChatGPT"}}))
 """)
 
 
@@ -49,7 +58,7 @@ def note(root, ws, next_action, surface="chatgpt", versions=1):
         assert result["success"], result
 
 
-class WatcherTest(unittest.TestCase):
+class Fixture(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         base = Path(self.temp.name)
@@ -58,17 +67,15 @@ class WatcherTest(unittest.TestCase):
         self.log = base / "watcher.log"
         self.calls = base / "calls.jsonl"
         self.stub = base / "claude"
-        self.stub.write_text(STUB.format(python=sys.executable, repo=str(REPO)), encoding="utf-8")
+        self.stub.write_text(STUB.format(python=sys.executable, repo=str(REPO), probe_model=watcher.PROBE_MODEL), encoding="utf-8")
         self.stub.chmod(0o755)
         os.environ.update(STUB_CALLS=str(self.calls), STUB_ROOT=str(self.root), STUB_MODE="checkpoint")
-        patches = [mock.patch.object(watcher, "RUN_DIR", base / "run"),
-                   mock.patch.object(watcher, "_preflight", return_value=None)]
-        for patch in patches:
-            patch.start()
-            self.addCleanup(patch.stop)
+        patch = mock.patch.object(watcher, "RUN_DIR", base / "run")
+        patch.start()
+        self.addCleanup(patch.stop)
 
     def tearDown(self):
-        for key in ("STUB_CALLS", "STUB_ROOT", "STUB_MODE", "STUB_WS", "STUB_VERSION"):
+        for key in ("STUB_CALLS", "STUB_ROOT", "STUB_MODE", "STUB_WS", "STUB_VERSION", "STUB_CONNECTOR"):
             os.environ.pop(key, None)
         self.temp.cleanup()
 
@@ -80,6 +87,15 @@ class WatcherTest(unittest.TestCase):
 
     def events(self):
         return [entry["event"] for entry in watcher._read_log(self.log)]
+
+
+
+class WatcherTest(Fixture):
+    def setUp(self):
+        super().setUp()
+        patch = mock.patch.object(watcher, "_preflight", return_value=None)
+        patch.start()
+        self.addCleanup(patch.stop)
 
     def test_assignment_wording(self):
         yes = ["Claude should resume x", "Claude: review", "claude resumes x", "Claude Code reviews", "**Claude** should"]
@@ -130,6 +146,16 @@ class WatcherTest(unittest.TestCase):
         self.assertEqual(self.tick(), 0)
         self.assertEqual(len(self.runs()), 1)
         self.assertEqual(watcher._read_log(self.log)[-1]["checkpointed"], False)
+
+    def test_run_without_the_connector_stops_at_init_and_is_not_retried(self):
+        note(self.root, "dp-stage4", "Claude should review it.")
+        os.environ.update(STUB_WS="dp-stage4", STUB_VERSION="1", STUB_CONNECTOR="needs-auth")
+        self.assertEqual(self.tick(), 1)
+        self.assertEqual(self.tick(), 0)
+        self.assertEqual(len(self.runs()), 1)
+        finished = watcher._read_log(self.log)[-1]
+        self.assertEqual((finished["aborted"], finished["checkpointed"], finished["new_version"]),
+                         ("connector_needs-auth", False, 1))
 
     def test_new_version_handed_back_to_claude_runs_again(self):
         note(self.root, "dp-stage4", "Claude should review it.")
@@ -187,20 +213,37 @@ class WatcherTest(unittest.TestCase):
         self.assertEqual((self.runs(), self.events()), ([], []))
 
 
-class PreflightTest(unittest.TestCase):
-    def check(self, mcp_output, health_status=200):
+class PreflightTest(Fixture):
+    """The gate is the headless session's own connector status, read by a no-cost probe."""
+
+    def check(self, connector, health_status=200):
+        os.environ["STUB_CONNECTOR"] = connector
         response = mock.MagicMock(status=health_status)
         response.__enter__.return_value = response
-        with mock.patch.object(watcher.urllib.request, "urlopen", return_value=response), \
-             mock.patch.object(watcher.subprocess, "run",
-                               return_value=mock.Mock(stdout=mcp_output, returncode=0)):
-            return watcher._preflight("claude")
+        with mock.patch.object(watcher.urllib.request, "urlopen", return_value=response):
+            return watcher._preflight(str(self.stub))
 
     def test_connector_state_gates_the_run(self):
-        self.assertIsNone(self.check("claude.ai TTROS Shared Brain:\n  Status: ✔ Connected\n"))
-        self.assertEqual(self.check("claude.ai TTROS Shared Brain:\n  Status: ! Needs authentication\n"),
-                         "claude_connector_not_connected")
-        self.assertEqual(self.check("Status: ✔ Connected", health_status=503), "brain_backend_unhealthy")
+        self.assertIsNone(self.check("connected"))
+        self.assertEqual(self.check("needs-auth"), "connector_needs-auth")
+        self.assertEqual(self.check("connected", health_status=503), "brain_backend_unhealthy")
+        probes = [json.loads(line) for line in Path(str(self.calls) + ".probe").read_text().splitlines()]
+        self.assertEqual(len(probes), 2)
+        argv = probes[0]["argv"]
+        self.assertEqual(argv[argv.index("--model") + 1], watcher.PROBE_MODEL)
+        self.assertNotIn("--allowedTools", argv)
+        self.assertEqual(self.runs(), [])
+
+    def test_unauthenticated_connector_waits_without_claiming(self):
+        note(self.root, "dp-stage4", "Claude should review it.")
+        os.environ["STUB_CONNECTOR"] = "needs-auth"
+        response = mock.MagicMock(status=200)
+        response.__enter__.return_value = response
+        with mock.patch.object(watcher.urllib.request, "urlopen", return_value=response):
+            self.tick()
+            self.tick()
+        self.assertEqual((self.runs(), self.events()), ([], ["waiting"]))
+        self.assertEqual(watcher._read_log(self.log)[-1]["reason"], "connector_needs-auth")
 
 
 if __name__ == "__main__":

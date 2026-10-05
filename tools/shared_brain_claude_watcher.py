@@ -10,6 +10,10 @@ record of which note versions have run, so a version is never run twice.
 "Current" means written by TTROS within FRESH_HOURS. TTROS stamps `updated` on this same host,
 and the timer runs whenever TTROS can accept a write, so a real handoff is seen within minutes;
 old notes that still name Claude stay inert. A note Claude itself wrote never triggers a run.
+Headless runs see the connector only once Claude Code itself is authenticated to it, which
+`claude mcp get` does not reliably report. So the gate reads the headless session's own init
+event: a probe with an unknown model (the API refuses it, so it costs nothing), and the real
+run aborts at init if the connector or its `resume` tool is missing.
 The log keeps its last MAX_LOG_LINES entries; a claim only matters while its note is current,
 and waiting states are logged once per change, so trimming never re-arms a run.
 
@@ -26,6 +30,7 @@ import os
 import re
 import subprocess
 import sys
+import threading
 import time
 import urllib.request
 from pathlib import Path
@@ -39,7 +44,7 @@ except ModuleNotFoundError:
 REPO = Path(__file__).resolve().parents[1]
 LOG_PATH = REPO / "logs" / "shared_brain_claude_watcher.log"
 MAX_LOG_LINES = 200
-FRESH_HOURS = 24.0
+FRESH_HOURS = 12.0
 RUN_TIMEOUT_SECONDS = 1200
 MAX_MODEL_CALLS = 1  # per tick; the watcher hard-stops rather than exceed it
 CONNECTOR = "claude.ai TTROS Shared Brain"
@@ -47,6 +52,9 @@ TOOL_PREFIX = "mcp__claude_ai_TTROS_Shared_Brain__"
 ALLOWED_TOOLS = [TOOL_PREFIX + name for name in ("search", "read", "entity", "resume", "checkpoint", "submit")]
 HEALTH_URL = "http://127.0.0.1:8010/api/health"
 RUN_DIR = Path.home() / ".local" / "state" / "ttros-claude-handoff"
+PROBE_MODEL = "ttros-connector-probe-not-a-model"
+BASE_FLAGS = ["-p", "--output-format", "stream-json", "--verbose", "--tools", "", "--permission-mode", "dontAsk",
+              "--no-session-persistence"]
 # "Claude should …", "Claude: …", "Claude Code resumes …"; not "Claude or ChatGPT …".
 ASSIGNED_RE = re.compile(r"\s*\**\s*claude(?:\s+code)?(?=[\s:,.*]|$)(?!\s*(?:or|and)\s)(?!\s*[/&])", re.I)
 
@@ -133,6 +141,62 @@ def _claimed(entries: list[dict[str, Any]]) -> set[str]:
     return {entry["note_id"] for entry in entries if entry.get("event") == "claimed" and "note_id" in entry}
 
 
+def session_problem(init: dict[str, Any]) -> str | None:
+    """None when this headless session can use the Shared Brain connector, else why not."""
+    servers = {server.get("name"): server.get("status") for server in init.get("mcp_servers") or []}
+    status = servers.get(CONNECTOR)
+    if status != "connected":
+        return f"connector_{status or 'absent'}"
+    if TOOL_PREFIX + "resume" not in (init.get("tools") or []):
+        return "connector_resume_tool_absent"
+    return None
+
+
+def _session(command: list[str], prompt: str, timeout: int, *, probe: bool) -> dict[str, Any]:
+    """Run one headless session, stopping it at init when the connector is unusable (or for a probe)."""
+    RUN_DIR.mkdir(parents=True, exist_ok=True)
+    started = time.monotonic()
+    outcome: dict[str, Any] = {}
+    try:
+        proc = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT, text=True, cwd=RUN_DIR)
+    except OSError:
+        return {"aborted": "claude_cli_unavailable", "seconds": 0}
+    timer = threading.Timer(timeout, lambda: (outcome.setdefault("aborted", "timeout"), proc.kill()))
+    timer.start()
+    try:
+        try:
+            proc.stdin.write(prompt)
+            proc.stdin.close()
+        except BrokenPipeError:
+            pass
+        for line in proc.stdout:
+            try:
+                event = json.loads(line)
+            except ValueError:
+                continue
+            if event.get("type") == "system" and event.get("subtype") == "init":
+                problem = session_problem(event)
+                outcome["init_ok"] = problem is None
+                if problem or probe:
+                    if problem:
+                        outcome["aborted"] = problem
+                    proc.kill()
+                    break
+            elif event.get("type") == "result":
+                outcome.update({"is_error": event.get("is_error"), "turns": event.get("num_turns"),
+                                "cost_usd": event.get("total_cost_usd"),
+                                "permission_denials": len(event.get("permission_denials") or []),
+                                "result": str(event.get("result", ""))[:500]})
+        proc.wait()
+    finally:
+        timer.cancel()
+    outcome.update({"exit": proc.returncode, "seconds": round(time.monotonic() - started)})
+    if "init_ok" not in outcome:
+        outcome.setdefault("aborted", "no_session_init")
+    return outcome
+
+
 def _preflight(claude: str) -> str | None:
     try:
         with urllib.request.urlopen(HEALTH_URL, timeout=5) as response:
@@ -140,35 +204,13 @@ def _preflight(claude: str) -> str | None:
                 return "brain_backend_unhealthy"
     except OSError:
         return "brain_backend_unreachable"
-    try:
-        out = subprocess.run([claude, "mcp", "get", CONNECTOR], capture_output=True, text=True, timeout=60)
-    except (OSError, subprocess.TimeoutExpired):
-        return "claude_cli_unavailable"
-    if not re.search(r"Status:\s*\S*\s*Connected", out.stdout):
-        return "claude_connector_not_connected"
-    return None
+    probe = _session([claude, *BASE_FLAGS, "--model", PROBE_MODEL], "probe", 90, probe=True)
+    return probe.get("aborted")
 
 
 def _run_claude(claude: str, workstream_id: str, version: int, timeout: int) -> dict[str, Any]:
-    RUN_DIR.mkdir(parents=True, exist_ok=True)
-    command = [claude, "-p", "--output-format", "json", "--tools", "", "--permission-mode", "dontAsk",
-               "--no-session-persistence", "--allowedTools", *ALLOWED_TOOLS]
-    started = time.monotonic()
-    try:
-        proc = subprocess.run(command, input=PROMPT.format(ws=workstream_id, v=version), capture_output=True,
-                              text=True, timeout=timeout, cwd=RUN_DIR)
-    except subprocess.TimeoutExpired:
-        return {"exit": "timeout", "seconds": round(time.monotonic() - started)}
-    outcome: dict[str, Any] = {"exit": proc.returncode, "seconds": round(time.monotonic() - started)}
-    try:
-        data = json.loads(proc.stdout)
-        outcome.update({"is_error": data.get("is_error"), "turns": data.get("num_turns"),
-                        "cost_usd": data.get("total_cost_usd"),
-                        "permission_denials": len(data.get("permission_denials") or []),
-                        "result": str(data.get("result", ""))[:500]})
-    except ValueError:
-        outcome["stderr"] = proc.stderr.strip()[-500:]
-    return outcome
+    return _session([claude, *BASE_FLAGS, "--allowedTools", *ALLOWED_TOOLS],
+                    PROMPT.format(ws=workstream_id, v=version), timeout, probe=False)
 
 
 def main(argv: list[str] | None = None, *, root: Path | None = None) -> int:
@@ -218,6 +260,7 @@ def main(argv: list[str] | None = None, *, root: Path | None = None) -> int:
     after = checkpoint_store.resume(note["workstream_id"], root=root)
     new_version = after["note"]["version"] if after.get("success") else None
     checkpointed = isinstance(new_version, int) and new_version > note["version"]
+    # A run aborted at init had no Brain tool, but the claim stands: one attempt per version.
     _log(args.log, "finished", note_id=note["id"], new_version=new_version, checkpointed=checkpointed,
          new_surface=after["note"]["surface"] if after.get("success") else None,
          model_calls=model_calls, max_model_calls=MAX_MODEL_CALLS, **outcome)
