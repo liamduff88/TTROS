@@ -4361,11 +4361,21 @@ def _execute_named_profile_consultation(name: str, profile: str, text: str, requ
         "contract in your context specifies. Emitting the handoff is not execution and is "
         "permitted; it is how genuine work reaches Orchestration Hermes."
     ) if profile == "david" else None
+    # Stage 4 S4-4: David read "call external services" as a ban on his own read-only
+    # Shared Brain tools and answered named-workstream requests from stale assembled
+    # continuity. Reading the Brain is a local read; the 6b RESUME rule still applies.
+    brain_read_clause = (
+        "Your own brain tools are local Business Brain reads, not external services, and are "
+        "permitted here. When the request names a Shared Brain workstream or record, call the "
+        "Shared Brain resume tool for that workstream (and open the record it references) before "
+        "answering; the live result supersedes assembled continuity and your working thread."
+    ) if profile == "david" else None
     thread_clause = _david_thread_clause() if profile == "david" else None
     consultation_prompt = "\n".join(part for part in (
         "Dashboard executive consultation. Answer the operator directly and use the named profile's judgment.",
         "Do not create queue work, delegate, call external services, or take any external action.",
         "Return a useful answer only; do not claim that you executed anything.",
+        brain_read_clause,
         handoff_clause,
         thread_clause,
         "",

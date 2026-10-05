@@ -255,6 +255,29 @@ class HermesComposioTests(unittest.TestCase):
         assemble.assert_called_once()
         self.assertEqual(result["context"], context)
 
+    def test_david_consultation_permits_shared_brain_resume_for_named_workstream(self):
+        run_result = {**self.operator_result("Answer"), "profile_used": "david", "profile_fallback": False}
+        snapshot = {"count": 4, "sha256": "same"}
+        context = {"classification": "named_department_profile", "sources": [], "stale": False}
+        request = "Show me the finished result for example-workstream-one from the Shared Brain."
+        prompts = {}
+        for profile in ("david", "aos-revenue"):
+            assembled = Mock(request=request, session_id="request-1234", surface=f"dashboard:executive:{profile}",
+                             provenance=(), total_bytes=12, total_tokens=3, blocks=())
+            with patch.object(backend, "assemble_model_context", return_value=assembled) as assemble, \
+                 patch.object(backend, "_executive_context_evidence_from_assembled", return_value=context), \
+                 patch.object(backend, "_executive_queue_snapshot", side_effect=[snapshot, snapshot]), \
+                 patch.object(backend, "_david_thread_persisted", return_value=True), \
+                 patch.object(backend, "_run_hermes_message", return_value={**run_result, "profile_used": profile}):
+                backend._execute_named_profile_consultation(profile, profile, request, "request-1234")
+            prompts[profile] = assemble.call_args.args[0]
+        clause = "call the Shared Brain resume tool for that workstream"
+        self.assertIn(clause, prompts["david"])
+        self.assertIn("not external services", prompts["david"])
+        self.assertLess(prompts["david"].index(clause), prompts["david"].index("Operator request:"))
+        self.assertTrue(prompts["david"].rstrip().endswith(request))
+        self.assertNotIn(clause, prompts["aos-revenue"])
+
     def test_executive_consultation_blocks_silent_profile_fallback(self):
         run_result = {
             **self.operator_result("Generic fallback answer"),
