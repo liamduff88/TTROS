@@ -1,4 +1,4 @@
-# Revisit: when the Claude handoff watcher, the Shared Brain workflow reporter, the Claude CLI location or the connector name changes. Last touched: 2026-10-05.
+# Revisit: when the Claude handoff watcher, the Shared Brain workflow reporter, the ChatGPT wake signal, the Claude CLI location or the connector name changes. Last touched: 2026-10-05.
 [Unit]
 Description=TTROS Shared Brain Claude handoff watcher (one headless Claude run per handed-off note version)
 After=network-online.target aos-backend.service
@@ -14,5 +14,8 @@ Environment=TTROS_CLAUDE_BIN=/home/liam/.local/npm/bin/claude
 Environment=PATH=/home/liam/.local/bin:/home/liam/.local/npm/bin:/usr/local/bin:/usr/bin:/bin
 # Shared Brain workflow finish reports first (no model calls); its failure never blocks the watcher.
 ExecStart=-/home/liam/agentic-os-live/.venv/bin/python /home/liam/agentic-os-live/tools/shared_brain_workflow.py report
+# ChatGPT wake signal: one AgentMail email per note version newly handed to ChatGPT (no model calls);
+# runs before the possibly long Claude run, and its failure never blocks the watcher.
+ExecStart=-/home/liam/agentic-os-live/.venv/bin/python /home/liam/agentic-os-live/tools/shared_brain_chatgpt_wake.py
 ExecStart=/home/liam/agentic-os-live/.venv/bin/python /home/liam/agentic-os-live/tools/shared_brain_claude_watcher.py
 TimeoutStartSec=1500
