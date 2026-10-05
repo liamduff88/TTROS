@@ -2,12 +2,14 @@
 
 Runs against a temporary Brain root, artifact area and logs; no model call, no Telegram send,
 live Brain untouched.
-Revisit: when tools/shared_brain_workflow.py changes. Last touched: 2026-10-04.
+Revisit: when tools/shared_brain_workflow.py changes. Last touched: 2026-10-05.
 """
 import contextlib
+import datetime as dt
 import io
 import json
 import os
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
@@ -33,7 +35,8 @@ class WorkflowTests(unittest.TestCase):
         self.root = base / "brain"
         (self.root / ".git").mkdir(parents=True)
         (base / "exchange").mkdir()
-        env = mock.patch.dict(os.environ, {"TTROS_SHARED_BRAIN_ARTIFACTS": str(base / "exchange" / "artifacts")})
+        env = mock.patch.dict(os.environ, {"TTROS_SHARED_BRAIN_ARTIFACTS": str(base / "exchange" / "artifacts"),
+                                           "TTROS_DRIVEFS_INDEX": ""})
         env.start()
         self.addCleanup(env.stop)
         self.log = base / "workflow.log"
@@ -112,6 +115,8 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual([a["event"] for a in actions], ["reported"])
         self.assertEqual(len(self.sent), 1)
         self.assertIn(f"Shared Brain workflow {ws}", self.sent[0])
+        # No Drive index here, so no link can be produced: the result is inlined as the fallback.
+        self.assertIn("No Drive link was available", self.sent[0])
         self.assertIn("GO: launch at US$29 on Etsy.", self.sent[0])
         self.assertEqual(self.report(), [])
         self.assertEqual(len(self.sent), 1)
@@ -149,6 +154,83 @@ class WorkflowTests(unittest.TestCase):
         self.report()
         self.assertLessEqual(len(self.sent[0]), workflow.MAX_MESSAGE_CHARS)
         self.assertIn(f"ask David to resume {ws}", self.sent[0])
+
+    def drive_fixture(self, *, result_id="1ResultFileId_abcdefghij", indexed=True):
+        """A Drive for Desktop mount and its index, with the newest rows left in the WAL as live."""
+        base = Path(self.temp.name)
+        artifacts = base / "G" / "My Drive" / "TTROS Memory Exchange" / "07_WORKSTREAM_ARTIFACTS"
+        artifacts.mkdir(parents=True)
+        index = base / "DriveFS" / "1234" / "metadata_sqlite_db"
+        index.parent.mkdir(parents=True)
+        os.environ["TTROS_SHARED_BRAIN_ARTIFACTS"] = str(artifacts)
+        os.environ["TTROS_DRIVEFS_INDEX"] = str(base / "DriveFS" / "[0-9]*" / "metadata_sqlite_db")
+        db = sqlite3.connect(index)
+        db.execute("PRAGMA journal_mode=WAL")
+        db.execute("PRAGMA wal_autocheckpoint=0")
+        db.execute("CREATE TABLE items (stable_id INTEGER PRIMARY KEY, id TEXT UNIQUE NOT NULL, local_title TEXT, "
+                   "is_folder BOOLEAN NOT NULL, trashed BOOLEAN NOT NULL, is_tombstone BOOLEAN NOT NULL)")
+        db.execute("CREATE TABLE stable_parents (item_stable_id INTEGER NOT NULL, parent_stable_id INTEGER NOT NULL, "
+                   "PRIMARY KEY (item_stable_id, parent_stable_id))")
+        self.addCleanup(db.close)
+        self.drive_db = db
+        return artifacts, result_id, indexed
+
+    def index_workstream(self, ws, result_id, with_result=True):
+        rows = [(1, "0RootMyDriveId", "My Drive", 1, None), (2, "1ExchangeFolderIdxx", "TTROS Memory Exchange", 1, 1),
+                (3, "1ArtifactsFolderIdx", "07_WORKSTREAM_ARTIFACTS", 1, 2), (4, "1WorkstreamFolderId-abc", ws, 1, 3),
+                (5, "1BriefFileIdxxxxxx", "workflow-brief.md", 0, 4)]
+        if with_result:
+            rows.append((6, result_id, "result.md", 0, 4))
+        for stable_id, cloud_id, title, folder, parent in rows:
+            self.drive_db.execute("INSERT OR IGNORE INTO items VALUES (?, ?, ?, ?, 0, 0)", (stable_id, cloud_id, title, folder))
+            if parent:
+                self.drive_db.execute("INSERT OR IGNORE INTO stable_parents VALUES (?, ?)", (stable_id, parent))
+        self.drive_db.commit()
+
+    def test_finish_message_links_the_drive_result_and_does_not_inline_it(self):
+        _, result_id, _ = self.drive_fixture()
+        ws = self.start()["workstream_id"]
+        self.index_workstream(ws, result_id)
+        body = "Full analysis paragraph that must stay in Drive. " * 200
+        self.claude_returns(ws, 1, result=f"# Verdict: GO at US$29\n\n{body}")
+        self.assertTrue(Path(self.drive_db.execute("PRAGMA database_list").fetchone()[2] + "-wal").stat().st_size > 0)
+        actions = self.report()
+        self.assertEqual([a["event"] for a in actions], ["reported"])
+        text = self.sent[0]
+        self.assertIn(f"Shared Brain workflow finished: {ws}", text)
+        self.assertIn("Verdict: GO at US$29", text)
+        self.assertIn("Done: Validated the idea.", text)
+        self.assertIn(f"https://drive.google.com/file/d/{result_id}/view", text)
+        self.assertIn("https://drive.google.com/drive/folders/1WorkstreamFolderId-abc", text)
+        self.assertNotIn("Full analysis paragraph", text)
+        self.assertNotIn("artifact:", text)
+        self.assertLess(len(text), 600)
+        self.assertEqual(actions[0]["reference"], f"artifact:{ws}/result.md")
+        self.assertEqual(actions[0]["drive_link"], f"https://drive.google.com/file/d/{result_id}/view")
+
+    def test_report_waits_for_drive_upload_then_falls_back_to_inline(self):
+        _, result_id, _ = self.drive_fixture(result_id="local-12345678901")
+        ws = self.start()["workstream_id"]
+        self.index_workstream(ws, result_id)  # still Drive for Desktop's local id: not uploaded
+        self.claude_returns(ws, 1, result="# Verdict\nGO: launch at US$29 on Etsy.")
+        self.assertEqual(self.report(), [])
+        self.assertEqual(self.sent, [])
+        later = workflow._now() + workflow.DRIVE_LINK_GRACE + dt.timedelta(minutes=1)
+        with mock.patch.object(workflow, "_now", return_value=later):
+            self.assertEqual([a["event"] for a in self.report()], ["reported"])
+        self.assertIn("No Drive link was available", self.sent[0])
+        self.assertIn("GO: launch at US$29 on Etsy.", self.sent[0])
+
+    def test_report_sends_links_once_the_upload_is_indexed(self):
+        _, result_id, _ = self.drive_fixture()
+        ws = self.start()["workstream_id"]
+        self.index_workstream(ws, result_id, with_result=False)
+        self.claude_returns(ws, 1)
+        self.assertEqual(self.report(), [])
+        self.index_workstream(ws, result_id)
+        self.report()
+        self.assertEqual(len(self.sent), 1)
+        self.assertIn(f"https://drive.google.com/file/d/{result_id}/view", self.sent[0])
 
     def test_david_tool_lists_the_named_workflows(self):
         from tools import brain_memory_mcp as bmm

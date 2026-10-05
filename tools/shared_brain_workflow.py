@@ -9,21 +9,29 @@ send, publish or external action; the finished result comes back as `work_produc
 
 Finish: `report()` runs on the same 2-minute timer as the Claude watcher. When a workstream
 started here is handed back to Liam (`next_action` begins "Liam"), or Claude's pass for it
-ended without a checkpoint, it sends Liam one Telegram message through the existing
-orchestration bridge send, with the result inline. No model calls. No new queue, store or
-daemon: the bounded log below records starts and reports, as the watcher's log does.
+ended without a checkpoint, it sends Liam one short Telegram message through the existing
+orchestration bridge send: the result's title, the done line and clickable Google Drive links to
+the result artifact and its workstream folder. The links come from Drive for Desktop's own local
+index of the files it syncs (read-only copy; no API call). Only when no link can be produced is
+the result inlined. No model calls. No new queue, store or daemon: the bounded log below records
+starts and reports, as the watcher's log does.
 
-Revisit: when the checkpoint note schema, the Claude watcher's assignment rule or the workflow
-registry shape changes. Last touched: 2026-10-04.
+Revisit: when the checkpoint note schema, the Claude watcher's assignment rule, the workflow
+registry shape or Drive for Desktop's index schema changes. Last touched: 2026-10-05.
 """
 
 from __future__ import annotations
 
 import argparse
 import datetime as dt
+import glob
 import json
+import os
 import re
+import shutil
+import sqlite3
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
@@ -45,6 +53,9 @@ REPORT_WINDOW_DAYS = 7
 MAX_REPORT_ATTEMPTS = 3
 MAX_MESSAGE_CHARS = 3800
 MAX_LOG_LINES = 300
+DRIVE_INDEX_GLOB = "/mnt/c/Users/*/AppData/Local/Google/DriveFS/[0-9]*/metadata_sqlite_db"
+DRIVE_ID_RE = re.compile(r"[A-Za-z0-9_-]{10,}\Z")
+DRIVE_LINK_GRACE = dt.timedelta(minutes=10)
 LIAM_RE = re.compile(r"\s*\**\s*liam\b", re.I)
 HOST_PATH_RE = re.compile(r"(?:/(?:home|mnt|tmp|etc|usr|var)/\S*|[A-Za-z]:\\\S*)")
 STOPWORDS = set("""a an and the to of for with on in into this that these my me our please can could
@@ -207,6 +218,84 @@ def start(request: str, workflow_id: str = "", workstream_id: str = "", *,
             "finish": "TTROS reports the finished result to Liam on Telegram"}
 
 
+def _drive_indexes() -> list[Path]:
+    configured = os.environ.get("TTROS_DRIVEFS_INDEX")
+    pattern = configured if configured is not None else DRIVE_INDEX_GLOB
+    return sorted(Path(match) for match in glob.glob(pattern)) if pattern else []
+
+
+def _drive_ids(index: Path, parts: list[str]) -> list[str] | None:
+    """Cloud IDs along `My Drive/<parts>` in one Drive for Desktop index, or None.
+
+    Drive for Desktop holds the index open and writes through its WAL, so it is read from a
+    private copy; the copy is opened read-only and deleted afterwards."""
+    with tempfile.TemporaryDirectory() as temp:
+        copy = Path(temp) / "index.db"
+        shutil.copyfile(index, copy)
+        wal = index.with_name(index.name + "-wal")
+        if wal.is_file():
+            shutil.copyfile(wal, copy.with_name(copy.name + "-wal"))
+        connection = sqlite3.connect(copy)
+        try:
+            alive = "i.trashed = 0 AND i.is_tombstone = 0"
+            rows = connection.execute(
+                f"SELECT i.stable_id, i.id FROM items i WHERE i.local_title = 'My Drive' AND i.is_folder = 1 "
+                f"AND {alive} AND NOT EXISTS (SELECT 1 FROM stable_parents p WHERE p.item_stable_id = i.stable_id)").fetchall()
+            ids = []
+            for part in parts:
+                if len(rows) != 1:
+                    return None
+                rows = connection.execute(
+                    f"SELECT i.stable_id, i.id FROM items i JOIN stable_parents p ON p.item_stable_id = i.stable_id "
+                    f"WHERE p.parent_stable_id = ? AND i.local_title = ? AND {alive}", (rows[0][0], part)).fetchall()
+                ids.append(rows[0][1] if len(rows) == 1 else "")
+            if len(rows) != 1 or not all(DRIVE_ID_RE.fullmatch(value) and not value.startswith("local") for value in ids):
+                return None  # ambiguous, missing, or not yet uploaded (Drive for Desktop's local-* ids)
+            return ids
+        finally:
+            connection.close()
+
+
+def drive_links(note: Mapping[str, Any], root: Path | None) -> dict[str, str] | None:
+    """Clickable Drive links for the note's artifact: {"result", "folder"}; {} when the artifact
+    is not on a Drive for Desktop mount with an index here; None when it is but is not indexed yet."""
+    reference = str(note.get("work_product_reference") or "")
+    path = checkpoint_store._artifact_path(reference, note["workstream_id"], root or checkpoint_store.VAULT_ROOT)
+    if path is None or not path.is_file():
+        return {}
+    parts = list(path.parts)
+    if "My Drive" not in parts[:-2]:
+        return {}
+    parts = parts[parts.index("My Drive") + 1:]
+    indexes = _drive_indexes()
+    if not indexes:
+        return {}
+    found = []
+    for index in indexes:
+        try:
+            ids = _drive_ids(index, parts)
+        except (OSError, sqlite3.Error):
+            ids = None
+        if ids:
+            found.append(ids)
+    if len(found) != 1:
+        return None
+    return {"result": f"https://drive.google.com/file/d/{found[0][-1]}/view",
+            "folder": f"https://drive.google.com/drive/folders/{found[0][-2]}"}
+
+
+def _title(note: Mapping[str, Any], root: Path | None) -> str:
+    reference = str(note.get("work_product_reference") or "")
+    if not reference.startswith("artifact:"):
+        return ""
+    artifact = checkpoint_store._open_artifact(reference, note["workstream_id"], root or checkpoint_store.VAULT_ROOT)
+    for line in str(artifact.get("content") or "").splitlines():
+        if line.startswith("#"):
+            title = line.lstrip("#").strip()
+            return title if len(title) <= 200 else title[:197] + "..."
+    return ""
+
+
 def _excerpt(note: Mapping[str, Any], root: Path | None) -> str:
     reference = str(note.get("work_product_reference") or "")
     if not reference:
@@ -214,12 +303,13 @@ def _excerpt(note: Mapping[str, Any], root: Path | None) -> str:
     if reference.startswith("artifact:"):
         artifact = checkpoint_store._open_artifact(reference, note["workstream_id"], root or checkpoint_store.VAULT_ROOT)
         if artifact.get("available"):
-            return f"Result ({reference}):\n\n{artifact['content']}"
+            return f"No Drive link was available, so here is the result:\n\n{artifact['content']}"
+        return "The result file could not be opened; ask David to resume this workstream."
     return f"Result: {reference}"
 
 
 def compose(note: Mapping[str, Any], started: Mapping[str, Any], kind: str, root: Path | None,
-            run: Mapping[str, Any] | None = None) -> str:
+            run: Mapping[str, Any] | None = None, links: Mapping[str, str] | None = None) -> str:
     ws = note["workstream_id"]
     head = [f"Shared Brain workflow {ws}", f"Workflow: {started.get('workflow', 'ad-hoc')}"]
     if kind == "stalled":
@@ -228,6 +318,14 @@ def compose(note: Mapping[str, Any], started: Mapping[str, Any], kind: str, root
                  f"The note is unchanged at v{note['version']}; nothing was retried.",
                  f"Next: ask David to resume {ws}, or hand it to Claude again."]
         return "\n".join(head)
+    if links:
+        title = _title(note, root)
+        lines = [f"Shared Brain workflow finished: {ws}", *([title] if title else []), f"Done: {note['done']}"]
+        if note.get("open_questions"):
+            lines.append(f"Open questions: {note['open_questions']}")
+        lines += [f"Result: {links['result']}", f"Folder: {links['folder']}", f"Next: {note['next_action']}"]
+        text = "\n".join(lines)
+        return text if len(text) <= MAX_MESSAGE_CHARS else text[:MAX_MESSAGE_CHARS]
     head += [f"Back with you at v{note['version']} (from {note.get('surface')}).",
              f"Next: {note['next_action']}", f"Done: {note['done']}"]
     if note.get("open_questions"):
@@ -271,9 +369,15 @@ def report(*, root: Path | None = None, log: Path = LOG_PATH, watcher_log: Path 
         key = f"{note['id']}:{kind}"
         if key in done or failures.get(key, 0) >= MAX_REPORT_ATTEMPTS:
             continue
-        text = compose(note, started, kind, root, run)
+        links = drive_links(note, root) if kind == "returned" else {}
+        if links is None:
+            updated = dt.datetime.fromisoformat(str(note.get("updated") or "1970-01-01T00:00:00Z").replace("Z", "+00:00"))
+            if _now() - updated < DRIVE_LINK_GRACE:
+                continue  # Drive for Desktop has not uploaded it yet; try again next tick
+        text = compose(note, started, kind, root, run, links)
         if dry_run:
-            actions.append({"key": key, "kind": kind, "dry_run": True, "characters": len(text)})
+            actions.append({"key": key, "kind": kind, "dry_run": True, "characters": len(text),
+                            "drive_link": bool(links)})
             continue
         if send is None or recipient is None:
             try:
@@ -293,7 +397,8 @@ def report(*, root: Path | None = None, log: Path = LOG_PATH, watcher_log: Path 
             actions.append(_log(log, "report_failed", key=key, reason=type(exc).__name__))
             continue
         actions.append(_log(log, "reported", key=key, kind=kind, workstream_id=ws, sent=True,
-                                    model_calls=0))
+                            reference=note.get("work_product_reference") or "",
+                            drive_link=(links or {}).get("result", ""), model_calls=0))
     return actions
 
 
