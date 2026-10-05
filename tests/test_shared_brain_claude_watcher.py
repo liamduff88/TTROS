@@ -29,7 +29,8 @@ STUB = textwrap.dedent("""\
     prompt = sys.stdin.read()
     probe = "--model" in sys.argv and sys.argv[sys.argv.index("--model") + 1] == {probe_model!r}
     with open(os.environ["STUB_CALLS"] + (".probe" if probe else ""), "a") as handle:
-        handle.write(json.dumps({{"argv": sys.argv[1:], "prompt": prompt}}) + "\\n")
+        handle.write(json.dumps({{"argv": sys.argv[1:], "prompt": prompt,
+                                  "nonblocking": os.environ.get("MCP_CONNECTION_NONBLOCKING")}}) + "\\n")
     status = os.environ.get("STUB_CONNECTOR", "connected")
     servers = [{{"name": "claude.ai Claude Docs", "status": "connected"}},
                {{"name": "claude.ai TTROS Shared Brain", "status": status}}]
@@ -134,6 +135,7 @@ class WatcherTest(Fixture):
         self.assertEqual(argv[argv.index("--tools") + 1], "")
         self.assertEqual(argv[argv.index("--permission-mode") + 1], "dontAsk")
         self.assertEqual(argv[argv.index("--allowedTools") + 1:], watcher.ALLOWED_TOOLS)
+        self.assertEqual(runs[0]["nonblocking"], "false")
         self.assertTrue(all(tool.startswith(watcher.TOOL_PREFIX) for tool in watcher.ALLOWED_TOOLS))
         self.assertIn("workstream_id `dp-stage4`", prompt)
         self.assertIn("expected_version 3", prompt)
@@ -232,6 +234,7 @@ class PreflightTest(Fixture):
         argv = probes[0]["argv"]
         self.assertEqual(argv[argv.index("--model") + 1], watcher.PROBE_MODEL)
         self.assertNotIn("--allowedTools", argv)
+        self.assertEqual({probe["nonblocking"] for probe in probes}, {"false"})
         self.assertEqual(self.runs(), [])
 
     def test_unauthenticated_connector_waits_without_claiming(self):

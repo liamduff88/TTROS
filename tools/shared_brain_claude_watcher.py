@@ -13,7 +13,10 @@ old notes that still name Claude stay inert. A note Claude itself wrote never tr
 Headless runs see the connector only once Claude Code itself is authenticated to it, which
 `claude mcp get` does not reliably report. So the gate reads the headless session's own init
 event: a probe with an unknown model (the API refuses it, so it costs nothing), and the real
-run aborts at init if the connector or its `resume` tool is missing.
+run aborts at init if the connector or its `resume` tool is missing. Print mode connects MCP
+servers in the background by default, so init raced the claude.ai connector (absent, pending or
+connected on identical probes); every session therefore sets MCP_CONNECTION_NONBLOCKING=false so
+init reports the settled state.
 The log keeps its last MAX_LOG_LINES entries; a claim only matters while its note is current,
 and waiting states are logged once per change, so trimming never re-arms a run.
 
@@ -53,6 +56,8 @@ ALLOWED_TOOLS = [TOOL_PREFIX + name for name in ("search", "read", "entity", "re
 HEALTH_URL = "http://127.0.0.1:8010/api/health"
 RUN_DIR = Path.home() / ".local" / "state" / "ttros-claude-handoff"
 PROBE_MODEL = "ttros-connector-probe-not-a-model"
+# Block on MCP connect so the init event reports the connector's settled state, not a race.
+SESSION_ENV = {"MCP_CONNECTION_NONBLOCKING": "false"}
 BASE_FLAGS = ["-p", "--output-format", "stream-json", "--verbose", "--tools", "", "--permission-mode", "dontAsk",
               "--no-session-persistence"]
 # "Claude should …", "Claude: …", "Claude Code resumes …"; not "Claude or ChatGPT …".
@@ -159,7 +164,8 @@ def _session(command: list[str], prompt: str, timeout: int, *, probe: bool) -> d
     outcome: dict[str, Any] = {}
     try:
         proc = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                stderr=subprocess.STDOUT, text=True, cwd=RUN_DIR)
+                                stderr=subprocess.STDOUT, text=True, cwd=RUN_DIR,
+                                env={**os.environ, **SESSION_ENV})
     except OSError:
         return {"aborted": "claude_cli_unavailable", "seconds": 0}
     timer = threading.Timer(timeout, lambda: (outcome.setdefault("aborted", "timeout"), proc.kill()))
