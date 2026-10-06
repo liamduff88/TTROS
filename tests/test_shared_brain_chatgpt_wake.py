@@ -7,6 +7,7 @@ Revisit: when tools/shared_brain_chatgpt_wake.py changes. Last touched: 2026-10-
 import datetime as dt
 import json
 import os
+import shlex
 import tempfile
 import unittest
 from pathlib import Path
@@ -191,16 +192,31 @@ class ChatGPTWakeTests(unittest.TestCase):
         command = argv[2]
         self.assertIn("python3 connectors/composio_access_adapter.py run agent_mail AGENT_MAIL_SEND_EMAIL --data ", command)
         self.assertTrue(command.endswith("--execute --operator-command"))
-        payload = json.loads(command.split("--data ", 1)[1].rsplit(" --execute", 1)[0].strip("'"))
+        argv = shlex.split(command)
+        self.assertEqual(argv[argv.index("--target") + 1], "liam@timetorevenue.com")
+        payload = json.loads(argv[argv.index("--data") + 1])
         self.assertEqual(payload["to"], ["liam@timetorevenue.com"])
         self.assertEqual(payload["inbox_id"], "olmec1@agentmail.to")
         self.assertEqual(payload["subject"], "TTROS ChatGPT handoff: a v1")
         with mock.patch.object(wake.subprocess, "run", return_value=mock.Mock(stdout="not json", stderr="")):
             self.assertFalse(wake._acknowledged(wake.agentmail_send("liam@timetorevenue.com", "s", "b")))
 
+    def test_adapter_target_is_the_exact_normalized_recipient_as_one_quoted_argument(self):
+        completed = mock.Mock(stdout=json.dumps({"ok": True}), stderr="")
+        for given, expected in (("  Liam@TimeToRevenue.com ", "liam@timetorevenue.com"),
+                                ("x@y.z; touch /tmp/pwn $(id) 'q'", "x@y.z; touch /tmp/pwn $(id) 'q'")):
+            with mock.patch.object(wake.subprocess, "run", return_value=completed) as run:
+                wake.agentmail_send(given, "s", "b")
+            argv = shlex.split(run.call_args.args[0][2])
+            self.assertEqual(argv.count("--target"), 1)
+            self.assertEqual(argv[argv.index("--target") + 1], expected)
+            self.assertEqual(json.loads(argv[argv.index("--data") + 1])["to"], [expected])
+            self.assertEqual(argv[-2:], ["--execute", "--operator-command"])
+
     def test_real_adapter_command_reaches_authorization_and_answers_json(self):
-        # The unmocked adapter, through the wake's own command. The recipient is outside the
-        # allowlist and HOME/PATH hide the composio binary, so nothing can be transmitted.
+        # The unmocked adapter, through the wake's own command. Only the recipient being outside the
+        # allowlist keeps this from transmitting: hiding HOME/PATH does NOT stop a send (2026-10-06,
+        # an allowlisted probe under this env delivered). Never point this at an allowlisted address.
         # Before the PYTHONPATH fix this returned adapter_returned_no_json (ModuleNotFoundError).
         env = {"HOME": self.temp.name, "PATH": "/usr/bin:/bin"}
         with mock.patch.dict(os.environ, env, clear=True):

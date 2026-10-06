@@ -137,6 +137,7 @@ def agentmail_send(recipient: str, subject: str, text: str, *, root: Path = REPO
     inbox = _agentmail_inbox(root)
     if not inbox:
         return {"ok": False, "error": "agentmail_contract_not_configured"}
+    recipient = recipient.strip().lower()
     payload = {"inbox_id": inbox, "to": [recipient], "subject": subject, "text": text, "html": "",
                "cc": [], "bcc": [], "labels": [], "reply_to": []}
     quoted = shlex.quote(str(root))
@@ -146,7 +147,9 @@ def agentmail_send(recipient: str, subject: str, text: str, *, root: Path = REPO
                f"export AOS_ROOT={quoted}; export PYTHONPATH={quoted}; cd {quoted}; "
                "python3 connectors/composio_access_adapter.py "
                f"run agent_mail {ACTION} --data {shlex.quote(json.dumps(payload, separators=(',', ':')))} "
-               "--execute --operator-command")
+               # The adapter authorizes the send against `--target`; without it the internal
+               # allowlist sees an empty destination and refuses every wake.
+               f"--target {shlex.quote(recipient)} --execute --operator-command")
     try:
         done = subprocess.run(["bash", "-lc", command], cwd=str(root), capture_output=True, text=True,
                               encoding="utf-8", errors="replace", timeout=SEND_TIMEOUT_SECONDS)
