@@ -1,0 +1,12 @@
+# Revisit: when /mnt/g recovery cadence changes. Last touched: 2026-10-06.
+[Unit]
+Description=Check every minute that /mnt/g (Google Drive G:) is usable; heal a stale mount
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=1min
+AccuracySec=5s
+Unit=aos-mnt-g-heal.service
+
+[Install]
+WantedBy=timers.target

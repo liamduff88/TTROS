@@ -1,0 +1,10 @@
+# System (root) unit: remounting /mnt/g needs root. Install: /etc/systemd/system/, with
+# tools/aos-mnt-g-heal.sh copied root-owned to /usr/local/sbin/aos-mnt-g-heal.
+# Revisit: when the /etc/fstab G: entry or the heal script changes. Last touched: 2026-10-06.
+[Unit]
+Description=TTROS: remount /mnt/g from fstab when Google Drive's G: was recreated under it
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/aos-mnt-g-heal
+TimeoutStartSec=120
