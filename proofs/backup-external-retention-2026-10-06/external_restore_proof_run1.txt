@@ -1,0 +1,44 @@
+== External restore/readability proof 2026-10-06T12:19:28-07:00
+local=/home/liam/agentic-os-backups/agentic-os-20261006T191420Z
+external=/mnt/d/TTROS_Backups/2026-10-06_1214
+total 0
+drwxrwxrwx 1 liam liam 4096 Oct  6 12:18 .
+drwxrwxrwx 1 liam liam 4096 Oct  6 12:18 ..
+drwxrwxrwx 1 liam liam 4096 Oct  4 08:41 AgenticOSLive
+drwxrwxrwx 1 liam liam 4096 Aug 17 13:50 BusinessBrain
+-rwxrwxrwx 1 liam liam  232 Oct  6 12:18 MANIFEST.txt
+stamp=20261006T191420Z
+local_snapshot=/home/liam/agentic-os-backups/agentic-os-20261006T191420Z
+repo_source=/home/liam/agentic-os-live
+brain_source=/mnt/c/Users/Admin/Documents/A-Time to revenue/TTROS Business Brain
+repo_files=7066
+== 1. Full independent sha256: local snapshot vs external AgenticOSLive
+local_files=7066 external_files=7066 differing_lines=0
+== 2. Business Brain working files (excl .git): live vs external
+live_files=222 external_files=222 differing_lines=0
+external Brain .git present: yes
+== 3. Representative files: LIVE source sha256 vs external
+MATCH 1bd7174f86684f17 CLAUDE.md
+MATCH 5d7c6f8c2e0876cd AGENTS.md
+MATCH 49d4f1499bff2065 tools/aos-linux-backup.sh
+MATCH 5fdbe29f779a32e7 tools/aos_paths.py
+MATCH 73b78472d0a67cb0 tools/aos_orchestration.py
+MATCH 3a1ec1f77291e153 dashboard/backend/main.py
+MATCH 797ab59e019704d2 BusinessBrain/README.md
+MATCH 5018f936157e71fa BusinessBrain/.gitignore
+== 4. Current authoritative tree, not the retired Windows tree
+contains in-progress AOS-0528 test file: yes
+contains today's retention line: 1
+newest file mtime in external repo copy: 2026-10-06 12:14
+previous external (2026-07-31_0304) repo file count: 2493
+== 5. Restore into scratch (/tmp/claude-1002/-home-liam-agentic-os-live/38a18d09-0c00-4d02-aa9b-8f31bab794d4/scratchpad/extproof.86zbRD/restore), never over live, and use it
+restored aos_paths.py compiles
+restored backup script parses
+restored receipts jsonl parses, records = 72
+restored Brain git fsck: OK
+restored Brain HEAD=b695733 live Brain HEAD=b695733
+restored Brain working tree vs its own HEAD: 2 changed paths
+== 6. Negative rehearsal of the sha256 comparison
+tampered manifest differing_lines=2
+tampered file vs live: DIFF
+scratch=/tmp/claude-1002/-home-liam-agentic-os-live/38a18d09-0c00-4d02-aa9b-8f31bab794d4/scratchpad/extproof.86zbRD

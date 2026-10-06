@@ -1,0 +1,9 @@
+== Search exclusion 2026-10-06T12:21:07-07:00
+0000000   *  \n
+0000002
+rg --files ~ paths under agentic-os-backups: 0
+NEGATIVE rehearsal rg --files --no-ignore on backup root: 1000 (>0 proves the detector can see them)
+fd binary: none
+== /api/health: 000
+== /api/health (127.0.0.1:8010): 200
+fd: not installed; rg (ripgrep) is the home-wide searcher and honours the same .ignore
