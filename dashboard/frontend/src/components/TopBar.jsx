@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { getHermesUiStatus, launchHermesUi } from '../api'
 import { launcherPrompt } from '../launcherPrompts'
 import { DESTINATIONS } from '../shellState'
+import { operatorAttentionCounts } from '../queueState'
 
 // Compact header: current surface + backend/Needs Me status stay always
 // visible; every launcher/status utility that used to live in a horizontally
@@ -17,8 +18,9 @@ export default function TopBar({ activeDestination, backendOk, cockpit, onNaviga
   const menuRef = useRef(null)
 
   const counts = cockpit?.counts || {}
-  const needs = (counts.human_review || 0) + (counts.needs_input || 0) + (cockpit?.stalled?.length || 0)
-  const blocked = counts.blocked || 0
+  const attentionCounts = operatorAttentionCounts(cockpit)
+  const needs = attentionCounts.waiting + (cockpit?.stalled?.length || 0)
+  const blocked = attentionCounts.blocked
   const tokenChip = cockpit?.tokens?.strip?.today?.label || 'Token usage: unavailable from current CLI output'
   const latitude = cockpit?.latitude || {}
   const latitudeLabel = latitude.configured

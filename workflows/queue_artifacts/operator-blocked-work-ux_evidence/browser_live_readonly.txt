@@ -1,0 +1,10 @@
+COLLAPSED CARD 0527: Local TTROS queue/operator repair before Stage 4, no-send/no-commit scope | System problem
+CARD 0527: Local TTROS queue/operator repair before Stage 4, no-send/no-commit scope | System problem | Blocked 2 days ago | 2 steps | Paused by the spending safety check: token usage from an earlier model call could not be recorded, so further model calls were held back. | AOS-2026-0527 | operations | hermes | dashboard/hermes_message
+CARD 0922: Complete Shared Brain final operator acceptance | Finished — not closed | Stopped 2 h ago | 2 steps | The work finished and recorded a PASS result, but a later step stopped it from closing: a final safety check rejected a Business Brain reference the worker used, so the result was not closed automatically. Check the result, then close it as finished. | AOS-2026-0922 | operations | hermes | dashboard/hermes_message
+PANEL 0527: System problem | Blocked 2 days ago | Step: Repair and validate TTROS queue/operator lifecycle locally |  | Paused by the spending safety check: token usage from an earlier model call could not be recorded, so further model calls were held back. |  | This is one step of a David objective; it cannot be re-run on its own, so the same work is never done twice. Dismiss it, then ask David again if it is still needed. |  | Requested Oct 4, 09:37 AM · 2 days ago | Blocked Oct 4, 09:54 AM | Dismiss | Technical detail
+SIDEBAR: Agentic OS | Dashboard · Local | David | Work Queue | 1 | Results | Search | Sys
+TOPBAR: 1 blocked
+PANEL 0922: Finished — not closed | Stopped 2 h ago | Step: Record selected label and durable-submit final workstream decision exactly once |  | The work finished and recorded a PASS result, but a later step stopped it from closing: a final safety check rejected a Business Brain reference the worker used, so the result was not closed automatically. Check the result, then close it as finished. |  | Requested Oct 6, 11:34 AM · 2 h ago | Stopped Oct 6, 11:39 AM | View result | Close as finished | Dismiss | Technical detail
+COUNTS: Active 4 / Needs Me 1 / Total 34
+BLOCKED_MUTATIONS: 0
+LIVE READ-ONLY CHECK: PASS

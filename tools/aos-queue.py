@@ -2105,6 +2105,7 @@ def _supersession_receipt(root: Path, item: dict, previous_status: str, supersed
 
 def _apply_supersession(
     root: Path, items: list[dict], item: dict, *, reason: str, superseded_by: str | None,
+    allowed_statuses: set[str] = SUPERSEDABLE_STATUSES,
 ) -> list[str]:
     """Close one open item as superseded (status cancelled), then its open children.
 
@@ -2113,7 +2114,7 @@ def _apply_supersession(
     status = str(item.get("status") or "")
     if status == "cancelled" and isinstance(item.get("supersession"), dict):
         return []
-    if status not in SUPERSEDABLE_STATUSES:
+    if status not in allowed_statuses:
         raise QueueError(f"{item.get('id')} is {status}; only {sorted(SUPERSEDABLE_STATUSES)} items can be superseded")
     timestamp = now_iso()
     receipt_path = _supersession_receipt(root, item, status, superseded_by, reason)
@@ -2154,9 +2155,38 @@ def apply_declared_supersession(root: Path, items: list[dict], item: dict) -> li
     return closed
 
 
+def _settle_parent_without_open_steps(root: Path, items: list[dict], item: dict, reason: str) -> list[str]:
+    """Close a parent whose last open step was just retired.
+
+    An objective parent sits in agent_working (unclaimed) while its steps run;
+    once every step is done or cancelled nothing will ever advance it, so it is
+    closed the same way, history kept. A claimed parent is live work: left alone.
+    """
+    parent_id = str(item.get("parent_id") or "")
+    parent = next((row for row in items if row.get("id") == parent_id), None) if parent_id else None
+    if parent is None or (parent.get("claim") or {}).get("claimed_by"):
+        return []
+    if str(parent.get("status") or "") not in SUPERSEDABLE_STATUSES | {"agent_working"}:
+        return []
+    steps = [row for row in items if str(row.get("parent_id") or "") == parent_id]
+    if any(str(row.get("status") or "") not in {DONE_STATUS, "cancelled"} for row in steps):
+        return []
+    return _apply_supersession(
+        root, items, parent,
+        reason=f"Its remaining step {item['id']} was dismissed: {reason}",
+        superseded_by=None,
+        allowed_statuses=SUPERSEDABLE_STATUSES | {"agent_working"},
+    )
+
+
 @locked_queue_mutation
-def supersede_item(root: Path, item_id: str, reason: str, superseded_by: str | None = None) -> dict:
-    """Retire a stale or superseded open item without deleting any history."""
+def supersede_item(
+    root: Path, item_id: str, reason: str, superseded_by: str | None = None, *, settle_parent: bool = False,
+) -> dict:
+    """Retire a stale or superseded open item without deleting any history.
+
+    ``settle_parent`` also closes the item's parent when no open step remains.
+    """
     reason = " ".join(str(reason or "").split())
     if not reason:
         raise QueueError("supersede requires a reason")
@@ -2167,6 +2197,8 @@ def supersede_item(root: Path, item_id: str, reason: str, superseded_by: str | N
         if replacement.get("status") != DONE_STATUS:
             raise QueueError(f"replacement {superseded_by} is {replacement.get('status')}, not done")
     closed = _apply_supersession(root, items, item, reason=reason, superseded_by=superseded_by or None)
+    if closed and settle_parent:
+        closed.extend(_settle_parent_without_open_steps(root, items, item, reason))
     if closed:
         save_items(root, items)
     return {"item_id": item_id, "closed": closed, "status": item.get("status"), "supersession": item.get("supersession")}

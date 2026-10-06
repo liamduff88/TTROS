@@ -41,6 +41,8 @@ export const recordQueueOutreachEvent = (id, data) => apiQueue.post(`/queue/item
 export const closeQueueItemReview = (id, data) => apiQueue.post(`/queue/items/${id}/review-close`, data).then(r => r.data)
 export const updateQueueItemStatus = (id, status) => apiQueue.post(`/queue/items/${id}/status`, { status }).then(r => r.data)
 export const deleteQueueItem = (id, data) => apiQueue.delete(`/queue/items/${id}`, { data }).then(r => r.data)
+export const dismissQueueItem = (id, reason) => apiQueue.post(`/queue/items/${id}/dismiss`, { reason }).then(r => r.data)
+export const closeFinishedQueueItem = (id) => apiQueue.post(`/queue/items/${id}/close-finished`, {}, { timeout: 620000 }).then(r => r.data)
 export const runQueueItem = (id) => apiQueue.post(`/queue/items/${id}/run`, {}, { timeout: 620000 }).then(r => r.data)
 export const updateTracker = (data) => api.post('/tracker', data).then(r => r.data)
 export const createPacket = (data) => api.post('/packets', data).then(r => r.data)

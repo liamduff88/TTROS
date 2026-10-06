@@ -63,8 +63,8 @@ function SidebarGroup({ heading, items, currentView, onNavigate }) {
   )
 }
 
-export default function Sidebar({ activeDestination, currentView, onNavigate, counts = {} }) {
-  const needs = (counts.human_review || 0) + (counts.needs_input || 0) + (counts.blocked || 0)
+export default function Sidebar({ activeDestination, currentView, onNavigate, counts = {}, needsCount }) {
+  const needs = needsCount ?? ((counts.human_review || 0) + (counts.needs_input || 0) + (counts.blocked || 0))
   return (
     <aside className="hidden w-52 flex-shrink-0 flex-col border-r border-softgraph bg-graphite md:flex" data-testid="sidebar">
       <div className="border-b border-softgraph px-3 py-4">
@@ -111,8 +111,8 @@ export default function Sidebar({ activeDestination, currentView, onNavigate, co
 // Fixed, safe-area-aware bottom navigation for <768px (BUILD_SPECIFICATION
 // "Mobile" layout order + "Global navigation and shell"). Never rendered
 // alongside the desktop Sidebar — App.jsx shows exactly one of the two.
-export function MobileNav({ activeDestination, onNavigate, counts = {} }) {
-  const needs = (counts.human_review || 0) + (counts.needs_input || 0) + (counts.blocked || 0)
+export function MobileNav({ activeDestination, onNavigate, counts = {}, needsCount }) {
+  const needs = needsCount ?? ((counts.human_review || 0) + (counts.needs_input || 0) + (counts.blocked || 0))
   return (
     <nav
       className="fixed inset-x-0 bottom-0 z-40 flex border-t border-softgraph bg-graphite md:hidden"

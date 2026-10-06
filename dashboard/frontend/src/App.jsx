@@ -169,7 +169,7 @@ export default function App() {
 
   return (
     <div className="flex h-screen overflow-hidden bg-ink" data-testid="workbench-shell">
-      <Sidebar activeDestination={activeDestination} currentView={view} onNavigate={navigate} counts={cockpit?.counts || {}} />
+      <Sidebar activeDestination={activeDestination} currentView={view} onNavigate={navigate} counts={cockpit?.counts || {}} needsCount={Array.isArray(cockpit?.needs_me) ? cockpit.needs_me.length : undefined} />
       <div className="flex flex-col flex-1 overflow-hidden">
         <TopBar activeDestination={activeDestination} backendOk={backendOk} cockpit={cockpit} onNavigate={navigate} onRefresh={() => { getOverview().then(setOverview).catch(() => setOverview({ error: true })); refreshCockpit() }} />
         <CaptureBox />
@@ -209,7 +209,7 @@ export default function App() {
           </div>
         </main>
       </div>
-      <MobileNav activeDestination={activeDestination} onNavigate={navigate} counts={cockpit?.counts || {}} />
+      <MobileNav activeDestination={activeDestination} onNavigate={navigate} counts={cockpit?.counts || {}} needsCount={Array.isArray(cockpit?.needs_me) ? cockpit.needs_me.length : undefined} />
     </div>
   )
 }

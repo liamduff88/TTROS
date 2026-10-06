@@ -434,5 +434,196 @@ class RunnerStatusTests(unittest.TestCase):
             self.assertIn("Runner state: running_idle (logs/runtime/runner.pid is stale; systemd is authoritative)", text)
 
 
+FUSE_BLOCKER = (
+    "Queue run failed before completion: Step 6 fuse paused work_item:X: model-1: canonical usage "
+    "unavailable; the next model invocation is blocked until a scoped override or accounting repair"
+)
+
+
+class OperatorBlockedWorkTests(unittest.TestCase):
+    """Plain-English attention projection and the Dismiss / Close-as-finished actions, fixtures only."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.backend = importlib.import_module("dashboard.backend.main")
+        cls.tool = load_tool_module()
+
+    def _receipt(self, root, name, text):
+        path = root / "queue" / "receipts" / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+        return f"queue/receipts/{name}"
+
+    def _blocked(self, root, item_id, blocker, **extra):
+        rel = self._receipt(root, f"{item_id}.md", f"NEEDS ATTENTION\n\nBlockers:\n- {blocker}\n\nNext action:\n- Review.\n")
+        receipts = extra.pop("receipts", []) + [
+            {"path": rel, "status": "blocked", "created_at": "2026-10-06T18:39:26Z"},
+            {"path": self._receipt(root, f"{item_id}-notification-0000.md", "PASS\n"), "status": "blocked",
+             "created_at": "2026-10-06T18:39:29Z"},
+        ]
+        return queue_item(item_id, "blocked", receipts=receipts, updated_at="2026-10-06T18:39:30Z", **extra)
+
+    def _objective(self, root, parent_id, child):
+        parent = queue_item(parent_id, "agent_working", owner="hermes", tags=["executive_objective", "parent"])
+        child.update(parent_id=parent_id, tags=["executive_objective_child"], review="model", step_index=1)
+        return [parent, child]
+
+    def _worker_pass(self, root, item_id):
+        rel = self._receipt(
+            root, f"{item_id}-worker.md",
+            f"PASS\n\nWork item:\n- {item_id}\n\nValidation:\n- Fixture passed.\n\nArtifacts:\n- queue/receipts/{item_id}-worker.md\n",
+        )
+        return {"path": rel, "status": "done", "created_at": "2026-10-06T18:37:56Z"}
+
+    def _call(self, root, fn):
+        with patch.object(self.backend, "BASE_DIR", root), \
+                patch.object(self.backend.latitude_telemetry, "trace", lambda *a, **k: None), \
+                patch.object(self.backend, "run_queue_item", side_effect=AssertionError("worker must not re-run")), \
+                patch.object(orchestration, "default_bridge_send", side_effect=AssertionError("live bridge must not be used")):
+            return fn()
+
+    def test_attention_names_the_reason_and_only_offers_lifecycle_safe_actions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            items = [
+                *self._objective(root, "AOS-2026-0001", self._blocked(root, "AOS-2026-0002", FUSE_BLOCKER)),
+                self._blocked(root, "AOS-2026-0003", "Queue run failed before completion: worker timed out after 900s"),
+                self._blocked(root, "AOS-2026-0004", "Hermes rejected AOS-2026-0004 after the initial review and two corrections."),
+                queue_item("AOS-2026-0005", "needs_input"),
+                queue_item("AOS-2026-0006", "agent_working"),
+            ]
+            write_jsonl(root / "queue" / "work_items.jsonl", items)
+            attention = self._call(root, lambda: {
+                row["id"]: self.backend._queue_operator_attention(row) for row in self.backend._read_queue_items()
+            })
+
+        fuse = attention["AOS-2026-0002"]
+        self.assertEqual(("system_failure", True, ["dismiss"]), (fuse["category"], fuse["demands_operator"], fuse["actions"]))
+        self.assertIn("spending safety check", fuse["reason"])
+        self.assertNotIn("AOS-", fuse["reason"])
+        self.assertEqual("2026-10-06T18:39:26Z", fuse["since"], "blocked time is the block receipt, not a later notification")
+        self.assertIn("cannot be re-run", fuse["retry_note"])
+        self.assertEqual(["retry", "dismiss"], attention["AOS-2026-0003"]["actions"])
+        self.assertEqual("The worker took too long and was stopped.", attention["AOS-2026-0003"]["reason"])
+        self.assertEqual("needs_you", attention["AOS-2026-0004"]["category"])
+        self.assertEqual(["answer", "dismiss"], attention["AOS-2026-0005"]["actions"])
+        self.assertIsNone(attention["AOS-2026-0006"])
+
+    def test_pass_recorded_before_the_block_is_finished_and_leaves_needs_me(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            finished = self._blocked(
+                root, "AOS-2026-0002", "Business Brain pointer does not belong to global: business_brain:x.md",
+                receipts=[self._worker_pass(root, "AOS-2026-0002")],
+            )
+            failed = self._blocked(root, "AOS-2026-0003", FUSE_BLOCKER)
+            write_jsonl(root / "queue" / "work_items.jsonl", [finished, failed])
+            summary = self._call(root, self.backend.queue_summary)
+            listed = {row["id"]: row for row in self._call(root, lambda: self.backend.queue_items("all"))["items"]}
+
+        self.assertEqual(("finished", False), (listed["AOS-2026-0002"]["attention"]["category"], listed["AOS-2026-0002"]["attention"]["demands_operator"]))
+        self.assertEqual(["close_finished", "dismiss"], listed["AOS-2026-0002"]["attention"]["actions"])
+        self.assertEqual(1, summary["needsLiam"])
+        self.assertEqual(["AOS-2026-0003"], [row["id"] for row in summary["needsMeItems"]])
+
+    def test_finished_projection_requires_a_pass_receipt_before_the_block(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            later = self._worker_pass(root, "AOS-2026-0002") | {"created_at": "2026-10-06T19:00:00Z"}
+            fail_text = {"path": self._receipt(root, "AOS-2026-0003-worker.md", "NEEDS ATTENTION\n"), "status": "done",
+                         "created_at": "2026-10-06T18:00:00Z"}
+            rows = [
+                self._blocked(root, "AOS-2026-0001", "boom", receipts=[self._worker_pass(root, "AOS-2026-0001")]),
+                self._blocked(root, "AOS-2026-0002", "boom", receipts=[later]),
+                self._blocked(root, "AOS-2026-0003", "boom", receipts=[fail_text]),
+            ]
+            write_jsonl(root / "queue" / "work_items.jsonl", rows)
+            categories = self._call(root, lambda: [
+                self.backend._queue_operator_attention(row)["category"] for row in self.backend._read_queue_items()
+            ])
+        self.assertEqual(["finished", "system_failure", "system_failure"], categories)
+
+    def test_dismiss_retires_the_step_and_its_stranded_parent_without_deleting_or_reissuing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            seed_history(root)
+            items = self._objective(root, "AOS-2026-0001", self._blocked(root, "AOS-2026-0002", FUSE_BLOCKER))
+            items.append(queue_item("AOS-2026-0003", "agent_working"))
+            write_jsonl(root / "queue" / "work_items.jsonl", items)
+            next_before = self.tool.next_id(read_items(root), "2026-10-06T00:00:00Z", root)
+
+            result = self._call(root, lambda: self.backend.dismiss_queue_item(
+                "AOS-2026-0002", self.backend.QueueDismissRequest(reason="Already completed elsewhere."),
+            ))
+            replay = self._call(root, lambda: self.backend.dismiss_queue_item(
+                "AOS-2026-0002", self.backend.QueueDismissRequest(reason="again"),
+            ))
+            with self.assertRaises(self.backend.HTTPException) as live:
+                self._call(root, lambda: self.backend.dismiss_queue_item(
+                    "AOS-2026-0003", self.backend.QueueDismissRequest(reason="x"),
+                ))
+            rows = {row["id"]: row for row in read_items(root)}
+            next_after = self.tool.next_id(read_items(root), "2026-10-06T00:00:00Z", root)
+
+        self.assertEqual(["AOS-2026-0002", "AOS-2026-0001"], result["closed"])
+        self.assertEqual("Dismissed", result["item"]["attention"]["label"])
+        self.assertEqual([], replay["closed"])
+        self.assertEqual(409, live.exception.status_code)
+        self.assertEqual(["AOS-2026-0001", "AOS-2026-0002", "AOS-2026-0003"], sorted(rows))
+        self.assertEqual(("cancelled", "blocked"), (rows["AOS-2026-0002"]["status"], rows["AOS-2026-0002"]["supersession"]["previous_status"]))
+        self.assertEqual(("cancelled", "agent_working"), (rows["AOS-2026-0001"]["status"], rows["AOS-2026-0001"]["supersession"]["previous_status"]))
+        self.assertIn("Already completed elsewhere.", rows["AOS-2026-0002"]["supersession"]["reason"])
+        self.assertEqual("agent_working", rows["AOS-2026-0003"]["status"])
+        self.assertEqual(3, len(rows["AOS-2026-0002"]["receipts"]), "existing receipts kept, one supersession receipt added")
+        self.assertEqual(next_before, next_after)
+
+    def test_dismiss_leaves_a_parent_that_still_has_open_steps(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            items = self._objective(root, "AOS-2026-0001", self._blocked(root, "AOS-2026-0002", FUSE_BLOCKER))
+            items.append(queue_item("AOS-2026-0003", "inbox", parent_id="AOS-2026-0001"))
+            write_jsonl(root / "queue" / "work_items.jsonl", items)
+            result = self._call(root, lambda: self.backend.dismiss_queue_item(
+                "AOS-2026-0002", self.backend.QueueDismissRequest(reason="x"),
+            ))
+            rows = {row["id"]: row for row in read_items(root)}
+        self.assertEqual(["AOS-2026-0002"], result["closed"])
+        self.assertEqual("agent_working", rows["AOS-2026-0001"]["status"])
+
+    def test_close_finished_reuses_the_pass_receipt_and_never_reruns_the_worker(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            pass_row = self._worker_pass(root, "AOS-2026-0002")
+            child = self._blocked(root, "AOS-2026-0002", "does not belong to global", receipts=[pass_row])
+            write_jsonl(root / "queue" / "work_items.jsonl", [
+                *self._objective(root, "AOS-2026-0001", child),
+                self._blocked(root, "AOS-2026-0003", FUSE_BLOCKER),
+            ])
+            continued = []
+            with patch.object(self.backend, "_continue_executive_objective",
+                              lambda item: continued.append(item["id"]) or {"state": "waiting"}), \
+                    patch.object(self.backend, "_notify_terminal_outcome", lambda *a, **k: None):
+                result = self._call(root, lambda: self.backend.close_finished_queue_item("AOS-2026-0002"))
+                with self.assertRaises(self.backend.HTTPException) as refused:
+                    self._call(root, lambda: self.backend.close_finished_queue_item("AOS-2026-0003"))
+            rows = {row["id"]: row for row in read_items(root)}
+
+        self.assertEqual(("done", pass_row["path"]), (result["item"]["status"], result["receipt_path"]))
+        self.assertEqual(["AOS-2026-0002"], continued)
+        self.assertEqual(409, refused.exception.status_code)
+        self.assertEqual("blocked", rows["AOS-2026-0003"]["status"])
+        self.assertEqual(["AOS-2026-0001", "AOS-2026-0002", "AOS-2026-0003"], sorted(rows))
+
+    def test_cli_supersede_of_a_step_still_leaves_its_parent_alone(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_jsonl(root / "queue" / "work_items.jsonl",
+                        self._objective(root, "AOS-2026-0001", self._blocked(root, "AOS-2026-0002", FUSE_BLOCKER)))
+            result = run_cli(root, "supersede", "AOS-2026-0002", "--reason", "x")
+            self.assertEqual(0, result.returncode, result.stderr)
+            self.assertEqual(["AOS-2026-0002"], parse_json(result.stdout)["closed"])
+            self.assertEqual("agent_working", {row["id"]: row for row in read_items(root)}["AOS-2026-0001"]["status"])
+
+
 if __name__ == "__main__":
     unittest.main()

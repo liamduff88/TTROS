@@ -4,8 +4,72 @@ export const HUMAN_NEEDED_STATUSES = new Set(['human_review', 'needs_input', 'bl
 
 export const normalizedStatus = value => String(value || '').trim().toLowerCase()
 
-export const humanNeededItems = items => (Array.isArray(items) ? items : [])
-  .filter(item => HUMAN_NEEDED_STATUSES.has(normalizedStatus(item?.status)) || (Array.isArray(item?.needs_me) && item.needs_me.length > 0))
+// An attention status only demands Liam when the backend's plain-English
+// attention projection agrees: a blocked item whose own PASS result was
+// recorded before the block is "finished — not closed", not a demand.
+export const itemDemandsOperator = item =>
+  (HUMAN_NEEDED_STATUSES.has(normalizedStatus(item?.status)) && item?.attention?.demands_operator !== false)
+  || (Array.isArray(item?.needs_me) && item.needs_me.length > 0)
+
+export const humanNeededItems = items => (Array.isArray(items) ? items : []).filter(itemDemandsOperator)
+
+// Shell badge counts: from the attention-filtered needs_me list when the
+// cockpit has one, so finished-but-not-closed work never reads as "blocked".
+export function operatorAttentionCounts(cockpit) {
+  const counts = cockpit?.counts || {}
+  if (!Array.isArray(cockpit?.needs_me)) {
+    return {
+      blocked: counts.blocked || 0,
+      waiting: (counts.human_review || 0) + (counts.needs_input || 0),
+      total: (counts.blocked || 0) + (counts.human_review || 0) + (counts.needs_input || 0),
+    }
+  }
+  const blocked = cockpit.needs_me.filter(item => normalizedStatus(item?.status) === 'blocked').length
+  return { blocked, waiting: cockpit.needs_me.length - blocked, total: cockpit.needs_me.length }
+}
+
+// The attention a list card should show: its own, else that of a folded step
+// (a blocked step of an objective otherwise hides under a "working" parent).
+// Steps that demand Liam win over ones that do not; dismissed ones never show.
+export function entryAttention(item) {
+  const candidates = [item, ...(Array.isArray(item?.childSteps) ? item.childSteps : [])]
+    .filter(candidate => candidate?.attention && candidate.attention.category !== 'dismissed')
+  const target = candidates.find(candidate => candidate.attention.demands_operator) || candidates[0]
+  return target ? { target, attention: target.attention } : null
+}
+
+export function humanAge(value, now = Date.now()) {
+  const time = Date.parse(value || '')
+  if (Number.isNaN(time)) return ''
+  const minutes = Math.max(0, Math.round((now - time) / 60000))
+  if (minutes < 1) return 'just now'
+  if (minutes < 60) return `${minutes} min ago`
+  const hours = Math.round(minutes / 60)
+  if (hours < 24) return `${hours} h ago`
+  const days = Math.round(hours / 24)
+  return `${days} day${days === 1 ? '' : 's'} ago`
+}
+
+const ATTENTION_TIMING_VERB = {
+  blocked: 'Blocked',
+  needs_input: 'Waiting for you',
+  human_review: 'Ready for review',
+  cancelled: 'Dismissed',
+}
+
+export function attentionTimingLabel(item, attention, now = Date.now()) {
+  const age = humanAge(attention?.since || item?.updated_at, now)
+  if (!age) return ''
+  if (attention?.category === 'finished') return `Stopped ${age}`
+  const verb = ATTENTION_TIMING_VERB[normalizedStatus(item?.status)] || 'Updated'
+  return `${verb} ${age}`
+}
+
+export function formatQueueTime(value) {
+  const time = Date.parse(value || '')
+  if (Number.isNaN(time)) return ''
+  return new Date(time).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+}
 
 export function normalizeCockpitQueue(cockpit) {
   if (!cockpit || cockpit.error) return cockpit

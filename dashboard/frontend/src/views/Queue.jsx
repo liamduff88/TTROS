@@ -1,14 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AlertCircle, CheckCircle2, ChevronLeft, Clipboard, FileText, Focus, FolderOpen, ListChecks, Plus, RefreshCw, Trash2, X } from 'lucide-react'
-import { attachQueueReceipt, createQueueItem, deleteQueueItem, externalActionDryRun, getQueueArtifact, getQueueItem, getQueueItemsForScope, getQueuePrompt, getQueueReceipt, getQueueStatus, openQueueArtifactFolder } from '../api'
+import { attachQueueReceipt, closeFinishedQueueItem, createQueueItem, deleteQueueItem, dismissQueueItem, externalActionDryRun, getQueueArtifact, getQueueItem, getQueueItemsForScope, getQueuePrompt, getQueueReceipt, getQueueStatus, openQueueArtifactFolder, runQueueItem } from '../api'
 import { laneColor, laneName, workbenchColor } from '../shellState'
 import { artifactKind, detectNoExternalAction, extractRepeatedEntitySummary, parseMarkdownBlocks } from '../artifactPreview'
 import {
+  attentionTimingLabel,
   canSubmitTaskDeletion,
   classifyArtifact,
   deliverableDisplayLabel,
+  entryAttention,
+  formatQueueTime,
   groupEntryMatches,
+  humanAge,
   groupWorkflowChildren,
+  itemDemandsOperator,
   loadAccordionState,
   loadPersistedArtifactTabs,
   mergeRefreshedQueueItems,
@@ -113,10 +118,8 @@ const REVIEW_OR_COMPLETE_STATUSES = new Set(['human_review', 'done', 'blocked', 
 
 const itemLane = item => item?.lane || item?.owner || 'unassigned'
 
-const NEEDS_ME_STATUSES = new Set(['human_review', 'needs_input', 'blocked'])
-
 const matchesFilters = (item, filters) =>
-  (!filters.needsMe || NEEDS_ME_STATUSES.has(item.status) || (Array.isArray(item.needs_me) && item.needs_me.length > 0)) &&
+  (!filters.needsMe || itemDemandsOperator(item)) &&
   (!filters.status || item.status === filters.status) &&
   (!filters.workbench || item.owner === filters.workbench) &&
   (!filters.lane || itemLane(item) === filters.lane) &&
@@ -199,6 +202,23 @@ const DetailRow = ({ label, value }) => (
   </div>
 )
 
+// Operator-facing attention categories from the backend projection
+// (_queue_operator_attention): who has to act, never the raw queue status.
+const ATTENTION_TONE = {
+  needs_you: 'border-champagne/50 bg-champagne/10 text-champagne',
+  system_failure: 'border-clay/50 bg-clay/10 text-clay',
+  finished: 'border-softgraph bg-well text-stone',
+  dismissed: 'border-softgraph bg-well text-taupe',
+}
+
+const AttentionPill = ({ attention }) => (
+  <span className={`inline-flex rounded border px-2 py-0.5 text-[11px] font-semibold ${ATTENTION_TONE[attention?.category] || DEFAULT_STATUS_PILL_TONE}`} data-testid="attention-pill">
+    {attention?.label || 'Needs attention'}
+  </span>
+)
+
+const emptyAttentionAction = { busy: '', dismissOpen: false, reason: '', message: '', error: null }
+
 const StatusPill = ({ status }) => (
   <span className={`inline-flex items-center rounded border px-2 py-0.5 text-[10px] font-mono font-semibold uppercase tracking-wide ${STATUS_PILL_TONE[status] || DEFAULT_STATUS_PILL_TONE}`}>
     {formatStatus(status) || 'unknown'}
@@ -280,6 +300,7 @@ export default function Queue({ initialFilters = {}, onViewParamsChange, refresh
   const [dryRunState, setDryRunState] = useState(emptyDryRunState)
   const [deletionState, setDeletionState] = useState(emptyDeletionState)
   const [deletionNotice, setDeletionNotice] = useState({ message: '', error: null })
+  const [attentionAction, setAttentionAction] = useState(emptyAttentionAction)
   const [finalStepSelection, setFinalStepSelection] = useState({ targetId: '', message: '' })
   const [focusMode, setFocusMode] = useState(false)
   const [listCollapsed, setListCollapsed] = useState(Boolean(initialSelectedId))
@@ -516,6 +537,7 @@ export default function Queue({ initialFilters = {}, onViewParamsChange, refresh
     setReceiptPreviewExpanded(false)
     setDryRunForm(emptyDryRunForm)
     setDryRunState(emptyDryRunState)
+    setAttentionAction(emptyAttentionAction)
   }, [selectedId])
 
   // Workflow / Technical details / Receipts accordion state is keyed by work
@@ -837,6 +859,42 @@ export default function Queue({ initialFilters = {}, onViewParamsChange, refresh
     }
   }
 
+  // --- Blocked-work actions ------------------------------------------------
+  // Each maps onto an existing lifecycle path: Retry is the assigned-worker
+  // run, Dismiss is the AOS-0528 supersede lifecycle (cancelled, history
+  // kept), Close as finished re-attaches the item's own PASS receipt. None
+  // creates a new queue item.
+  const runAttentionAction = async (kind, target, call, successMessage) => {
+    if (!target?.id || attentionAction.busy) return
+    setAttentionAction(current => ({ ...current, busy: kind, message: '', error: null }))
+    try {
+      const response = await call()
+      // A retry that runs but stops again is a real outcome, not a failed click.
+      if (response?.ok === false || (kind !== 'retry' && response?.success === false)) {
+        throw new Error(response?.detail || response?.reason || response?.message || 'Action failed')
+      }
+      setAttentionAction({ ...emptyAttentionAction, message: typeof successMessage === 'function' ? successMessage(response) : successMessage })
+      await refreshQueue(selectedIdRef.current)
+      refresh?.()
+    } catch (error) {
+      const detail = error?.response?.data?.detail
+      setAttentionAction(current => ({
+        ...current,
+        busy: '',
+        error: (typeof detail === 'string' ? detail : detail?.message) || error?.message || 'Action failed',
+      }))
+    }
+  }
+
+  const retryAttention = target => runAttentionAction('retry', target, () => runQueueItem(target.id), response => (
+    response?.success ? 'Retried and finished.' : 'Retried, but it stopped again. The new reason is shown above.'
+  ))
+  const closeFinishedAttention = target => runAttentionAction('close_finished', target, () => closeFinishedQueueItem(target.id), 'Closed as finished. Nothing was re-run.')
+  const dismissAttention = target => runAttentionAction(
+    'dismiss', target, () => dismissQueueItem(target.id, attentionAction.reason.trim()),
+    'Dismissed. It no longer needs you; its history is kept.',
+  )
+
   const reason = state.error?.response?.data?.detail || state.error?.message
   const counts = status?.counts || {}
   const activeCount = status?.activeCount ?? items.filter(item => !['done', 'cancelled'].includes(item.status)).length
@@ -852,6 +910,19 @@ export default function Queue({ initialFilters = {}, onViewParamsChange, refresh
     [finalArtifact, primaryArtifact, runArtifacts, latestReceiptPath],
   )
   const requestedDelivery = useMemo(() => selected ? resolveRequestedDeliveryStatus(selected) : null, [selected])
+  // The selected item's own attention, else that of one of its steps, so a
+  // parent card whose step is blocked still says why and offers the actions.
+  const selectedEntry = useMemo(() => selected ? entryAttention({
+    ...selected,
+    childSteps: items.filter(row => row.parent_id && row.parent_id === selected.id && row.id !== selected.id),
+  }) : null, [selected, items])
+  const selectedDismissal = selected?.attention?.category === 'dismissed' ? selected.attention : null
+  // Re-running finished work, or a step a David objective forbids re-running,
+  // would duplicate it; the attention panel offers the safe actions instead.
+  // A parent whose step carries the attention is not itself running or stuck.
+  const runBlockedByAttention = Boolean(selectedEntry && (
+    selectedEntry.target.id !== selected?.id || !(selectedEntry.attention.actions || []).includes('retry')
+  ))
 
   // Concise result preview on the overview (F-RESULT-HIGHLIGHTS): when the
   // primary deliverable is markdown, generically extract a repeated numbered
@@ -1205,7 +1276,9 @@ export default function Queue({ initialFilters = {}, onViewParamsChange, refresh
               <div className="rounded border border-softgraph bg-ink px-4 py-8 text-center text-xs font-mono text-taupe">Loading queue.</div>
             ) : filteredItems.length > 0 ? (
               <div className="max-h-[42rem] space-y-2 overflow-y-auto pr-1">
-                {filteredItems.map(item => (
+                {filteredItems.map(item => {
+                  const entry = entryAttention(item)
+                  return (
                   <button
                     type="button"
                     key={item.id}
@@ -1219,7 +1292,7 @@ export default function Queue({ initialFilters = {}, onViewParamsChange, refresh
                     {listCollapsed ? (
                       <div>
                         <div className="truncate text-[11px] font-semibold text-stone">{item.title || 'Untitled task'}</div>
-                        <div className="mt-0.5 truncate font-mono text-[9px] text-taupe">{item.id || 'No ID'}</div>
+                        <div className="mt-0.5 truncate font-mono text-[9px] text-taupe">{entry ? entry.attention.label : item.id || 'No ID'}</div>
                       </div>
                     ) : (
                       <>
@@ -1228,15 +1301,17 @@ export default function Queue({ initialFilters = {}, onViewParamsChange, refresh
                           {(nextItem?.id === item.id || item.childSteps?.some(child => child.id === nextItem?.id)) && <CheckCircle2 size={14} className="mt-1 flex-shrink-0 text-champagne" />}
                         </div>
                         <div className="mt-1.5 flex flex-wrap items-center gap-2">
-                          <StatusPill status={item.status} />
-                          <span className="font-mono text-[11px] text-taupe">{relativeAge(item.updated_at || item.created_at)}</span>
+                          {entry ? <AttentionPill attention={entry.attention} /> : <StatusPill status={item.status} />}
+                          <span className="font-mono text-[11px] text-taupe">{entry ? attentionTimingLabel(entry.target, entry.attention) : relativeAge(item.updated_at || item.created_at)}</span>
                           {item.childSteps?.length > 0 && (
                             <span className="rounded border border-softgraph px-1.5 py-0.5 text-[10px] font-mono text-taupe" title="Execution steps folded into this workflow">
                               {item.childSteps.length + 1} steps
                             </span>
                           )}
                         </div>
-                        {richListOutcomeLine(item) && (
+                        {entry ? (
+                          <div className="mt-1.5 line-clamp-2 text-xs leading-5 text-stone" data-testid="attention-card-reason">{entry.attention.reason}</div>
+                        ) : richListOutcomeLine(item) && (
                           <div className="mt-1.5 line-clamp-2 text-xs leading-5 text-stone">{richListOutcomeLine(item)}</div>
                         )}
                         <div className="mt-1.5 flex flex-wrap items-center gap-2 font-mono text-[10px] text-taupe">
@@ -1253,7 +1328,8 @@ export default function Queue({ initialFilters = {}, onViewParamsChange, refresh
                       </>
                     )}
                   </button>
-                ))}
+                  )
+                })}
               </div>
             ) : items.length > 0 ? (
               <div className="rounded border border-softgraph bg-ink px-4 py-10 text-center">
@@ -1286,7 +1362,7 @@ export default function Queue({ initialFilters = {}, onViewParamsChange, refresh
           <div className="flex items-center justify-between gap-3 rounded-lg border border-softgraph bg-graphite px-4 py-3" data-testid="task-deletion-control">
             <div className="min-w-0">
               <div className="text-[11px] font-semibold uppercase tracking-wider text-taupe">Selected task safety</div>
-              <div className="mt-1 truncate text-xs font-mono text-stone">{selected.id} — permanent removal requires confirmation</div>
+              <div className="mt-1 truncate text-xs text-stone" title={selected.id}>{selected.title || 'Untitled task'} — permanent removal requires confirmation</div>
             </div>
             <button
               type="button"
@@ -1326,7 +1402,7 @@ export default function Queue({ initialFilters = {}, onViewParamsChange, refresh
                     <ListChecks size={13} />Expand work items
                   </button>
                 )}
-                <button
+                {!runBlockedByAttention && <button
                   type="button"
                   onClick={runAssignedWorker}
                   disabled={runState.running || (isWorkerRunning && !isStuckWorker)}
@@ -1336,7 +1412,7 @@ export default function Queue({ initialFilters = {}, onViewParamsChange, refresh
                 >
                   <RefreshCw size={13} className={runState.running ? 'animate-spin' : ''} />
                   {runState.running ? 'Running assigned worker...' : runButtonLabel}
-                </button>
+                </button>}
               </div>
             )}
           </div>
@@ -1395,6 +1471,108 @@ export default function Queue({ initialFilters = {}, onViewParamsChange, refresh
                   </div>
                 )}
               </div>
+
+              {/* A2. Why this needs (or no longer needs) Liam — plain English first,
+                  the internal ID only under Technical detail. */}
+              {selectedEntry && (() => {
+                const { target, attention } = selectedEntry
+                const actions = attention.actions || []
+                const busy = Boolean(attentionAction.busy)
+                const evidencePath = attention.finished_evidence?.path || ''
+                return (
+                  <div
+                    className={`rounded border p-4 ${!attention.demands_operator ? 'border-softgraph bg-ink' : attention.category === 'needs_you' ? 'border-champagne/50 bg-champagne/5' : 'border-clay/50 bg-clay/5'}`}
+                    data-testid="attention-panel"
+                    data-attention-category={attention.category}
+                    data-attention-target-id={target.id}
+                  >
+                    <div className="flex flex-wrap items-center gap-2">
+                      <AttentionPill attention={attention} />
+                      <span className="font-mono text-xs text-taupe" data-testid="attention-timing">{attentionTimingLabel(target, attention)}</span>
+                    </div>
+                    {target.id !== selected.id && (
+                      <div className="mt-2 text-xs text-taupe">
+                        Step:{' '}
+                        <button type="button" onClick={() => selectQueueItem(target.id)} className="text-left text-stone underline decoration-softgraph underline-offset-2 hover:text-champagne">
+                          {target.title || 'Untitled step'}
+                        </button>
+                      </div>
+                    )}
+                    <p className="mt-2 text-sm leading-6 text-ivory" data-testid="attention-reason">{attention.reason}</p>
+                    {attention.retry_note && <p className="mt-1 text-xs leading-5 text-taupe">{attention.retry_note}</p>}
+                    <div className="mt-2 grid gap-1 text-xs text-taupe sm:grid-cols-2" data-testid="attention-times">
+                      <div>Requested {formatQueueTime(target.created_at) || 'time unknown'}{humanAge(target.created_at) ? ` · ${humanAge(target.created_at)}` : ''}</div>
+                      {attention.since && <div>{attention.category === 'finished' ? 'Stopped' : target.status === 'blocked' ? 'Blocked' : 'Waiting since'} {formatQueueTime(attention.since)}</div>}
+                    </div>
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      {actions.includes('close_finished') && evidencePath && (
+                        <button type="button" onClick={() => openArtifactTab({ path: evidencePath, category: evidencePath.startsWith('queue/receipts/') ? 'Receipt' : 'Artifact', extension: '.md' }, { isReceipt: evidencePath.startsWith('queue/receipts/') })} className="inline-flex items-center gap-2 rounded border border-softgraph bg-ink px-3 py-2 text-xs font-mono text-stone transition-colors hover:border-champagne disabled:cursor-not-allowed disabled:opacity-60" data-testid="attention-view-result">
+                          <FileText size={13} />View result
+                        </button>
+                      )}
+                      {actions.includes('close_finished') && (
+                        <button type="button" onClick={() => closeFinishedAttention(target)} disabled={busy} className="inline-flex items-center gap-2 rounded bg-champagne px-3 py-2 text-xs font-mono font-semibold text-ivory transition-colors hover:bg-well disabled:cursor-not-allowed disabled:opacity-60" data-testid="attention-close-finished">
+                          <CheckCircle2 size={13} />{attentionAction.busy === 'close_finished' ? 'Closing…' : 'Close as finished'}
+                        </button>
+                      )}
+                      {actions.includes('retry') && (
+                        <button type="button" onClick={() => retryAttention(target)} disabled={busy} className="inline-flex items-center gap-2 rounded bg-champagne px-3 py-2 text-xs font-mono font-semibold text-ivory transition-colors hover:bg-well disabled:cursor-not-allowed disabled:opacity-60" data-testid="attention-retry">
+                          <RefreshCw size={13} className={attentionAction.busy === 'retry' ? 'animate-spin' : ''} />{attentionAction.busy === 'retry' ? 'Retrying…' : 'Retry'}
+                        </button>
+                      )}
+                      {actions.includes('answer') && <span className="text-xs text-stone">Answer it in the box below.</span>}
+                      {actions.includes('review') && <span className="text-xs text-stone">Review it below.</span>}
+                      {actions.includes('dismiss') && !attentionAction.dismissOpen && (
+                        <button type="button" onClick={() => setAttentionAction(current => ({ ...current, dismissOpen: true, message: '', error: null }))} disabled={busy} className="inline-flex items-center gap-2 rounded border border-softgraph bg-ink px-3 py-2 text-xs font-mono text-stone transition-colors hover:border-champagne disabled:cursor-not-allowed disabled:opacity-60" data-testid="attention-dismiss">
+                          <X size={13} />Dismiss
+                        </button>
+                      )}
+                    </div>
+                    {attentionAction.dismissOpen && (
+                      <div className="mt-3 rounded border border-softgraph bg-ink p-3" data-testid="attention-dismiss-form">
+                        <p className="text-xs leading-5 text-taupe">Takes this out of your attention. Nothing is deleted and nothing is re-run; its history stays in the queue.</p>
+                        <input
+                          className={`${fieldBase} mt-2`}
+                          value={attentionAction.reason}
+                          maxLength={240}
+                          onChange={event => setAttentionAction(current => ({ ...current, reason: event.target.value }))}
+                          placeholder="Why (optional) — e.g. already done another way"
+                          data-testid="attention-dismiss-reason"
+                        />
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          <button type="button" onClick={() => dismissAttention(target)} disabled={busy} className="inline-flex items-center gap-2 rounded bg-champagne px-3 py-2 text-xs font-mono font-semibold text-ivory transition-colors hover:bg-well disabled:cursor-not-allowed disabled:opacity-60" data-testid="attention-dismiss-confirm">
+                            {attentionAction.busy === 'dismiss' ? 'Dismissing…' : 'Dismiss it'}
+                          </button>
+                          <button type="button" onClick={() => setAttentionAction(emptyAttentionAction)} disabled={busy} className="inline-flex items-center gap-2 rounded border border-softgraph bg-ink px-3 py-2 text-xs font-mono text-stone transition-colors hover:border-champagne disabled:cursor-not-allowed disabled:opacity-60">Keep it</button>
+                        </div>
+                      </div>
+                    )}
+                    <details className="mt-3 text-xs text-taupe">
+                      <summary className="cursor-pointer">Technical detail</summary>
+                      <div className="mt-1 font-mono">Internal ID {target.id} · queue status {formatStatus(target.status)}</div>
+                      {attention.blocker_detail && <div className="mt-1 whitespace-pre-wrap break-words font-mono">{attention.blocker_detail}</div>}
+                    </details>
+                  </div>
+                )
+              })()}
+              {!selectedEntry && selectedDismissal && (
+                <div className="rounded border border-softgraph bg-ink p-4" data-testid="attention-panel" data-attention-category="dismissed">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <AttentionPill attention={selectedDismissal} />
+                    <span className="font-mono text-xs text-taupe">{attentionTimingLabel(selected, selectedDismissal)}</span>
+                  </div>
+                  <p className="mt-2 text-sm leading-6 text-stone">{selectedDismissal.reason}</p>
+                </div>
+              )}
+              {(attentionAction.message || attentionAction.error) && (
+                <div
+                  className={`rounded border px-3 py-2 text-xs font-mono ${attentionAction.error ? 'border-clay/40 bg-clay/10 text-clay' : 'border-champagne/30 bg-champagne/10 text-champagne'}`}
+                  role={attentionAction.error ? 'alert' : 'status'}
+                  data-testid="attention-action-notice"
+                >
+                  {attentionAction.error || attentionAction.message}
+                </div>
+              )}
 
               {/* B. Operator outcome / summary — "what happened" */}
               <div className="rounded border border-softgraph bg-ink p-4">

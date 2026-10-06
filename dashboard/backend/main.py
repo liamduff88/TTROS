@@ -638,6 +638,10 @@ class QueueDeleteRequest(BaseModel):
     request_id: str
 
 
+class QueueDismissRequest(BaseModel):
+    reason: str = ""
+
+
 class QueueReviewClose(BaseModel):
     status: str = "done"
     review_note: str = ""
@@ -7038,6 +7042,7 @@ def _queue_public_item(item: dict, invocation_attributions: dict[str, dict] | No
         "invocation_source_timestamp": attribution.get("invocation_source_timestamp"),
         "model_turns": attribution.get("model_turns"),
         "needs_me": needs_me,
+        "attention": _queue_operator_attention(item),
         "review_card_kind": "outreach" if isinstance(item.get("outreach_review"), dict) else "standard",
         # Additive, already-present fields every compact projection (list,
         # queue/summary, cockpit) needs so the frontend can fold a decomposed
@@ -7072,6 +7077,143 @@ def _queue_needs_me_reasons(item: dict, attribution: dict | None = None) -> list
     return reasons
 
 
+# Recorded blocker text -> (category, plain-English reason). First match wins.
+# "needs_you" = only Liam can unblock it; "system_failure" = the machinery failed.
+_QUEUE_BLOCKER_PLAIN_REASONS = (
+    (re.compile(r"Hermes rejected .* corrections|review gate requested revision", re.IGNORECASE),
+     "needs_you", "The reviewer rejected the work after the allowed corrections. It needs your decision."),
+    (re.compile(r"Liam decision|operator (approval|decision)|requires? (your )?approval", re.IGNORECASE),
+     "needs_you", "It is waiting for your decision."),
+    (re.compile(r"credential|re-?authenticat|log ?in required|not authorized|oauth", re.IGNORECASE),
+     "needs_you", "A connected account needs you to sign in again."),
+    (re.compile(r"Step 6 fuse|canonical usage unavailable", re.IGNORECASE),
+     "system_failure", "Paused by the spending safety check: token usage from an earlier model call could not be recorded, so further model calls were held back."),
+    (re.compile(r"does not belong to", re.IGNORECASE),
+     "system_failure", "A final safety check rejected a Business Brain reference the worker used, so the result was not closed automatically."),
+    (re.compile(r"final Hermes executive synthesis failed", re.IGNORECASE),
+     "system_failure", "All steps finished, but writing the final summary failed."),
+    (re.compile(r"canonical artifact is genuinely absent", re.IGNORECASE),
+     "system_failure", "The worker reported a result file that does not exist."),
+    (re.compile(r"timed? ?out|timeout", re.IGNORECASE),
+     "system_failure", "The worker took too long and was stopped."),
+    (re.compile(r"heartbeat|stuck agent_working|stopped responding", re.IGNORECASE),
+     "system_failure", "The worker stopped responding and was stopped automatically."),
+)
+_QUEUE_EVIDENCE_RECEIPT_MARKERS = ("-notification-", "-telegram-escalation-", "-review-note-", "-superseded")
+
+
+def _queue_receipt_rows(item: dict) -> list[dict]:
+    rows = []
+    for row in item.get("receipts") or []:
+        row = {"path": row} if isinstance(row, str) else row
+        if isinstance(row, dict) and str(row.get("path") or "").strip():
+            rows.append(row)
+    return rows
+
+
+def _queue_receipt_text(path: str) -> str:
+    try:
+        return _queue_read_artifact(path, receipt_only=path.startswith("queue/receipts/"))["content"]
+    except (FileNotFoundError, ValueError, OSError):
+        return ""
+
+
+def _queue_plain_blocker(raw: str) -> tuple[str, str]:
+    text = re.sub(r"\s+", " ", str(raw or "")).strip()
+    for pattern, category, plain in _QUEUE_BLOCKER_PLAIN_REASONS:
+        if pattern.search(text):
+            return category, plain
+    text = re.sub(r"^Queue run failed before completion:\s*", "", text)
+    if not text or text.casefold() in {"none", "none reported"}:
+        return "system_failure", "The run stopped without recording a reason."
+    first = re.split(r"(?<=[.!?])\s", text, maxsplit=1)[0]
+    return "system_failure", _bounded_hermes_answer(first[:1].upper() + first[1:], 240)
+
+
+def _queue_finished_evidence(item: dict, blocked_at: str) -> dict | None:
+    """A PASS receipt the item recorded as done before it was blocked, if any.
+
+    The worker's own done receipt is durable evidence the work completed; a
+    block recorded after it came from post-completion bookkeeping.
+    """
+    for row in reversed(_queue_receipt_rows(item)):
+        if str(row.get("status") or "") != "done":
+            continue
+        created = str(row.get("created_at") or "")
+        if blocked_at and created and created > blocked_at:
+            continue
+        lines = [line.strip() for line in _queue_receipt_text(str(row["path"])).splitlines() if line.strip()]
+        if lines and lines[0].upper() == "PASS":
+            return {"path": str(row["path"]), "created_at": created or None}
+    return None
+
+
+def _queue_operator_attention(item: dict) -> dict | None:
+    """Plain-English operator view of why an item wants (or no longer wants) Liam.
+
+    Read-only projection over the recorded status and receipts; it never
+    changes queue state. Actions name existing lifecycle paths only.
+    """
+    status = str(item.get("status") or "")
+    if status == "cancelled" and isinstance(item.get("supersession"), dict):
+        supersession = item["supersession"]
+        return {
+            "category": "dismissed", "label": "Dismissed", "demands_operator": False,
+            "reason": str(supersession.get("reason") or "Retired without deleting history."),
+            "since": supersession.get("superseded_at") or item.get("updated_at"),
+            "actions": [],
+        }
+    if status not in _HUMAN_NEEDED_STATUSES:
+        return None
+    evidence_rows = [
+        row for row in _queue_receipt_rows(item)
+        if not any(marker in str(row["path"]) for marker in _QUEUE_EVIDENCE_RECEIPT_MARKERS)
+    ]
+    current = next((row for row in reversed(evidence_rows) if str(row.get("status") or "") == status), None)
+    since = str((current or {}).get("created_at") or item.get("updated_at") or item.get("created_at") or "") or None
+    if status == "needs_input":
+        return {
+            "category": "needs_you", "label": "Needs your answer", "demands_operator": True,
+            "reason": "The worker asked a question only you can answer. Reply below to resume it.",
+            "since": since, "actions": ["answer", "dismiss"],
+        }
+    if status == "human_review":
+        return {
+            "category": "needs_you", "label": "Needs your review", "demands_operator": True,
+            "reason": "The work is finished and waiting for you to approve or send it back.",
+            "since": since, "actions": ["review", "dismiss"],
+        }
+    raw = _receipt_section_value(_queue_receipt_text(str(current["path"])) if current else "", "Blockers", "")
+    category, reason = _queue_plain_blocker(raw)
+    if [value for value in item.get("needs_me") or [] if str(value).strip()]:
+        category = "needs_you"
+    finished = _queue_finished_evidence(item, since or "")
+    if finished:
+        return {
+            "category": "finished", "label": "Finished — not closed", "demands_operator": False,
+            "reason": (
+                "The work finished and recorded a PASS result, but a later step stopped it from closing: "
+                f"{reason[:1].lower() + reason[1:]} Check the result, then close it as finished."
+            ),
+            "since": since, "finished_evidence": finished, "blocker_detail": raw,
+            "actions": ["close_finished", "dismiss"],
+        }
+    objective_step = _is_executive_objective_child(item) or _is_hermes_orchestration_child(item)
+    return {
+        "category": category,
+        "label": "Needs you" if category == "needs_you" else "System problem",
+        "demands_operator": True,
+        "reason": reason,
+        "since": since,
+        "blocker_detail": raw,
+        "actions": ["dismiss"] if objective_step else ["retry", "dismiss"],
+        "retry_note": (
+            "This is one step of a David objective; it cannot be re-run on its own, so the same work is never "
+            "done twice. Dismiss it, then ask David again if it is still needed."
+        ) if objective_step else "",
+    }
+
+
 def _queue_human_needed_items(
     items: list[dict], invocation_attributions: dict[str, dict] | None = None
 ) -> list[dict]:
@@ -7079,7 +7221,10 @@ def _queue_human_needed_items(
     return sorted(
         [
             item for item in items
-            if item.get("status") in _HUMAN_NEEDED_STATUSES
+            if (
+                item.get("status") in _HUMAN_NEEDED_STATUSES
+                and ((item["attention"] if "attention" in item else _queue_operator_attention(item)) or {}).get("demands_operator", True)
+            )
             or _queue_needs_me_reasons(item, attributions.get(str(item.get("id") or "")))
         ],
         key=_queue_item_sort_key,
@@ -7438,6 +7583,75 @@ def update_queue_item_status(item_id: str, body: QueueStatusUpdate):
     event_type = "queue.needs_me" if status in {"needs_input", "human_review", "blocked"} else "queue.status_change"
     latitude_telemetry.trace(event_type, "queue", status, item_id=item_id, queue_status=status)
     return {"ok": True, "success": True, "item_id": item_id, "status": item.get("status"), "item": _queue_detail_item(item)}
+
+
+@app.post("/api/queue/items/{item_id}/dismiss")
+def dismiss_queue_item(item_id: str, body: QueueDismissRequest):
+    """Take an open item out of Liam's attention through the supersede lifecycle.
+
+    The item becomes cancelled with a supersession record and receipt; nothing
+    is deleted, no new item is created, and an objective parent left with no
+    open step is closed the same way.
+    """
+    reason = " ".join(str(body.reason or "").split()) or "No longer needed."
+    queue_tool = _load_queue_tool()
+    if not hasattr(queue_tool, "supersede_item"):
+        raise HTTPException(status_code=503, detail="queue tool does not support dismissal in this runtime")
+    try:
+        _queue_find_item(item_id)
+        result = queue_tool.supersede_item(BASE_DIR, item_id, f"Dismissed by Liam from the Work Queue: {reason}", settle_parent=True)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="queue item not found")
+    except QueueStorageError as exc:
+        raise HTTPException(status_code=503, detail=f"queue storage unavailable: {exc}")
+    except getattr(queue_tool, "QueueError", ValueError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    latitude_telemetry.trace("queue.item_dismiss", "queue", "cancelled", item_id=item_id, closed=result.get("closed"))
+    return {"ok": True, "success": True, "item_id": item_id, "closed": result.get("closed") or [], "item": _queue_detail_item(_queue_find_item(item_id))}
+
+
+@app.post("/api/queue/items/{item_id}/close-finished")
+def close_finished_queue_item(item_id: str):
+    """Close a blocked item whose own PASS done receipt predates the block.
+
+    Re-attaches that existing receipt through the normal done transition and
+    then continues its objective exactly as a passing run would. The worker is
+    never re-run, so the work cannot be repeated.
+    """
+    try:
+        item = _queue_find_item(item_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="queue item not found")
+    attention = _queue_operator_attention(item) or {}
+    if attention.get("category") != "finished":
+        raise HTTPException(status_code=409, detail="No PASS result was recorded before this item stopped; there is nothing to close as finished.")
+    receipt_path = str(attention["finished_evidence"]["path"])
+    queue_tool = _load_queue_tool()
+    try:
+        updated = queue_tool.attach_receipt(BASE_DIR, item_id, receipt_path, "done")
+    except QueueStorageError as exc:
+        raise HTTPException(status_code=503, detail=f"queue storage unavailable: {exc}")
+    except getattr(queue_tool, "QueueError", ValueError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    executive_objective_child = _is_executive_objective_child(updated)
+    parent = None
+    continuation = None
+    if executive_objective_child:
+        continuation = _continue_executive_objective(updated)
+        if continuation.get("state") == "complete":
+            parent = _queue_find_item(str(updated.get("parent_id") or ""))
+    elif _is_hermes_orchestration_child(updated):
+        _finalize_hermes_orchestration_parent(updated)
+    notification = _notify_terminal_outcome(
+        updated, "done", receipt_path, parent=parent, objective_child=executive_objective_child,
+    )
+    latitude_telemetry.trace("queue.item_close_finished", "queue", "done", item_id=item_id, receipt_path=receipt_path)
+    return {
+        "ok": True, "success": True, "item_id": item_id, "receipt_path": receipt_path,
+        "objective_continuation": {key: value for key, value in (continuation or {}).items() if key != "tick"} or None,
+        "notification": notification,
+        "item": _queue_detail_item(_queue_find_item(item_id)),
+    }
 
 
 @app.delete("/api/queue/items/{item_id}")

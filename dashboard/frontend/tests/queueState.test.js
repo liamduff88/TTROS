@@ -1,18 +1,23 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  attentionTimingLabel,
   classifyArtifact,
   DEFAULT_ACCORDION_STATE,
   deliverableDisplayLabel,
   detectRequestedDeliveryChannel,
+  entryAttention,
   groupEntryMatches,
   groupWorkflowChildren,
+  humanAge,
   humanNeededItems,
+  itemDemandsOperator,
   loadAccordionState,
   loadPersistedArtifactTabs,
   mergeQueueSummary,
   mergeRefreshedQueueItems,
   normalizeCockpitQueue,
+  operatorAttentionCounts,
   persistAccordionState,
   persistArtifactTabs,
   preserveQueueDataOnRefreshFailure,
@@ -370,4 +375,44 @@ test('accordion state is keyed by work item ID and defaults to collapsed', () =>
 test('accordion state persistence never throws when storage is unavailable', () => {
   assert.doesNotThrow(() => persistAccordionState(undefined, 'AOS-2026-0001', { workflow: true, technical: false, receipts: false }))
   assert.doesNotThrow(() => persistAccordionState(fakeStorage(), '', { workflow: true, technical: false, receipts: false }))
+})
+
+// --- Blocked-work attention (operator UX) ---------------------------------
+const finishedAttention = { category: 'finished', label: 'Finished — not closed', demands_operator: false, since: '2026-10-06T18:39:26Z', actions: ['close_finished', 'dismiss'] }
+const systemAttention = { category: 'system_failure', label: 'System problem', demands_operator: true, since: '2026-10-06T18:21:00Z', actions: ['dismiss'] }
+
+test('a blocked item whose PASS was recorded first does not demand Liam; a real block does', () => {
+  assert.equal(itemDemandsOperator({ status: 'blocked', attention: finishedAttention }), false)
+  assert.equal(itemDemandsOperator({ status: 'blocked', attention: systemAttention }), true)
+  assert.equal(itemDemandsOperator({ status: 'blocked' }), true, 'rows without a projection keep the status rule')
+  assert.equal(itemDemandsOperator({ status: 'agent_working', needs_me: ['excessive model turns'] }), true)
+  assert.deepEqual(humanNeededItems([
+    { id: 'a', status: 'blocked', attention: finishedAttention },
+    { id: 'b', status: 'blocked', attention: systemAttention },
+  ]).map(item => item.id), ['b'])
+})
+
+test('a grouped card surfaces its blocked step instead of hiding it under a working parent', () => {
+  const parent = { id: 'P', status: 'agent_working', attention: null, childSteps: [
+    { id: 'S1', status: 'blocked', attention: finishedAttention },
+    { id: 'S2', status: 'blocked', attention: systemAttention },
+  ] }
+  const entry = entryAttention(parent)
+  assert.equal(entry.target.id, 'S2', 'a step that demands Liam wins')
+  assert.equal(entryAttention({ id: 'P', childSteps: [{ id: 'S', attention: { category: 'dismissed' } }] }), null)
+  assert.equal(entryAttention({ id: 'X', status: 'done', attention: null }), null)
+})
+
+test('timing reads as a human age from the block time', () => {
+  const now = Date.parse('2026-10-06T18:39:00Z')
+  assert.equal(attentionTimingLabel({ status: 'blocked' }, systemAttention, now), 'Blocked 18 min ago')
+  assert.equal(attentionTimingLabel({ status: 'blocked' }, finishedAttention, Date.parse('2026-10-06T21:39:26Z')), 'Stopped 3 h ago')
+  assert.equal(humanAge('2026-10-04T16:54:06Z', now), '2 days ago')
+  assert.equal(humanAge('not a time', now), '')
+})
+
+test('shell badge counts come from the attention-filtered needs_me list', () => {
+  const cockpit = { counts: { blocked: 2, human_review: 1 }, needs_me: [{ status: 'blocked' }, { status: 'human_review' }] }
+  assert.deepEqual(operatorAttentionCounts(cockpit), { blocked: 1, waiting: 1, total: 2 })
+  assert.deepEqual(operatorAttentionCounts({ counts: { blocked: 2, needs_input: 1 } }), { blocked: 2, waiting: 1, total: 3 })
 })

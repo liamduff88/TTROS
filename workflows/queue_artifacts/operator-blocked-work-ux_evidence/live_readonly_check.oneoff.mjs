@@ -1,0 +1,60 @@
+// One-off, not committed: read-only render check of the live Work Queue.
+import assert from 'node:assert/strict'
+import { chromium } from 'playwright'
+const out = process.env.OUT_DIR
+const browser = await chromium.launch({ headless: true })
+const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } })
+let blockedMutations = 0
+await page.addInitScript(() => {
+  sessionStorage.setItem('aos.dashboard.shell.v1', JSON.stringify({ view: 'work-queue', viewParams: {}, sessionTabs: [
+    { id: 'cockpit', label: 'Cockpit', workbench: 'hermes', preview: false },
+    { id: 'work-queue', label: 'Work Queue', workbench: 'codex', preview: true, params: {} },
+  ] }))
+})
+await page.route('**/api/queue/**', async route => {
+  if (['POST', 'DELETE', 'PATCH', 'PUT'].includes(route.request().method())) { blockedMutations += 1; await route.abort(); return }
+  await route.continue()
+})
+await page.goto('http://127.0.0.1:3010/', { waitUntil: 'networkidle' })
+const card = page.locator('[data-queue-card-id="AOS-2026-0527"]')
+await card.waitFor({ timeout: 20000 })
+console.log('COLLAPSED CARD 0527:', (await card.innerText()).replace(/\n/g, ' | '))
+const expand = page.getByRole('button', { name: 'Expand work items' })
+if (await expand.count()) await expand.click()
+await page.waitForSelector('[data-queue-card-id="AOS-2026-0527"] [data-testid="attention-card-reason"]')
+await page.screenshot({ path: `${out}/live_list_expanded.png`, fullPage: false })
+const cardText = await card.innerText()
+console.log('CARD 0527:', cardText.replace(/\n/g, ' | '))
+assert.match(cardText, /System problem/)
+assert.match(cardText, /spending safety check/)
+assert.match(cardText, /Blocked \d+ (min|h|days?) ago/)
+const card922 = await page.locator('[data-queue-card-id="AOS-2026-0922"]').innerText()
+console.log('CARD 0922:', card922.replace(/\n/g, ' | '))
+assert.match(card922, /Finished — not closed/)
+await card.click()
+const panel = page.locator('[data-testid="attention-panel"]')
+await panel.waitFor()
+assert.equal(await panel.getAttribute('data-attention-target-id'), 'AOS-2026-0528')
+console.log('PANEL 0527:', (await panel.innerText()).replace(/\n/g, ' | '))
+assert.equal(await page.locator('[data-testid="attention-retry"]').count(), 0, 'no retry for an objective step')
+assert.equal(await page.getByRole('button', { name: /Recover stuck worker|Worker running|Run again/ }).count(), 0, 'no misleading parent run button')
+const badge = await page.locator('[data-testid="sidebar"]').innerText()
+console.log('SIDEBAR:', badge.replace(/\n/g, ' | ').slice(0, 80))
+const header = await page.locator('text=/\\d+ (blocked|needs me)/').first().innerText()
+console.log('TOPBAR:', header)
+assert.match(header, /^1 blocked$/)
+await page.locator('[data-testid="attention-dismiss"]').click()
+await page.locator('[data-testid="attention-dismiss-form"]').waitFor()
+await page.screenshot({ path: `${out}/live_blocked_step_dismiss_form.png`, fullPage: false })
+await page.getByRole('button', { name: 'Keep it' }).click()
+await page.locator('[data-queue-card-id="AOS-2026-0922"]').click()
+await page.waitForFunction(() => document.querySelector('[data-testid="attention-panel"]')?.getAttribute('data-attention-target-id') === 'AOS-2026-0923')
+console.log('PANEL 0922:', (await panel.innerText()).replace(/\n/g, ' | '))
+assert.equal(await page.locator('[data-testid="attention-close-finished"]').count(), 1)
+await page.screenshot({ path: `${out}/live_finished_not_closed.png`, fullPage: false })
+const needsMe = await page.locator('text=/Needs Me \\d+/').first().innerText()
+console.log('COUNTS:', needsMe)
+console.log('BLOCKED_MUTATIONS:', blockedMutations)
+assert.equal(blockedMutations, 0)
+await browser.close()
+console.log('LIVE READ-ONLY CHECK: PASS')
