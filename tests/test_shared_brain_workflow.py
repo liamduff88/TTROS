@@ -445,6 +445,32 @@ class LiamReplyRoutingTests(WorkflowFixture):
         self.assertTrue(lines[-1].startswith(f"Reply to this message to answer; Claude continues {ws}"), lines[-1])
         self.assertLessEqual(len(self.sent[0]), workflow.MAX_MESSAGE_CHARS)
 
+    def test_chatgpt_complete_note_has_no_reply_footer(self):
+        """ChatGPT finishes the route and checkpoints "Liam: COMPLETE. …": nothing to answer."""
+        ws = self.waiting_for_liam(surface="chatgpt", next_action="Liam: choose A or B, then ChatGPT should record it.")
+        fields = dict(goal="g", done="COMPLETE: recorded label B and submitted it once.", decisions="Label B.",
+                      work_product_reference="", next_action=workflow.COMPLETE_NEXT, open_questions="")
+        self.assertTrue(store.checkpoint(ws, fields, 2, attribution=dict(CLAUDE, surface="chatgpt"),
+                                         root=self.root)["success"])
+        note = store.resume(ws, root=self.root)["note"]
+        self.assertFalse(workflow.awaiting_liam(note))
+        self.assertEqual(workflow.question_marker(note), "")
+        for action in ("**Liam:** COMPLETE.", "Liam: COMPLETE — nothing is pending, then ChatGPT should rest."):
+            self.assertFalse(workflow.awaiting_liam(dict(note, next_action=action)), action)
+        text = workflow.compose(note, {"workflow": "ad-hoc"}, "returned", self.root)
+        self.assertIn("Next: Liam: COMPLETE. Nothing is pending", text)
+        self.assertNotIn("Reply to this message", text)
+        self.assertNotIn("continues", text)
+        self.assertFalse(text.startswith("TTROS WORKSTREAM"), text)
+        self.assertEqual([a["event"] for a in self.report()], ["reported"])  # still told, once, via the live path
+        self.assertIn("Liam: COMPLETE. Nothing is pending", self.sent[0])
+        self.assertNotIn("Reply to this message", self.sent[0])
+        self.assertEqual(self.questions_sent(), {})
+        # a genuine pending question on the same path keeps its reply instruction
+        asking = dict(note, next_action="Liam: choose A or B, then ChatGPT should record it.")
+        self.assertTrue(workflow.compose(asking, {"workflow": "ad-hoc"}, "returned", self.root).endswith(
+            f"Reply to this message to answer; ChatGPT continues {ws} with your answer."))
+
     def test_two_waiting_workstreams_route_each_reply_to_its_own(self):
         a, b = self.waiting_for_liam(), self.waiting_for_liam(REQUEST_B)
         self.assertNotEqual(a, b)

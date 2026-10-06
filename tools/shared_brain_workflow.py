@@ -78,6 +78,8 @@ DRIVE_ID_RE = re.compile(r"[A-Za-z0-9_-]{10,}\Z")
 DRIVE_LINK_GRACE = dt.timedelta(minutes=10)
 LIAM_RE = re.compile(r"\s*\**\s*liam\b", re.I)
 FINISHED_RE = re.compile(r"\s*\**\s*liam\s*:\s*review the finished result", re.I)
+# "Liam: COMPLETE. …" from any actor is terminal: nothing for Liam to answer.
+COMPLETE_ACTION_RE = re.compile(r"\s*\**\s*(?i:liam)\s*\**\s*:\s*\**\s*COMPLETE\b")
 RECORD_ID_RE = re.compile(r"shared-submit-[0-9a-f]{32}")
 QUESTION_MARKER = "TTROS WORKSTREAM {ws} v{version}"
 QUESTION_MARKER_RE = re.compile(r"TTROS WORKSTREAM ([a-z0-9][a-z0-9-]{2,63}) v([1-9][0-9]{0,8})\Z")
@@ -426,7 +428,8 @@ def resume_actor(note: Mapping[str, Any]) -> str | None:
 def awaiting_liam(note: Mapping[str, Any]) -> bool:
     """Handed to Liam for input; a finished or COMPLETE result is not waiting for an answer."""
     action = str(note.get("next_action", ""))
-    return bool(LIAM_RE.match(action)) and not FINISHED_RE.match(action) and not _is_complete(note)
+    return (bool(LIAM_RE.match(action)) and not FINISHED_RE.match(action)
+            and not COMPLETE_ACTION_RE.match(action) and not _is_complete(note))
 
 
 def question_marker(note: Mapping[str, Any]) -> str:
