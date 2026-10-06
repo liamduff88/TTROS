@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Revisit: when authoritative state paths or backup exclusions change. · Last touched: 2026-07-31.
+# Revisit: when authoritative state paths or backup exclusions change. · Last touched: 2026-10-06.
 set -euo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="${AOS_ROOT:-$(cd -- "${SCRIPT_DIR}/.." && pwd)}"
@@ -67,6 +67,10 @@ trap on_exit EXIT
 
 PYTHONPATH="${ROOT}/tools${PYTHONPATH:+:${PYTHONPATH}}" python3 -c \
   'from aos_paths import assert_authoritative_root; import os; assert_authoritative_root(os.environ["AOS_ROOT"]); assert_authoritative_root(os.environ["AOS_BACKUP_ROOT"])'
+# Keep snapshots out of ripgrep/fd searches of $HOME: an agent's home-wide content search otherwise
+# reads every snapshot into page cache, which WSL holds as Vmmem memory on Windows.
+mkdir -p "$BACKUP_ROOT"
+printf '*\n' > "${BACKUP_ROOT%/}/.ignore"
 stamp="$(date -u +%Y%m%dT%H%M%SZ)"
 destination="${BACKUP_ROOT%/}/agentic-os-${stamp}"
 mkdir -p "$destination"
