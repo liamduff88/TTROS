@@ -2,7 +2,7 @@
 
 Runs against a temporary Brain root and log; no model call, no email: the send is an injected
 recorder, and the real adapter command is only ever invoked with `subprocess.run` mocked.
-Revisit: when tools/shared_brain_chatgpt_wake.py changes. Last touched: 2026-10-05.
+Revisit: when tools/shared_brain_chatgpt_wake.py changes. Last touched: 2026-10-06.
 """
 import datetime as dt
 import json
@@ -35,6 +35,7 @@ class ChatGPTWakeTests(unittest.TestCase):
         env = mock.patch.dict(os.environ, {"TTROS_SHARED_BRAIN_ARTIFACTS": str(base / "artifacts")})
         env.start()
         self.addCleanup(env.stop)
+        os.environ.pop("TTROS_CHATGPT_WAKE_RECIPIENT", None)  # run_tick exercises the default recipient
         (base / "artifacts").mkdir()
         self.log = base / "wake.log"
         self.sent = []
@@ -51,8 +52,8 @@ class ChatGPTWakeTests(unittest.TestCase):
         return {"ok": True, "data": {"successful": True, "data": {"message_id": f"m{len(self.sent)}"}}}
 
     def run_tick(self, send=None, **extra):
-        return wake.run(root=self.root, log=self.log, recipient="liam@timetorevenue.com",
-                        send=send or self.send, is_authorized=lambda r: True, **extra)
+        return wake.run(root=self.root, log=self.log, send=send or self.send,
+                        is_authorized=lambda r: True, **extra)
 
     def events(self, name):
         return [e for e in watcher._read_log(self.log) if e.get("event") == name]
@@ -63,7 +64,7 @@ class ChatGPTWakeTests(unittest.TestCase):
         self.assertEqual([a["event"] for a in actions], ["wake_sent"])
         self.assertEqual(len(self.sent), 1)
         recipient, subject, body = self.sent[0]
-        self.assertEqual(recipient, "liam@timetorevenue.com")
+        self.assertEqual(recipient, "automation@timetorevenue.com")
         self.assertEqual(subject, "TTROS ChatGPT handoff: alpha-stream v1")
         self.assertTrue(body.startswith("TTROS-SHARED-BRAIN-WAKE v1\nworkstream_id: alpha-stream\nversion: 1\naction: resume\n"))
         self.assertIn("projection: TTROS Memory Exchange/06_WORKSTREAMS_READ/alpha-stream.md", body)
@@ -161,8 +162,12 @@ class ChatGPTWakeTests(unittest.TestCase):
         self.assertEqual(len(self.events("wake_blocked")), 1)
         self.assertEqual(self.events("wake_claimed"), [])
 
-    def test_real_allowlist_accepts_only_the_internal_recipient(self):
-        self.assertTrue(wake.authorized("liam@timetorevenue.com"))
+    def test_default_recipient_is_the_automation_alias(self):
+        self.assertEqual(wake.WAKE_RECIPIENT, "automation@timetorevenue.com")
+
+    def test_real_allowlist_accepts_only_the_internal_recipients(self):
+        self.assertTrue(wake.authorized("automation@timetorevenue.com"))
+        self.assertTrue(wake.authorized("liam@timetorevenue.com"))  # other internal-mail paths still use it
         self.assertFalse(wake.authorized("someone@example.org"))
         self.assertFalse(wake.authorized(""))
 
@@ -185,7 +190,7 @@ class ChatGPTWakeTests(unittest.TestCase):
     def test_send_uses_the_backends_governed_agentmail_command(self):
         completed = mock.Mock(stdout=json.dumps({"ok": True, "data": {"successful": True}}), stderr="")
         with mock.patch.object(wake.subprocess, "run", return_value=completed) as run:
-            out = wake.agentmail_send("liam@timetorevenue.com", "TTROS ChatGPT handoff: a v1", "body")
+            out = wake.agentmail_send(wake.WAKE_RECIPIENT, "TTROS ChatGPT handoff: a v1", "body")
         self.assertTrue(wake._acknowledged(out))
         argv = run.call_args.args[0]
         self.assertEqual(argv[:2], ["bash", "-lc"])
@@ -193,17 +198,17 @@ class ChatGPTWakeTests(unittest.TestCase):
         self.assertIn("python3 connectors/composio_access_adapter.py run agent_mail AGENT_MAIL_SEND_EMAIL --data ", command)
         self.assertTrue(command.endswith("--execute --operator-command"))
         argv = shlex.split(command)
-        self.assertEqual(argv[argv.index("--target") + 1], "liam@timetorevenue.com")
+        self.assertEqual(argv[argv.index("--target") + 1], "automation@timetorevenue.com")
         payload = json.loads(argv[argv.index("--data") + 1])
-        self.assertEqual(payload["to"], ["liam@timetorevenue.com"])
+        self.assertEqual(payload["to"], ["automation@timetorevenue.com"])
         self.assertEqual(payload["inbox_id"], "olmec1@agentmail.to")
         self.assertEqual(payload["subject"], "TTROS ChatGPT handoff: a v1")
         with mock.patch.object(wake.subprocess, "run", return_value=mock.Mock(stdout="not json", stderr="")):
-            self.assertFalse(wake._acknowledged(wake.agentmail_send("liam@timetorevenue.com", "s", "b")))
+            self.assertFalse(wake._acknowledged(wake.agentmail_send("automation@timetorevenue.com", "s", "b")))
 
     def test_adapter_target_is_the_exact_normalized_recipient_as_one_quoted_argument(self):
         completed = mock.Mock(stdout=json.dumps({"ok": True}), stderr="")
-        for given, expected in (("  Liam@TimeToRevenue.com ", "liam@timetorevenue.com"),
+        for given, expected in (("  Automation@TimeToRevenue.com ", "automation@timetorevenue.com"),
                                 ("x@y.z; touch /tmp/pwn $(id) 'q'", "x@y.z; touch /tmp/pwn $(id) 'q'")):
             with mock.patch.object(wake.subprocess, "run", return_value=completed) as run:
                 wake.agentmail_send(given, "s", "b")
