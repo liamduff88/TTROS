@@ -61,7 +61,14 @@ from aos_codex_policy import (
     validate_runtime as validate_codex_runtime,
 )
 import aos_orchestration
-from aos_queue_storage import QueueStorageError, durable_append_text, durable_replace_text, queue_write_lock
+from aos_queue_storage import (
+    QueueStorageError,
+    assert_unique_item_ids,
+    durable_append_text,
+    durable_replace_text,
+    historical_max_item_number,
+    queue_write_lock,
+)
 from aos_task_titles import title_for_item
 import aos_indexer
 import aos_entity_index
@@ -5197,6 +5204,7 @@ class _QueueToolFallback:
 
     @staticmethod
     def save_items(root: Path, items: list[dict]):
+        assert_unique_item_ids(items)
         with queue_write_lock(root):
             durable_replace_text(
                 Path(root) / "queue" / "work_items.jsonl",
@@ -5213,7 +5221,7 @@ class _QueueToolFallback:
     @staticmethod
     def _next_id(root: Path, items: list[dict], created_at: str):
         prefix = f"AOS-{created_at[:4]}-"
-        max_number = 0
+        max_number = historical_max_item_number(Path(root), created_at[:4])
         reserved_ids = [str(item.get("id", "")) for item in items]
         receipts = Path(root) / "queue" / "receipts"
         if receipts.is_dir():
@@ -6946,11 +6954,14 @@ def _operator_system_status_closeout() -> dict:
         and item.get("status") in {"agent_todo", "agent_working"}
     ]
     if runner.get("available"):
-        runner_state = "running"
+        working = any(item.get("status") == "agent_working" for item in actionable)
+        runner_state = "running_busy" if working else "running_idle"
     elif actionable:
         runner_state = "stopped_with_pending_work"
     else:
         runner_state = "on_demand_idle"
+    if runner.get("pid_file", {}).get("state") == "stale":
+        runner_state += " (logs/runtime/runner.pid is stale; systemd is authoritative)"
     codex = codex_policy_readiness(CODEX_TARGET)
     hermes = _binary_readiness("hermes")
     bridge_running = _process_marker_running("telegram_bridge.py")
@@ -10794,6 +10805,23 @@ def _notify_queue_running(
         return {"result": "send_failed", "sent": False, "reason": type(exc).__name__}
 
 
+def _operator_report_recipient(item: dict) -> str | None:
+    """Telegram chat that receives this item's outcome; None when it is not reported.
+
+    Direct Telegram work replies to its own chat. A David hand-off arrives as
+    ``dashboard/hermes_message`` with a conversation id (not a chat id) in
+    ``reply_to``, so it reports to the configured operator recipient — the
+    same ``telegram_operator`` target the escalation path uses.
+    """
+    source = str(item.get("source") or "").lower()
+    if source == "telegram":
+        return _telegram_reply_to(item) or ""
+    if source == "dashboard/hermes_message":
+        operators = aos_orchestration.load_notifications(BASE_DIR)["telegram"]
+        return operators[0] if operators else ""
+    return None
+
+
 def _notify_queue_completion(
     item_id: str,
     status: str,
@@ -10806,9 +10834,9 @@ def _notify_queue_completion(
         with queue_write_lock(BASE_DIR):
             items = _read_queue_items()
             item = next((row for row in items if row.get("id") == item_id), None)
-            if not item or str(item.get("source") or "").lower() != "telegram":
+            recipient = _operator_report_recipient(item) if item else None
+            if recipient is None:
                 return None
-            recipient = _telegram_reply_to(item)
             if not recipient:
                 return {"result": "skipped", "sent": False, "reason": "chat_id_unavailable"}
             label = aos_orchestration.operator_status_label(status)
@@ -10820,7 +10848,12 @@ def _notify_queue_completion(
                     if status == "human_review"
                     else f"{aos_orchestration.operator_task_title(item)} finished as {label}."
                 ),
-                next_action="Review the attached closeout." if status == "human_review" else "Review the attached receipt or local logs.",
+                next_action=(
+                    "Review the attached closeout." if status == "human_review"
+                    else "None; the result is attached." if status == "done"
+                    else "Reply with the requested input." if status == "needs_input"
+                    else "Review the attached receipt or local logs."
+                ),
                 receipt_path=receipt_path,
                 receipt_attached=bool(receipt_path),
             )
@@ -10857,6 +10890,30 @@ def _notify_queue_completion(
             "reason": type(exc).__name__,
         })
         return {"result": "send_failed", "sent": False, "reason": type(exc).__name__}
+
+
+def _notify_terminal_outcome(
+    item: dict,
+    status: str,
+    receipt_path: str,
+    *,
+    parent: dict | None = None,
+    objective_child: bool = False,
+    send_telegram=None,
+) -> dict | None:
+    """Report a finished run once, at the level Liam asked for.
+
+    An executive-objective stage reports the objective's own terminal outcome
+    (final synthesis on done, the blocked receipt on failure); a stage that
+    hands on to the next stage stays silent. Everything else reports itself.
+    """
+    if not objective_child:
+        return _notify_queue_completion(str(item.get("id") or ""), status, receipt_path, send_telegram=send_telegram)
+    parent_status = str((parent or {}).get("status") or "")
+    if parent_status not in {"done", "blocked", "needs_input", "human_review"}:
+        return None
+    parent_receipt = str((_queue_latest_receipt(parent) or {}).get("path") or receipt_path)
+    return _notify_queue_completion(str(parent.get("id") or ""), parent_status, parent_receipt, send_telegram=send_telegram)
 
 
 def _is_hermes_orchestration_child(item: dict) -> bool:
@@ -11363,7 +11420,11 @@ def run_queue_item(item_id: str):
                 orchestration_parent = _queue_find_item(str(updated.get("parent_id") or ""))
         elif executive_objective_child:
             orchestration_parent = _block_executive_objective_parent(updated, receipt_path, reason)
-        notification = _notify_queue_completion(item_id, final_status, receipt_path)
+        notification = _notify_terminal_outcome(
+            updated, final_status, receipt_path,
+            parent=orchestration_parent if executive_objective_child else None,
+            objective_child=executive_objective_child,
+        )
         event_type = "queue.needs_me" if final_status in {"needs_input", "human_review", "blocked"} else "runner.queue_run_complete"
         latitude_telemetry.trace(event_type, "deterministic_runner", final_status, item_id=item_id, owner=owner, receipt_path=receipt_path, attempts_used=len(attempts))
     except KeyError:
@@ -13168,18 +13229,64 @@ def _write_long_work_prompt(relative_path: str, body: str) -> None:
         durable_replace_text(target, body.rstrip() + "\n")
 
 
+QUEUE_RUNNER_UNIT = "aos-runner.service"
+
+
+def _systemd_unit_main_pid(unit: str) -> int | None:
+    """MainPID of a user unit; systemd is the runtime authority for the runner."""
+    try:
+        result = subprocess.run(
+            ["systemctl", "--user", "show", unit, "-p", "MainPID", "--value"],
+            capture_output=True, text=True, timeout=3, check=False,
+        )
+        pid = int(result.stdout.strip() or 0)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+    return pid if pid > 0 else None
+
+
+def _process_cmdline(pid: int) -> str | None:
+    try:
+        return Path(f"/proc/{pid}/cmdline").read_bytes().replace(b"\0", b" ").decode("utf-8", errors="replace")
+    except OSError:
+        return None
+
+
 def _queue_runner_status(root: Path | None = None) -> dict:
+    """Report the recurring runner from systemd first; runner.pid is legacy.
+
+    logs/runtime/runner.pid predates the systemd unit and is never rewritten by
+    it, so a dead PID there is reported as stale evidence, not as a stopped
+    runner, whenever systemd shows the runner live.
+    """
     root = Path(root or BASE_DIR)
+    expected = str(root / "tools" / "aos-orchestration-runner.py")
+
+    def recurring(pid: int | None) -> bool:
+        cmdline = _process_cmdline(pid) if pid else None
+        return bool(cmdline and expected in cmdline and "--watch" in cmdline)
+
     pid_path = root / "logs" / "runtime" / "runner.pid"
     try:
-        pid = int(pid_path.read_text(encoding="utf-8").strip())
-        os.kill(pid, 0)
-        cmdline = Path(f"/proc/{pid}/cmdline").read_bytes().replace(b"\0", b" ").decode("utf-8", errors="replace")
+        file_pid: int | None = int(pid_path.read_text(encoding="utf-8").strip())
+        pid_file = {"pid": file_pid, "state": "live" if recurring(file_pid) else "stale"}
+    except FileNotFoundError:
+        file_pid, pid_file = None, {"pid": None, "state": "missing"}
     except (OSError, ValueError):
-        return {"available": False, "state": "unavailable", "pid": None}
-    expected = str(root / "tools" / "aos-orchestration-runner.py")
-    available = expected in cmdline
-    return {"available": available, "state": "running" if available else "unavailable", "pid": pid if available else None}
+        file_pid, pid_file = None, {"pid": None, "state": "invalid"}
+
+    unit_pid = _systemd_unit_main_pid(QUEUE_RUNNER_UNIT)
+    if recurring(unit_pid):
+        return {"available": True, "state": "running", "pid": unit_pid, "source": "systemd", "pid_file": pid_file}
+    if pid_file["state"] == "live":
+        return {"available": True, "state": "running", "pid": file_pid, "source": "pid_file", "pid_file": pid_file}
+    return {
+        "available": False,
+        "state": "stale_pid" if pid_file["state"] in {"stale", "invalid"} else "unavailable",
+        "pid": None,
+        "source": "none",
+        "pid_file": pid_file,
+    }
 
 
 def _accept_async_queue_runner(item: dict) -> dict:

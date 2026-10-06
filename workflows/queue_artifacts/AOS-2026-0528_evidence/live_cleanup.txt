@@ -1,0 +1,13 @@
+# Live stale/superseded cleanup — 2026-10-04T16:48:24Z
+## before
+records 32 {'done': 4, 'blocked': 6, 'cancelled': 18, 'inbox': 2, 'agent_working': 2}
+sha256 receipts count 2910
+## supersede runs
+AOS-2026-0523 closed ['AOS-2026-0523', 'AOS-2026-0524']
+AOS-2026-0519 closed ['AOS-2026-0519', 'AOS-2026-0520', 'AOS-2026-0521', 'AOS-2026-0522']
+AOS-2026-0499 closed ['AOS-2026-0499', 'AOS-2026-0500']
+## after
+records 32 {'done': 4, 'cancelled': 26, 'agent_working': 2}
+superseded ['AOS-2026-0499', 'AOS-2026-0500', 'AOS-2026-0519', 'AOS-2026-0520', 'AOS-2026-0521', 'AOS-2026-0522', 'AOS-2026-0523', 'AOS-2026-0524']
+receipts count 2918
+prior receipts retained True

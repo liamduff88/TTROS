@@ -1,0 +1,7 @@
+dry-run: no prepare_telegram_send, no bridge call, no queue/event write
+AOS-2026-0527 done source= dashboard/hermes_message eligible= True recipient_allowlisted= True reused_id= True already_sent_this_generation= False
+AOS-2026-0527 blocked source= dashboard/hermes_message eligible= True recipient_allowlisted= True reused_id= True already_sent_this_generation= False
+AOS-2026-0528 done source= dashboard/hermes_message eligible= True recipient_allowlisted= True reused_id= True already_sent_this_generation= False
+AOS-2026-0528 blocked source= dashboard/hermes_message eligible= True recipient_allowlisted= True reused_id= True already_sent_this_generation= False
+AOS-2026-0525 done source= dashboard/hermes_message eligible= True recipient_allowlisted= True reused_id= True already_sent_this_generation= False
+AOS-2026-0525 blocked source= dashboard/hermes_message eligible= True recipient_allowlisted= True reused_id= True already_sent_this_generation= False

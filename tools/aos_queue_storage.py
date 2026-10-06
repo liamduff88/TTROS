@@ -15,6 +15,7 @@ import datetime as dt
 import errno
 import json
 import os
+import re
 import shutil
 import socket
 import tempfile
@@ -130,6 +131,46 @@ def _owner_alive(owner: dict) -> bool | None:
         exists = _process_exists(owner["pid"])
         return False if exists is False else None
     return current_start == owner["process_start_id"]
+
+
+# Work-item IDs are permanent. Items removed from work_items.jsonl before
+# deletion tombstones existed still own their IDs through this evidence, so
+# the allocator must never re-issue them (re-issued IDs inherit the older
+# item's receipts and notification idempotency rows).
+HISTORICAL_ID_EVIDENCE = (
+    Path("queue/orchestration_events.jsonl"),
+    Path("queue/run_ledger.jsonl"),
+    Path("queue/token_ledger.jsonl"),
+)
+HISTORICAL_ID_RECEIPTS = Path("queue/receipts")
+
+
+def historical_max_item_number(root: Path, year: str) -> int:
+    """Highest AOS-<year>-NNNN number named anywhere in queue history."""
+    pattern = re.compile(rf"AOS-{re.escape(str(year))}-(\d{{4,}})")
+    numbers = [0]
+    receipts = Path(root) / HISTORICAL_ID_RECEIPTS
+    if receipts.is_dir():
+        for name in os.listdir(receipts):
+            match = pattern.match(name)
+            if match:
+                numbers.append(int(match.group(1)))
+    for relative in HISTORICAL_ID_EVIDENCE:
+        path = Path(root) / relative
+        if path.is_file():
+            text = path.read_text(encoding="utf-8", errors="replace")
+            numbers.extend(int(match.group(1)) for match in pattern.finditer(text))
+    return max(numbers)
+
+
+def assert_unique_item_ids(items: list[dict]) -> None:
+    """Refuse to persist a queue in which two records share one ID."""
+    seen: set[str] = set()
+    for item in items:
+        item_id = str(item.get("id") or "")
+        if item_id in seen:
+            raise QueueStorageError(f"duplicate work item id refused: {item_id}")
+        seen.add(item_id)
 
 
 def fsync_directory(path: Path) -> None:

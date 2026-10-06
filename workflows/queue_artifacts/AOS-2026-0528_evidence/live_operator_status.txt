@@ -1,0 +1,5 @@
+PASS
+Operator system: healthy
+Bridge health: running
+Queue health: healthy; items=32; actionable=1
+Runner state: running_busy (logs/runtime/runner.pid is stale; systemd is authoritative)

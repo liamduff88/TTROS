@@ -44,6 +44,22 @@ from aos_codex_policy import (
     validate_runtime as validate_codex_runtime,
 )
 from aos_queue_storage import QueueStorageError, durable_replace_text, fsync_directory, queue_write_lock
+
+try:
+    from aos_queue_storage import assert_unique_item_ids, historical_max_item_number
+except ImportError:
+    # The backend and the detached executor re-load this file on every queue
+    # call but keep the aos_queue_storage they imported at start. Until they
+    # restart, take the two ID helpers from the current file on disk.
+    import importlib.util as _importlib_util
+
+    _spec = _importlib_util.spec_from_file_location(
+        "aos_queue_storage_current", Path(__file__).resolve().with_name("aos_queue_storage.py"),
+    )
+    _current_storage = _importlib_util.module_from_spec(_spec)
+    _spec.loader.exec_module(_current_storage)
+    assert_unique_item_ids = _current_storage.assert_unique_item_ids
+    historical_max_item_number = _current_storage.historical_max_item_number
 from aos_task_titles import derive_task_title
 from business_brain_context import BrainContextError, validate_completion_context
 from step6_cost_control import (
@@ -234,6 +250,7 @@ def load_items(root: Path) -> list[dict]:
 
 
 def save_items(root: Path, items: list[dict]) -> None:
+    assert_unique_item_ids(items)
     with queue_write_lock(root):
         ensure_queue(root)
         text = serialize_items(items)
@@ -591,6 +608,7 @@ def next_id(items: list[dict], created_at: str, root: Path | None = None) -> str
             for pattern in ("task-deletion-*.json", ".task-deletion-*.pending"):
                 for path in receipts.glob(pattern):
                     reserved_ids.append(str(_read_deletion_tombstone(Path(root), path).get("item_id") or ""))
+        max_number = historical_max_item_number(Path(root), year)
     for item_id in reserved_ids:
         if item_id.startswith(prefix):
             try:
@@ -2053,7 +2071,105 @@ def _finish_done(root: Path, items: list[dict], item: dict, effect_id: str, inte
     item["status"] = DONE_STATUS
     item["updated_at"] = timestamp
     intent["status"] = "applied"
+    apply_declared_supersession(root, items, item)
     save_items(root, items)
+
+
+SUPERSEDABLE_STATUSES = {"inbox", "agent_todo", "needs_input", "human_review", "blocked"}
+
+
+def _supersession_receipt(root: Path, item: dict, previous_status: str, superseded_by: str | None, reason: str) -> str:
+    relative = f"{RECEIPTS_DIR.as_posix()}/{item['id']}-superseded.md"
+    content = "\n".join([
+        "PASS",
+        "",
+        f"Work item ID: {item['id']}",
+        f"Title: {item.get('title') or ''}",
+        "",
+        "Lifecycle transition:",
+        f"- Previous status: {previous_status}",
+        "- New status: cancelled",
+        f"- Superseded by: {superseded_by or 'none (obsolete; no replacement item)'}",
+        f"- Reason: {reason}",
+        "- History: the record, its receipts and its events are retained; nothing was deleted.",
+        "",
+        "Token usage:",
+        "- no agent invocation",
+        "",
+    ])
+    target = root / relative
+    if not target.exists():
+        durable_replace_text(target, content)
+    return relative
+
+
+def _apply_supersession(
+    root: Path, items: list[dict], item: dict, *, reason: str, superseded_by: str | None,
+) -> list[str]:
+    """Close one open item as superseded (status cancelled), then its open children.
+
+    Mutates ``items`` in place; the caller saves. Returns the IDs closed.
+    """
+    status = str(item.get("status") or "")
+    if status == "cancelled" and isinstance(item.get("supersession"), dict):
+        return []
+    if status not in SUPERSEDABLE_STATUSES:
+        raise QueueError(f"{item.get('id')} is {status}; only {sorted(SUPERSEDABLE_STATUSES)} items can be superseded")
+    timestamp = now_iso()
+    receipt_path = _supersession_receipt(root, item, status, superseded_by, reason)
+    _clear_worker_claim(item)
+    item["status"] = "cancelled"
+    item["updated_at"] = timestamp
+    item["supersession"] = {
+        "previous_status": status,
+        "superseded_by": superseded_by,
+        "reason": reason,
+        "superseded_at": timestamp,
+        "receipt_path": receipt_path,
+    }
+    item.setdefault("receipts", []).append({"path": receipt_path, "created_at": timestamp, "status": "cancelled"})
+    closed = [str(item["id"])]
+    for child in items:
+        if str(child.get("parent_id") or "") == item["id"] and str(child.get("status") or "") in SUPERSEDABLE_STATUSES:
+            closed.extend(_apply_supersession(
+                root, items, child,
+                reason=f"Parent {item['id']} was superseded: {reason}",
+                superseded_by=superseded_by,
+            ))
+    return closed
+
+
+def apply_declared_supersession(root: Path, items: list[dict], item: dict) -> list[str]:
+    """When replacement work reaches done, close the items it declared it supersedes."""
+    closed: list[str] = []
+    for target_id in [str(value) for value in item.get("supersedes") or [] if str(value).strip()]:
+        target = next((row for row in items if row.get("id") == target_id), None)
+        if target is None or str(target.get("status") or "") not in SUPERSEDABLE_STATUSES:
+            continue
+        closed.extend(_apply_supersession(
+            root, items, target,
+            reason=f"Replacement work {item['id']} completed.",
+            superseded_by=str(item["id"]),
+        ))
+    return closed
+
+
+@locked_queue_mutation
+def supersede_item(root: Path, item_id: str, reason: str, superseded_by: str | None = None) -> dict:
+    """Retire a stale or superseded open item without deleting any history."""
+    reason = " ".join(str(reason or "").split())
+    if not reason:
+        raise QueueError("supersede requires a reason")
+    items = load_items(root)
+    item = find_item(items, item_id)
+    if superseded_by:
+        replacement = find_item(items, superseded_by)
+        if replacement.get("status") != DONE_STATUS:
+            raise QueueError(f"replacement {superseded_by} is {replacement.get('status')}, not done")
+    closed = _apply_supersession(root, items, item, reason=reason, superseded_by=superseded_by or None)
+    if closed:
+        save_items(root, items)
+    return {"item_id": item_id, "closed": closed, "status": item.get("status"), "supersession": item.get("supersession")}
 
 
 def _load_json_arg(value: str | None) -> dict | None:
@@ -2092,6 +2208,11 @@ def create_item(root: Path, args: argparse.Namespace) -> dict:
         context=getattr(args, "context", ""),
         tags=getattr(args, "tags", ""),
     )
+    supersedes = split_csv(getattr(args, "supersedes", ""))
+    known_ids = {str(row.get("id") or "") for row in items}
+    unknown = [value for value in supersedes if value not in known_ids]
+    if unknown:
+        raise QueueError(f"supersedes names unknown work item(s): {', '.join(unknown)}")
     item = {
         "id": next_id(items, timestamp, root),
         "title": title,
@@ -2146,10 +2267,13 @@ def create_item(root: Path, args: argparse.Namespace) -> dict:
         "publish_review_passed": getattr(args, "publish_review_passed", None),
         "email_safe": getattr(args, "email_safe", None),
         "outreach_basis": getattr(args, "outreach_basis", None),
+        "supersedes": supersedes,
     }
     for key, value in optional_values.items():
         if value is not None and value != "" and value != []:
             item[key] = value
+    if item["id"] in known_ids:
+        raise QueueError(f"allocated work item id already exists: {item['id']}")
     items.append(item)
     save_items(root, items)
     return item
@@ -2448,6 +2572,7 @@ def build_parser() -> argparse.ArgumentParser:
     create.add_argument("--publish-review-passed", action=argparse.BooleanOptionalAction, default=None)
     create.add_argument("--email-safe", action=argparse.BooleanOptionalAction, default=None)
     create.add_argument("--outreach-basis", default="")
+    create.add_argument("--supersedes", default="", help="Comma-separated open item IDs this work replaces once it is done")
 
     list_parser = subparsers.add_parser("list", help="List local work items")
     list_parser.add_argument("--status")
@@ -2480,6 +2605,13 @@ def build_parser() -> argparse.ArgumentParser:
     delete.add_argument("--reason", required=True, metavar="TEXT")
     delete.add_argument("--request-id", required=True, metavar="ID")
     delete.add_argument("--deleted-by", default="Liam", metavar="OPERATOR")
+
+    supersede = subparsers.add_parser(
+        "supersede", help="Retire a stale/superseded open item (and its open children) as cancelled; history is kept",
+    )
+    supersede.add_argument("item_id", metavar="ITEM_ID")
+    supersede.add_argument("--reason", required=True, metavar="TEXT")
+    supersede.add_argument("--superseded-by", default="", metavar="ITEM_ID", help="Completed replacement item, if any")
 
     next_parser = subparsers.add_parser("next", help="Show the highest-priority available item for an agent")
     next_parser.add_argument("agent_id")
@@ -2552,6 +2684,8 @@ def main(argv: list[str] | None = None) -> int:
                 request_id=args.request_id,
                 deleted_by=args.deleted_by,
             ))
+        elif args.command == "supersede":
+            print_json(supersede_item(root, args.item_id, args.reason, args.superseded_by or None))
         elif args.command == "next":
             item = next_item(root, args.agent_id)
             print_json(item if item else {})

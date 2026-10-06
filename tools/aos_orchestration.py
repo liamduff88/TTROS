@@ -5,7 +5,7 @@ The runner advances local queue state only. It never invokes a model. Telegram
 escalation uses the existing bridge send function when a caller supplies it or
 when the default loader can import it.
 
-Revisit: when queue authorization, notification, or runner contracts change. · Last touched: 2026-09-13.
+Revisit: when queue authorization, notification, or runner contracts change. · Last touched: 2026-10-04.
 """
 
 from __future__ import annotations
@@ -25,7 +25,13 @@ if str(TOOLS_DIR) not in sys.path:
     sys.path.insert(0, str(TOOLS_DIR))
 
 from aos_paths import aos_root, assert_authoritative_root
-from aos_queue_storage import durable_create_directory, durable_replace_text, fsync_directory, queue_write_lock
+from aos_queue_storage import (
+    assert_unique_item_ids,
+    durable_create_directory,
+    durable_replace_text,
+    fsync_directory,
+    queue_write_lock,
+)
 from step6_cost_control import append_canonical_row
 
 QUEUE_DIR = Path("queue")
@@ -119,6 +125,7 @@ def load_items(root: Path) -> list[dict]:
 
 
 def save_items(root: Path, items: list[dict]) -> None:
+    assert_unique_item_ids(items)
     with queue_write_lock(root):
         path = root / WORK_ITEMS_PATH
         durable_replace_text(
@@ -263,6 +270,37 @@ def event_exists(events: list[dict], event_type: str, item_id: str, key: str = "
         and str(row.get("key") or "") == key
         for row in events
     )
+
+
+def item_generation(events: list[dict], item: dict) -> str:
+    """Creation time of this item when its ID was used by an earlier item, else "".
+
+    IDs AOS-2026-0500..0528 were re-issued while older items' events still
+    existed. Evidence dated before the current item's creation belongs to the
+    earlier item and must not satisfy this item's idempotency checks.
+    """
+    item_id = str(item.get("id") or "")
+    created = str(item.get("created_at") or "")
+    if not item_id or not created:
+        return ""
+    for row in events:
+        if row.get("item_id") == item_id and str(row.get("created_at") or "") < created:
+            return created
+    return ""
+
+
+def generation_events(events: list[dict], item: dict) -> list[dict]:
+    """Events that can belong to this item: those not older than its creation."""
+    item_id = str(item.get("id") or "")
+    created = str(item.get("created_at") or "")
+    return [
+        row for row in events
+        if row.get("item_id") != item_id or not created or str(row.get("created_at") or "") >= created
+    ]
+
+
+def generation_key(key: str, generation: str) -> str:
+    return f"{key}@{generation}" if generation else key
 
 
 def latest_event(events: list[dict], event_type: str, item_id: str, key: str = "") -> dict | None:
@@ -1018,13 +1056,14 @@ def process_notifications(
         status = str(item.get("status") or "")
         if status not in ATTENTION_STATUSES:
             continue
+        generation = item_generation(events, item)
         for channel in ("originating_channel", "needs_me_rail"):
             key = f"{status}:{channel}"
-            prior = latest_event(events, "notification_logged", item_id, key)
+            prior = latest_event(generation_events(events, item), "notification_logged", item_id, key)
             if prior:
                 _attach_effect_receipt(item, prior["receipt_path"], status, prior["created_at"])
                 continue
-            stable_effect = effect_identity("notification_logged", item_id, key)
+            stable_effect = effect_identity("notification_logged", item_id, generation_key(key, generation))
             intent = _prepare_tick_intent(
                 root, items, item, stable_effect,
                 {"event": "notification_logged", "key": key, "target_status": status},
@@ -1049,7 +1088,7 @@ def process_notifications(
             actions.append(record)
 
         origin_key = f"{status}:originating_channel"
-        origin_event = latest_event(events, "notification_logged", item_id, origin_key)
+        origin_event = latest_event(generation_events(events, item), "notification_logged", item_id, origin_key)
         origin_logged_at = parse_iso(origin_event.get("created_at") if origin_event else None)
         if not origin_logged_at:
             continue
@@ -1060,7 +1099,7 @@ def process_notifications(
             continue
         recipient = config["telegram"][0] if config["telegram"] else ""
         key = f"{status}:telegram_operator"
-        if _telegram_prior_send_event(events, item_id, key, recipient):
+        if _telegram_prior_send_event(generation_events(events, item), item_id, key, recipient):
             continue
         message = format_operator_work_item_notification(
             item,
@@ -1145,7 +1184,9 @@ def prepare_telegram_send(
     recipient = str(recipient)
     status = str(item.get("status") or "")
     stable_key = telegram_idempotency_key(item_id, "telegram_escalation", key, recipient)
-    stable_effect = effect_identity("telegram_escalation", item_id, f"{key}|{recipient}")
+    events = read_jsonl(root / EVENTS_PATH)
+    generation = item_generation(events, item)
+    stable_effect = effect_identity("telegram_escalation", item_id, generation_key(f"{key}|{recipient}", generation))
     if recipient not in set(config["telegram"]):
         receipt_path = log_notification_receipt(
             root, item, "telegram-escalation", status, "blocked",
@@ -1164,7 +1205,7 @@ def prepare_telegram_send(
             "created_at": now_iso(),
             "effect_id": f"{stable_effect}:result",
         }}
-    prior = _telegram_prior_send_event(read_jsonl(root / EVENTS_PATH), item_id, key, recipient)
+    prior = _telegram_prior_send_event(generation_events(events, item), item_id, key, recipient)
     if prior:
         prior_receipt = prior.get("receipt_path")
         prior_created = prior.get("created_at")
