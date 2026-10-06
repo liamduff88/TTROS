@@ -198,6 +198,19 @@ class ChatGPTWakeTests(unittest.TestCase):
         with mock.patch.object(wake.subprocess, "run", return_value=mock.Mock(stdout="not json", stderr="")):
             self.assertFalse(wake._acknowledged(wake.agentmail_send("liam@timetorevenue.com", "s", "b")))
 
+    def test_real_adapter_command_reaches_authorization_and_answers_json(self):
+        # The unmocked adapter, through the wake's own command. The recipient is outside the
+        # allowlist and HOME/PATH hide the composio binary, so nothing can be transmitted.
+        # Before the PYTHONPATH fix this returned adapter_returned_no_json (ModuleNotFoundError).
+        env = {"HOME": self.temp.name, "PATH": "/usr/bin:/bin"}
+        with mock.patch.dict(os.environ, env, clear=True):
+            out = wake.agentmail_send("nobody@example.invalid", "s", "probe only")
+        self.assertNotIn("adapter_returned_no_json", str(out.get("error")))
+        self.assertIs(out.get("ok"), False)
+        self.assertFalse(wake._acknowledged(out))
+        self.assertIn("transmitted", out)
+        self.assertIs(out["transmitted"], False)
+
     def test_claude_watcher_selection_is_unchanged_by_chatgpt_notes(self):
         self.write("alpha-stream", "ChatGPT should review.", 0)
         self.write("beta-stream", "Claude should draft.", 0, DAVID)

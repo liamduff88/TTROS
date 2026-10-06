@@ -19,7 +19,7 @@ notes that still name ChatGPT stay inert. A note ChatGPT itself wrote never wake
 No model calls. No new queue, store, timer or daemon.
 
 Revisit: when the checkpoint note schema, the AgentMail adapter command, the notification
-allowlist or the ChatGPT-side email trigger changes. Last touched: 2026-10-05.
+allowlist or the ChatGPT-side email trigger changes. Last touched: 2026-10-06.
 """
 
 from __future__ import annotations
@@ -140,8 +140,11 @@ def agentmail_send(recipient: str, subject: str, text: str, *, root: Path = REPO
     payload = {"inbox_id": inbox, "to": [recipient], "subject": subject, "text": text, "html": "",
                "cc": [], "bcc": [], "labels": [], "reply_to": []}
     quoted = shlex.quote(str(root))
+    # The adapter's authorization imports `tools.aos_orchestration`; run as a script, only
+    # `connectors/` is on its path, so the repo root must be added or every execute crashes.
     command = (f'export PATH="$HOME/.local/npm/bin:$HOME/.local/bin:$HOME/.composio:$PATH"; '
-               f"export AOS_ROOT={quoted}; cd {quoted}; python3 connectors/composio_access_adapter.py "
+               f"export AOS_ROOT={quoted}; export PYTHONPATH={quoted}; cd {quoted}; "
+               "python3 connectors/composio_access_adapter.py "
                f"run agent_mail {ACTION} --data {shlex.quote(json.dumps(payload, separators=(',', ':')))} "
                "--execute --operator-command")
     try:
@@ -152,7 +155,9 @@ def agentmail_send(recipient: str, subject: str, text: str, *, root: Path = REPO
     try:
         response = json.loads(done.stdout.strip() or done.stderr.strip())
     except ValueError:
-        return {"ok": False, "error": "adapter_returned_no_json"}
+        # Exception class only (e.g. ModuleNotFoundError), never the message or payload.
+        crash = re.search(r"^(\w+(?:Error|Exception))\b", done.stderr.strip().splitlines()[-1] if done.stderr.strip() else "")
+        return {"ok": False, "error": "adapter_returned_no_json" + (f": {crash.group(1)}" if crash else "")}
     return response if isinstance(response, dict) else {"ok": False, "error": "adapter_returned_non_object"}
 
 
