@@ -4,8 +4,11 @@ Start: David's `start_workflow` brain tool calls `start()`. It opens a new works
 through the existing `checkpoint()` (expected_version 0) with a working-artifact brief, and
 hands the next action to Claude, so the existing Claude handoff watcher runs it unattended.
 The brief carries a named TTROS workflow's method (from `workflows/workflow_registry.json`)
-or, when none matches, an ad-hoc bounded brief. Bound: one unattended Claude pass; no send,
-publish or external action; the result comes back as `work_product` result.md.
+or, when none matches, an ad-hoc bounded brief. Where Liam's request routes the work explicitly
+(actors, handoffs, his question, the submit, COMPLETE), his route wins and Claude does only its
+own part, checkpointing to the next actor he named. Where it is silent, the default bound holds:
+one unattended Claude pass; no send, publish or external action; the result comes back as
+`work_product` result.md.
 
 Finish: `report()` runs on the same 2-minute timer as the Claude watcher. When a workstream
 started here is handed back to Liam (`next_action` begins "Liam"), or Claude's pass for it
@@ -24,7 +27,9 @@ to `answer()`. The workstream and version come only from that marker, never from
 pending question". The note is re-read; only if that version is still current and still waiting
 for Liam is his answer checkpointed onto the same workstream (expected_version = that version),
 with next_action handed to the resume actor: the surface that asked (Claude or ChatGPT), or the
-one next_action names after "then". The existing Claude watcher or ChatGPT wake then continues.
+one next_action names after "then". When next_action set what that actor does after the answer
+("then ChatGPT should …"), that continuation is carried over verbatim; otherwise the actor gets the
+generic finish-or-ask instruction. The existing Claude watcher or ChatGPT wake then continues.
 The links come from Drive for Desktop's own local
 index of the files it syncs (read-only copy; no API call). Only when no link can be produced is
 the result inlined. No model calls. No new queue, store or daemon: the bounded log below records
@@ -32,7 +37,7 @@ starts and reports, as the watcher's log does.
 
 Revisit: when the checkpoint note schema, the Claude watcher's assignment rule, the workflow
 registry shape, the submit contract, the Telegram reply context or Drive for Desktop's index schema
-changes. Last touched: 2026-10-05.
+changes. Last touched: 2026-10-06.
 """
 
 from __future__ import annotations
@@ -78,6 +83,8 @@ QUESTION_MARKER = "TTROS WORKSTREAM {ws} v{version}"
 QUESTION_MARKER_RE = re.compile(r"TTROS WORKSTREAM ([a-z0-9][a-z0-9-]{2,63}) v([1-9][0-9]{0,8})\Z")
 # "Liam: answer the open questions, then ChatGPT should …" names the resume actor explicitly.
 THEN_ACTOR_RE = re.compile(r"\bthen\s+\**\s*(claude|chatgpt)\b", re.I)
+# … and what that actor does after the answer: "then ChatGPT should record it, submit once, COMPLETE".
+CONTINUATION_RE = re.compile(r"\bthen\s+\**\s*(?:claude|chatgpt)\b\**[\s:,-]*(?:should\s+)?(?P<rest>\w.*)", re.I | re.S)
 ACTORS = {"claude": "Claude", "chatgpt": "ChatGPT"}
 MAX_ANSWER_CHARS = 900
 # Who records Liam's Telegram answer: Liam himself, through TTROS's Telegram reply path.
@@ -92,9 +99,10 @@ STOPWORDS = set("""a an and the to of for with on in into this that these my me 
 would you start run kick off begin shared brain workflow workstream bring back finished result
 results it its then i want need idea""".split())
 
-NEXT_ACTION = ("Claude should open the workflow brief in the work product, do the whole bounded pass it "
-               "describes, store the finished result as work_product result.md, and set next_action to "
-               "'Liam: review the finished result'.")
+NEXT_ACTION = ("Claude should open the workflow brief in the work product and do the bounded pass it describes. "
+               "If Liam's request there routes the work explicitly, do only Claude's part and checkpoint to the "
+               "next actor it names; otherwise store the finished result as work_product result.md and set "
+               "next_action to 'Liam: review the finished result'.")
 
 
 def _now() -> dt.datetime:
@@ -158,6 +166,10 @@ Started {_now().date().isoformat()} from Liam's request through David. This brie
 ## Workflow
 
 {how}
+
+## Liam's route comes first
+
+If Liam's request above sets an explicit route (which actor does what, handoffs, a question to him, who submits, when it is COMPLETE), that route is authoritative and overrides the defaults below. Do only the part it assigns to Claude, then checkpoint `{workstream_id}` to the next actor it names: next_action begins with that actor ("ChatGPT should …", or "Liam: …" for his question) and carries Liam's later steps forward in his words, including what happens after his answer ("Liam: …, then ChatGPT should …"). Do not do another actor's part, ask Liam a question he routed to someone else, or mark the result finished for Liam's review unless his route says so. The defaults below apply only where his request is silent.
 
 ## Bounds
 
@@ -230,9 +242,10 @@ def start(request: str, workflow_id: str = "", workstream_id: str = "", *,
     fields = {
         "goal": goal,
         "done": "Started from Liam's request through David. Nothing done yet.",
-        "decisions": (f"Workflow: {label}. Bound: one unattended Claude pass, result as work_product "
-                      f"{RESULT_NAME}; a finished result is submitted once as a durable Brain record, then "
-                      "back to Liam on Telegram. No send, publish or external action without Liam."),
+        "decisions": (f"Workflow: {label}. Liam's explicit route in the request, if any, wins. Default where it "
+                      f"is silent: one unattended Claude pass, result as work_product {RESULT_NAME}; a finished "
+                      "result is submitted once as a durable Brain record, then back to Liam on Telegram. "
+                      "No send, publish or external action without Liam."),
         "work_product_reference": "",
         "next_action": NEXT_ACTION,
         "open_questions": "",
@@ -473,11 +486,17 @@ def answer(reply_text: str, answer_text: str, *, root: Path | None = None) -> di
     keep = f", keep the result as work_product {reference.split('/', 1)[1]}" if reference.startswith("artifact:") else ""
     answered = f"Liam's answer (Telegram reply to v{version}): {text}"
     asked = f" Asked: {note['open_questions']}" if note["open_questions"] else ""
+    continuation = CONTINUATION_RE.search(note["next_action"])
+    if continuation:  # what Liam's route set for after his answer stays the instruction, verbatim
+        next_action = (f"{name} should continue {ws} with Liam's answer in open_questions{keep}, then do what "
+                       f"was set for after his answer: {continuation.group('rest').strip()}")
+    else:
+        next_action = (f"{name} should continue {ws} with Liam's answer in open_questions{keep}, and set "
+                       "next_action to 'Liam: review the finished result' when it is finished, or "
+                       "'Liam: answer the open questions' if it is still blocked.")
     fields = {"goal": note["goal"], "done": note["done"], "decisions": note["decisions"],
               "work_product_reference": reference,
-              "next_action": (f"{name} should continue {ws} with Liam's answer in open_questions{keep}, and set "
-                              "next_action to 'Liam: review the finished result' when it is finished, or "
-                              "'Liam: answer the open questions' if it is still blocked."),
+              "next_action": next_action,  # never clipped: an over-long one fails the write, nothing lost
               "open_questions": _clip(answered + asked, checkpoint_store.MAX_FIELD_CHARS)}
     if not checkpoint_store.checkpoint(ws, fields, version, attribution=ANSWER_STAMP, root=root,
                                        validate_only=True).get("success"):

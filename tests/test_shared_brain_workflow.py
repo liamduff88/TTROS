@@ -3,7 +3,7 @@
 Runs against a temporary Brain root, artifact area and logs; no model call, no Telegram send,
 live Brain untouched: durable submit is an injected idempotent fake, and the real Brain write
 path is patched to fail the test if anything reaches it.
-Revisit: when tools/shared_brain_workflow.py changes. Last touched: 2026-10-05.
+Revisit: when tools/shared_brain_workflow.py changes. Last touched: 2026-10-06.
 """
 import contextlib
 import datetime as dt
@@ -561,6 +561,103 @@ class LiamReplyRoutingTests(WorkflowFixture):
         too_long = workflow.answer(marker, "x" * (workflow.MAX_ANSWER_CHARS + 1), root=self.root)
         self.assertEqual(too_long["reason"], "answer_too_long")
         self.assertEqual(store.resume(ws, root=self.root)["note"]["version"], 2)
+
+
+ROUTED = ("Start a new independent Shared Brain workstream for final operator acceptance. Required path: "
+          "Claude → ChatGPT → Liam question → Liam direct Telegram reply → ChatGPT resumes → durable submit "
+          "exactly once → COMPLETE. Claude's bounded action: propose two status labels, A and B, then checkpoint "
+          "this same workstream to ChatGPT. ChatGPT's bounded action: ask me exactly one question: choose A or B. "
+          "After I reply, ChatGPT records my label, durable-submits it exactly once and completes the workstream.")
+SIMPLE = "Start a second independent workstream. Claude only: a three-bullet operator quick-check. Bring it back to me."
+CHATGPT = dict(CLAUDE, surface="chatgpt")
+
+
+class ExplicitRouteTests(WorkflowFixture):
+    """Liam's explicit route in an ad-hoc request wins; the generic one-pass defaults fill only silence."""
+
+    def test_routed_workstream_keeps_liams_post_answer_continuation(self):
+        ws = self.start(ROUTED)["workstream_id"]
+        resumed = store.resume(ws, root=self.root)
+        brief, note = resumed["work_product"]["content"], resumed["note"]
+        self.assertIn(ROUTED, brief)
+        self.assertIn("that route is authoritative and overrides the defaults below", brief)
+        self.assertIn("Do only the part it assigns to Claude", brief)
+        self.assertLess(brief.index("Liam's route comes first"), brief.index("## Bounds"))
+        self.assertIn("do only Claude's part and checkpoint to the next actor it names", note["next_action"])
+        self.assertIn("Liam's explicit route in the request, if any, wins", note["decisions"])
+        self.assertTrue(watcher.assigned_to_claude(note))
+
+        # Claude's part only, handed to ChatGPT: nothing to tell Liam yet; ChatGPT is woken, Claude is not.
+        self.claim(ws, 1)
+        fields = dict(goal=note["goal"], done="Proposed A and B with one rationale each.", decisions="Route per Liam.",
+                      work_product_reference="", next_action="ChatGPT should ask Liam exactly one question: choose A or B.",
+                      open_questions="")
+        self.assertTrue(store.checkpoint(ws, fields, 1, attribution=CLAUDE, root=self.root,
+                                         work_product={"name": "result.md", "content": "# Labels\nA or B"})["success"])
+        self.assertEqual(self.report(), [])
+        self.assertEqual([n["workstream_id"] for n in wake.candidates(workflow._now(), 12, self.root)], [ws])
+
+        # ChatGPT asks Liam and records what it does after his answer.
+        then = ("then ChatGPT should record the selected label as a short finished decision, durable-submit it "
+                "exactly once, and complete the workstream (COMPLETE).")
+        self.ask_liam(ws, 2, surface="chatgpt", next_action=f"Liam: choose A or B, {then}", questions="A or B?")
+        self.report()
+        question = self.questions_sent()[ws]
+        self.assertEqual(question.splitlines()[0], f"TTROS WORKSTREAM {ws} v3")
+        self.assertIn("ChatGPT continues", question)
+
+        out = workflow.answer(question, "B. Shared Brain — Operational", root=self.root)
+        self.assertEqual((out["success"], out["workstream_id"], out["answered_version"], out["version"],
+                          out["resume_actor"]), (True, ws, 3, 4, "ChatGPT"), out)
+        answered = store.resume(ws, root=self.root)["note"]
+        self.assertEqual((answered["version"], answered["surface"]), (4, "telegram"))
+        self.assertIn("B. Shared Brain — Operational", answered["open_questions"])
+        action = answered["next_action"]
+        self.assertTrue(action.startswith(f"ChatGPT should continue {ws} with Liam's answer"), action)
+        self.assertIn("record the selected label as a short finished decision, durable-submit it exactly once, "
+                      "and complete the workstream (COMPLETE).", action)
+        self.assertNotIn("review the finished result", action)
+        self.assertTrue(wake.assigned_to_chatgpt(answered))
+        self.assertEqual([n["id"] for n in wake.candidates(workflow._now(), 12, self.root)], [answered["id"]])
+        self.assertEqual(watcher.candidates(workflow._now(), 12, self.root), [])
+        self.assertEqual(self.report(), [])  # ChatGPT's turn; nothing for Liam and nothing submitted by TTROS
+        self.assertEqual(self.submit.calls, [])
+        stale = workflow.answer(question, "A.", root=self.root)  # the same question again
+        self.assertEqual((stale["success"], stale["reason"]), (False, "stale"))
+        self.assertEqual(store.resume(ws, root=self.root)["note"]["version"], 4)
+
+    def test_simple_claude_only_workstream_stays_independent_and_one_pass(self):
+        routed, simple = self.start(ROUTED)["workstream_id"], self.start(SIMPLE)["workstream_id"]
+        self.assertNotEqual(routed, simple)
+        claimed = watcher._claimed(watcher._read_log(self.watcher_log))
+        pending = [n["workstream_id"] for n in watcher.candidates(workflow._now(), 12, self.root) if n["id"] not in claimed]
+        self.assertEqual(sorted(pending), sorted([routed, simple]))
+        pending_notes = [store.resume(ws, root=self.root)["note"] for ws in pending]
+        self.assertEqual(watcher.select(pending_notes)["workstream_id"], routed)  # one per tick, oldest first
+        before = store.resume(routed, root=self.root)["note"]
+        brief = store.resume(simple, root=self.root)["work_product"]["content"]
+        self.assertIn("One unattended Claude pass", brief)
+        self.assertIn('next_action beginning "Liam: review the finished result"', brief)
+        self.claim(simple, 1)
+        self.claude_returns(simple, 1, result="# Quick-check\n- one\n- two\n- three")
+        actions = self.report()
+        self.assertEqual([a["event"] for a in actions], ["submitted", "reported"])
+        self.assertEqual(len(self.submit.calls), 1)
+        self.assertTrue(store.resume(simple, root=self.root)["note"]["done"].startswith("COMPLETE."))
+        self.assertEqual(self.report(), [])  # rerun: no second submit, no second message
+        self.assertEqual(len(self.submit.calls), 1)
+        self.assertEqual(store.resume(routed, root=self.root)["note"], before)  # the routed one is untouched
+
+    def test_answer_without_an_explicit_continuation_keeps_the_generic_finish(self):
+        for next_action in ("Liam: answer the open questions.", "Liam: answer the open questions, then ChatGPT."):
+            with self.subTest(next_action=next_action):
+                ws = self.waiting_for_liam(REQUEST + f" {len(next_action)}", surface="chatgpt", next_action=next_action)
+                out = workflow.answer(f"TTROS WORKSTREAM {ws} v2", "US$29.", root=self.root)
+                self.assertTrue(out["success"], out)
+                action = store.resume(ws, root=self.root)["note"]["next_action"]
+                self.assertTrue(action.startswith(f"ChatGPT should continue {ws} with Liam's answer"), action)
+                self.assertIn("set next_action to 'Liam: review the finished result' when it is finished", action)
+                self.assertNotIn("what was set for after his answer", action)
 
 
 if __name__ == "__main__":
