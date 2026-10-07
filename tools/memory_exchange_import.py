@@ -1,6 +1,6 @@
 """Deterministic TTROS Memory Exchange directory-v1 importer.
 
-Revisit: when the frozen Memory Ingest manifest contract changes. · Last touched: 2026-10-03.
+Revisit: when the frozen Memory Ingest manifest contract changes. · Last touched: 2026-10-07.
 """
 from __future__ import annotations
 
@@ -321,11 +321,28 @@ def _refresh(paths: list[str], brain: Path, root: Path) -> tuple[dict, dict]:
         return search, {"status": "pending", "reason": "search refresh failed"}
     graph = BusinessBrainGraphService(vault_root=brain, registry=registry)
     allowed, prefixes = graph._published_target_allowlist()
-    if not any(pointer in allowed or any(pointer.startswith(prefix) for prefix in prefixes) for pointer in paths):
-        return search, {"status": "not_applicable"}
+    missing = [pointer for pointer in paths
+               if not (pointer in allowed or any(pointer.startswith(prefix) for prefix in prefixes))]
+    if missing:
+        return search, {"status": "pending", "reason": "imported notes missing Graphify scope", "missing": missing}
     try:
         result = graph.build()
-        return search, {"status": result["status"], "receipt_path": result.get("receipt_path")}
+        if result.get("status") != "success":
+            return search, {"status": "pending", "reason": "Graphify build did not succeed"}
+        manifest = json.loads((graph.published / "source_manifest.json").read_text(encoding="utf-8"))
+        projection = json.loads((graph.published / "graph.json").read_text(encoding="utf-8"))
+        files = {row["source_path"]: row for row in manifest["files"]}
+        nodes = {row["source_path"]: row for row in projection["nodes"] if row.get("kind") == "note"}
+        covered = []
+        for pointer in paths:
+            raw = (brain / pointer.removeprefix("business_brain:")).read_bytes()
+            expected = digest(raw)
+            if files.get(pointer, {}).get("sha256") != expected or nodes.get(pointer, {}).get("content_sha256") != expected:
+                return search, {"status": "pending", "reason": "Graphify source/node coverage mismatch", "missing": [pointer]}
+            covered.append({"pointer": pointer, "sha256": expected, "node_id": nodes[pointer]["id"]})
+        return search, {"status": "success", "receipt_path": result.get("receipt_path"),
+                        "source_manifest_sha256": digest((graph.published / "source_manifest.json").read_bytes()),
+                        "coverage": covered}
     except Exception as exc:
         return search, {"status": "pending", "reason": str(exc)}
 
@@ -349,6 +366,13 @@ def process(package: Path, *, brain: Path = BUSINESS_BRAIN_ROOT, root: Path = RO
             if same_batch:
                 raise ImportFailure("batch fingerprint already imported under another package ID")
             previous = prior[-1] if prior else None
+            # The Brain transaction stamps provenance, so a written note differs from its package
+            # bytes; reruns compare against the hash the importer recorded after writing.
+            written = {}
+            for row in prior:
+                for item in row.get("outputs") or []:
+                    if row.get("fingerprint") == fingerprint and item.get("written_sha256"):
+                        written[item.get("pointer")] = item["written_sha256"]
             for output in outputs:
                 target = Path(output["target"])
                 if target.is_symlink() or not target.resolve().is_relative_to(brain.resolve()):
@@ -357,7 +381,10 @@ def process(package: Path, *, brain: Path = BUSINESS_BRAIN_ROOT, root: Path = RO
                     current = digest(target.read_bytes())
                     if current == output["sha256"]:
                         output["action"] = "already_present"
-                    elif previous and previous.get("fingerprint") == fingerprint and previous.get("outcome") in {"committed", "imported", "refresh_pending"}:
+                    elif previous and previous.get("fingerprint") == fingerprint and previous.get("outcome") in {"committed", "imported", "refresh_pending", "already_imported"}:
+                        # Rows written before written_sha256 existed keep their original trust.
+                        if written.get(output["pointer"], current) != current:
+                            raise ImportFailure(f"previously imported target changed: {output['pointer']}")
                         output["action"] = "already_present"
                     elif output["operation"] == "canonical_replace" and current == output["expected_base_sha256"]:
                         output["action"] = "replace"
@@ -367,7 +394,12 @@ def process(package: Path, *, brain: Path = BUSINESS_BRAIN_ROOT, root: Path = RO
                     if output["operation"] == "canonical_replace":
                         raise ImportFailure("canonical replacement target is missing")
                     output["action"] = "write"
-            if previous and previous.get("outcome") == "imported" and all(o["action"] == "already_present" for o in outputs):
+            if (previous and previous.get("outcome") in {"imported", "already_imported"}
+                    and previous.get("search_refresh", {}).get("status") == "success"
+                    and previous.get("graphify_refresh", {}).get("status") == "success"
+                    and {row.get("pointer") for row in previous.get("graphify_refresh", {}).get("coverage", [])}
+                        == {row["pointer"] for row in outputs}
+                    and all(o["action"] == "already_present" for o in outputs)):
                 outcome = "already_imported"
             else:
                 outcome = "validated" if dry_run else "committed"
@@ -377,8 +409,19 @@ def process(package: Path, *, brain: Path = BUSINESS_BRAIN_ROOT, root: Path = RO
                        "outcome": outcome, "outputs": outputs, "validated": True,
                        "search_refresh": {"status": "not_run"}, "graphify_refresh": {"status": "not_run"},
                        "external_package_move": "pending", "token_usage": TOKEN_USAGE}
+            receipt["sources"] = manifest["sources"]
+            receipt["knowledge_types_present"] = manifest.get("knowledge_types_present", [])
+            if outcome == "already_imported":
+                # Preserve the successful refresh/closure evidence on an idempotent rerun.
+                for key in ("search_refresh", "graphify_refresh", "commit", "sync_status"):
+                    if key in previous:
+                        receipt[key] = previous[key]
             if dry_run or outcome == "already_imported":
                 return receipt
+            if previous and all(o["action"] == "already_present" for o in outputs):
+                for key in ("commit", "sync_status"):
+                    if key in previous:
+                        receipt[key] = previous[key]
             # Durable intent precedes target writes. A crash can be reconciled
             # from destination hashes without opening the batch to a new ID.
             append(ledger, {**receipt, "outcome": "in_progress", "timestamp": dt.datetime.now(dt.timezone.utc).isoformat()})
@@ -424,6 +467,8 @@ def process(package: Path, *, brain: Path = BUSINESS_BRAIN_ROOT, root: Path = RO
                 finally:
                     for tmp, _ in staged:
                         tmp.unlink(missing_ok=True)
+            for output in outputs:
+                output["written_sha256"] = digest(Path(output["target"]).read_bytes())
             receipt["timestamp"] = dt.datetime.now(dt.timezone.utc).isoformat()
             append(ledger, receipt)
             fn = refresh or (lambda pointers: _refresh(pointers, brain, root))
@@ -494,6 +539,59 @@ class DirectoryTransport:
         return target
 
 
+def _publish_import_receipt(destination: Path, package_name: str, result: dict) -> Path:
+    """Projection of existing importer ledger beside, never inside, hashed packets."""
+    if not IDENT.fullmatch(package_name) or destination.is_symlink() or not destination.is_dir():
+        raise ImportFailure("unsafe receipt destination")
+    path = destination / (package_name + ".IMPORT_RECEIPT.json")
+    if path.is_symlink():
+        raise ImportFailure("unsafe receipt path")
+    payload = {**result, "receipt_projection_version": "memory-exchange-import-receipt-v1",
+               "issuer": "tools/memory_exchange_import.py"}
+    payload.pop("receipt_publication", None)
+    raw = (json.dumps(payload, indent=2, sort_keys=True) + "\n").encode("utf-8")
+    # The timer republishes every pass; an unchanged receipt is not rewritten on Drive.
+    if path.is_file() and path.read_bytes() == raw:
+        return path
+    fd, temporary = tempfile.mkstemp(prefix=".import-receipt-", dir=destination)
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(raw)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
+    return path
+
+
+def _republish_import_receipts(imported: Path | None, root: Path) -> None:
+    """Repair receipt transport after a move without rerunning semantic/import work."""
+    if imported is None or not imported.is_dir() or imported.is_symlink():
+        return
+    # Best effort: a damaged imported folder must never block typed packages on this pass.
+    try:
+        rows = ledger_rows(root / "queue/receipts/memory_exchange_import.jsonl")
+        packages = sorted(imported.iterdir())
+    except (ImportFailure, OSError):
+        return
+    for package in packages:
+        try:
+            if package.is_symlink() or not package.is_dir() or not (package / "INGEST_MANIFEST.json").is_file():
+                continue
+            manifest, fingerprint = _manifest(package)
+            matches = [row for row in rows if row.get("package_id") == manifest.get("package_id")
+                       and row.get("fingerprint") == fingerprint
+                       and row.get("outcome") in {"imported", "already_imported"}]
+            if not matches:
+                continue
+            result = {**matches[-1], "sources": manifest.get("sources", []),
+                      "external_package_move": "completed: " + str(package)}
+            _publish_import_receipt(imported, package.name, result)
+        except (ImportFailure, OSError, ValueError):
+            continue
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="TTROS deterministic Memory Exchange importer")
     parser.add_argument("--ready", type=Path, default=Path(os.environ["TTROS_MEMORY_READY"]) if os.environ.get("TTROS_MEMORY_READY") else None,
@@ -524,6 +622,8 @@ def main() -> int:
     if args.typed_only:
         packages = [package for package in packages
                     if (package / "CHECKPOINT.json").is_file() or (package / "SUBMIT.json").is_file()]
+    if args.move and not args.dry_run:
+        _republish_import_receipts(args.imported, args.root)
     results = []
     for package in packages:
         result = process(package, brain=args.brain, root=args.root, dry_run=args.dry_run)
@@ -541,11 +641,22 @@ def main() -> int:
             if result.get("external_package_move", "") != "pending":
                 with locked(args.root / "queue/locks/memory_exchange_import.lock"):
                     append(args.root / "queue/receipts/memory_exchange_import.jsonl", result)
+            # Typed packages retain their existing route/semantics. Full manifests gain readback receipts.
+            if "operation" not in result and str(result.get("external_package_move", "")).startswith("completed:"):
+                destination = args.imported if result["outcome"] in {"imported", "already_imported"} else args.rejected
+                try:
+                    path = _publish_import_receipt(destination, package.name, result)
+                    result["receipt_publication"] = "completed: " + str(path)
+                except (ImportFailure, OSError) as exc:
+                    result["receipt_publication"] = "pending: " + str(exc)
+                    with locked(args.root / "queue/locks/memory_exchange_import.lock"):
+                        append(args.root / "queue/receipts/memory_exchange_import.jsonl", result)
         results.append(result)
     print(json.dumps(results, indent=2))
     print(TOKEN_USAGE)
     return 1 if any(r["outcome"] in {"rejected", "refresh_pending", "disabled"} or
-                    str(r.get("external_package_move", "")).startswith("pending:") for r in results) else 0
+                    str(r.get("external_package_move", "")).startswith("pending:") or
+                    str(r.get("receipt_publication", "")).startswith("pending:") for r in results) else 0
 
 
 if __name__ == "__main__":

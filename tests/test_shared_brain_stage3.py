@@ -1,6 +1,6 @@
 """Stage 3 durable submit and Git closure checks on a local Brain clone.
 
-Revisit: when the Stage 3 submit or recovery contract changes. Last touched: 2026-10-03.
+Revisit: when the Stage 3 submit or recovery contract changes. Last touched: 2026-10-07.
 """
 from __future__ import annotations
 
@@ -214,14 +214,21 @@ def test_legacy_importer_uses_transaction(brain, tmp_path):
                                 "canonical_ref": None, "expected_base_sha256": None}}],
     }
     (package / "INGEST_MANIFEST.json").write_text(json.dumps(manifest))
-    refresh = lambda _paths: ({"status": "success"}, {"status": "not_applicable"})
+    refresh = lambda paths: ({"status": "success"}, {"status": "success", "coverage": [{"pointer": p} for p in paths]})
     first = memory_exchange_import.process(package, brain=root, root=tmp_path,
                                            dry_run=False, refresh=refresh)
     assert first["outcome"] == "imported" and first["sync_status"] == "synced"
     assert first["commit"] == git(root, "rev-parse", "origin/main")
     again = memory_exchange_import.process(package, brain=root, root=tmp_path,
                                            dry_run=False, refresh=refresh)
-    assert again["outcome"] == "already_imported"
+    assert again["outcome"] == "already_imported", again
+    # The stamped Brain note differs from the package bytes; an edit after import is still caught.
+    note = root / "sources/historical_calls/meeting.md"
+    assert note.read_bytes() != payload
+    note.write_text(note.read_text() + "edited\n")
+    edited = memory_exchange_import.process(package, brain=root, root=tmp_path,
+                                            dry_run=False, refresh=refresh)
+    assert edited["outcome"] == "rejected" and "previously imported target changed" in edited["reason"]
 
 
 def test_submit_write_error_does_not_leak_host_path(brain, monkeypatch):

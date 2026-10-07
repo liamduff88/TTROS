@@ -1,6 +1,6 @@
 """Memory Exchange v2 deterministic importer tests.
 
-Revisit: when the Memory Ingest v2 contract changes. · Last touched: 2026-10-01.
+Revisit: when the Memory Ingest v2 contract changes. · Last touched: 2026-10-07.
 """
 import copy
 import hashlib
@@ -18,6 +18,11 @@ REAL_KENNETH_PACKAGE = Path("/tmp/ttros-memory-exchange-acceptance/03_READY_FOR_
 
 def sha(raw):
     return hashlib.sha256(raw).hexdigest()
+
+
+def covered(paths):
+    """A refresh that indexed and graphed every imported note."""
+    return {"status": "success"}, {"status": "success", "coverage": [{"pointer": p} for p in paths]}
 
 
 class ImportTests(unittest.TestCase):
@@ -57,7 +62,7 @@ class ImportTests(unittest.TestCase):
 
     def run_import(self, dry=True, refresh=None):
         return process(self.pkg, brain=self.brain, root=self.root, dry_run=dry,
-                       refresh=refresh or (lambda paths: ({"status": "success"}, {"status": "not_applicable"})))
+                       refresh=refresh or covered)
 
     def test_valid_historical_and_dry_run_zero_writes(self):
         before = set(self.brain.rglob("*"))
@@ -213,6 +218,124 @@ class ImportTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('"outcome": "validated"', result.stdout)
         self.assertFalse(any(self.brain.rglob("*.md")))
+
+    def test_previously_imported_target_changed_is_rejected(self):
+        first = self.run_import(False)
+        Path(first["outputs"][0]["target"]).write_text("edited after import")
+        again = self.run_import(False)
+        self.assertEqual(again["outcome"], "rejected")
+        self.assertIn("previously imported target changed", again["reason"])
+
+    def test_graph_not_applicable_is_not_complete_and_is_retried(self):
+        legacy = self.run_import(False, refresh=lambda p: ({"status": "success"}, {"status": "not_applicable"}))
+        self.assertEqual(legacy["outcome"], "imported")
+        target = Path(legacy["outputs"][0]["target"]); before = target.stat().st_mtime_ns
+        retried = self.run_import(False)
+        self.assertEqual(retried["outcome"], "imported")
+        self.assertEqual(retried["graphify_refresh"]["status"], "success")
+        self.assertEqual(target.stat().st_mtime_ns, before)
+        self.assertEqual(self.run_import(False)["outcome"], "already_imported")
+
+    def _actual_refresh(self, paths, *, allowed=True, bad_node=False):
+        from unittest.mock import patch
+        from dashboard.backend import business_brain_graph
+        from tools import aos_indexer, business_brain_scope, memory_exchange_import as mod
+        root, brain = self.root, self.brain
+
+        class Graph:
+            def __init__(self, **_kw):
+                self.published = root / "published"; self.published.mkdir(exist_ok=True)
+
+            def _published_target_allowlist(self):
+                return (set(paths) if allowed else set()), ()
+
+            def build(self):
+                files, nodes = [], []
+                for pointer in paths:
+                    h = sha((brain / pointer.removeprefix("business_brain:")).read_bytes())
+                    files.append({"source_path": pointer, "sha256": h})
+                    nodes.append({"kind": "note", "source_path": pointer, "id": "node-1",
+                                  "content_sha256": "0" * 64 if bad_node else h})
+                (self.published / "source_manifest.json").write_text(json.dumps({"files": files}))
+                (self.published / "graph.json").write_text(json.dumps({"nodes": nodes}))
+                return {"status": "success", "receipt_path": "receipt"}
+        with patch.object(aos_indexer, "index_one", lambda *a, **k: {"status": "success"}), \
+                patch.object(business_brain_scope, "load_registry", lambda *a: object()), \
+                patch.object(business_brain_graph, "BusinessBrainGraphService", Graph):
+            return mod._refresh(paths, brain, root)
+
+    def test_refresh_requires_graph_scope_and_matching_node(self):
+        pointers = [o["pointer"] for o in self.run_import(False)["outputs"]]
+        _search, graph = self._actual_refresh(pointers, allowed=False)
+        self.assertEqual((graph["status"], graph["missing"]), ("pending", pointers))
+        _search, graph = self._actual_refresh(pointers, bad_node=True)
+        self.assertIn("coverage mismatch", graph["reason"])
+        _search, graph = self._actual_refresh(pointers)
+        self.assertEqual([row["pointer"] for row in graph["coverage"]], pointers)
+
+
+class ConsumerReceiptTests(unittest.TestCase):
+    """The timer path: move, importer-owned receipt beside the packet, recovery."""
+    setUp, write = ImportTests.setUp, ImportTests.write
+
+    def consume(self, *extra):
+        from unittest.mock import patch
+        from tools import memory_exchange_import as mod
+        self.imported, self.rejected = self.root / "04_IMPORTED", self.root / "05_REJECTED"
+        argv = ["memory_exchange_import.py", "--ready", str(self.ready), "--brain", str(self.brain),
+                "--root", str(self.root), "--imported", str(self.imported), "--rejected", str(self.rejected),
+                "--move", *extra]
+        with patch.object(sys, "argv", argv), patch.object(mod, "_refresh", lambda p, b, r: covered(p)), \
+                patch("builtins.print"):
+            return mod.main()
+
+    def test_receipt_published_recovered_and_not_rewritten(self):
+        self.assertEqual(self.consume(), 0)
+        receipt = self.imported / (self.pkg.name + ".IMPORT_RECEIPT.json")
+        row = json.loads(receipt.read_text())
+        self.assertEqual((row["outcome"], row["issuer"]), ("imported", "tools/memory_exchange_import.py"))
+        self.assertEqual(row["sources"], self.manifest["sources"])
+        self.assertTrue((self.imported / self.pkg.name / "INGEST_MANIFEST.json").is_file())
+        self.assertNotIn("receipt_publication", row)
+        receipt.unlink()
+        (self.imported / "damaged").mkdir(); (self.imported / "damaged/INGEST_MANIFEST.json").write_text("{")
+        self.assertEqual(self.consume(), 0)
+        self.assertEqual(json.loads(receipt.read_text())["fingerprint"], row["fingerprint"])
+        stamp = receipt.stat().st_mtime_ns
+        self.assertEqual(self.consume(), 0)
+        self.assertEqual(receipt.stat().st_mtime_ns, stamp)
+
+    def test_rejected_manifest_gets_receipt_typed_package_does_not(self):
+        import os
+        from unittest.mock import patch
+        self.manifest["package_files"][0]["sha256"] = "0" * 64; self.write()
+        typed = self.ready / "typed-checkpoint"; typed.mkdir()
+        (typed / "CHECKPOINT.json").write_text("{}"); (typed / "extra.txt").write_text("x")
+        with patch.dict(os.environ, {"TTROS_SHARED_BRAIN_WRITE": "1"}):
+            self.assertEqual(self.consume(), 1)
+        row = json.loads((self.rejected / (self.pkg.name + ".IMPORT_RECEIPT.json")).read_text())
+        self.assertIn("SHA-256 mismatch", row["reason"])
+        self.assertTrue((self.rejected / "typed-checkpoint").is_dir())
+        self.assertFalse((self.rejected / "typed-checkpoint.IMPORT_RECEIPT.json").exists())
+
+
+class ConsumerConfigurationTests(unittest.TestCase):
+    repo = Path(__file__).resolve().parents[1]
+
+    def test_timer_service_consumes_full_ingest(self):
+        text = (self.repo / "systemd/aos-memory-exchange-import.service").read_text()
+        exec_start = [line for line in text.splitlines() if line.startswith("ExecStart=")]
+        self.assertEqual(len(exec_start), 1)
+        self.assertIn("--move", exec_start[0])
+        self.assertNotIn("--typed-only", exec_start[0]); self.assertNotIn("--checkpoint-only", exec_start[0])
+
+    def test_historical_calls_graph_scope_keeps_denies(self):
+        registry = json.loads((self.repo / "context/client_scope_registry.json").read_text())
+        glob = registry["scopes"]["global"]
+        # Graph coverage only: brain_pointer_prefixes is also the dashboard save gate.
+        self.assertNotIn("business_brain:sources/historical_calls/", glob["brain_pointer_prefixes"])
+        self.assertIn("business_brain:sources/historical_calls/", glob["graphify_targets"][0]["path_prefixes"])
+        self.assertEqual(registry["denied_brain_pointers"], ["business_brain:memory/north_shore_sales_coach.md"])
 
 
 if __name__ == "__main__":
