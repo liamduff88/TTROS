@@ -1,6 +1,9 @@
 # DECISIONS.md — log of decisions that change system behavior
-> Revisit: when a behavior-affecting system decision is made. · Last touched: 2026-10-03.
+> Revisit: when a behavior-affecting system decision is made. · Last touched: 2026-10-15.
 > One entry per behavior-affecting change. Newest first.
+
+## 2026-10-15 — Pin supported ChatGPT Codex model on live Hermes and workbench routes
+The ChatGPT-backed Codex route rejects `gpt-5.5` with HTTP 400. The account model catalog lists `gpt-5.6-sol`, and a one-call David invocation completed on that model. Pin `gpt-5.6-sol` in the eight existing Hermes profiles and the repository Codex and semantic-intake launch defaults. Keep both Hermes OAuth account slots and all existing profile and dashboard routes. Repeated HTTP 400s from the unsupported pin end at model selection, so no retry policy change is needed.
 
 ## 2026-10-03 — Shared Brain Stage 3 closes durable writes through Git
 Authenticated `submit` adds one unconfirmed note under `inbox/distilled_packets/`; the typed Drive handoff calls the same function. The existing Memory Exchange importer routes live Git-backed writes through `write_transaction()`. Every scoped durable commit attempts a bounded Brain push, retains valid local commits as pending on failure, and is retried by a five-minute sweep that stops and alerts on remote divergence. David keeps his existing durable write tool.

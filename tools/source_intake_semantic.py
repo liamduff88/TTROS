@@ -15,7 +15,7 @@ support added STEP I2, 2026-09-09; see
 scripts/i2_source_intake_production_path_transcript.md.
 
 Revisit: when the claim/card schema, the extraction template, the blindness
-contamination guard, the Hermes launch environment, or the usage-sidecar schema changes. · Last touched: 2026-09-23.
+contamination guard, the Hermes launch environment, or the usage-sidecar schema changes. · Last touched: 2026-10-15.
 """
 
 from __future__ import annotations
@@ -50,7 +50,7 @@ from tools.step6_cost_control import (  # noqa: E402
 TEMPLATE_PATH = ROOT / "tools" / "source_intake_semantic_extraction_template.md"
 HERMES_PROFILE = "source-intake-semantic"
 ENV_SENTINEL = "TTROS_SOURCE_INTAKE_SEMANTIC_EXTRACTION"
-DEFAULT_MODEL = "gpt-5.5"
+DEFAULT_MODEL = "gpt-5.6-sol"
 DEFAULT_REASONING = "medium"
 CARD_BYTE_CAP = 3000
 CLAIM_TYPES = frozenset({

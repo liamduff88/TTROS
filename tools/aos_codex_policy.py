@@ -1,7 +1,7 @@
 """Mandatory Agentic OS policy for every Codex process launch.
 
 Revisit: when the canonical Agentic OS root, Linux user, Codex installation,
-or fresh-session/compaction CLI contract changes. · Last touched: 2026-08-04.
+or fresh-session/compaction CLI contract changes. · Last touched: 2026-10-15.
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ SANDBOX_MODE = "danger-full-access"
 APPROVAL_POLICY = "never"
 AUTO_COMPACT_TOKEN_LIMIT = 75_000
 REASONING_EFFORT_BY_DIAL = {"light": "low", "standard": "medium", "heavy": "high"}
-CODEX_MODEL = "gpt-5.5"
+CODEX_MODEL = "gpt-5.6-sol"
 
 
 def _positive_environment_integer(name: str, default: int) -> int:
