@@ -2,6 +2,9 @@
 > Revisit: when a behavior-affecting system decision is made. · Last touched: 2026-10-15.
 > One entry per behavior-affecting change. Newest first.
 
+## 2026-10-15 — Upgrade ChatGPT Codex model pin to `gpt-6-sol`
+Codex CLI v0.160.0 ran `gpt-6-sol` on the ChatGPT subscription, and a one-call David request through `/api/dashboard/ask-david` with mandatory assembled context completed on `gpt-6-sol` via `openai-codex`. Pin `gpt-6-sol` in the global Hermes default, the eight existing Hermes profiles and the repository Codex and semantic-intake launch defaults. Provider, base URL, both OAuth account slots and credentials are unchanged; no API-key auth is introduced. Model routing and automatic fallback are unchanged. Preimages of each Hermes config are kept as `config.yaml.pre-gpt6sol-20261016T010235`.
+
 ## 2026-10-15 — Pin supported ChatGPT Codex model on live Hermes and workbench routes
 The ChatGPT-backed Codex route rejects `gpt-5.5` with HTTP 400. The account model catalog lists `gpt-5.6-sol`, and a one-call David invocation completed on that model. Pin `gpt-5.6-sol` in the eight existing Hermes profiles and the repository Codex and semantic-intake launch defaults. Keep both Hermes OAuth account slots and all existing profile and dashboard routes. Repeated HTTP 400s from the unsupported pin end at model selection, so no retry policy change is needed.
 

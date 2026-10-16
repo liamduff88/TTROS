@@ -50,7 +50,7 @@ from tools.step6_cost_control import (  # noqa: E402
 TEMPLATE_PATH = ROOT / "tools" / "source_intake_semantic_extraction_template.md"
 HERMES_PROFILE = "source-intake-semantic"
 ENV_SENTINEL = "TTROS_SOURCE_INTAKE_SEMANTIC_EXTRACTION"
-DEFAULT_MODEL = "gpt-5.6-sol"
+DEFAULT_MODEL = "gpt-6-sol"
 DEFAULT_REASONING = "medium"
 CARD_BYTE_CAP = 3000
 CLAIM_TYPES = frozenset({

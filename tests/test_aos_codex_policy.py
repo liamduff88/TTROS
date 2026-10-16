@@ -23,7 +23,7 @@ HERMES_LAUNCHER = Path("/home/liam/.local/bin/aos-hermes")
 class AosCodexPolicyTest(unittest.TestCase):
     def test_authoritative_command_is_explicit_and_not_caller_downgradable(self):
         command = policy.build_exec_command()
-        self.assertEqual("gpt-5.6-sol", policy.CODEX_MODEL)
+        self.assertEqual("gpt-6-sol", policy.CODEX_MODEL)
         self.assertEqual("/home/liam/.local/npm/bin/codex", command[0])
         self.assertEqual("danger-full-access", command[command.index("--sandbox") + 1])
         self.assertEqual("never", command[command.index("--ask-for-approval") + 1])
