@@ -6,7 +6,7 @@ control-evidence store.  Every model invocation is recorded separately.  A
 provider's input total is authoritative; cached input is displayed and priced
 separately when available, but is never added to input again.
 
-Revisit: on provider usage-schema or model-pricing changes. · Last touched: 2026-09-23.
+Revisit: on provider usage-schema or model-pricing changes. · Last touched: 2026-10-25.
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ import json
 import os
 import re
 import sys
+import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -260,8 +261,22 @@ def _ledger_rows(root: Path, ledger_path: Path = LEDGER_PATH) -> list[dict[str, 
     path = root / ledger_path
     if not path.exists():
         return []
+    text = path.read_text(encoding="utf-8")
+    # Readers outside the ledger lock can catch a concurrent O_APPEND write
+    # mid-line. Only an unterminated final line is retried; one that stays
+    # torn, or any earlier bad line, is still reported as corrupt.
+    for _attempt in range(50):
+        tail = text.rsplit("\n", 1)[-1]
+        if not tail.strip():
+            break
+        try:
+            json.loads(tail)
+            break
+        except json.JSONDecodeError:
+            time.sleep(0.01)
+            text = path.read_text(encoding="utf-8")
     rows = []
-    for number, raw in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+    for number, raw in enumerate(text.splitlines(), start=1):
         if not raw.strip():
             continue
         try:
@@ -384,6 +399,96 @@ def preflight(scope: Scope, *, dial_override: str | None = None, root: Path = RO
             "the next model invocation is blocked until a scoped override or accounting repair"
         )
     return status
+
+
+def codex_session_scope(invocation_id: str) -> Scope:
+    """Each Codex launch is its own fuse scope; never its parent work item."""
+    return Scope("session", str(invocation_id or "").strip())
+
+
+def work_item_usage(item_id: str, *, root: Path = ROOT, ledger_path: Path = LEDGER_PATH) -> dict[str, Any]:
+    """Aggregate every invocation attributed to one work item, for reporting.
+
+    Counts historical work-item-scoped rows and per-session rows tagged with
+    ``item_id`` alike, each invocation once. Unknown accounting after the
+    item's latest explicit ``fuse_scope_reset`` is surfaced so callers can
+    keep failing closed; the aggregate itself never pauses anything.
+    """
+    item = str(item_id or "").strip().upper()
+    if not re.fullmatch(r"AOS-\d{4}-\d{4}", item):
+        raise CostControlError(f"invalid work-item id: {item_id}")
+    item_key = f"work_item:{item}"
+    seen: set[str] = set()
+    total = 0
+    sessions: list[dict[str, Any]] = []
+    unknown_since_reset: list[str] = []
+    unknown_all = 0
+    for row in _ledger_rows(root, ledger_path):
+        if row.get("event") == "fuse_scope_reset" and row.get("scope_key") == item_key:
+            unknown_since_reset.clear()
+            continue
+        if row.get("event") != "model_invocation":
+            continue
+        if row.get("scope_key") != item_key and str(row.get("item_id") or "").upper() != item:
+            continue
+        identity = str(row.get("invocation_id") or "")
+        if identity in seen:
+            continue
+        seen.add(identity)
+        amount = (row.get("fuse") or {}).get("invocation_tokens") if isinstance(row.get("fuse"), dict) else None
+        known = isinstance(amount, int) and not isinstance(amount, bool) and amount >= 0
+        if known:
+            total += amount
+        else:
+            unknown_all += 1
+            unknown_since_reset.append(f"{identity or 'missing invocation_id'}: canonical usage unavailable")
+        sessions.append({
+            "invocation_id": identity,
+            "scope_key": row.get("scope_key"),
+            "timestamp": row.get("timestamp"),
+            "tokens": amount if known else None,
+            "model": row.get("actual_model") or row.get("model_confirmed"),
+        })
+    return {
+        "item_id": item,
+        "known_tokens": total,
+        "invocation_count": len(seen),
+        "unknown_invocations": unknown_all,
+        "accounting_unknown_since_reset": unknown_since_reset,
+        "invocations": sessions,
+        "note": "reporting aggregate; each Codex session has its own 500K fuse",
+    }
+
+
+def codex_session_preflight(
+    invocation_id: str,
+    *,
+    work_item_id: str = "",
+    dial_override: str | None = None,
+    root: Path = ROOT,
+    ledger_path: Path = LEDGER_PATH,
+) -> tuple[Scope, dict[str, Any]]:
+    """Preflight one new Codex session against its own fuse.
+
+    The parent item's spent total no longer blocks a new step, but unknown
+    accounting anywhere in the item (since its last explicit reset) still
+    fails closed: an unparseable usage stream means the next session's fuse
+    could not be trusted either.
+    """
+    scope = codex_session_scope(invocation_id)
+    status = preflight(scope, dial_override=dial_override, root=root, ledger_path=ledger_path)
+    if work_item_id:
+        aggregate = work_item_usage(work_item_id, root=root, ledger_path=ledger_path)
+        if aggregate["accounting_unknown_since_reset"]:
+            raise FusePausedError(
+                f"Step 6 fuse paused work_item:{aggregate['item_id']}: "
+                + "; ".join(aggregate["accounting_unknown_since_reset"])
+                + "; the next Codex session is blocked until accounting repair or reset-scope"
+            )
+        status["work_item_aggregate"] = {
+            key: aggregate[key] for key in ("item_id", "known_tokens", "invocation_count", "unknown_invocations")
+        }
+    return scope, status
 
 
 def _thresholds_crossed(before: int, after: int, already: set[str]) -> list[str]:
@@ -536,6 +641,37 @@ def _append_row(root: Path, ledger_path: Path, row: dict[str, Any]) -> tuple[boo
     return True, row
 
 
+def _attributed_item(scope: Scope, work_item_id: str) -> str:
+    if scope.kind == "work_item":
+        return scope.scope_id
+    item = str(work_item_id or "").strip().upper()
+    if item and not re.fullmatch(r"AOS-\d{4}-\d{4}", item):
+        raise CostControlError(f"invalid work-item attribution: {work_item_id}")
+    return item or "AOS-2026-0000"
+
+
+def _stamp_selection(
+    row: dict[str, Any],
+    scope: Scope,
+    work_item_id: str,
+    model_selection: dict[str, Any] | None,
+) -> None:
+    """Attribute a session row to its work item and record model routing."""
+    if scope.kind == "session" and str(work_item_id or "").strip():
+        # Same identity shape as work-item rows, so queue reconciliation of
+        # (item_id, session_id) updates this row instead of adding a second.
+        row["parent_work_item_id"] = row["item_id"]
+        row["session_id"] = row["invocation_id"]
+    if model_selection:
+        row["model_selection"] = {
+            key: model_selection.get(key)
+            for key in ("tier", "model", "reasoning_effort", "reason", "cost_dial", "actual_model", "actual_model_source")
+            if model_selection.get(key) is not None
+        }
+        if model_selection.get("model"):
+            row["model_requested"] = str(model_selection["model"])
+
+
 def record_invocation(
     scope: Scope,
     *,
@@ -548,6 +684,8 @@ def record_invocation(
     root: Path = ROOT,
     ledger_path: Path = LEDGER_PATH,
     surface: str = "unknown",
+    work_item_id: str = "",
+    model_selection: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if not str(invocation_id).strip():
         raise CostControlError("invocation_id is required")
@@ -574,7 +712,7 @@ def record_invocation(
     cached = normalized["cached_input"]
     reasoning = normalized["reasoning"]
     row = {
-        "item_id": scope.scope_id if scope.kind == "work_item" else "AOS-2026-0000",
+        "item_id": _attributed_item(scope, work_item_id),
         "session_id": scope.scope_id if scope.kind == "session" else invocation_id,
         "invocation_id": invocation_id,
         "event": "model_invocation",
@@ -637,6 +775,7 @@ def record_invocation(
             row["credential_slot"] = slot
         if label in {"Account A", "Account B"}:
             row["credential_account_label"] = label
+    _stamp_selection(row, scope, work_item_id, model_selection)
     recorded, durable_row = _append_row(root, ledger_path, row)
     if not recorded:
         recorded_total = (durable_row.get("fuse") or {}).get("invocation_tokens")
@@ -661,6 +800,8 @@ def record_unavailable_invocation(
     root: Path = ROOT,
     ledger_path: Path = LEDGER_PATH,
     surface: str = "unknown",
+    work_item_id: str = "",
+    model_selection: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Persist an attempted provider call whose exact counters are unavailable.
 
@@ -675,7 +816,7 @@ def record_unavailable_invocation(
         return {"recorded": False, "idempotent": True, "row": existing[-1], "status": fuse_status(scope, root=root, ledger_path=ledger_path)}
     dial = resolve_cost_dial(override=dial_override, root=root)
     row = {
-        "item_id": scope.scope_id if scope.kind == "work_item" else "AOS-2026-0000",
+        "item_id": _attributed_item(scope, work_item_id),
         "session_id": scope.scope_id if scope.kind == "session" else invocation_id,
         "invocation_id": invocation_id,
         "event": "model_invocation",
@@ -711,6 +852,7 @@ def record_unavailable_invocation(
         "reasoning": UNAVAILABLE,
         "input_plus_output": UNAVAILABLE,
     }
+    _stamp_selection(row, scope, work_item_id, model_selection)
     recorded, durable_row = _append_row(root, ledger_path, row)
     return {
         "recorded": recorded,
@@ -862,6 +1004,8 @@ def main(argv: list[str] | None = None) -> int:
             command.add_argument("--cost-dial", choices=DIAL_VALUES)
         if name in {"override", "reset-scope"}:
             command.add_argument("--reason", required=True)
+    item_usage = sub.add_parser("item-usage")
+    item_usage.add_argument("--item-id", required=True)
     record = sub.add_parser("record-usage")
     record.add_argument("--scope-type", choices=("work_item", "session"), required=True)
     record.add_argument("--scope-id", required=True)
@@ -883,6 +1027,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     root = args.root.resolve()
     try:
+        if args.command == "item-usage":
+            print(json.dumps({"ok": True, **work_item_usage(args.item_id, root=root)}, sort_keys=True))
+            return 0
         scope = _scope_from_args(args)
         if args.command == "status":
             result = fuse_status(scope, root=root)

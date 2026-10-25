@@ -1,6 +1,28 @@
 # DECISIONS.md — log of decisions that change system behavior
-> Revisit: when a behavior-affecting system decision is made. · Last touched: 2026-10-15.
+> Revisit: when a behavior-affecting system decision is made. · Last touched: 2026-10-25.
 > One entry per behavior-affecting change. Newest first.
+
+## 2026-10-25 — Per-session Codex fuse, work-order prompts, automatic Codex model tier
+Each Codex launch (dashboard worker, `/api/wsl/codex`, `aos-queue codex-run`) is now its own
+fresh ephemeral session with its own 500,000-token fuse (`session:codex-…`); the parent work item
+no longer pauses a new step by its spent total. Session rows carry `item_id`/`parent_work_item_id`,
+and `step6_cost_control.py item-usage` reports the item aggregate across historical work-item
+rows and new session rows; no historical row was rewritten. Unknown accounting anywhere in the
+item since its last explicit reset still blocks the next Codex session. Hermes calls keep their
+existing work-item/session scopes. The supervisor reads the JSONL stream live: exact
+`turn.completed` usage stops at 500K, and because codex-cli 0.164.0 emits usage only at turn end,
+a lower-bound estimate (prompt + 12K fixed-overhead floor + tool output, per request) stops a long
+single turn; a stop records usage as unavailable, never as an estimate. Overshoot past the true
+500K point remains possible and is documented in `tools/aos_codex_policy.py`.
+`rules/prompt_writing.md` is the one work-order standard; technical-only queue worker steps now
+render as objective, scope, pointers, permissions, validation and closeout, once each, without
+unrelated playbooks, chat history, inlined receipts or rendered provenance (the manifest keeps
+it). The AOS-2026-0943-shaped prompt fell from 6,235 to 2,022 estimated assembler tokens.
+Codex model and effort come from `queue/model_routes.json` `codex_selection` (simple
+gpt-6-luna/low, medium gpt-6-sol/medium, complex gpt-6-sol/high, all present in `codex debug
+models`), picked by a zero-token complexity score shifted by the one cost dial; `budget:` tags
+pin the tier. Selection, actual model and reason are stamped in ledger rows and receipts. Hermes
+profiles and the global pin are unchanged.
 
 ## 2026-10-15 — Upgrade ChatGPT Codex model pin to `gpt-6-sol`
 Codex CLI v0.160.0 ran `gpt-6-sol` on the ChatGPT subscription, and a one-call David request through `/api/dashboard/ask-david` with mandatory assembled context completed on `gpt-6-sol` via `openai-codex`. Pin `gpt-6-sol` in the global Hermes default, the eight existing Hermes profiles and the repository Codex and semantic-intake launch defaults. Provider, base URL, both OAuth account slots and credentials are unchanged; no API-key auth is introduced. Model routing and automatic fallback are unchanged. Preimages of each Hermes config are kept as `config.yaml.pre-gpt6sol-20261016T010235`.

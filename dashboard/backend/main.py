@@ -19,6 +19,7 @@ from pydantic import BaseModel
 from pathlib import Path
 import argparse
 import base64
+import codecs
 import hashlib
 import importlib.util
 import json
@@ -51,6 +52,7 @@ from aos_codex_policy import (
     CODEX_TARGET,
     CodexPolicyError,
     PERMISSION_HEADER,
+    StreamingSessionFuse,
     build_environment as build_codex_environment,
     build_exec_command as build_codex_exec_command,
     cumulative_usage_snapshot,
@@ -58,6 +60,7 @@ from aos_codex_policy import (
     prepare_fresh_prompt as prepare_codex_fresh_prompt,
     readiness as codex_policy_readiness,
     require_clean_session_id,
+    select_model_and_effort as select_codex_model_and_effort,
     validate_runtime as validate_codex_runtime,
 )
 import aos_orchestration
@@ -85,12 +88,15 @@ from context_assembler import (
     _load_deletion_tombstones,
     assemble as assemble_model_context,
     require_assembled_context,
+    work_order_header,
     worker_context_pack,
 )
 from step6_cost_control import (
     CostControlError,
+    FusePausedError,
     Scope as Step6Scope,
     append_canonical_row,
+    codex_session_preflight,
     derive_scope as derive_step6_scope,
     fuse_status as step6_fuse_status,
     format_threshold_alert as format_step6_alert,
@@ -1038,33 +1044,48 @@ def _local_agent_route_log(payload: dict) -> str:
     return _safe_relative(path) if BASE_DIR == _IMPORTED_BASE_DIR else "logs/local_agent_route.jsonl"
 
 
-def _run_codex_local(context: AssembledContext, item: dict | None = None) -> dict:
-    """Run the real Codex CLI under the authoritative Linux user/root with split timeouts."""
+def _run_codex_local(context: AssembledContext, item: dict | None = None, *, attempt: int = 1) -> dict:
+    """Run the real Codex CLI under the authoritative Linux user/root with split timeouts.
+
+    Every call is a new ephemeral session with its own 500K fuse; the parent
+    work item only receives the usage for reporting.
+    """
     context = require_assembled_context(context)
     prompt = context.request
     started_at = time.monotonic()
     item_id = str((item or {}).get("id") or "")
     invocation = {**codex_invocation_metadata(CODEX_TARGET), "invocation_id": f"codex-{uuid.uuid4().hex}"}
+    selection: dict = {}
     try:
-        scope = derive_step6_scope(
-            work_item_id=item_id,
-            session_id=context.session_id or invocation["invocation_id"],
-            prompt=context.request,
-        )
         dial_override = next((str(tag).split(":", 1)[1] for tag in (item or {}).get("tags", []) if str(tag).startswith("budget:")), None)
-        step6_before = step6_preflight(scope, dial_override=dial_override, root=BASE_DIR)
+        scope, step6_before = codex_session_preflight(
+            invocation["invocation_id"], work_item_id=item_id, dial_override=dial_override, root=BASE_DIR,
+        )
         validate_codex_runtime(BASE_DIR, CODEX_TARGET)
+        selection = select_codex_model_and_effort(
+            item or {"context": context.request},
+            cost_dial=step6_before["effective_cost_dial"], attempt=attempt, root=BASE_DIR,
+        )
         command = build_codex_exec_command(
             CODEX_TARGET,
             cost_dial=step6_before["effective_cost_dial"]["value"],
+            selection=selection,
         )
+        selection = {
+            **selection,
+            "actual_model": selection["model"],
+            "actual_model_source": "codex exec --model argument; codex-cli JSON output does not echo model identity",
+        }
         invocation["effective_cost_dial"] = step6_before["effective_cost_dial"]
-        invocation["reasoning_effort"] = {
-            "light": "low", "standard": "medium", "heavy": "high",
-        }[step6_before["effective_cost_dial"]["value"]]
+        invocation["reasoning_effort"] = selection["reasoning_effort"]
+        invocation["model_requested"] = selection["model"]
+        invocation["actual_model"] = selection["model"]
+        invocation["model_selection"] = selection
+        invocation["fuse_scope"] = scope.key
         env = build_codex_environment(CODEX_TARGET)
         prepared_prompt = prepare_codex_fresh_prompt(context.render())
         invocation["initial_prompt_bytes"] = len(prepared_prompt.encode("utf-8"))
+        session_fuse = StreamingSessionFuse(prepared_prompt)
     except (CodexPolicyError, CostControlError) as exc:
         detail = str(exc)
         log_path = _local_agent_route_log({
@@ -1111,6 +1132,8 @@ def _run_codex_local(context: AssembledContext, item: dict | None = None) -> dic
 
     stdout_chunks: list[bytes] = []
     stderr_chunks: list[bytes] = []
+    stdout_decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+    fuse_breach: dict | None = None
     startup_confirmed = False
     timed_out = False
     command_stage = "startup"
@@ -1144,6 +1167,13 @@ def _run_codex_local(context: AssembledContext, item: dict | None = None) -> dic
                     selector.unregister(key.fileobj)
                     continue
                 key.data.append(chunk)
+                if key.fileobj is process.stdout and fuse_breach is None:
+                    fuse_breach = session_fuse.feed(stdout_decoder.decode(chunk))
+                    if fuse_breach is not None:
+                        # Stop at this session's own fuse; keep draining so any
+                        # final usage event the CLI emits on SIGTERM is kept.
+                        command_stage = "session_fuse"
+                        _terminate_process_group(process)
                 if key.fileobj is process.stdout and not startup_confirmed:
                     partial = b"".join(stdout_chunks).decode("utf-8", errors="replace")
                     _, _, _, startup_confirmed = _codex_json_summary(partial)
@@ -1182,6 +1212,7 @@ def _run_codex_local(context: AssembledContext, item: dict | None = None) -> dic
         clean_session_error = ""
         token_usage["session_id"] = clean_session_id
     token_usage.setdefault("invocation_id", invocation["invocation_id"])
+    invocation["session_fuse"] = session_fuse.summary()
     startup_confirmed = startup_confirmed or parsed_startup
     elapsed = round(time.monotonic() - started_at, 3)
     try:
@@ -1191,10 +1222,21 @@ def _run_codex_local(context: AssembledContext, item: dict | None = None) -> dic
                 invocation_id=invocation["invocation_id"],
                 provider=str(token_usage.get("provider") or "openai-codex"),
                 model=str(token_usage.get("model") or invocation.get("actual_model") or "unavailable"),
-                usage={**token_usage, "cache_semantics": "included_in_provider_input"},
+                usage={
+                    # Exact counters only; an omitted counter's "unavailable"
+                    # placeholder string must not reach canonical accounting.
+                    **{
+                        key: token_usage[key]
+                        for key in ("input_tokens", "cached_input_tokens", "output_tokens", "reasoning_tokens")
+                        if isinstance(token_usage.get(key), int) and not isinstance(token_usage.get(key), bool)
+                    },
+                    "cache_semantics": "included_in_provider_input",
+                },
                 dial_override=dial_override,
                 root=BASE_DIR,
                 surface=context.surface,
+                work_item_id=item_id,
+                model_selection=selection,
             )
         else:
             step6_result = record_step6_unavailable(
@@ -1202,15 +1244,42 @@ def _run_codex_local(context: AssembledContext, item: dict | None = None) -> dic
                 invocation_id=invocation["invocation_id"],
                 provider="openai-codex",
                 model=str(token_usage.get("model") or invocation.get("actual_model") or "unavailable"),
-                reason="Codex terminal usage unavailable",
+                reason=(
+                    f"stopped at session fuse ({fuse_breach['basis']} {fuse_breach['tokens']}/{fuse_breach['limit']}); "
+                    "Codex emitted no terminal usage"
+                    if fuse_breach else "Codex terminal usage unavailable"
+                ),
                 dial_override=dial_override,
                 root=BASE_DIR,
                 surface=context.surface,
+                work_item_id=item_id,
+                model_selection=selection,
             )
     except CostControlError as exc:
         token_usage["step6_error"] = str(exc)
         step6_result = {"status": {"paused": True, "pause_reason": str(exc)}}
-    if timed_out:
+        if not isinstance(exc, FusePausedError):
+            # Never leave a launched session unrecorded: an unknown-usage row
+            # keeps the work item failing closed until accounting is repaired.
+            try:
+                step6_result = record_step6_unavailable(
+                    scope, invocation_id=invocation["invocation_id"], provider="openai-codex",
+                    model=str(invocation.get("actual_model") or "unavailable"),
+                    reason=f"usage recording failed: {exc}", dial_override=dial_override,
+                    root=BASE_DIR, surface=context.surface, work_item_id=item_id, model_selection=selection,
+                )
+            except CostControlError as fallback_exc:
+                token_usage["step6_error"] += f"; unknown-usage record also failed: {fallback_exc}"
+    if fuse_breach is not None:
+        failure_class = "session_fuse_stop"
+        command_stage = "session_fuse"
+        output = (
+            f"Codex session stopped at its 500,000-token fuse ({fuse_breach['basis']}: "
+            f"{fuse_breach['tokens']:,}). {token_usage_text}"
+        )
+        returncode = process.returncode if process.returncode is not None else -1
+        success = False
+    elif timed_out:
         failure_class = f"{command_stage}_timeout"
         boundary = AGENT_STARTUP_TIMEOUT_SECONDS if command_stage == "startup" else AGENT_TIMEOUT_SECONDS
         output = f"Codex {command_stage} timed out after {boundary}s"
@@ -4701,6 +4770,7 @@ def _hermes_decomposition_prompt(text: str, *, conversation_id: str = "dashboard
     return "\n".join((
         "Own this ordinary-language executive objective through the existing Agentic OS queue and Open Engine.",
         "Discover the smallest coherent plan from the existing capability catalog. Do not invent a new workflow or framework.",
+        "Write each step per rules/prompt_writing.md: context = scope plus repository paths or item IDs to read (point, do not paste; about 150 words), definition_of_done = the one checkable outcome and its evidence. No conversation history, unrelated workflows or repeated boilerplate. Split work needing unrelated expertise into separate steps; each runs in a fresh session.",
         "Return a compact explanation, then exactly one fenced JSON object with this shape:",
         '{"title":"...","steps":[{"title":"...","owner":"revenue|marketing|delivery|operations|codex|claude|hermes","workbench":"lane|codex|claude","workflow_id":"existing_workflow_or_empty","context":"bounded stage instruction","definition_of_done":"concrete artifact/evidence contract","on_complete":null}]}',
         "Order steps by dependency. Downstream stages automatically receive upstream artifact and receipt references.",
@@ -10176,6 +10246,39 @@ def _queue_actual_department_run_prompt(
     return "\n".join(lines).rstrip() + "\n"
 
 
+def _queue_codex_execution_instructions(item: dict, attempt: int, max_attempts: int) -> str:
+    """Codex worker instructions in the rules/prompt_writing.md shape.
+
+    It opens with the worker pack's own header (objective, scope, pointers),
+    which ``worker_context_pack`` states once; the launcher adds the
+    permission header and fresh-session contract once.
+    """
+    run_prompt_path = str(item.get("run_prompt_path") or "").strip()
+    lines = [work_order_header(item), ""]
+    if run_prompt_path:
+        if not re.fullmatch(r"queue/run_prompts/[A-Za-z0-9_.-]+\.md", run_prompt_path):
+            raise ValueError("invalid run_prompt_path")
+        lines.extend((f"Full task brief: read `{run_prompt_path}` first; it is authoritative for scope.", ""))
+    allowed = ", ".join(str(value) for value in item.get("allowed_actions") or []) or "local_read, local_edit, local_test"
+    stops = ", ".join(str(value) for value in item.get("stop_conditions") or []) or "any external or destructive action"
+    lines.extend((
+        f"Permissions: allowed {allowed}. Stop and report instead of: {stops}. "
+        "Access model: `context/ACCESS_MODEL.md`. Never expose secrets.",
+        "Validation: run the focused local check that proves the objective; do not call external systems.",
+        "Tool-output bounds: read files by line range; keep only the tail of passing test output; never dump "
+        "work_items.jsonl, ledgers, receipt directories or queue history into the session.",
+        f"Required local artifact path: {_queue_default_artifact_path(item)} (write durable output there and list it under Artifacts).",
+        f"Closeout: attach a durable receipt (`python3 tools/aos-queue.py receipt {item.get('id', '')} <path> --status <status>`) "
+        "and leave this item in its honest status (human_review, done, needs_input or blocked). The supervisor "
+        "reconciles this session's token usage against this item; do not select another queue item.",
+        f"Current attempt: {attempt}/{max_attempts}",
+        "",
+        "Required artifact/receipt shape:",
+        _queue_required_receipt_shape(),
+    ))
+    return "\n".join(lines).rstrip() + "\n"
+
+
 def _queue_actual_run_prompt(
     item: dict,
     owner: str,
@@ -10188,6 +10291,8 @@ def _queue_actual_run_prompt(
         return _queue_codex_correction_prompt(
             item, revision_instructions, attempt, max_attempts, prior_worker_result or {},
         )
+    if owner == "codex" and _queue_item_size(item) != "small":
+        return _queue_codex_execution_instructions(item, attempt, max_attempts)
     run_prompt_path = str(item.get("run_prompt_path") or "").strip()
     if run_prompt_path:
         if not re.fullmatch(r"queue/run_prompts/[A-Za-z0-9_.-]+\.md", run_prompt_path):
@@ -10342,7 +10447,7 @@ def _queue_run_worker(owner: str, prompt: str, item: dict, attempt: int = 1) -> 
         **route_metadata,
     }
     if owner == "codex":
-        result = _run_codex_local(worker_context, item)
+        result = _run_codex_local(worker_context, item, attempt=attempt)
         return _compact_agent_closeout(result, "codex", "codex", _queue_token_task_label(item, owner), metadata)
     if owner == "claude":
         item_id = str(item.get("id") or "")

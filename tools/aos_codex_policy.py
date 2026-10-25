@@ -1,17 +1,24 @@
 """Mandatory Agentic OS policy for every Codex process launch.
 
 Revisit: when the canonical Agentic OS root, Linux user, Codex installation,
-or fresh-session/compaction CLI contract changes. · Last touched: 2026-10-15.
+fresh-session/compaction CLI contract, model catalog, or ``codex exec --json``
+usage-event contract changes. · Last touched: 2026-10-25.
 """
 
 from __future__ import annotations
 
+import codecs
 import os
 import pwd
 import json
+import re
+import selectors
+import signal
 import subprocess
+import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 
 class CodexPolicyError(RuntimeError):
@@ -23,6 +30,11 @@ APPROVAL_POLICY = "never"
 AUTO_COMPACT_TOKEN_LIMIT = 75_000
 REASONING_EFFORT_BY_DIAL = {"light": "low", "standard": "medium", "heavy": "high"}
 CODEX_MODEL = "gpt-6-sol"
+SESSION_FUSE_LIMIT = 500_000
+SUPPORTED_EFFORTS = ("low", "medium", "high")
+COMPLEXITY_TIERS = ("simple", "medium", "complex")
+TIER_BY_DIAL = {"light": "simple", "standard": "medium", "heavy": "complex"}
+MODEL_ROUTES_PATH = Path("queue/model_routes.json")
 
 
 def _positive_environment_integer(name: str, default: int) -> int:
@@ -48,7 +60,7 @@ FRESH_SESSION_POLICY = """## Fresh-session and retained-context contract
 - Work only from this prompt and the repository/artifact paths it names. Do not replay orchestration history.
 - Keep logs, screenshots, browser evidence, and verbose test output in local artifacts; retain only compact summaries and paths in prompts and closeouts.
 - Native automatic compaction may summarise retained conversation for session hygiene; it must preserve the assembled context needed to complete the task.
-- The only token breaker is the shared 500,000-token work-item/session fuse. There is no lower handoff or context-percentage breaker.
+- The only token breaker is this session's own 500,000-token fuse (input + output). Many tool calls each re-send the whole context, so prefer few, targeted reads.
 - If a clean session cannot be created, fail explicitly without doing task work."""
 
 @dataclass(frozen=True)
@@ -120,22 +132,256 @@ def build_exec_command(
     target: CodexRuntimeTarget = CODEX_TARGET,
     *,
     cost_dial: str = "standard",
+    selection: dict | None = None,
 ) -> list[str]:
-    """Return the immutable headless CLI contract with canonical dial effort."""
+    """Return the immutable headless CLI contract.
+
+    ``selection`` (from :func:`select_model_and_effort`) sets model and effort;
+    without it the canonical dial effort and pinned model apply unchanged.
+    """
     if cost_dial not in REASONING_EFFORT_BY_DIAL:
         raise CodexPolicyError(
             f"invalid cost dial {cost_dial!r}; expected light, standard, or heavy"
         )
+    model, effort = CODEX_MODEL, REASONING_EFFORT_BY_DIAL[cost_dial]
+    if selection is not None:
+        model, effort = str(selection.get("model") or ""), str(selection.get("reasoning_effort") or "")
+        if effort not in SUPPORTED_EFFORTS or not re.fullmatch(r"[a-z0-9][a-z0-9.-]{1,63}", model):
+            raise CodexPolicyError(f"invalid Codex model selection {model!r}/{effort!r}")
     return [
         str(target.executable),
         "--sandbox", SANDBOX_MODE,
         "--ask-for-approval", APPROVAL_POLICY,
         "-C", str(target.root),
         "--config", f"model_auto_compact_token_limit={AUTO_COMPACT_TOKEN_LIMIT}",
-        "--config", f"model_reasoning_effort={REASONING_EFFORT_BY_DIAL[cost_dial]}",
-        "exec", "--model", CODEX_MODEL,
+        "--config", f"model_reasoning_effort={effort}",
+        "exec", "--model", model,
         "--ephemeral", "--skip-git-repo-check", "--json", "--color", "never", "-",
     ]
+
+
+# --- Automatic model and effort selection --------------------------------
+# One deterministic, zero-token classifier feeds the existing cost dial. The
+# configured tier table lives in queue/model_routes.json (codex route); only
+# models listed there may be launched, and that list is checked against the
+# Codex CLI catalog (``codex debug models``) when it is edited, not per call.
+
+_RISK_TERMS = re.compile(
+    r"\b(?:security|credential|auth(?:entication|orization)?|secret|migrat\w*|concurren\w*|race|"
+    r"deadlock|data loss|architecture|schema|ledger|fuse|refactor|multi-file|cross-cutting|"
+    r"protected|rollback|lock(?:ing)?|encryption|permission)\b",
+    re.IGNORECASE,
+)
+_SIMPLE_TERMS = re.compile(
+    r"\b(?:typo|rename|one-line|single-line|read-only|status check|list|count|inspect|"
+    r"report only|docs? only|comment|wording|smoke)\b",
+    re.IGNORECASE,
+)
+_LOCAL_ACTIONS = {"local_read", "local_edit", "local_test"}
+
+
+def classify_step_complexity(item: dict | None, *, attempt: int = 1) -> dict:
+    """Score one bounded step as simple / medium / complex with visible reasons."""
+    item = item or {}
+    text = " ".join(str(item.get(key) or "") for key in ("title", "context", "definition_of_done"))
+    actions = {str(value) for value in (item.get("allowed_actions") or [])}
+    score = 0
+    reasons: list[str] = []
+    size = str(item.get("size") or "").strip().casefold()
+    if size == "small":
+        score -= 2
+        reasons.append("size=small (-2)")
+    elif size == "large":
+        score += 2
+        reasons.append("size=large (+2)")
+    if actions and actions <= {"local_read"}:
+        score -= 1
+        reasons.append("read-only actions (-1)")
+    elif actions - _LOCAL_ACTIONS:
+        score += 2
+        reasons.append(f"non-local actions {sorted(actions - _LOCAL_ACTIONS)} (+2)")
+    if len(text) < 500:
+        score -= 1
+        reasons.append(f"short brief {len(text)} chars (-1)")
+    elif len(text) > 2500:
+        score += 1
+        reasons.append(f"long brief {len(text)} chars (+1)")
+    risk = sorted({match.lower() for match in _RISK_TERMS.findall(text)})
+    if risk:
+        score += 2
+        reasons.append(f"risk terms {risk[:4]} (+2)")
+        if len(risk) >= 3:
+            score += 1
+            reasons.append("several distinct risk signals (+1)")
+    simple = sorted({match.lower() for match in _SIMPLE_TERMS.findall(text)})
+    if simple and not risk:
+        score -= 1
+        reasons.append(f"simple terms {simple[:4]} (-1)")
+    if attempt > 1:
+        score += 1
+        reasons.append(f"retry attempt {attempt} (+1)")
+    if str(item.get("client_scope") or "global") != "global" and score < 0:
+        score = 0
+        reasons.append("client-scoped work floors at medium")
+    tier = "simple" if score <= -2 else "complex" if score >= 2 else "medium"
+    return {"tier": tier, "score": score, "reasons": reasons}
+
+
+def load_codex_tiers(root: Path | None = None) -> dict:
+    """Return the configured tier table from the existing queue route config.
+
+    Fixture roots without their own route file use the repository's contract.
+    """
+    path = (root or CODEX_TARGET.root) / MODEL_ROUTES_PATH
+    if not path.exists():
+        path = Path(__file__).resolve().parents[1] / MODEL_ROUTES_PATH
+    try:
+        route = json.loads(path.read_text(encoding="utf-8"))["routes"]["codex"]
+        table = route["codex_selection"]
+        supported = set(table["supported_models"])
+        tiers = {name: dict(table["tiers"][name]) for name in COMPLEXITY_TIERS}
+    except (OSError, json.JSONDecodeError, KeyError, TypeError) as exc:
+        raise CodexPolicyError(f"Codex model tiers unavailable in {MODEL_ROUTES_PATH}: {exc}") from exc
+    for name, tier in tiers.items():
+        if tier.get("model") not in supported or tier.get("reasoning_effort") not in SUPPORTED_EFFORTS:
+            raise CodexPolicyError(f"Codex tier {name} names an unconfigured model or effort: {tier}")
+    return {"tiers": tiers, "supported_models": sorted(supported), "catalog_check": table.get("catalog_check", "")}
+
+
+def select_model_and_effort(
+    item: dict | None,
+    *,
+    cost_dial: dict,
+    attempt: int = 1,
+    root: Path | None = None,
+) -> dict:
+    """Pick model + effort for one step from complexity and the cost dial.
+
+    An explicit scoped ``budget:<dial>`` override pins the tier outright. The
+    global dial shifts the classified tier: light one step down, heavy one up.
+    """
+    table = load_codex_tiers(root)
+    value, source = str(cost_dial.get("value") or "standard"), str(cost_dial.get("source") or "")
+    if value not in TIER_BY_DIAL:
+        raise CodexPolicyError(f"invalid cost dial {value!r}")
+    classified = classify_step_complexity(item, attempt=attempt)
+    if source == "scope_override":
+        tier = TIER_BY_DIAL[value]
+        reason = f"operator override budget:{value} pins tier {tier}"
+    else:
+        index = COMPLEXITY_TIERS.index(classified["tier"]) + {"light": -1, "standard": 0, "heavy": 1}[value]
+        tier = COMPLEXITY_TIERS[max(0, min(2, index))]
+        shift = "" if tier == classified["tier"] else f"; {value} dial shifted {classified['tier']}->{tier}"
+        reason = f"classified {classified['tier']} (score {classified['score']}: {', '.join(classified['reasons']) or 'no signals'}){shift}"
+    chosen = table["tiers"][tier]
+    return {
+        "tier": tier,
+        "model": chosen["model"],
+        "reasoning_effort": chosen["reasoning_effort"],
+        "reason": reason,
+        "classification": classified,
+        "cost_dial": {"value": value, "source": source},
+        "catalog_check": table["catalog_check"],
+    }
+
+
+# --- Streaming per-session fuse --------------------------------------------
+# codex-cli 0.164.0 ``exec --json`` emits exact usage only in turn.completed,
+# once per turn, and an exec run is normally one turn. A single long turn can
+# therefore exceed 500K before any exact counter exists. The monitor enforces
+# the exact counter whenever one streams, and between turns uses a LOWER-BOUND
+# estimate: every model request re-sends the prompt, a fixed overhead floor and
+# all tool output so far. The estimate only triggers a stop; it is never
+# recorded as usage (a stopped session records usage as unavailable).
+REQUEST_OVERHEAD_FLOOR_TOKENS = 12_000  # measured ~20K via `codex debug prompt-input` 2026-10-25
+CHARS_PER_TOKEN_ESTIMATE = 4
+TOOL_OUTPUT_CHAR_CAP = 40_000  # catalog truncation_policy: 10,000 tokens per tool output
+
+
+class StreamingSessionFuse:
+    """Watch one Codex JSONL stream and say when its own 500K fuse is reached."""
+
+    def __init__(self, prompt: str, *, limit: int = SESSION_FUSE_LIMIT) -> None:
+        self.limit = limit
+        self._prompt_tokens = len(prompt) // CHARS_PER_TOKEN_ESTIMATE
+        self._buffer = ""
+        self._context_chars = 0
+        self._last_event = "completed"
+        self.requests_estimated = 0
+        self.estimated_lower_bound = 0
+        self.exact_cumulative: int | None = None
+        self.turn_usage_events = 0
+        self.breach: dict | None = None
+
+    def _request(self) -> None:
+        self.requests_estimated += 1
+        self.estimated_lower_bound += (
+            self._prompt_tokens + REQUEST_OVERHEAD_FLOOR_TOKENS
+            + self._context_chars // CHARS_PER_TOKEN_ESTIMATE
+        )
+
+    def _event(self, event: dict) -> None:
+        kind = event.get("type")
+        item = event.get("item") if isinstance(event.get("item"), dict) else {}
+        if kind == "turn.started":
+            self._last_event = "completed"
+        elif kind == "item.started":
+            if self._last_event == "completed":
+                self._request()
+            self._last_event = "started"
+        elif kind == "item.completed":
+            if self._last_event == "completed" and not self.requests_estimated:
+                self._request()
+            self._last_event = "completed"
+            text = str(item.get("aggregated_output") or item.get("text") or "")
+            if item.get("type") == "command_execution":
+                text = str(item.get("command") or "") + text
+            elif item.get("type") == "file_change":
+                text = json.dumps(item.get("changes"))
+            self._context_chars += min(len(text), TOOL_OUTPUT_CHAR_CAP)
+        elif kind == "turn.completed":
+            usage = event.get("usage") if isinstance(event.get("usage"), dict) else {}
+            value_in, value_out = usage.get("input_tokens"), usage.get("output_tokens")
+            if all(isinstance(v, int) and not isinstance(v, bool) and v >= 0 for v in (value_in, value_out)):
+                self.exact_cumulative = value_in + value_out
+                self.turn_usage_events += 1
+        if self.breach is None:
+            if self.exact_cumulative is not None and self.exact_cumulative >= self.limit:
+                self.breach = {"basis": "exact_turn_usage", "tokens": self.exact_cumulative, "limit": self.limit}
+            elif self.estimated_lower_bound >= self.limit:
+                self.breach = {
+                    "basis": "in_flight_lower_bound_estimate",
+                    "tokens": self.estimated_lower_bound,
+                    "limit": self.limit,
+                }
+
+    def feed(self, text: str) -> dict | None:
+        """Consume streamed stdout text; return the breach once the fuse is reached."""
+        self._buffer += text
+        *lines, self._buffer = self._buffer.split("\n")
+        for raw in lines:
+            try:
+                event = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(event, dict):
+                self._event(event)
+        return self.breach
+
+    def summary(self) -> dict[str, Any]:
+        return {
+            "limit": self.limit,
+            "scope": "this Codex session only",
+            "exact_cumulative_streamed": self.exact_cumulative,
+            "turn_usage_events": self.turn_usage_events,
+            "estimated_lower_bound": self.estimated_lower_bound,
+            "requests_estimated": self.requests_estimated,
+            "stopped": self.breach,
+            "latency_note": (
+                "codex exec --json reports exact usage only at turn.completed; between turns the "
+                "fuse uses a lower-bound estimate, so a stop can land after the true 500K point"
+            ),
+        }
 
 
 def prepare_fresh_prompt(prompt: str) -> str:
@@ -143,8 +389,9 @@ def prepare_fresh_prompt(prompt: str) -> str:
     task = str(prompt or "").strip()
     if not task:
         raise CodexPolicyError("Codex clean-session prompt is empty")
-    if task.startswith(PERMISSION_HEADER):
-        task = task[len(PERMISSION_HEADER):].lstrip()
+    # The canonical header goes first exactly once; copies embedded by a
+    # template (e.g. the manual codex-run prompt) are dropped, not repeated.
+    task = re.sub(r"\n{3,}", "\n\n", task.replace(PERMISSION_HEADER, "")).strip()
     sections = [PERMISSION_HEADER, FRESH_SESSION_POLICY, task]
     prepared = "\n\n".join(sections).rstrip() + "\n"
     return prepared
@@ -288,3 +535,93 @@ def readiness(target: CodexRuntimeTarget = CODEX_TARGET, *, timeout: float = 5) 
     if not result["authenticated"]:
         result.update(available=False, state="authentication_unavailable")
     return result
+
+
+def run_streaming(
+    command: list[str],
+    *,
+    cwd: Path | str,
+    env: dict[str, str],
+    prompt: str,
+    timeout_seconds: float,
+    fuse: StreamingSessionFuse,
+    terminate_grace_seconds: float = 1.0,
+    kill_grace_seconds: float = 1.0,
+) -> dict[str, Any]:
+    """Run one Codex process, feeding stdout to the session fuse as it streams.
+
+    On timeout or a fuse breach the whole process group gets SIGTERM, then
+    SIGKILL after the grace period; output that arrives meanwhile is kept.
+    """
+    process = subprocess.Popen(
+        command, cwd=str(cwd), env=env,
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        start_new_session=True, close_fds=True,
+    )
+    assert process.stdin is not None and process.stdout is not None and process.stderr is not None
+    chunks: dict[str, list[bytes]] = {"stdout": [], "stderr": []}
+    decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+    selector = selectors.DefaultSelector()
+    selector.register(process.stdout, selectors.EVENT_READ, "stdout")
+    selector.register(process.stderr, selectors.EVENT_READ, "stderr")
+    try:
+        process.stdin.write(prompt.encode("utf-8"))
+        process.stdin.close()
+    except BrokenPipeError:
+        pass
+    deadline = time.monotonic() + timeout_seconds
+    timed_out = False
+    stop_stage = ""  # "", "terminated", "killed"
+    stop_at = 0.0
+
+    def signal_group(sig: int) -> None:
+        try:
+            os.killpg(process.pid, sig)
+        except (ProcessLookupError, PermissionError):
+            pass
+
+    try:
+        while selector.get_map():
+            now = time.monotonic()
+            if not stop_stage and now >= deadline:
+                timed_out = True
+            if not stop_stage and (timed_out or fuse.breach is not None):
+                signal_group(signal.SIGTERM)
+                stop_stage, stop_at = "terminated", now
+            elif stop_stage == "terminated" and now - stop_at >= terminate_grace_seconds:
+                signal_group(signal.SIGKILL)
+                stop_stage, stop_at = "killed", now
+            elif stop_stage == "killed" and now - stop_at >= kill_grace_seconds:
+                break
+            for key, _ in selector.select(timeout=0.1):
+                try:
+                    chunk = os.read(key.fileobj.fileno(), 65536)
+                except OSError:
+                    chunk = b""
+                if not chunk:
+                    selector.unregister(key.fileobj)
+                    continue
+                chunks[key.data].append(chunk)
+                if key.data == "stdout" and fuse.breach is None:
+                    fuse.feed(decoder.decode(chunk))
+        if stop_stage:
+            signal_group(signal.SIGKILL)
+        try:
+            process.wait(timeout=kill_grace_seconds + 1)
+        except subprocess.TimeoutExpired:
+            pass
+    finally:
+        selector.close()
+        for stream in (process.stdout, process.stderr):
+            try:
+                stream.close()
+            except OSError:
+                pass
+    return {
+        "stdout": b"".join(chunks["stdout"]).decode("utf-8", errors="replace"),
+        "stderr": b"".join(chunks["stderr"]).decode("utf-8", errors="replace"),
+        "returncode": process.returncode,
+        "timed_out": timed_out,
+        "fuse_breach": fuse.breach,
+        "pid": process.pid,
+    }

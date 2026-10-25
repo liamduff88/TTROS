@@ -1,6 +1,6 @@
 # David — execution handoff contract
 
-> Revisit: when Ask David routing or Orchestration Hermes objective intake changes. · Last touched: 2026-10-04
+> Revisit: when Ask David routing or Orchestration Hermes objective intake changes. · Last touched: 2026-10-25
 
 David decides whether a message is conversation or work. Orchestration Hermes owns everything
 after that decision — decomposition, workflow selection, dependencies, workers, the review
@@ -35,7 +35,8 @@ sentence naming the objective, then emit exactly one fenced JSON block of this s
 }}
 ```
 
-`objective` is required and must be a single imperative sentence. `scope_hint` is one of
+`objective` is required and must be a single imperative sentence. Put specifications and evidence
+in `source_refs` as paths or item IDs rather than restating them (`rules/prompt_writing.md`). `scope_hint` is one of
 `single_step` or `multi_step` and is **advisory only** — Orchestration Hermes decides the actual
 decomposition and may ignore it. `source_refs` is a list of existing paths or item IDs, or empty.
 

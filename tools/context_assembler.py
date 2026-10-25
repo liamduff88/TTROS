@@ -5,7 +5,7 @@ The assembler emits an immutable object with visible per-block byte/token
 counts.  It selects relevant Brain sources instead of dumping the vault and
 never truncates a selected block silently.
 
-Revisit: when a model surface, Brain retrieval source, or context block changes. · Last touched: 2026-09-22.
+Revisit: when a model surface, Brain retrieval source, or context block changes. · Last touched: 2026-10-25.
 """
 
 from __future__ import annotations
@@ -278,6 +278,8 @@ class AssembledContext:
 
     def render(self, *, include_request: bool = True) -> str:
         self.validate()
+        if is_technical_worker(self.classification, self.surface):
+            return self._render_technical_worker(include_request=include_request)
         lines = [
             f"[{MARKER}]",
             f"Invocation: {self.invocation_id}",
@@ -305,6 +307,29 @@ class AssembledContext:
                 f"Selection: {block.selection}",
                 block.content,
             ))
+        if include_request:
+            lines.extend(("", "## Current request", self.request))
+        return "\n".join(lines).rstrip() + "\n"
+
+
+    def _render_technical_worker(self, *, include_request: bool) -> str:
+        """Work-order render: N/A blocks collapse to one line; counts, selection
+        notes and full provenance stay in the assembly artifact."""
+        lines = [
+            f"[{MARKER}]",
+            f"Invocation: {self.invocation_id} · {self.surface} · {self.classification} · "
+            f"assembler v{ASSEMBLER_VERSION}, source discovery 0 model tokens · "
+            f"full manifest: queue/context_assemblies/{self.invocation_id}.json",
+        ]
+        if self.warnings:
+            lines.extend(("Warnings:", *(f"- {warning}" for warning in self.warnings)))
+        absent = [block.name for block in self.blocks if block.content.startswith("N/A")]
+        if absent:
+            lines.append("Not applicable to this technical step: " + ", ".join(absent) + ".")
+        for block in self.blocks:
+            if block.content.startswith("N/A") or block.name == "provenance":
+                continue  # provenance stays complete in the manifest named above
+            lines.extend(("", f"## {block.name}", block.content))
         if include_request:
             lines.extend(("", "## Current request", self.request))
         return "\n".join(lines).rstrip() + "\n"
@@ -386,6 +411,23 @@ def relevance_query(request: str) -> str:
     """Strip operator transport/boundary text before relevance scoring."""
     match = OPERATOR_MESSAGE_RE.search(str(request or ""))
     return match.group("message").strip() if match else str(request or "").strip()
+
+
+WORKER_INSTRUCTIONS_MARKER = "\nTask-scoped execution instructions:\n"
+
+
+def worker_brief(request: str) -> str:
+    """The item's own brief, without the launcher's execution boilerplate.
+
+    Template words ("work", "agent", "session", "source") otherwise dominate
+    relevance and select unrelated business playbooks (AOS-2026-0943).
+    """
+    return str(request or "").split(WORKER_INSTRUCTIONS_MARKER, 1)[0].strip()
+
+
+def is_technical_worker(classification: str, surface: str) -> bool:
+    """A technical-only queue worker step gets the rules/prompt_writing.md shape."""
+    return classification == "technical_only" and str(surface or "").startswith("worker:")
 
 
 CARD_QUERY_STOP_TERMS = frozenset({
@@ -1128,8 +1170,17 @@ def _project_matching_source(index: int, relative: str, score: int, text: str) -
     return "\n".join(lines)
 
 
-def _matching_workflows_block(query: str) -> ContextBlock:
+def _matching_workflows_block(query: str, *, require_named: bool = False) -> ContextBlock:
+    """Select up to four playbooks by term relevance.
+
+    ``require_named`` (technical worker steps) keeps only a playbook the
+    brief itself names: its folder name verbatim, or every 4+-letter token of
+    it (``submit-confirm`` needs both submit and confirm). One shared generic
+    word ("call", "work") no longer pulls a business playbook into a
+    technical prompt.
+    """
     terms = _query_terms(query)
+    brief_tokens = {term.strip(".,;:()'\"`") for term in terms}
     candidates: list[tuple[int, str, str]] = []
     for pattern in ("*/SKILL.md", "*/workflow.md"):
         for path in ROOT.glob(pattern):
@@ -1138,6 +1189,12 @@ def _matching_workflows_block(query: str) -> ContextBlock:
             except OSError:
                 continue
             relative = path.relative_to(ROOT).as_posix()
+            if require_named:
+                folder = relative.rsplit("/", 1)[0].casefold()
+                folder_tokens = {token for token in re.split(r"[_\-/]+", folder) if len(token) >= 4}
+                named = folder in query.casefold() or (folder_tokens and folder_tokens <= brief_tokens)
+                if not named:
+                    continue
             lowered = (relative + "\n" + text).casefold()
             score = sum((5 if term in relative.casefold() else 1) * lowered.count(term) for term in terms)
             if score:
@@ -1145,6 +1202,12 @@ def _matching_workflows_block(query: str) -> ContextBlock:
     candidates.sort(key=lambda row: (-row[0], row[1]))
     selected = candidates[:4]
     if not selected:
+        if require_named:
+            return ContextBlock(
+                "matching skills/workflows",
+                "N/A — technical step names no repository playbook; unrelated workflows excluded (rules/prompt_writing.md).",
+                ("skills:index#technical-worker-no-named-match",), False, "named-playbook match only",
+            )
         return ContextBlock("matching skills/workflows", "N/A — no workflow matched.", ("skills:index#no-match",), False, "relevance search returned zero matches")
     sections = [
         f"Selected {len(selected)}/{len(candidates)}; order preserved. READ_SOURCE is the exact retrieved repo file; DECLARED_*_TARGET is source metadata, not an additional read. Hashes are in provenance/artifact. "
@@ -1392,6 +1455,34 @@ def _deterministic_morning_brief(classification: str, *, client_scope: str = "gl
         )
 
 
+def _pointer_projection(block: ContextBlock) -> ContextBlock:
+    """Replace inlined queue rows with one pointer line each (id, status, title,
+    receipt paths). Selection, sources and actual reads are unchanged."""
+    lines = []
+    for raw in block.content.splitlines():
+        try:
+            row = json.loads(raw)
+        except json.JSONDecodeError:
+            return block
+        if not isinstance(row, dict) or not row.get("id"):
+            return block
+        paths = ", ".join(str(path) for path in row.get("receipt_paths") or [])
+        lines.append(
+            f"- {row['id']} [{row.get('status') or 'unknown'}] {row.get('title') or ''}"
+            + (f" — read if needed: {paths}" if paths else "")
+        )
+    if not lines:
+        return block
+    return ContextBlock(
+        block.name,
+        "Pointers only; open a path when the step needs it.\n" + "\n".join(lines),
+        block.sources,
+        block.stable_prefix,
+        block.selection + "; pointer projection for technical worker",
+        block.actual_reads,
+    )
+
+
 def _provenance_block(blocks: Iterable[ContextBlock], *, compact: bool = False) -> ContextBlock:
     selected = tuple(blocks)
     rows = []
@@ -1588,6 +1679,9 @@ def assemble(
         latest_turn = conversation.content.rsplit("\n### Turn ·", 1)[-1]
         relevance = relevance + "\n\nLatest durable turn for reference resolution:\n" + latest_turn
     kind = classify_request(relevance, classification)
+    technical_worker = is_technical_worker(kind, surface)
+    if technical_worker:
+        relevance = worker_brief(relevance)
     if kind == "technical_only":
         identity = ContextBlock("identity/company", "N/A — genuinely technical-only work.", ("classification:technical_only",), True, "explicit N/A")
         priorities = ContextBlock("current priorities", "N/A — genuinely technical-only work.", ("classification:technical_only",), True, "explicit N/A")
@@ -1609,11 +1703,20 @@ def assemble(
             vault_root=vault_root, registry=gate, graph_service=graph_service,
             search_db_path=search_db_path,
         ),
-        _recent_outcomes_block(relevance, client_scope=client_scope, root=root, registry=gate),
-        _session_recency_block(relevance, client_scope=client_scope, vault_root=vault_root, registry=gate),
+        _pointer_projection(_recent_outcomes_block(relevance, client_scope=client_scope, root=root, registry=gate))
+        if technical_worker else _recent_outcomes_block(relevance, client_scope=client_scope, root=root, registry=gate),
+        ContextBlock(
+            "relevant session recency",
+            "N/A — conversation history is excluded from technical worker steps.",
+            ("classification:technical_only#worker",), False, "explicit N/A",
+        ) if technical_worker else _session_recency_block(relevance, client_scope=client_scope, vault_root=vault_root, registry=gate),
         _open_loops_block(relevance, client_scope=client_scope, vault_root=vault_root, registry=gate) if kind != "technical_only" else ContextBlock("relevant open loops", "N/A — genuinely technical-only work.", ("classification:technical_only",), False, "explicit N/A"),
-        _current_commitments_block(relevance, client_scope=client_scope, root=root, registry=gate),
-        _matching_workflows_block(relevance),
+        ContextBlock(
+            "relevant current commitments",
+            "N/A — technical worker step; cited items' current status is in queue reference validity.",
+            ("classification:technical_only#worker",), False, "explicit N/A",
+        ) if technical_worker else _current_commitments_block(relevance, client_scope=client_scope, root=root, registry=gate),
+        _matching_workflows_block(relevance, require_named=technical_worker),
         conversation,
         _action_boundaries(),
         _execution_handoff_contract(profile),
@@ -1622,7 +1725,10 @@ def assemble(
     blocks = tuple([
         *initial,
         validity,
-        _provenance_block([*initial, validity], compact=str(profile or "").strip().casefold() == "david"),
+        _provenance_block(
+            [*initial, validity],
+            compact=technical_worker or str(profile or "").strip().casefold() == "david",
+        ),
     ])
     invocation = invocation_id or f"ctx-{uuid.uuid4().hex}"
     total = sum(block.token_count for block in blocks) + estimate_tokens(query)
@@ -1772,6 +1878,17 @@ def write_assembly_artifact(context: AssembledContext) -> Path:
     return target
 
 
+def work_order_header(item: dict[str, Any]) -> str:
+    """Objective, scope and pointers in the rules/prompt_writing.md order."""
+    sources = item.get("sources") if isinstance(item.get("sources"), list) else []
+    return "\n".join((
+        f"Work item {str(item.get('id') or '').strip()}: {item.get('title') or ''}",
+        "Objective (definition of done): " + str(item.get("definition_of_done") or ""),
+        "Scope: " + str(item.get("context") or ""),
+        "Pointers: " + (", ".join(str(value) for value in sources) or "none provided"),
+    ))
+
+
 def worker_context_pack(
     item: dict[str, Any],
     *,
@@ -1782,23 +1899,31 @@ def worker_context_pack(
     item_id = str(item.get("id") or "").strip()
     if not re.fullmatch(r"AOS-\d{4}-\d{4}", item_id):
         raise ContextAssemblyError("worker context pack requires a canonical work-item id")
-    sources = item.get("sources") if isinstance(item.get("sources"), list) else []
+    header = work_order_header(item)
+    instructions = str(execution_instructions or "").strip()
+    if instructions.startswith(header):
+        # A self-contained work order (the Codex builder) opens with this
+        # exact header; state it once.
+        instructions = instructions[len(header):].strip()
     request = "\n".join((
-        f"Work item {item_id}: {item.get('title') or ''}",
-        str(item.get("context") or ""),
-        "Source references: " + ", ".join(str(value) for value in sources),
-        "Definition of done: " + str(item.get("definition_of_done") or ""),
+        header,
         "",
         "Task-scoped execution instructions:",
-        str(execution_instructions or "No additional execution instructions.").strip(),
+        instructions or "No additional execution instructions.",
     ))
+    classification = str(item.get("context_classification") or "") or None
+    if classification is None and owner == "codex":
+        # Codex steps are technical unless the brief carries business terms.
+        # This was previously implicit: the old template's own word "backend"
+        # made every Codex request match TECHNICAL_RE.
+        classification = "knowledge_sensitive" if BUSINESS_RE.search(header) else "technical_only"
     context = assemble(
         request,
         surface=f"worker:{owner}",
         session_id=item_id,
         session_key="",
         client_scope=str(item.get("client_scope") or "global"),
-        classification=str(item.get("context_classification") or "") or None,
+        classification=classification,
     )
     selected_pack_dir = pack_dir or PACK_DIR
     selected_pack_dir.mkdir(parents=True, exist_ok=True)

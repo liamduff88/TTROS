@@ -1,0 +1,402 @@
+"""Per-session Codex fuse, streaming stop, model routing and work-order prompts.
+
+Revisit: when the Codex fuse scope, ``codex exec --json`` usage events, the
+codex_selection tiers, or the technical-worker prompt shape change. · Last touched: 2026-10-25.
+"""
+
+from __future__ import annotations
+
+import json
+import tempfile
+import time
+import unittest
+from dataclasses import replace
+from pathlib import Path
+from unittest.mock import patch
+
+from dashboard.backend import main as backend
+from tools import aos_codex_policy as policy
+from tools import context_assembler
+from tools import step6_cost_control as step6
+
+
+ROOT = Path(__file__).resolve().parents[1]
+ITEM = "AOS-2026-9101"
+
+
+def _fixture_root(tmp: str) -> Path:
+    root = Path(tmp)
+    (root / "queue").mkdir(parents=True, exist_ok=True)
+    (root / "queue" / "notifications.json").write_text(
+        json.dumps({"operator_controls": {"cost_dial": "standard"}}), encoding="utf-8",
+    )
+    return root
+
+
+def _usage(total: int) -> dict:
+    return {"input_tokens": total - 10, "output_tokens": 10, "cache_semantics": "included_in_provider_input"}
+
+
+def _record_session(root: Path, invocation: str, total: int, item: str = ITEM) -> dict:
+    return step6.record_invocation(
+        step6.codex_session_scope(invocation), invocation_id=invocation, provider="openai-codex",
+        model="gpt-6-sol", usage=_usage(total), root=root, surface="test:codex", work_item_id=item,
+    )
+
+
+class SessionFuseScopeTest(unittest.TestCase):
+    def test_each_new_session_starts_at_zero_despite_parent_item_spend(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root(tmp)
+            # Legacy shape: 600K already charged to the work-item scope.
+            step6.record_invocation(
+                step6.Scope("work_item", ITEM), invocation_id="legacy-1", provider="openai-codex",
+                model="gpt-6-sol", usage=_usage(600_000), root=root, surface="test:codex",
+            )
+            self.assertTrue(step6.fuse_status(step6.Scope("work_item", ITEM), root=root)["paused"])
+            scope, status = step6.codex_session_preflight("codex-new-1", work_item_id=ITEM, root=root)
+            self.assertEqual("session:codex-new-1", scope.key)
+            self.assertEqual(0, status["canonical_tokens"])
+            self.assertFalse(status["paused"])
+            self.assertEqual(600_000, status["work_item_aggregate"]["known_tokens"])
+
+    def test_step_budgets_are_independent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root(tmp)
+            first = _record_session(root, "codex-step-1", 500_000)
+            self.assertTrue(first["status"]["paused"])
+            with self.assertRaises(step6.FusePausedError):
+                step6.codex_session_preflight("codex-step-1", work_item_id=ITEM, root=root)
+            _scope, status = step6.codex_session_preflight("codex-step-2", work_item_id=ITEM, root=root)
+            self.assertFalse(status["paused"])
+            second = _record_session(root, "codex-step-2", 120_000)
+            self.assertEqual(120_000, second["status"]["canonical_tokens"])
+            self.assertEqual(ITEM, second["row"]["parent_work_item_id"])
+            self.assertEqual("codex-step-2", second["row"]["session_id"])
+
+    def test_historical_rows_aggregate_without_rewrite(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root(tmp)
+            step6.record_invocation(
+                step6.Scope("work_item", ITEM), invocation_id="legacy-1", provider="openai-codex",
+                model="gpt-6-sol", usage=_usage(1_415_907), root=root, surface="test:codex",
+            )
+            ledger = root / "queue" / "token_ledger.jsonl"
+            legacy_bytes = ledger.read_bytes()
+            _record_session(root, "codex-a", 30_000)
+            _record_session(root, "codex-b", 40_000)
+            _record_session(root, "codex-other", 99_999, item="AOS-2026-9102")
+            self.assertTrue(ledger.read_bytes().startswith(legacy_bytes), "historical ledger bytes were rewritten")
+            aggregate = step6.work_item_usage(ITEM, root=root)
+            self.assertEqual(1_415_907 + 30_000 + 40_000, aggregate["known_tokens"])
+            self.assertEqual(3, aggregate["invocation_count"])
+            self.assertEqual([], aggregate["accounting_unknown_since_reset"])
+
+    def test_unknown_usage_fails_closed_for_the_item_until_reset(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root(tmp)
+            step6.record_unavailable_invocation(
+                step6.codex_session_scope("codex-lost"), invocation_id="codex-lost", provider="openai-codex",
+                model="gpt-6-sol", reason="fixture: no terminal usage", root=root, surface="test:codex",
+                work_item_id=ITEM,
+            )
+            with self.assertRaisesRegex(step6.FusePausedError, "codex-lost: canonical usage unavailable"):
+                step6.codex_session_preflight("codex-next", work_item_id=ITEM, root=root)
+            # A different item is unaffected; the unknown is never treated as zero.
+            step6.codex_session_preflight("codex-elsewhere", work_item_id="AOS-2026-9102", root=root)
+            self.assertEqual(1, step6.work_item_usage(ITEM, root=root)["unknown_invocations"])
+            step6.reset_scope(step6.Scope("work_item", ITEM), reason="fixture accounting repaired", root=root)
+            step6.codex_session_preflight("codex-next", work_item_id=ITEM, root=root)
+            self.assertEqual(1, step6.work_item_usage(ITEM, root=root)["unknown_invocations"])
+
+
+class TornLedgerReadTest(unittest.TestCase):
+    def test_in_flight_final_line_is_retried_and_permanent_tear_is_corrupt(self):
+        import threading
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root(tmp)
+            ledger = root / "queue" / "token_ledger.jsonl"
+            whole = json.dumps({"event": "x", "n": 1})
+            ledger.write_text(whole + "\n" + whole[:7], encoding="utf-8")
+            finisher = threading.Timer(0.05, lambda: ledger.write_text(whole + "\n" + whole + "\n", encoding="utf-8"))
+            finisher.start()
+            try:
+                self.assertEqual(2, len(step6._ledger_rows(root)))
+            finally:
+                finisher.join()
+            ledger.write_text(whole + "\n" + whole[:7], encoding="utf-8")
+            with self.assertRaisesRegex(step6.CostControlError, "corrupt token ledger line 2"):
+                step6._ledger_rows(root)
+
+
+def _events(*events: dict) -> str:
+    return "".join(json.dumps(event) + "\n" for event in events)
+
+
+class StreamingFuseTest(unittest.TestCase):
+    def test_exact_turn_usage_at_limit_breaches(self):
+        fuse = policy.StreamingSessionFuse("prompt")
+        self.assertIsNone(fuse.feed(_events({"type": "turn.completed", "usage": {"input_tokens": 400_000, "output_tokens": 1}})))
+        breach = fuse.feed(_events({"type": "turn.completed", "usage": {"input_tokens": 499_990, "output_tokens": 10}}))
+        self.assertEqual({"basis": "exact_turn_usage", "tokens": 500_000, "limit": 500_000}, breach)
+
+    def test_small_session_never_breaches_and_split_lines_are_buffered(self):
+        fuse = policy.StreamingSessionFuse("x" * 4_000)
+        stream = _events(
+            {"type": "thread.started", "thread_id": "t"}, {"type": "turn.started"},
+            {"type": "item.started", "item": {"type": "command_execution"}},
+            {"type": "item.completed", "item": {"type": "command_execution", "command": "ls", "aggregated_output": "a" * 8_000}},
+            {"type": "turn.completed", "usage": {"input_tokens": 30_000, "output_tokens": 500}},
+        )
+        for start in range(0, len(stream), 7):  # arbitrary chunk boundaries
+            self.assertIsNone(fuse.feed(stream[start:start + 7]))
+        self.assertEqual(30_500, fuse.exact_cumulative)
+        self.assertEqual(1, fuse.requests_estimated)
+
+    def test_lower_bound_estimate_stops_a_long_single_turn(self):
+        fuse = policy.StreamingSessionFuse("p" * 40_000)
+        breach = None
+        rounds = 0
+        while breach is None and rounds < 200:
+            rounds += 1
+            breach = fuse.feed(_events(
+                {"type": "item.started", "item": {"type": "command_execution"}},
+                {"type": "item.completed", "item": {"type": "command_execution", "command": "cat f", "aggregated_output": "o" * 40_000}},
+            ))
+        self.assertIsNotNone(breach)
+        self.assertEqual("in_flight_lower_bound_estimate", breach["basis"])
+        self.assertGreaterEqual(breach["tokens"], 500_000)
+        self.assertLess(rounds, 40)
+        self.assertIsNone(fuse.exact_cumulative)
+
+    def test_real_aos_0943_stream_would_stop_before_its_end(self):
+        stream_path = ROOT / "logs" / "codex_sessions" / "codex-338d6e72e2d441349c26c9a1538e38ce.stdout.jsonl"
+        if not stream_path.exists():
+            self.skipTest("AOS-2026-0943 stream artifact not present")
+        lines = stream_path.read_text(encoding="utf-8").splitlines(keepends=True)
+        fuse = policy.StreamingSessionFuse("x" * 32_818)
+        stopped_at = None
+        for index, line in enumerate(lines):
+            if fuse.feed(line) is not None:
+                stopped_at = index
+                break
+        self.assertIsNotNone(stopped_at)
+        self.assertEqual("in_flight_lower_bound_estimate", fuse.breach["basis"])
+        self.assertLess(stopped_at, len(lines) - 1, "the stop must precede turn.completed")
+        self.assertIsNone(fuse.exact_cumulative)
+
+    def test_run_streaming_kills_the_process_group_at_the_fuse(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = Path(tmp) / "codex-flood"
+            fake.write_text(
+                "#!/usr/bin/env python3\n"
+                "import json, sys, time\n"
+                "sys.stdin.read()\n"
+                "print(json.dumps({'type':'thread.started','thread_id':'flood'}), flush=True)\n"
+                "for _ in range(400):\n"
+                "    print(json.dumps({'type':'item.started','item':{'type':'command_execution'}}), flush=True)\n"
+                "    print(json.dumps({'type':'item.completed','item':{'type':'command_execution','command':'x','aggregated_output':'o'*40000}}), flush=True)\n"
+                "    time.sleep(0.01)\n"
+                "time.sleep(3600)\n",
+                encoding="utf-8",
+            )
+            fake.chmod(0o755)
+            fuse = policy.StreamingSessionFuse("prompt")
+            started = time.monotonic()
+            result = policy.run_streaming(
+                [str(fake)], cwd=tmp, env={"PATH": "/usr/bin:/bin"}, prompt="prompt",
+                timeout_seconds=60, fuse=fuse, terminate_grace_seconds=0.5, kill_grace_seconds=0.5,
+            )
+            self.assertLess(time.monotonic() - started, 20)
+            self.assertFalse(result["timed_out"])
+            self.assertEqual("in_flight_lower_bound_estimate", result["fuse_breach"]["basis"])
+            self.assertIsNotNone(result["returncode"])
+            self.assertIn('"thread_id": "flood"', result["stdout"])
+
+
+class ModelRoutingTest(unittest.TestCase):
+    STANDARD = {"value": "standard", "source": "global_config"}
+
+    def test_simple_medium_complex(self):
+        simple = policy.select_model_and_effort({
+            "title": "Status check", "context": "Report the count of open items; read-only.",
+            "allowed_actions": ["local_read"], "definition_of_done": "Count reported.",
+        }, cost_dial=self.STANDARD)
+        self.assertEqual(("simple", "gpt-6-luna", "low"), (simple["tier"], simple["model"], simple["reasoning_effort"]))
+        medium = policy.select_model_and_effort({
+            "title": "Add a dashboard filter",
+            "context": "Add a status filter to the Queue view and its endpoint. " + "Keep the existing layout and behaviour. " * 12,
+            "allowed_actions": ["local_read", "local_edit", "local_test"],
+            "definition_of_done": "Filter works; focused tests pass.",
+        }, cost_dial=self.STANDARD)
+        self.assertEqual(("medium", "gpt-6-sol", "medium"), (medium["tier"], medium["model"], medium["reasoning_effort"]))
+        complex_ = policy.select_model_and_effort({
+            "title": "Ledger schema migration",
+            "context": "Migrate the token ledger schema with locking and rollback. " + "Preserve every historical row. " * 12,
+            "allowed_actions": ["local_read", "local_edit", "local_test"],
+            "definition_of_done": "Migration proven reversible.",
+        }, cost_dial=self.STANDARD)
+        self.assertEqual(("complex", "gpt-6-sol", "high"), (complex_["tier"], complex_["model"], complex_["reasoning_effort"]))
+        for chosen in (simple, medium, complex_):
+            self.assertTrue(chosen["reason"])
+            self.assertIn(chosen["model"], policy.load_codex_tiers(ROOT)["supported_models"])
+
+    def test_operator_override_pins_and_global_dial_shifts(self):
+        risky = {"title": "Security refactor", "context": "Refactor credential handling. " * 20, "allowed_actions": ["local_edit"]}
+        pinned = policy.select_model_and_effort(risky, cost_dial={"value": "light", "source": "scope_override"})
+        self.assertEqual("simple", pinned["tier"])
+        self.assertIn("operator override budget:light", pinned["reason"])
+        shifted = policy.select_model_and_effort(risky, cost_dial={"value": "light", "source": "global_config"})
+        self.assertEqual("medium", shifted["tier"])
+        self.assertIn("light dial shifted complex->medium", shifted["reason"])
+        retry = policy.classify_step_complexity({"context": "x" * 600}, attempt=2)
+        self.assertIn("retry attempt 2 (+1)", retry["reasons"])
+
+    def test_unconfigured_model_is_refused(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            routes = json.loads((ROOT / "queue" / "model_routes.json").read_text(encoding="utf-8"))
+            routes["routes"]["codex"]["codex_selection"]["tiers"]["simple"]["model"] = "gpt-invented"
+            (root / "queue").mkdir()
+            (root / "queue" / "model_routes.json").write_text(json.dumps(routes), encoding="utf-8")
+            with self.assertRaisesRegex(policy.CodexPolicyError, "unconfigured model"):
+                policy.select_model_and_effort({}, cost_dial=self.STANDARD, root=root)
+        with self.assertRaises(policy.CodexPolicyError):
+            policy.build_exec_command(selection={"model": "gpt-6-sol", "reasoning_effort": "ultra"})
+
+    def test_command_carries_selected_model_and_effort(self):
+        command = policy.build_exec_command(selection={"model": "gpt-6-luna", "reasoning_effort": "low"})
+        self.assertEqual("gpt-6-luna", command[command.index("--model") + 1])
+        self.assertIn("model_reasoning_effort=low", command)
+        self.assertIn("--ephemeral", command)
+
+
+class BackendCodexSessionTest(unittest.TestCase):
+    def _fake(self, root: Path, *, flood: bool = False) -> Path:
+        fake = root / "codex-fixture"
+        body = (
+            "for _ in range(400):\n"
+            "    print(json.dumps({'type':'item.started','item':{'type':'command_execution'}}), flush=True)\n"
+            "    print(json.dumps({'type':'item.completed','item':{'type':'command_execution','command':'x','aggregated_output':'o'*40000}}), flush=True)\n"
+            "time.sleep(3600)\n"
+            if flood else
+            "print(json.dumps({'type':'item.completed','item':{'type':'agent_message','text':'PASS'}}), flush=True)\n"
+            "print(json.dumps({'type':'turn.completed','usage':{'input_tokens':900,'cached_input_tokens':100,'output_tokens':40}}), flush=True)\n"
+        )
+        fake.write_text(
+            "#!/usr/bin/env python3\n"
+            "import json, pathlib, sys, time\n"
+            "root = pathlib.Path(sys.argv[sys.argv.index('-C') + 1])\n"
+            "(root / 'argv.json').write_text(json.dumps(sys.argv), encoding='utf-8')\n"
+            "sys.stdin.read()\n"
+            "print(json.dumps({'type':'thread.started','thread_id':'fixture-thread'}), flush=True)\n" + body,
+            encoding="utf-8",
+        )
+        fake.chmod(0o755)
+        return fake
+
+    def _context(self, item: dict):
+        return backend.assemble_model_context(
+            "fixture task", surface="test:codex", classification="technical_only", write_artifact=False,
+        )
+
+    def test_each_call_is_its_own_session_scope_with_recorded_selection(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root(tmp)
+            target = replace(policy.CODEX_TARGET, root=root, executable=self._fake(root), codex_home=root / ".codex")
+            item = {"id": ITEM, "title": "Status check", "context": "Read-only count.", "allowed_actions": ["local_read"]}
+            with patch.object(backend, "BASE_DIR", root), patch.object(backend, "CODEX_TARGET", target):
+                first = backend._run_codex_local(self._context(item), item)
+                second = backend._run_codex_local(self._context(item), item)
+            self.assertTrue(first["success"])
+            self.assertNotEqual(first["invocation"]["fuse_scope"], second["invocation"]["fuse_scope"])
+            argv = json.loads((root / "argv.json").read_text(encoding="utf-8"))
+            self.assertEqual("gpt-6-luna", argv[argv.index("--model") + 1])
+            rows = [json.loads(line) for line in (root / "queue" / "token_ledger.jsonl").read_text().splitlines()]
+            invocations = [row for row in rows if row.get("event") == "model_invocation"]
+            self.assertEqual(2, len(invocations))
+            for row in invocations:
+                self.assertEqual("session", row["scope_type"])
+                self.assertEqual(ITEM, row["parent_work_item_id"])
+                self.assertEqual(940, row["fuse"]["invocation_tokens"])
+                self.assertEqual(940, row["fuse"]["scope_total_after"])
+                self.assertEqual("gpt-6-luna", row["model_selection"]["model"])
+                self.assertEqual("low", row["model_selection"]["reasoning_effort"])
+                self.assertEqual("gpt-6-luna", row["model_selection"]["actual_model"])
+                self.assertTrue(row["model_selection"]["reason"])
+            self.assertEqual(1_880, step6.work_item_usage(ITEM, root=root)["known_tokens"])
+
+    def test_streaming_fuse_stops_session_and_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root(tmp)
+            target = replace(policy.CODEX_TARGET, root=root, executable=self._fake(root, flood=True), codex_home=root / ".codex")
+            item = {"id": ITEM, "title": "Flood", "context": "Fixture.", "allowed_actions": ["local_read"]}
+            started = time.monotonic()
+            with patch.object(backend, "BASE_DIR", root), patch.object(backend, "CODEX_TARGET", target), \
+                 patch.object(backend, "AGENT_GRACEFUL_TERMINATION_SECONDS", 0.5):
+                result = backend._run_codex_local(self._context(item), item)
+            self.assertLess(time.monotonic() - started, 30)
+            self.assertFalse(result["success"])
+            self.assertEqual("session_fuse_stop", result["failure_class"])
+            self.assertEqual("in_flight_lower_bound_estimate", result["invocation"]["session_fuse"]["stopped"]["basis"])
+            row = next(
+                json.loads(line) for line in (root / "queue" / "token_ledger.jsonl").read_text().splitlines()
+                if json.loads(line).get("event") == "model_invocation"
+            )
+            self.assertIsNone(row["fuse"]["invocation_tokens"])
+            self.assertIn("stopped at session fuse", row["fuse"]["reason"])
+            with self.assertRaises(step6.FusePausedError):
+                step6.codex_session_preflight("codex-after-stop", work_item_id=ITEM, root=root)
+
+
+class TechnicalWorkOrderPromptTest(unittest.TestCase):
+    def test_technical_worker_prompt_is_a_single_compact_work_order(self):
+        item = {
+            "id": "AOS-2026-9103", "title": "Repair local preflight and verify the runtime", "owner": "codex",
+            "context": "Inspect the effective AI route and the blocked receipts; attempt one read-only model call.",
+            "definition_of_done": "A diagnostic artifact records the command, exit status and output.",
+            "allowed_actions": ["local_read", "local_edit", "local_test"], "stop_conditions": ["git_push"],
+            "sources": ["tools/aos_codex_policy.py"],
+        }
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch.object(context_assembler, "ASSEMBLY_DIR", Path(tmp) / "assemblies"):
+            instructions = backend._queue_actual_run_prompt(item, "codex")
+            context, _pack = context_assembler.worker_context_pack(
+                item, owner="codex", execution_instructions=instructions, pack_dir=Path(tmp),
+            )
+        prepared = policy.prepare_fresh_prompt(context.render())
+        self.assertEqual("technical_only", context.classification)
+        self.assertEqual(1, prepared.count(policy.PERMISSION_HEADER))
+        self.assertEqual(1, prepared.count("Objective (definition of done):"))
+        self.assertEqual(1, prepared.count("Summary for operator:"))
+        self.assertIn("Pointers: tools/aos_codex_policy.py", prepared)
+        for unrelated in ("lead_gen_agent", "voice_agent_setup", "client_memory/workflow.md", "fit_call_prep"):
+            self.assertNotIn(unrelated, prepared)
+        self.assertIn("relevant session recency", prepared.split("Not applicable to this technical step:", 1)[1].split("\n", 1)[0])
+        self.assertIn("action boundaries", prepared)  # safety boundary preserved
+        self.assertIn("[TTROS_ASSEMBLED_CONTEXT_V1]", prepared)
+        self.assertNotIn("## provenance", prepared)
+        self.assertTrue(any(block.name == "provenance" and block.sources for block in context.blocks))
+
+    def test_business_terms_keep_codex_step_knowledge_sensitive(self):
+        item = {"id": "AOS-2026-9104", "title": "Prospect follow-up export", "owner": "codex",
+                "context": "Export the prospect follow-up list.", "definition_of_done": "CSV written."}
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch.object(context_assembler, "ASSEMBLY_DIR", Path(tmp) / "assemblies"):
+            context, _pack = context_assembler.worker_context_pack(item, owner="codex", pack_dir=Path(tmp))
+        self.assertEqual("knowledge_sensitive", context.classification)
+
+    def test_named_playbook_is_still_selected_for_a_technical_step(self):
+        block = context_assembler._matching_workflows_block(
+            "Run the submit-confirm path for record shared-submit-1", require_named=True,
+        )
+        self.assertIn("READ_SOURCE=submit-confirm/SKILL.md", block.content)
+        none = context_assembler._matching_workflows_block(
+            "Attempt one read-only model call and record the route", require_named=True,
+        )
+        self.assertTrue(none.content.startswith("N/A"))
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -1,4 +1,4 @@
-# Codex Work Queue Task
+# Codex task
 
 PERMISSION MODE — SCOPED LOCAL TASK APPROVED
 
@@ -8,45 +8,32 @@ Do not ask before editing files inside the stated folder. Make the changes, vali
 
 Stop only for real external/destructive actions.
 
-This task starts in a fresh ephemeral Codex session. Never use `resume`,
-`--last`, or a prior transcript. Automatic compaction may preserve the current
-task; the shared 500,000-token work-item/session fuse is the only token breaker.
-Store large logs, screenshots, browser evidence, and verbose
-test output as artifacts and retain only summaries plus paths.
-
-Use `context/ACCESS_MODEL.md` as the access model. Use targeted reads/searches. Broad read/search access is allowed when relevant under `context/ACCESS_MODEL.md`. Do not paste or expose secrets.
-
-Codex is for code edits, file-heavy implementation, repo inspection, tests, backend/dashboard patches, connector adapters, and local validation.
-
-## Work Scope
-
-<WORK_SCOPE>
+Work order shape: `rules/prompt_writing.md`. Access model: `context/ACCESS_MODEL.md`. This runs in one fresh ephemeral Codex session with its own 500,000-token fuse; never resume a prior session.
 
 ## Work item
 
 - ID: <AOS-ID>
-- Owner/agent: <OWNER_OR_AGENT>
 - Title: <TITLE>
 
-## Context
+## Objective
+
+<DEFINITION_OF_DONE>
+
+## Scope
 
 <CONTEXT>
 
-## Source references
+## Pointers
 
 <SOURCE_REFERENCES>
 
-## Allowed actions
+## Permissions
 
+Allowed actions:
 <ALLOWED_ACTIONS>
 
-## Stop conditions
-
+Stop and report instead of:
 <STOP_CONDITIONS>
-
-## Definition of done
-
-<DEFINITION_OF_DONE>
 
 ## Validation
 
@@ -54,14 +41,7 @@ Codex is for code edits, file-heavy implementation, repo inspection, tests, back
 
 ## Closeout
 
-Return a compact receipt and create or reference a durable receipt after work is complete.
-Before exiting successfully, attach the durable receipt and leave the item in
-its honest requested terminal status (`human_review`, `done`, `needs_input`, or
-`blocked`). The enclosing `codex-run` supervisor will wait for process exit and
-reconcile the final structured usage against this exact item/session without
-requiring a `done` transition; do not select or infer a different queue item.
-
-Required closeout format:
+Store large logs and test output as artifacts; return summaries and paths. Attach a durable receipt and leave <AOS-ID> in its honest status (`human_review`, `done`, `needs_input`, or `blocked`); the `codex-run` supervisor reconciles this session's usage against this item.
 
 PASS/NEEDS ATTENTION
 
@@ -76,3 +56,6 @@ Blockers:
 
 Next action:
 - ...
+
+Token usage:
+- available / unavailable from current CLI output

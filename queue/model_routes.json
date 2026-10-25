@@ -89,8 +89,17 @@
       "provider": "configured externally",
       "model": "configured externally",
       "escalation_profile": "codex_workbench_escalated",
-      "escalation_rule": "Workbench metadata only; Hermes model_routes does not control Codex model selection.",
-      "policy": "Codex remains an implementation workbench. This metadata is stamped for receipts and ledgers only."
+      "escalation_rule": "Per-step Codex model and effort come from codex_selection below (deterministic complexity tier shifted by the one cost dial); Hermes profiles are not changed by it.",
+      "policy": "Codex remains an implementation workbench. Each step launches a fresh ephemeral session with its own 500K fuse on the tier's model and effort.",
+      "codex_selection": {
+        "catalog_check": "codex-cli 0.164.0 `codex debug models` on 2026-10-25 lists gpt-6-luna and gpt-6-sol with low/medium/high effort",
+        "supported_models": ["gpt-6-luna", "gpt-6-sol"],
+        "tiers": {
+          "simple": {"model": "gpt-6-luna", "reasoning_effort": "low", "use_for": "read-only checks, small edits, short briefs"},
+          "medium": {"model": "gpt-6-sol", "reasoning_effort": "medium", "use_for": "ordinary scoped implementation; the previous fixed default"},
+          "complex": {"model": "gpt-6-sol", "reasoning_effort": "high", "use_for": "risky, cross-cutting, security/ledger/schema work or retries"}
+        }
+      }
     },
     "claude": {
       "lane": "claude",

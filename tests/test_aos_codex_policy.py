@@ -105,10 +105,10 @@ class AosCodexPolicyTest(unittest.TestCase):
         workflow = (ROOT / "workflows/prompt_templates/codex_workflow_runner.md").read_text(encoding="utf-8")
         frontend = (ROOT / "dashboard/frontend/src/launcherPrompts.js").read_text(encoding="utf-8")
 
-        self.assertIn("result = _run_codex_local(worker_context, item)", backend)  # mandatory worker context pack
+        self.assertIn("result = _run_codex_local(worker_context, item, attempt=attempt)", backend)  # mandatory worker context pack
         self.assertIn("_run_codex_local(assemble_model_context(", backend)  # direct backend API
         self.assertIn("require_assembled_context(context)", backend)
-        self.assertIn("step6_preflight(step6_scope", queue)
+        self.assertIn("codex_session_preflight(", queue)
         self.assertIn("record_step6_invocation", queue)
         self.assertNotIn("CONTEXT_HANDOFF_THRESHOLD_TOKENS", queue)
         self.assertNotIn("MAX_CONTEXT_HANDOFFS", queue)

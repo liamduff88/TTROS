@@ -2148,7 +2148,7 @@ class HermesComposioTests(unittest.TestCase):
             prompts = []
             token_tasks = []
 
-            def codex_capture(prompt, item=None):
+            def codex_capture(prompt, item=None, **_kwargs):
                 prompts.append(prompt.request)
                 artifact = root / "workflows" / "queue_artifacts" / "AOS-2026-0099_output.md"
                 artifact.parent.mkdir(parents=True, exist_ok=True)

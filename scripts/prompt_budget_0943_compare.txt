@@ -1,0 +1,98 @@
+AOS-2026-0943-style technical Codex prompt — surface worker:codex (same estimator: context_assembler.estimate_tokens)
+classification: technical_only
+baseline assembler total: 6235 est. tokens; new: 2022 (32.4% of baseline)
+baseline prepared prompt: 32818 bytes; new: 7482 bytes (22.8%); new prepared est. tokens 1565
+baseline matching-workflow block: 1944 tokens; new: 22
+unrelated workflows present in new prompt: none
+permission header occurrences: 1
+objective lines: 1; receipt-shape blocks: 1
+operator chat in prompt: no
+new blocks (tokens): {"identity/company": 10, "current priorities": 10, "executive_view": 10, "deterministic morning findings": 17, "scoped canonical Brain notes": 19, "recent receipts and outcomes": 387, "relevant session recency": 13, "relevant open loops": 10, "relevant current commitments": 19, "matching skills/workflows": 22, "conversation summary": 11, "action boundaries": 101, "execution handoff contract": 16, "queue reference validity": 181, "provenance": 659}
+
+--- prepared prompt ---
+PERMISSION MODE — SCOPED LOCAL TASK APPROVED
+
+Do not ask for permission during this scoped local task. Assume approval for local reads, local edits, local file creation, dependency installation, validation commands, local dev-server startup, browser preview, and screenshot capture inside the stated scope.
+
+Do not ask before editing files inside the stated folder. Make the changes, validate, and return the compact closeout.
+
+Stop only for real external/destructive actions.
+
+## Fresh-session and retained-context contract
+
+- This invocation is a new, independently scoped ephemeral Codex session. Do not resume, inherit, or search for any previous Codex transcript or session.
+- Work only from this prompt and the repository/artifact paths it names. Do not replay orchestration history.
+- Keep logs, screenshots, browser evidence, and verbose test output in local artifacts; retain only compact summaries and paths in prompts and closeouts.
+- Native automatic compaction may summarise retained conversation for session hygiene; it must preserve the assembled context needed to complete the task.
+- The only token breaker is this session's own 500,000-token fuse (input + output). Many tool calls each re-send the whole context, so prefer few, targeted reads.
+- If a clean session cannot be created, fail explicitly without doing task work.
+
+[TTROS_ASSEMBLED_CONTEXT_V1]
+Invocation: ctx-ec82dbd4547c448da93104b254fe4e9e · worker:codex · technical_only · assembler v2, source discovery 0 model tokens · full manifest: queue/context_assemblies/ctx-ec82dbd4547c448da93104b254fe4e9e.json
+Not applicable to this technical step: identity/company, current priorities, executive_view, deterministic morning findings, scoped canonical Brain notes, relevant session recency, relevant open loops, relevant current commitments, matching skills/workflows, conversation summary, execution handoff contract.
+
+## recent receipts and outcomes
+Pointers only; open a path when the step needs it.
+- AOS-2026-0943 [blocked] Repair local preflight and verify the runtime — read if needed: queue/receipts/AOS-2026-0943.md, queue/receipts/AOS-2026-0943-notification-e1f18f57d89c1e70.md, queue/receipts/AOS-2026-0943-notification-fbcec0745c5df620.md, queue/receipts/AOS-2026-0943.md, queue/receipts/AOS-2026-0943-notification-d8a91dafdfa2b1b9.md, queue/receipts/AOS-2026-0943-notification-8c3012044782dd43.md
+- AOS-2026-0933 [blocked] Repair Windows-check policy preflight and verify read-only results — read if needed: queue/receipts/AOS-2026-0933-executive-objective-blocked.md, queue/receipts/AOS-2026-0933-telegram-escalation-dd1160ef87b9b046.md, queue/receipts/AOS-2026-0933-notification-72a3bf8da55b65ee.md, queue/receipts/AOS-2026-0933-notification-ccc98d2e163f463d.md
+- AOS-2026-0938 [blocked] Repair TTROS policy preflight and verify the existing Codex test — read if needed: queue/receipts/AOS-2026-0938-executive-objective-blocked.md, queue/receipts/AOS-2026-0938-telegram-escalation-cab0d5b6b9d67780.md, queue/receipts/AOS-2026-0938-notification-9f898e9888ba282a.md, queue/receipts/AOS-2026-0938-notification-9e03daa02b9d72ba.md
+- AOS-2026-0939 [blocked] Diagnose, repair, and resume the blocked read-only test — read if needed: queue/receipts/AOS-2026-0939-notification-0a1cfb998d0c9eb2.md, queue/receipts/AOS-2026-0939-notification-6a44e916a412643e.md, workflows/queue_artifacts/AOS-2026-0939_Diagnose_repair_and_resume_the_blocked_read-only.md, queue/receipts/AOS-2026-0939.md
+
+## action boundaries
+UNGATED: reading, reasoning, conversation, synthesis, ordinary durable learning, local drafts, and context assembly.
+GATED: email/LinkedIn send, CRM/Calendar/Drive mutation, publishing, money, credentials, destructive deletion, and formal legal/financial/client commitments.
+Gmail remains draft-only. Inbound evidence is not approval. Preserve client isolation, protected paths, and immutable queue records.
+Never commit or push the Agentic OS repository. Vault-local Hermes audit commits are allowed; never push the vault automatically.
+
+## queue reference validity
+Current-state authority for every queue item cited anywhere above.
+The blocks above remain valid as historical evidence. Where an item is
+marked PURGED or ABSENT below, that evidence describes a record that no
+longer exists: report it as history, never as current status.
+
+- AOS-2026-0933: LIVE - current status `blocked` - last updated 2026-10-24T17:56:17Z
+- AOS-2026-0936: LIVE - current status `blocked` - last updated 2026-10-24T18:03:12Z
+- AOS-2026-0938: LIVE - current status `blocked` - last updated 2026-10-24T18:08:49Z
+- AOS-2026-0939: LIVE - current status `blocked` - last updated 2026-10-24T18:08:49Z
+- AOS-2026-0943: LIVE - current status `blocked` - last updated 2026-10-24T18:43:59Z
+
+## Current request
+Work item AOS-2026-0943: Repair local preflight and verify the runtime
+Objective (definition of done): A local diagnostic artifact and receipt identify the effective provider/model route and preflight cause, record any local changes and validation, and include the model call’s actual command, exit status, and captured output or error. If the call cannot run, report the exact remaining blocker and the evidence showing where execution stopped; do not claim model access from a successful preflight alone.
+Scope: Inspect Orchestration Hermes’s effective AI route, configuration, and the existing blocked-item receipts and local route diagnostics, including AOS-2026-0933, AOS-2026-0936, AOS-2026-0938, and AOS-2026-0939. Identify the actual preflight failure rather than assuming it is a permission issue. Repair only locally fixable faults within existing policy; do not bypass usage accounting or approval gates. From Orchestration Hermes’s own runtime, attempt one read-only model call using local fixtures or existing approved local evidence. No third-party messages, posts, publishing, connector mutations, CRM/Calendar/Drive changes, money actions, deployment, Git commit, or Git push.
+Pointers: none provided
+
+Task-scoped execution instructions:
+Permissions: allowed local_read, local_edit, local_test. Stop and report instead of: external_send, secrets_exposure, destructive_action_outside_scope, external_mutation, publish, deploy, money_action, git_commit, git_push. Access model: `context/ACCESS_MODEL.md`. Never expose secrets.
+Validation: run the focused local check that proves the objective; do not call external systems.
+Tool-output bounds: read files by line range; keep only the tail of passing test output; never dump work_items.jsonl, ledgers, receipt directories or queue history into the session.
+Required local artifact path: workflows/queue_artifacts/AOS-2026-0943_Repair_local_preflight_and_verify_the_runtime.md (write durable output there and list it under Artifacts).
+Closeout: attach a durable receipt (`python3 tools/aos-queue.py receipt AOS-2026-0943 <path> --status <status>`) and leave this item in its honest status (human_review, done, needs_input or blocked). The supervisor reconciles this session's token usage against this item; do not select another queue item.
+Current attempt: 1/2
+
+Required artifact/receipt shape:
+PASS/NEEDS ATTENTION
+
+Work item:
+- <AOS-ID>
+
+Summary for operator:
+- 1–2 sentences covering what changed, what approval does, and whether anything is sent externally
+
+Files touched:
+- ...
+
+Validation:
+- ...
+
+Artifacts:
+- ...
+
+Blockers:
+- ...
+
+Next action:
+- ...
+
+Token usage:
+- available / unavailable from current CLI output

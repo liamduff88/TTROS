@@ -6,7 +6,9 @@ They do not launch agents, do not replace Hermes, and do not change queue state 
 
 Use:
 
-- `codex_task.prompt.md` for Codex-scoped implementation, inspection, edits, and validation.
+- `codex_task.prompt.md` for Codex-scoped implementation, inspection, edits, and validation,
+  in the `rules/prompt_writing.md` work-order shape. The automated worker path builds the same
+  shape in `_queue_codex_execution_instructions` and does not repeat the item fields.
 - `codex_task_small.prompt.md` for `size: small` Codex work with the operator
   instruction rendered once and no full supervisor/artifact boilerplate.
 - `claude_task.prompt.md` for Claude-scoped polish, refactors, precision implementation, and complex assigned work.

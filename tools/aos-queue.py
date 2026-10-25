@@ -20,6 +20,7 @@ import re
 import signal
 import shutil
 import subprocess
+import uuid
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -36,11 +37,14 @@ from aos_paths import AuthorityError, aos_root, assert_authoritative_root
 from aos_codex_policy import (
     CODEX_TARGET,
     CodexPolicyError,
+    StreamingSessionFuse,
     build_environment as build_codex_environment,
     build_exec_command as build_codex_exec_command,
     cumulative_usage_snapshot,
     prepare_fresh_prompt as prepare_codex_fresh_prompt,
     require_clean_session_id,
+    run_streaming as run_codex_streaming,
+    select_model_and_effort as select_codex_model_and_effort,
     validate_runtime as validate_codex_runtime,
 )
 from aos_queue_storage import QueueStorageError, durable_replace_text, fsync_directory, queue_write_lock
@@ -64,9 +68,8 @@ from aos_task_titles import derive_task_title
 from business_brain_context import BrainContextError, validate_completion_context
 from step6_cost_control import (
     CostControlError as Step6CostControlError,
-    Scope as Step6Scope,
     append_canonical_row as append_step6_canonical_row,
-    preflight as step6_preflight,
+    codex_session_preflight,
     record_invocation as record_step6_invocation,
     record_unavailable_invocation as record_step6_unavailable,
 )
@@ -1706,21 +1709,38 @@ def run_codex_work_item(
     *,
     execution_timeout_seconds: float = CODEX_EXECUTION_TIMEOUT_SECONDS,
 ) -> dict:
-    """Run Codex noninteractively, capture both streams, wait, and reconcile."""
+    """Run Codex noninteractively, capture both streams, wait, and reconcile.
+
+    Each run is a fresh ephemeral session with its own 500K fuse, enforced
+    while the stream is read; the work item keeps the aggregate for reporting.
+    """
     item = find_item(load_items(root), item_id)  # explicit association must exist before launch
     dial_override = next((str(tag).split(":", 1)[1] for tag in item.get("tags", []) if str(tag).startswith("budget:")), None)
-    step6_scope = Step6Scope("work_item", item_id)
+    fuse_invocation_id = f"codex-{uuid.uuid4().hex}"
     try:
-        step6_before = step6_preflight(step6_scope, dial_override=dial_override, root=root)
+        step6_scope, step6_before = codex_session_preflight(
+            fuse_invocation_id, work_item_id=item_id, dial_override=dial_override, root=root,
+        )
         invocation = validate_codex_runtime(root, CODEX_TARGET)
+        selection = select_codex_model_and_effort(
+            item, cost_dial=step6_before["effective_cost_dial"], root=root,
+        )
         command = build_codex_exec_command(
             CODEX_TARGET,
             cost_dial=step6_before["effective_cost_dial"]["value"],
+            selection=selection,
         )
+        selection = {
+            **selection,
+            "actual_model": selection["model"],
+            "actual_model_source": "codex exec --model argument; codex-cli JSON output does not echo model identity",
+        }
         invocation["effective_cost_dial"] = step6_before["effective_cost_dial"]
-        invocation["reasoning_effort"] = {
-            "light": "low", "standard": "medium", "heavy": "high",
-        }[step6_before["effective_cost_dial"]["value"]]
+        invocation["reasoning_effort"] = selection["reasoning_effort"]
+        invocation["model_requested"] = selection["model"]
+        invocation["actual_model"] = selection["model"]
+        invocation["model_selection"] = selection
+        invocation["fuse_scope"] = step6_scope.key
         env = build_codex_environment(CODEX_TARGET)
         prepared_prompt = prepare_codex_fresh_prompt(prompt)
     except (CodexPolicyError, Step6CostControlError) as exc:
@@ -1731,78 +1751,22 @@ def run_codex_work_item(
         capture_output=True, text=True, timeout=20, check=False,
     )
     cli_version = ((version_proc.stdout or "") + (version_proc.stderr or "")).strip() or "unavailable"
-    proc = subprocess.Popen(
-        command,
-        cwd=CODEX_TARGET.root,
-        env=env,
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        start_new_session=True,
-        close_fds=True,
+    session_fuse = StreamingSessionFuse(prepared_prompt)
+    run = run_codex_streaming(
+        command, cwd=CODEX_TARGET.root, env=env, prompt=prepared_prompt,
+        timeout_seconds=execution_timeout_seconds, fuse=session_fuse,
+        terminate_grace_seconds=CODEX_TERMINATE_GRACE_SECONDS,
+        kill_grace_seconds=CODEX_KILL_GRACE_SECONDS,
     )
-    timed_out = False
+    stdout, stderr, timed_out = run["stdout"], run["stderr"], run["timed_out"]
+    fuse_breach = run["fuse_breach"]
+    invocation["session_fuse"] = session_fuse.summary()
 
-    def partial_text(value) -> str:
-        if isinstance(value, bytes):
-            return value.decode("utf-8", errors="replace")
-        return value or ""
+    class _Exited:
+        pid = run["pid"]
+        returncode = run["returncode"]
 
-    def keep_more(current: str, candidate) -> str:
-        rendered = partial_text(candidate)
-        return rendered if len(rendered) >= len(current) else current
-
-    def signal_process_group(sig: int) -> None:
-        try:
-            os.killpg(proc.pid, sig)
-        except ProcessLookupError:
-            pass
-
-    stdout = ""
-    stderr = ""
-    try:
-        stdout, stderr = proc.communicate(prepared_prompt, timeout=execution_timeout_seconds)
-    except subprocess.TimeoutExpired as timeout_exc:
-        timed_out = True
-        stdout = keep_more(stdout, timeout_exc.output)
-        stderr = keep_more(stderr, timeout_exc.stderr)
-        signal_process_group(signal.SIGTERM)
-        graceful_complete = False
-        try:
-            collected_stdout, collected_stderr = proc.communicate(timeout=CODEX_TERMINATE_GRACE_SECONDS)
-            stdout = keep_more(stdout, collected_stdout)
-            stderr = keep_more(stderr, collected_stderr)
-            graceful_complete = True
-        except subprocess.TimeoutExpired as graceful_exc:
-            stdout = keep_more(stdout, graceful_exc.output)
-            stderr = keep_more(stderr, graceful_exc.stderr)
-
-        # A descendant can ignore SIGTERM even after the direct process exits,
-        # so force the entire original session group, not only proc.pid.
-        signal_process_group(signal.SIGKILL)
-        if not graceful_complete:
-            try:
-                collected_stdout, collected_stderr = proc.communicate(timeout=CODEX_KILL_GRACE_SECONDS)
-                stdout = keep_more(stdout, collected_stdout)
-                stderr = keep_more(stderr, collected_stderr)
-            except subprocess.TimeoutExpired as forced_exc:
-                stdout = keep_more(stdout, forced_exc.output)
-                stderr = keep_more(stderr, forced_exc.stderr)
-                for stream in (proc.stdin, proc.stdout, proc.stderr):
-                    try:
-                        if stream is not None:
-                            stream.close()
-                    except OSError:
-                        pass
-                try:
-                    proc.wait(timeout=CODEX_OUTPUT_COLLECTION_SECONDS)
-                except subprocess.TimeoutExpired:
-                    # Return remains bounded even if the local Popen state is
-                    # pathological after the process-group SIGKILL.
-                    pass
+    proc = _Exited()
     combined = "\n".join(part for part in (stdout, stderr) if part)
     try:
         session_id = require_clean_session_id(combined or "")
@@ -1818,8 +1782,14 @@ def run_codex_work_item(
         summary = None
         record_step6_unavailable(
             step6_scope, invocation_id=session_id, provider="openai-codex",
-            model=str(invocation.get("actual_model") or "unavailable"), reason="Codex terminal usage unavailable",
+            model=str(invocation.get("actual_model") or "unavailable"),
+            reason=(
+                f"stopped at session fuse ({fuse_breach['basis']} {fuse_breach['tokens']}/{fuse_breach['limit']}); "
+                "Codex emitted no terminal usage"
+                if fuse_breach else "Codex terminal usage unavailable"
+            ),
             dial_override=dial_override, root=root, surface="queue:codex",
+            work_item_id=item_id, model_selection=selection,
         )
         result = reconcile_codex_usage(
             root, item_id, None, cli_version, session_id,
@@ -1838,6 +1808,7 @@ def run_codex_work_item(
                 "cache_semantics": "included_in_provider_input",
             },
             dial_override=dial_override, root=root, surface="queue:codex",
+            work_item_id=item_id, model_selection=selection,
         )
         source = (
             "Codex supervisor final structured usage event"
@@ -1847,6 +1818,11 @@ def run_codex_work_item(
         result = reconcile_codex_usage(
             root, item_id, summary, cli_version, session_id,
             source=source, invocation=invocation,
+        )
+    if fuse_breach:
+        raise QueueError(
+            f"Codex session stopped at its 500,000-token fuse ({fuse_breach['basis']} "
+            f"{fuse_breach['tokens']:,}); process-exit usage was reconciled"
         )
     if timed_out:
         raise QueueError(
