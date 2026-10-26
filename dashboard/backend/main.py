@@ -10694,6 +10694,240 @@ def _queue_item_read_only(item: dict) -> bool:
     return bool(actions) and actions <= _READ_ONLY_ACTIONS
 
 
+# A requested Hermes review is waived only for a low-risk read-only Codex step
+# whose own persisted raw stream proves what ran. Every check below must hold;
+# any gap keeps the model review. The `review: model` tag itself is untouched:
+# child identification depends on it.
+_DETERMINISTIC_REVIEW_RISK_RE = re.compile(
+    r"\.hermes\.md|connectors/|\b(?:secrets?|credentials?|passwords?|api[ _-]?keys?|oauth|"
+    r"auth(?:n|z|s|enticat\w*|ori[sz]ation|ori[sz]e[ds]?)?|"
+    r"permissions?|security|vulnerab\w*|exploit\w*|delet\w*|deploy\w*|publish\w*|send\w*|payments?|"
+    r"invoices?|customers?|crm|calendar|production|canonical|promot\w*|migrat\w*)\b",
+    re.IGNORECASE,
+)
+_READ_ONLY_SHELL_COMMANDS = frozenset({
+    "cat", "head", "tail", "sed", "grep", "egrep", "fgrep", "rg", "ls", "find", "wc", "pwd", "echo",
+    "printf", "nl", "sort", "cut", "tr", "stat", "file", "jq", "diff", "cmp", "sha256sum", "md5sum",
+    "readlink", "realpath", "basename", "dirname", "du", "df", "true", "test", "which", "cd", "uname", "journalctl",
+})
+_READ_ONLY_SYSTEMCTL_VERBS = frozenset({
+    "status", "is-active", "is-enabled", "is-failed", "list-units", "list-timers", "list-unit-files", "show", "cat",
+})
+_READ_ONLY_GIT_SUBCOMMANDS = frozenset({
+    "status", "log", "show", "diff", "rev-parse", "rev-list", "ls-files", "grep", "blame", "cat-file", "describe",
+    "check-ignore",
+})
+# Flags that make an otherwise read-only command write or execute; a short
+# cluster such as `sed -ni` or `sort -uo` counts.
+_WRITING_FLAG_RES = {
+    "sed": re.compile(r"^(?:-[^-]*i|--in-place)"),
+    "sort": re.compile(r"^(?:-[^-]*o|--output)"),
+    "rg": re.compile(r"^--pre\b"),
+    "file": re.compile(r"^(?:-[^-]*C|--compile)"),
+    "find": re.compile(r"^-(?:delete|exec|execdir|ok|okdir|fprint0?|fprintf|fls)$"),
+    "journalctl": re.compile(r"^--(?:vacuum|rotate|flush|sync|relinquish|setup-keys)"),
+    "git": re.compile(r"^(?:--output|-O|--open-files-in-pager)"),
+}
+# sed's w/W write a file and e (or the s///e flag) runs a shell command.
+_SED_WRITE_COMMAND_RE = re.compile(r"(?:^|[;/}\s\d$])[wWe]\s*\S")
+_SHELL_SEPARATORS = {"|", "||", "&&", ";"}
+_SHELL_REDIRECTS = {">", ">>", ">|", "&>", "&>>"}
+
+
+def _shell_script_from_codex_command(command: str) -> str:
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        return command
+    if len(tokens) == 3 and Path(tokens[0]).name in {"bash", "sh"} and tokens[1] in {"-c", "-lc"}:
+        return tokens[2]
+    return command
+
+
+def _sed_scripts(args: list[str]) -> list[str]:
+    """The sed program text: each -e/--expression value, else the first operand."""
+    scripts = [
+        args[index + 1] for index, arg in enumerate(args[:-1]) if arg in {"-e", "--expression"}
+    ] + [arg.split("=", 1)[1] for arg in args if arg.startswith("--expression=")]
+    if scripts:
+        return scripts
+    return next(([arg] for arg in args if not arg.startswith("-")), [])
+
+
+def _read_only_segment(words: list[str], *, allow_tests: bool) -> bool:
+    """One simple command (no operators) that cannot write a file or change state."""
+    while words and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", words[0]):
+        words = words[1:]
+    if len(words) > 1 and words[-1].isdigit():
+        words = words[:-1]  # the fd number of a `2>/dev/null` redirect
+    if not words:
+        return False
+    name, args = Path(words[0]).name, words[1:]
+    if name == "git":
+        while args and args[0] in {"--no-pager", "-C"}:
+            args = args[2:] if args[0] == "-C" else args[1:]
+        sub, rest = (args[0], args[1:]) if args else ("", [])
+        if any(_WRITING_FLAG_RES["git"].match(arg) for arg in rest):
+            return False
+        return (
+            sub in _READ_ONLY_GIT_SUBCOMMANDS
+            or (sub == "branch" and set(rest) <= {"--show-current", "--list", "-a", "-r", "-v", "-vv"})
+            or (sub == "remote" and (set(rest) <= {"-v"} or rest[:1] == ["get-url"]))
+            or (sub == "config" and rest[:1] in (["--get"], ["--list"], ["-l"], ["--get-regexp"]))
+        )
+    if name == "systemctl":
+        verbs = [arg for arg in args if not arg.startswith("-")]
+        return bool(verbs) and verbs[0] in _READ_ONLY_SYSTEMCTL_VERBS
+    if name == "command":
+        return args[:1] == ["-v"]
+    if allow_tests and (
+        name == "pytest"
+        or (re.fullmatch(r"python3?(?:\.\d+)?", name) and args[:2] in (["-m", "pytest"], ["-m", "unittest"]))
+    ):
+        return True
+    if name not in _READ_ONLY_SHELL_COMMANDS:
+        return False
+    writing = _WRITING_FLAG_RES.get(name)
+    if writing and any(writing.match(arg) for arg in args):
+        return False
+    return name != "sed" or not any(_SED_WRITE_COMMAND_RE.search(script) for script in _sed_scripts(args))
+
+
+def _codex_command_read_only(command: str, *, allow_tests: bool) -> bool:
+    """True only when every segment of a Codex shell command is a known non-writing read."""
+    script = _shell_script_from_codex_command(command)
+    if any(marker in script for marker in ("$(", "`", "<(", ">(", "<<")):
+        return False
+    lexer = shlex.shlex(script.replace("\n", " ; "), posix=True, punctuation_chars=True)
+    lexer.whitespace_split = True
+    try:
+        tokens = list(lexer)
+    except ValueError:
+        return False
+    segments: list[list[str]] = [[]]
+    index = 0
+    while index < len(tokens):
+        token = tokens[index]
+        if token in _SHELL_SEPARATORS:
+            segments.append([])
+        elif token in _SHELL_REDIRECTS:
+            if index + 1 >= len(tokens) or tokens[index + 1] != "/dev/null":
+                return False
+            index += 1
+        elif token == ">&":
+            if index + 1 >= len(tokens) or not tokens[index + 1].isdigit():
+                return False
+            index += 1
+        elif token == "<":
+            index += 1
+        elif set(token) <= set("&|;<>()"):
+            return False
+        else:
+            segments[-1].append(token)
+        index += 1
+    segments = [words for words in segments if words]
+    return bool(segments) and all(_read_only_segment(words, allow_tests=allow_tests) for words in segments)
+
+
+def _queue_codex_stream_text(worker_result: dict) -> str | None:
+    streams = [
+        str(path) for path in worker_result.get("stream_artifacts") or []
+        if str(path).startswith("logs/codex_sessions/") and str(path).endswith(".stdout.jsonl")
+    ]
+    if len(streams) != 1:
+        return None
+    path = (BASE_DIR / streams[0]).resolve()
+    if not path.is_relative_to((BASE_DIR / "logs" / "codex_sessions").resolve()) or not path.is_file():
+        return None
+    try:
+        return path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+
+
+def _queue_model_review_waiver(item: dict, owner: str, attempt: int, worker_result: dict) -> str | None:
+    """Return the evidence basis for skipping a requested Hermes review, or None to keep it.
+
+    Fails closed: a step that is not a first-attempt, read-only, low-risk Codex
+    step, or whose raw stream does not independently prove a clean session,
+    completed turn, successful read-only commands and no file change, keeps
+    the model review.
+    """
+    if not _queue_model_review_requested(item) or owner != "codex" or attempt != 1:
+        return None
+    if not _queue_item_read_only(item) or aos_orchestration.external_effect_review_status(BASE_DIR, item):
+        return None
+    if _DETERMINISTIC_REVIEW_RISK_RE.search(
+        " ".join(str(item.get(field) or "") for field in ("title", "context", "definition_of_done"))
+    ):
+        return None
+    closeout = str(worker_result.get("review_output") or worker_result.get("output") or "")
+    blockers = (_field_from_output(closeout, "Blockers") or "none").strip().rstrip(".").casefold()
+    if (
+        not worker_result.get("success")
+        or worker_result.get("timed_out")
+        or worker_result.get("failure_class")
+        or int(worker_result.get("returncode", -1) or 0) != 0
+        or worker_result.get("file_changes")
+        or worker_result.get("handoff_sessions")
+        or _closeout_verdict(closeout) != "PASS"
+        or blockers not in {"none", "no blockers", "n/a"}
+    ):
+        return None
+    session_id = str(worker_result.get("session_id") or "")
+    usage = worker_result.get("token_usage") if isinstance(worker_result.get("token_usage"), dict) else {}
+    if not session_id or usage.get("session_id") != session_id:
+        return None
+    stream = _queue_codex_stream_text(worker_result)
+    if stream is None:
+        return None
+    try:
+        if require_clean_session_id(stream) != session_id:
+            return None
+    except CodexPolicyError:
+        return None
+    turns_started = turns_completed = 0
+    started: set[str] = set()
+    completed: dict[str, dict] = {}
+    for raw in stream.splitlines():
+        try:
+            event = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(event, dict):
+            continue
+        kind = str(event.get("type") or "")
+        turns_started += kind == "turn.started"
+        turns_completed += kind == "turn.completed"
+        if kind in {"turn.failed", "error"}:
+            return None
+        entry = event.get("item") if isinstance(event.get("item"), dict) else {}
+        if entry.get("type") == "file_change":
+            return None
+        if entry.get("type") != "command_execution":
+            continue
+        entry_id = str(entry.get("id") or "")
+        if kind == "item.started":
+            started.add(entry_id)
+        elif kind == "item.completed":
+            completed[entry_id] = entry
+    if turns_started < 1 or turns_completed != turns_started or not completed or started - set(completed):
+        return None
+    allow_tests = "local_test" in {str(value) for value in item.get("allowed_actions") or []}
+    for entry in completed.values():
+        if entry.get("status") != "completed" or entry.get("exit_code") != 0:
+            return None
+        if not _codex_command_read_only(str(entry.get("command") or ""), allow_tests=allow_tests):
+            return None
+    commands = " ".join(str(entry.get("command") or "") for entry in completed.values())
+    if any(path not in commands for path in _queue_referenced_test_paths(item)):
+        return None
+    return (
+        f"read-only low-risk Codex step; session {session_id} verified from its raw stream; "
+        f"{len(completed)} read-only command(s) all exited 0; no file change"
+    )
+
+
 def _queue_apply_worker_disposition(item: dict, owner: str, worker_result: dict) -> dict:
     """The worker's own disposition and the read-only boundary bind the runner.
 
@@ -10765,7 +10999,8 @@ def _queue_review_required(item: dict, worker_result: dict) -> bool:
 
     Only an explicit `review: model` invokes Hermes. Small operator tasks do not
     add an aos-orchestrator review pass; the deterministic runner still writes
-    and attaches the normal receipt.
+    and attaches the normal receipt. The runner may still waive a requested
+    review on stream evidence; see `_queue_model_review_waiver`.
     """
     if _queue_model_review_requested(item):
         return True
@@ -10787,8 +11022,9 @@ def _queue_fast_path_hint_line(item: dict, worker_result: dict) -> str | None:
     )
 
 
-def _queue_deterministic_review_result() -> dict:
-    return {
+def _queue_deterministic_review_result(waiver: str | None = None) -> dict:
+    """A review that invoked no model; `waiver` is the evidence basis when a model review was requested."""
+    result = {
         "success": True,
         "output": "PASS",
         "stdout": "",
@@ -10800,6 +11036,9 @@ def _queue_deterministic_review_result() -> dict:
         "token_usage_text": "Token usage: no agent invocation",
         "review_mode": "deterministic",
     }
+    if waiver:
+        result.update(review_mode="deterministic_evidence", review_basis=waiver)
+    return result
 
 
 def _queue_run_hermes_review(item: dict, owner: str, attempt: int, worker_result: dict) -> dict:
@@ -11036,6 +11275,17 @@ _CODEX_SESSION_LINE_RE = re.compile(
 )
 
 
+def _queue_review_mode_label(item: dict, attempts: list[dict]) -> str:
+    basis = next((
+        str(attempt["review_result"].get("review_basis"))
+        for attempt in reversed(attempts)
+        if attempt["review_result"].get("review_mode") == "deterministic_evidence"
+    ), "")
+    if basis:
+        return f"deterministic evidence (model review requested, not invoked: {basis})"
+    return "model" if _queue_model_review_requested(item) else "none (deterministic proof)"
+
+
 def _queue_run_receipt_text(
     status_label: str,
     item: dict,
@@ -11054,8 +11304,11 @@ def _queue_run_receipt_text(
         else "not applied"
     )
     token_lines = []
-    review_label = "Hermes model review" if _queue_model_review_requested(item) else "deterministic review"
     for attempt in attempts:
+        review_label = (
+            "deterministic review" if str(attempt["review_result"].get("review_mode") or "").startswith("deterministic")
+            or not _queue_model_review_requested(item) else "Hermes model review"
+        )
         worker_token = attempt["worker_result"].get("token_usage_text") or "Token usage: unavailable from current CLI output"
         review_token = attempt["review_result"].get("token_usage_text") or "Token usage: unavailable from current CLI output"
         worker_usage = attempt["worker_result"].get("token_usage") or {}
@@ -11153,7 +11406,7 @@ def _queue_run_receipt_text(
         ),
         f"Escalation policy applied: {escalation_policy_applied}",
         f"Attempts used: {len(attempts)}",
-        f"Review mode: {'model' if _queue_model_review_requested(item) else 'none (deterministic proof)'}",
+        f"Review mode: {_queue_review_mode_label(item, attempts)}",
         f"Review result: {final_review.get('decision', 'REVISE')}",
     ]
     fast_path_hint = _queue_fast_path_hint_line(item, last_worker)
@@ -11811,10 +12064,11 @@ def run_queue_item(item_id: str):
             worker_result = _queue_apply_worker_disposition(run_item, owner, worker_result)
             worker_failure_class = str(worker_result.get("failure_class") or "")
             if worker_result.get("success"):
+                review_waiver = _queue_model_review_waiver(run_item, owner, attempt_number, worker_result)
                 review_result = (
                     _queue_run_hermes_review(run_item, owner, attempt_number, worker_result)
-                    if _queue_review_required(run_item, worker_result)
-                    else _queue_deterministic_review_result()
+                    if _queue_review_required(run_item, worker_result) and review_waiver is None
+                    else _queue_deterministic_review_result(review_waiver)
                 )
             else:
                 review_result = {

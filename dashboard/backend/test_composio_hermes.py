@@ -4873,6 +4873,223 @@ class HermesComposioTests(unittest.TestCase):
         self.assertNotIn("RAW WORKER TRANSCRIPT", captured["prompt"])
         self.assertNotIn("RAW TEST LOGS", captured["prompt"])
 
+    def read_only_codex_review_fixture(self, root, commands=None, extra_events=(), item_overrides=None, result_overrides=None):
+        """A read-only `review: model` Codex step with a real-shaped raw stream on disk."""
+        session = "019a0000-aaaa-7bbb-8ccc-0123456789ab"
+        item = {
+            "id": "AOS-2026-0301",
+            "title": "Summarise the queue runner layout",
+            "status": "agent_todo",
+            "priority": 5,
+            "requested_by": "Hermes",
+            "owner_type": "agent",
+            "owner": "codex",
+            "source": "dashboard/hermes_message",
+            "tags": ["async_dispatch", "hermes_chain"],
+            "context": "Read the runner and report how attempts are counted.",
+            "sources": [],
+            "allowed_actions": ["local_read", "local_test"],
+            "stop_conditions": ["external_send", "secrets_exposure"],
+            "definition_of_done": "A bounded summary with file references.",
+            "claim": {"claimed_by": None, "claimed_at": None},
+            "receipts": [],
+            "review": "model",
+            "created_at": "2026-10-26T10:00:00Z",
+            "updated_at": "2026-10-26T10:00:00Z",
+            **(item_overrides or {}),
+        }
+        commands = commands if commands is not None else [
+            ("/bin/bash -lc \"sed -n '1,120p' dashboard/backend/main.py; rg -n 'attempt' tools/aos-queue.py | head\"", 0),
+            ("/bin/bash -lc 'git status --short 2>/dev/null'", 0),
+        ]
+        events = [
+            {"type": "thread.started", "thread_id": session},
+            {"type": "turn.started"},
+        ]
+        for index, (command, exit_code) in enumerate(commands, start=1):
+            entry = {"id": f"item_{index}", "type": "command_execution", "command": command, "aggregated_output": ""}
+            events.append({"type": "item.started", "item": {**entry, "exit_code": None, "status": "in_progress"}})
+            if exit_code is not None:
+                events.append({"type": "item.completed", "item": {
+                    **entry, "exit_code": exit_code, "status": "completed" if exit_code == 0 else "failed",
+                }})
+        events.extend(extra_events)
+        events.append({"type": "item.completed", "item": {"id": "item_99", "type": "agent_message", "text": "PASS"}})
+        events.append({"type": "turn.completed", "usage": {"input_tokens": 1000, "cached_input_tokens": 0, "output_tokens": 50}})
+        stream = root / "logs/codex_sessions/codex-fixture.stdout.jsonl"
+        stream.parent.mkdir(parents=True, exist_ok=True)
+        stream.write_text("".join(json.dumps(event) + "\n" for event in events), encoding="utf-8")
+        closeout = "PASS\nSummary for operator: attempts counted in run_queue_item\nFiles touched: None\nBlockers: None"
+        worker_result = {
+            "success": True,
+            "output": closeout,
+            "review_output": closeout,
+            "returncode": 0,
+            "timed_out": False,
+            "failure_class": None,
+            "session_id": session,
+            "file_changes": [],
+            "handoff_sessions": [],
+            "stream_artifacts": ["logs/codex_sessions/codex-fixture.stdout.jsonl"],
+            "token_usage_text": "Token usage: 1,050 total",
+            "token_usage": {"available": True, "session_id": session, "invocation_id": "codex-fixture"},
+            **(result_overrides or {}),
+        }
+        return item, worker_result
+
+    def test_read_only_command_classifier_returns_both_answers(self):
+        reads = [
+            "/bin/bash -lc \"sed -n '1,120p' dashboard/backend/main.py\"",
+            "/bin/bash -lc \"rg -n 'def _queue' dashboard/backend/main.py | head -20\"",
+            "/bin/bash -lc 'git --no-pager log --oneline -5 2>/dev/null; git status --short'",
+            "/bin/bash -lc 'git branch --show-current && git remote -v'",
+            "/bin/bash -lc \"cat README.md\nls -la queue | tail -5\"",
+            "/bin/bash -lc 'systemctl --user status aos-backend.service --no-pager 2>&1 | head'",
+            "/bin/bash -lc 'find tools -maxdepth 1 -name \"*.py\" -printf \"%f\\n\"'",
+        ]
+        writes = [
+            "/bin/bash -lc 'rg -n foo src > out.txt'",
+            "/bin/bash -lc 'echo hi >> notes.md'",
+            "/bin/bash -lc \"sed -i 's/a/b/' main.py\"",
+            "/bin/bash -lc \"sed -ni 's/a/b/p' main.py\"",
+            "/bin/bash -lc \"sed -n '1,5w copy.txt' main.py\"",
+            "/bin/bash -lc 'sort -uo sorted.txt input.txt'",
+            "/bin/bash -lc 'git log -1 --output=log.txt'",
+            "/bin/bash -lc 'git commit -am wip'",
+            "/bin/bash -lc 'git branch new-branch'",
+            "/bin/bash -lc 'find . -name \"*.pyc\" -delete'",
+            "/bin/bash -lc 'ls | tee listing.txt'",
+            "/bin/bash -lc 'rm -f queue/work_items.jsonl'",
+            "/bin/bash -lc \"python3 -c 'open(\\\"x\\\", \\\"w\\\").write(\\\"y\\\")'\"",
+            "/bin/bash -lc \"cat > f.txt <<'EOF'\nhi\nEOF\"",
+            "/bin/bash -lc 'echo $(touch x)'",
+            "/bin/bash -lc 'systemctl --user restart aos-backend.service'",
+            "/bin/bash -lc 'python3 tools/aos-queue.py receipt AOS-1 r.md --status done'",
+            "/bin/bash -lc 'sleep 100 &'",
+        ]
+        for command in reads:
+            self.assertTrue(backend._codex_command_read_only(command, allow_tests=False), command)
+        for command in writes:
+            self.assertFalse(backend._codex_command_read_only(command, allow_tests=True), command)
+        pytest_run = "/bin/bash -lc 'python3 -m pytest -q tests/test_x.py'"
+        self.assertTrue(backend._codex_command_read_only(pytest_run, allow_tests=True))
+        self.assertFalse(backend._codex_command_read_only(pytest_run, allow_tests=False))
+
+    def test_read_only_codex_step_with_stream_evidence_skips_model_review(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            item, worker_result = self.read_only_codex_review_fixture(root)
+            self.write_queue_templates(root)
+            self.write_queue_items(root, [item])
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_queue_run_worker", return_value=worker_result), \
+                 patch.object(backend, "_queue_run_hermes_review") as model_review, \
+                 patch.object(backend, "_queue_resolve_route_metadata", return_value=self.route_metadata_fixture("codex")), \
+                 patch.object(backend, "_notify_queue_completion", return_value=None):
+                result = backend.run_queue_item(item["id"])
+                saved = backend._queue_find_item(item["id"])
+                receipt = (root / result["receipt_path"]).read_text(encoding="utf-8")
+        model_review.assert_not_called()
+        self.assertEqual(result["status"], "done")
+        self.assertEqual(saved["review"], "model")
+        review_result = result["attempts"][0]["review_result"]
+        self.assertEqual(review_result["review_mode"], "deterministic_evidence")
+        self.assertTrue(review_result["token_usage"]["no_agent_invocation"])
+        self.assertIn(
+            "Review mode: deterministic evidence (model review requested, not invoked: read-only low-risk Codex step; "
+            "session 019a0000-aaaa-7bbb-8ccc-0123456789ab verified from its raw stream; "
+            "2 read-only command(s) all exited 0; no file change)",
+            receipt,
+        )
+        self.assertIn("Attempt 1 deterministic review (role=reviewer; session=unavailable): no agent invocation", receipt)
+        self.assertNotIn("Hermes model review", receipt)
+        self.assertIn(f"{backend.CODEX_SESSION_LABEL}: attempt 1 019a0000-aaaa-7bbb-8ccc-0123456789ab", receipt)
+        self.assertIn("session=019a0000-aaaa-7bbb-8ccc-0123456789ab", receipt)
+
+    def test_read_only_codex_step_with_write_command_keeps_model_review(self):
+        review_result = {
+            "success": True, "output": "PASS", "returncode": 0,
+            "token_usage_text": "Token usage: 900 total",
+            "token_usage": {"available": True, "session_id": "hermes-review-1"},
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            item, worker_result = self.read_only_codex_review_fixture(
+                root, commands=[("/bin/bash -lc 'rg -n attempt tools > notes.txt'", 0)],
+            )
+            self.write_queue_templates(root)
+            self.write_queue_items(root, [item])
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_queue_run_worker", return_value=worker_result), \
+                 patch.object(backend, "_queue_run_hermes_review", return_value=review_result) as model_review, \
+                 patch.object(backend, "_queue_resolve_route_metadata", return_value=self.route_metadata_fixture("codex")), \
+                 patch.object(backend, "_notify_queue_completion", return_value=None):
+                result = backend.run_queue_item(item["id"])
+                receipt = (root / result["receipt_path"]).read_text(encoding="utf-8")
+        model_review.assert_called_once()
+        self.assertEqual(result["status"], "done")
+        self.assertIn("Review mode: model", receipt)
+        self.assertIn("Attempt 1 Hermes model review (role=reviewer; session=hermes-review-1)", receipt)
+
+    def test_model_review_waiver_fails_closed_on_every_evidence_gap(self):
+        def edited(command="/bin/bash -lc 'git status --short'"):
+            return [(command, 0)]
+
+        cases = {
+            "edit step": dict(item_overrides={"allowed_actions": ["local_read", "local_edit"]}),
+            "security-sensitive title": dict(item_overrides={"title": "Inspect credential rotation"}),
+            "consequential context": dict(item_overrides={"context": "Check what would deploy next"}),
+            "model review not requested": dict(item_overrides={"review": "none"}),
+            "missing session id": dict(result_overrides={"session_id": None}),
+            "session id not echoed in usage": dict(result_overrides={"token_usage": {"available": True}}),
+            "session id differs from stream": dict(result_overrides={
+                "session_id": "other", "token_usage": {"available": True, "session_id": "other"},
+            }),
+            "no stream artifact": dict(result_overrides={"stream_artifacts": []}),
+            "stream outside codex_sessions": dict(result_overrides={"stream_artifacts": ["queue/x.stdout.jsonl"]}),
+            "no commands run": dict(commands=[]),
+            "command failed": dict(commands=[("/bin/bash -lc 'rg -n missing tools'", 1)]),
+            "command never completed": dict(commands=[("/bin/bash -lc 'git status --short'", None)]),
+            "write command": dict(commands=edited("/bin/bash -lc \"sed -i 's/a/b/' x.py\"")),
+            "file change event": dict(extra_events=[{"type": "item.completed", "item": {
+                "id": "item_50", "type": "file_change", "changes": [{"path": "x.py", "kind": "update"}],
+            }}]),
+            "turn failed": dict(extra_events=[{"type": "turn.failed", "error": {"message": "boom"}}]),
+            "reported file changes": dict(result_overrides={"file_changes": ["x.py"]}),
+            "worker failed": dict(result_overrides={"success": False}),
+            "nonzero exit": dict(result_overrides={"returncode": 2}),
+            "timed out": dict(result_overrides={"timed_out": True}),
+            "context handoff": dict(result_overrides={"handoff_sessions": [{"session_id": "s2"}]}),
+            "needs attention verdict": dict(result_overrides={"review_output": "NEEDS ATTENTION\nBlockers: None"}),
+            "pass with a blocker": dict(result_overrides={"review_output": "PASS\nBlockers: could not read the ledger"}),
+            "referenced test not run": dict(item_overrides={
+                "definition_of_done": "Run tests/test_queue_runner.py and report the result.",
+            }),
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch.object(backend, "BASE_DIR", root):
+                item, worker_result = self.read_only_codex_review_fixture(root)
+                self.assertIsNotNone(backend._queue_model_review_waiver(item, "codex", 1, worker_result))
+                self.assertIsNone(backend._queue_model_review_waiver(item, "codex", 2, worker_result), "retry attempt")
+                self.assertIsNone(backend._queue_model_review_waiver(item, "claude", 1, worker_result), "non-Codex owner")
+                for name, case in cases.items():
+                    item, worker_result = self.read_only_codex_review_fixture(root, **case)
+                    self.assertIsNone(backend._queue_model_review_waiver(item, "codex", 1, worker_result), name)
+
+    def test_model_review_waiver_leaves_executive_child_identification_intact(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            item, worker_result = self.read_only_codex_review_fixture(root, item_overrides={
+                "tags": ["async_dispatch", "executive_objective_child", "hermes_chain"],
+                "parent_id": "AOS-2026-0300",
+                "step_index": 1,
+            })
+            with patch.object(backend, "BASE_DIR", root):
+                self.assertIsNotNone(backend._queue_model_review_waiver(item, "codex", 1, worker_result))
+        self.assertTrue(backend._is_executive_objective_child(item))
+        self.assertEqual(item["review"], "model")
+
     def test_async_completion_notification_uses_existing_idempotent_send_path(self):
         item = self.sample_queue_items()[1]
         item.update({
