@@ -468,6 +468,24 @@ class BackendCodexSessionTest(unittest.TestCase):
 
 
 class TechnicalWorkOrderPromptTest(unittest.TestCase):
+    def test_read_only_step_writes_no_file_and_the_runner_keeps_the_books(self):
+        base = {
+            "id": "AOS-2026-9104", "title": "Report the short head", "owner": "codex",
+            "context": "Run git rev-parse --short HEAD.", "definition_of_done": "The output is reported.",
+            "stop_conditions": ["git_push"],
+        }
+        read_only = backend._queue_codex_execution_instructions(
+            {**base, "allowed_actions": ["local_read", "local_test"]}, 1, 2,
+        )
+        self.assertIn("(read-only: change no repository file)", read_only)
+        self.assertIn("Closeout: write no file; reply with your result and the runner writes "
+                      "workflows/queue_artifacts/AOS-2026-9104_Report_the_short_head.md", read_only)
+        editing = backend._queue_codex_execution_instructions(
+            {**base, "allowed_actions": ["local_read", "local_edit", "local_test"]}, 1, 2,
+        )
+        self.assertNotIn("read-only", editing)
+        self.assertIn("Closeout: write the result to workflows/queue_artifacts/AOS-2026-9104_Report_the_short_head.md once.", editing)
+
     def test_technical_worker_prompt_is_a_single_compact_work_order(self):
         item = {
             "id": "AOS-2026-9103", "title": "Repair local preflight and verify the runtime", "owner": "codex",
@@ -492,7 +510,10 @@ class TechnicalWorkOrderPromptTest(unittest.TestCase):
         self.assertLessEqual(len(non_blank), 10)
         self.assertIn("Pointers: tools/aos_codex_policy.py", prepared)
         self.assertIn("Stop and report instead of: git_push.", prepared)
-        self.assertIn("Token usage", prepared)
+        # Runner-owned facts are named as the runner's; Codex is not asked for them
+        # and does not run the duplicate aos-queue receipt call.
+        self.assertIn("records the Codex session ID, token usage and queue status; do not run aos-queue", prepared)
+        self.assertNotIn("tools/aos-queue.py receipt", prepared)
         for unrelated in ("lead_gen_agent", "voice_agent_setup", "client_memory/workflow.md", "fit_call_prep"):
             self.assertNotIn(unrelated, prepared)
         for manifest_only in (

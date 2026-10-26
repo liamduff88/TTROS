@@ -1,0 +1,15 @@
+start 2026-10-26T06:56:06Z; declared max route invocations 6; max requests 1
+ask-david http ok; keys=['david_note', 'handed_objective', 'item', 'kind', 'objective', 'queue_delta', 'route', 'scope_hint', 'success', 'token_usage_text']
+item AOS-2026-9957 owner=hermes status=done allowed=['local_read', 'local_edit', 'local_test', 'file_creation']
+  receipt done queue/receipts/AOS-2026-9957-executive-objective.md
+item AOS-2026-9958 owner=codex status=done allowed=['local_read', 'local_test']
+  receipt done queue/receipts/AOS-2026-9958.md
+invocation role=executive_consultation route=hermes in=18396 cached=0 out=632 total=19028 api_calls=1 session=20261025_235610_26a1fd
+invocation role=conversation route=hermes in=26487 cached=3968 out=464 total=30919 api_calls=1 session=20261025_235650_8ce052
+invocation role=implementer route=codex in=36126 cached=29568 out=230 total=36356 api_calls=None session=01a176ff-d526-7d90-a265-8cd158bfdb34
+invocation role=reviewer route=hermes in=17212 cached=3968 out=61 total=21241 api_calls=1 session=20261025_235732_d5f6af
+invocation role=executive_synthesis route=hermes in=15369 cached=14976 out=478 total=30823 api_calls=1 session=20261025_235757_285505
+route invocations 5 / declared max 6
+codex stream logs/codex_sessions/codex-5361118fb80f4aad823a1fed12101418.stdout.jsonl thread.started=01a176ff-d526-7d90-a265-8cd158bfdb34
+codex items ['agent_message', 'command_execution', 'agent_message']; file_change=0; requests_estimated=2
+requests sent 1 / max 1

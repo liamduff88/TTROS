@@ -1672,7 +1672,8 @@ class HermesComposioTests(unittest.TestCase):
             "token_usage_text": "Token usage: unavailable from current CLI output",
         }
         synthesis = {
-            **self.operator_result("Strongest opportunity: Fixture Co. Marketing now has a sourced campaign brief; no external action occurred."),
+            # The synthesis states its verdict first; without one the parent fails closed.
+            **self.operator_result("PASS\n\nStrongest opportunity: Fixture Co. Marketing now has a sourced campaign brief; no external action occurred."),
             "profile_used": "aos-orchestrator",
         }
         with tempfile.TemporaryDirectory() as tmp:
@@ -2191,7 +2192,8 @@ class HermesComposioTests(unittest.TestCase):
                 self.assertNotIn("$VARS", command)
                 self.assertNotIn("`ticks`", command)
             self.assertIn(adversarial_title, prompts[0])
-            self.assertIn("Closeout: write the result to workflows/queue_artifacts/AOS-2026-0099_", prompts[0])
+            # allowed_actions is local_read only: the runner, not Codex, writes the artifact.
+            self.assertIn("Closeout: write no file; reply with your result and the runner writes workflows/queue_artifacts/AOS-2026-0099_", prompts[0])
             self.assertEqual(token_tasks[0], f"AOS-2026-0099 | codex | {adversarial_title[:160]}")
             self.assertEqual(len(token_tasks), 2)
             self.assertIn("Review this Agentic OS queue worker result", token_tasks[1])
@@ -2485,7 +2487,8 @@ class HermesComposioTests(unittest.TestCase):
             self.assertIn("Token usage:", receipt)
             invocation_id = result["worker_result"]["token_usage"]["invocation_id"]
             self.assertIn(
-                f"- Attempt 1 worker (role=implementer; session={invocation_id}): unavailable from current CLI output",
+                # No provider session was reported; the invocation ID is never offered as one.
+                f"- Attempt 1 worker (role=implementer; session=unavailable; invocation={invocation_id}): unavailable from current CLI output",
                 receipt,
             )
 

@@ -1021,6 +1021,24 @@ def _codex_json_summary(stdout: str) -> tuple[str, dict, str, bool]:
     return final_message, token_usage, token_text, startup_confirmed or bool(session_id)
 
 
+def _codex_file_change_paths(stdout: str) -> list[str]:
+    """Every path a Codex `file_change` item reported, in stream order."""
+    paths: list[str] = []
+    for raw in str(stdout or "").splitlines():
+        try:
+            event = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        item = event.get("item") if isinstance(event, dict) else None
+        if not isinstance(item, dict) or item.get("type") != "file_change":
+            continue
+        for change in item.get("changes") or []:
+            path = str((change or {}).get("path") or "") if isinstance(change, dict) else ""
+            if path and path not in paths:
+                paths.append(path)
+    return paths
+
+
 def _write_codex_stream_artifacts(invocation_id: str, stdout: str, stderr: str) -> list[str]:
     """Persist raw Codex streams; callers retain only bounded summaries."""
     artifact_dir = BASE_DIR / "logs" / "codex_sessions"
@@ -1338,6 +1356,7 @@ def _run_codex_local(context: AssembledContext, item: dict | None = None, *, att
         "token_usage": token_usage,
         "token_usage_text": token_usage_text,
         "session_id": clean_session_id or None,
+        "file_changes": _codex_file_change_paths(stdout),
         "invocation": invocation,
         "cost_control": step6_result.get("status"),
     }
@@ -1740,7 +1759,8 @@ _ANSI_ESCAPE_RE = re.compile(r"\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 def _field_from_output(output: str, label: str) -> str | None:
     # A closeout value is deliberately one line.  Consuming subsequent lines
     # risks relaying transcript, prompt, session, or sandbox details.
-    match = re.search(rf"(?im)^\s*{re.escape(label)}\s*:\s*([^\r\n]*)", output)
+    # Workers reply in markdown: "- **Blockers:** value" is the same field.
+    match = re.search(rf"(?im)^[\s>*_-]*{re.escape(label)}[*_]*\s*:[*_]*\s*([^\r\n]*)", output)
     if not match:
         return None
     value = match.group(1).strip(" -*\t")
@@ -3728,6 +3748,17 @@ def _log_token_usage(
     return record
 
 
+def _closeout_verdict(text: str) -> str | None:
+    """PASS or NEEDS ATTENTION from a closeout's first line, markdown stripped."""
+    first = next((line for line in str(text or "").splitlines() if line.strip()), "")
+    head = re.sub(r"[\s*_#>`]+", " ", first).strip().upper()
+    if head.startswith("NEEDS ATTENTION"):
+        return "NEEDS ATTENTION"
+    if re.match(r"PASS\b", head):
+        return "PASS"
+    return None
+
+
 def _compact_agent_closeout(
     result: dict,
     route: str,
@@ -3737,7 +3768,10 @@ def _compact_agent_closeout(
 ) -> dict:
     """Return only the operator closeout; never relay a raw agent transcript."""
     raw = str(result.get("output") or "")
-    agent_reported_failure = bool(re.search(r"(?im)^\s*NEEDS ATTENTION\s*$", raw))
+    agent_reported_failure = (
+        bool(re.search(r"(?im)^\s*NEEDS ATTENTION\s*$", raw))
+        or _closeout_verdict(raw) == "NEEDS ATTENTION"
+    )
     passed = bool(result.get("success")) and not agent_reported_failure
     timed_out = bool(result.get("timed_out"))
     timeout_seconds = result.get("timeout_seconds")
@@ -3818,7 +3852,8 @@ def _compact_agent_closeout(
         "handoff_sessions": list(result.get("handoff_sessions") or []),
         "handoff_artifacts": list(result.get("handoff_artifacts") or []),
         "retained_output_truncated": bool(result.get("retained_output_truncated")),
-        "session_id": token_usage.get("session_id"),
+        "session_id": result.get("session_id") or token_usage.get("session_id"),
+        "file_changes": list(result.get("file_changes") or []),
         "review_output": _bounded_hermes_answer(raw, 4000),
         "failure_detail": failure_detail,
         "invocation": result.get("invocation") or {},
@@ -4773,9 +4808,12 @@ def _hermes_decomposition_prompt(text: str, *, conversation_id: str = "dashboard
     return "\n".join((
         "Own this ordinary-language executive objective through the existing Agentic OS queue and Open Engine.",
         "Discover the smallest coherent plan from the existing capability catalog. Do not invent a new workflow or framework.",
-        "Write each step per rules/prompt_writing.md: context = scope plus repository paths or item IDs to read (point, do not paste; about 150 words), definition_of_done = the one checkable outcome and its evidence. No conversation history, unrelated workflows or repeated boilerplate. Split work needing unrelated expertise into separate steps; each runs in a fresh session.",
+        "Plan from this prompt alone, in one reply: do not call tools, read files or search; the step writing rule is stated here in full.",
+        "Write each step: context = scope plus repository paths or item IDs the worker should read (point, do not paste; about 150 words), definition_of_done = the one checkable outcome and its evidence. No conversation history, unrelated workflows or repeated boilerplate. Split work needing unrelated expertise into separate steps; each runs in a fresh session.",
+        "The runner records each worker's session ID, token usage, receipt and queue status itself; a definition_of_done names only what the worker must do or establish.",
+        'allowed_actions is ["local_read","local_test"] for a step that changes no repository file; add "local_edit" only when the step must change files.',
         "Return a compact explanation, then exactly one fenced JSON object with this shape:",
-        '{"title":"...","steps":[{"title":"...","owner":"revenue|marketing|delivery|operations|codex|claude|hermes","workbench":"lane|codex|claude","workflow_id":"existing_workflow_or_empty","context":"bounded stage instruction","definition_of_done":"concrete artifact/evidence contract","on_complete":null}]}',
+        '{"title":"...","steps":[{"title":"...","owner":"revenue|marketing|delivery|operations|codex|claude|hermes","workbench":"lane|codex|claude","workflow_id":"existing_workflow_or_empty","context":"bounded stage instruction","definition_of_done":"concrete artifact/evidence contract","allowed_actions":["local_read","local_edit","local_test"],"on_complete":null}]}',
         "Order steps by dependency. Downstream stages automatically receive upstream artifact and receipt references.",
         "Use human_review or needs_input only for a genuine operator decision or an external/destructive action.",
         "The current objective forbids all third-party sends, posts, publishing, connector mutations, CRM/Calendar/Drive changes, money actions, deployment, Git commit, and Git push.",
@@ -4932,7 +4970,12 @@ def _normalize_chain_proposal(text: str, original_text: str, source_refs: list[s
                 "tags": step.get("tags") if isinstance(step.get("tags"), list) else ["hermes_chain"],
                 "context": str(step.get("context") or original_text).strip(),
                 "source_refs": step.get("source_refs") if isinstance(step.get("source_refs"), list) else [],
-                "allowed_actions": step.get("allowed_actions") if isinstance(step.get("allowed_actions"), list) else ["local_read", "local_edit", "local_test"],
+                # The planner may narrow a step to local actions, never widen it.
+                "allowed_actions": [
+                    action for action in ("local_read", "local_edit", "local_test", "file_creation")
+                    if action in {str(value) for value in step.get("allowed_actions") or []}
+                ] if isinstance(step.get("allowed_actions"), list) and "local_read" in step["allowed_actions"]
+                else ["local_read", "local_edit", "local_test"],
                 "stop_conditions": step.get("stop_conditions") if isinstance(step.get("stop_conditions"), list) else ["external_send", "secrets_exposure", "destructive_action_outside_scope"],
                 "definition_of_done": str(step.get("definition_of_done") or step.get("dod") or "").strip(),
                 "depends_on": step.get("depends_on") if isinstance(step.get("depends_on"), list) else [],
@@ -10270,12 +10313,22 @@ def _queue_codex_execution_instructions(item: dict, attempt: int, max_attempts: 
     allowed = ", ".join(str(value) for value in item.get("allowed_actions") or []) or "local_read, local_edit, local_test"
     stops = ", ".join(str(value) for value in item.get("stop_conditions") or []) or "any external or destructive action"
     attempt_note = f" This is attempt {attempt}/{max_attempts}." if attempt > 1 else ""
+    read_only = _queue_item_read_only(item)
+    # The runner attaches the receipt, sets queue status from the verdict and
+    # records the session ID and exact usage from the Codex stream; Codex asked
+    # for them spent turns and could only answer "unavailable".
+    closeout = (
+        "Closeout: write no file; reply with your result and the runner writes "
+        f"{_queue_default_artifact_path(item)} from it."
+        if read_only else
+        f"Closeout: write the result to {_queue_default_artifact_path(item)} once."
+    )
     lines.extend((
-        f"Allowed: {allowed}. Stop and report instead of: {stops}.{attempt_note}",
-        f"Closeout: write the result to {_queue_default_artifact_path(item)}, attach it with "
-        f"`python3 tools/aos-queue.py receipt {item.get('id', '')} <path> --status done|human_review|needs_input|blocked`, "
-        "and reply PASS or NEEDS ATTENTION with Summary for operator, Files touched, Validation (commands and exit codes), "
-        "Artifacts, Blockers and Token usage (or unavailable).",
+        f"Allowed: {allowed}{' (read-only: change no repository file)' if read_only else ''}. "
+        f"Stop and report instead of: {stops}.{attempt_note}",
+        f"{closeout} The first line of your reply is PASS or NEEDS ATTENTION, then Summary for operator, "
+        "Files touched, Validation (commands and exit codes), Artifacts and Blockers. The runner attaches the queue "
+        "receipt and records the Codex session ID, token usage and queue status; do not run aos-queue or report them.",
     ))
     return "\n".join(lines).rstrip() + "\n"
 
@@ -10632,6 +10685,81 @@ def _queue_small_task_test_verified(item: dict, worker_result: dict) -> bool:
     return any(path in evidence for path in test_paths)
 
 
+_READ_ONLY_ACTIONS = {"local_read", "local_test"}
+
+
+def _queue_item_read_only(item: dict) -> bool:
+    """A step whose allowed actions change no repository file."""
+    actions = {str(value) for value in item.get("allowed_actions") or []}
+    return bool(actions) and actions <= _READ_ONLY_ACTIONS
+
+
+def _queue_apply_worker_disposition(item: dict, owner: str, worker_result: dict) -> dict:
+    """The worker's own disposition and the read-only boundary bind the runner.
+
+    A worker that attached a needs_input/blocked/human_review receipt during its
+    run, or a read-only Codex step that changed a file, is not a passing result
+    however cleanly the process exited. For a read-only Codex step the runner
+    writes the closeout artifact itself: that is bookkeeping, not a source edit.
+    """
+    if not worker_result.get("success"):
+        return worker_result
+    item_id = str(item.get("id") or "")
+    before = {
+        (row.get("path"), row.get("created_at"))
+        for row in item.get("receipts") or [] if isinstance(row, dict)
+    }
+    try:
+        current = _queue_find_item(item_id)
+    except KeyError:
+        current = item
+    reported = [
+        row for row in current.get("receipts") or []
+        if isinstance(row, dict)
+        and (row.get("path"), row.get("created_at")) not in before
+        and row.get("status") in _HUMAN_NEEDED_STATUSES
+    ]
+    failure: tuple[str, str] | None = None
+    if reported:
+        failure = (
+            "agent_reported_status",
+            f"the worker attached {reported[-1].get('path')} with status {reported[-1].get('status')}",
+        )
+    if failure is None and owner == "codex" and _queue_item_read_only(item):
+        artifact = _queue_default_artifact_path(item)
+        artifact_abs = (BASE_DIR / artifact).resolve()
+        outside = [
+            path for path in worker_result.get("file_changes") or []
+            if (BASE_DIR / path).resolve() != artifact_abs
+        ]
+        if outside:
+            failure = (
+                "read_only_violation",
+                "read-only step changed " + ", ".join(outside[:5]),
+            )
+        elif not artifact_abs.exists():
+            durable_replace_text(artifact_abs, "\n".join((
+                f"# {item_id} — {aos_orchestration.operator_task_title(item)}",
+                "",
+                "> Written by the queue runner from the Codex closeout; this step was read-only.",
+                "",
+                f"{CODEX_SESSION_LABEL}: {worker_result.get('session_id') or 'unavailable'}",
+                "",
+                str(worker_result.get("review_output") or "(no closeout text)").strip(),
+                "",
+            )))
+    if failure is None:
+        return worker_result
+    failure_class, detail = failure
+    return {
+        **worker_result,
+        "success": False,
+        "failure_class": failure_class,
+        "failure_detail": detail,
+        "output": re.sub(r"\APASS\b", "NEEDS ATTENTION", str(worker_result.get("output") or ""), count=1),
+    }
+
+
 def _queue_review_required(item: dict, worker_result: dict) -> bool:
     """Whether the Hermes/aos-orchestrator review pass must run for this attempt.
 
@@ -10902,6 +11030,12 @@ def _queue_recovery_receipt_text(item: dict, owner: str, reason: str) -> str:
     ))
 
 
+CODEX_SESSION_LABEL = "Codex session ID (thread.started)"
+_CODEX_SESSION_LINE_RE = re.compile(
+    rf"(?m)^{re.escape(CODEX_SESSION_LABEL)}: (?P<value>[^\r\n]+)$"
+)
+
+
 def _queue_run_receipt_text(
     status_label: str,
     item: dict,
@@ -10926,9 +11060,12 @@ def _queue_run_receipt_text(
         review_token = attempt["review_result"].get("token_usage_text") or "Token usage: unavailable from current CLI output"
         worker_usage = attempt["worker_result"].get("token_usage") or {}
         review_usage = attempt["review_result"].get("token_usage") or {}
+        # The session is the provider's own ID (Codex thread.started); an
+        # invocation ID is ours and is never offered as a session ID.
         token_lines.append(
             f"- Attempt {attempt['attempt']} worker (role=implementer; session="
-            f"{worker_usage.get('session_id') or worker_usage.get('invocation_id') or 'unavailable'}): "
+            f"{attempt['worker_result'].get('session_id') or worker_usage.get('session_id') or 'unavailable'}; "
+            f"invocation={worker_usage.get('invocation_id') or 'unavailable'}): "
             f"{_token_usage_detail(worker_token)}"
         )
         token_lines.append(
@@ -11007,6 +11144,13 @@ def _queue_run_receipt_text(
         f"Model confirmed: {route_metadata['model_confirmed']}",
         f"Provider confirmed: {route_metadata['provider_confirmed']}",
         f"Escalation rule: {route_metadata['escalation_rule']}",
+        *(
+            (f"{CODEX_SESSION_LABEL}: " + ", ".join(
+                f"attempt {attempt['attempt']} {attempt['worker_result'].get('session_id') or 'unavailable'}"
+                for attempt in attempts
+            ),)
+            if owner == "codex" and attempts else ()
+        ),
         f"Escalation policy applied: {escalation_policy_applied}",
         f"Attempts used: {len(attempts)}",
         f"Review mode: {'model' if _queue_model_review_requested(item) else 'none (deterministic proof)'}",
@@ -11307,12 +11451,27 @@ def _executive_objective_evidence(children: list[dict]) -> tuple[list[str], str]
             except (FileNotFoundError, ValueError, OSError):
                 continue
             excerpts.append(f"Evidence `{relative}`:\n{_bounded_hermes_answer(content, 3_500)}")
+        session = _executive_child_codex_session(child)
         sections.append("\n".join((
             f"Stage {child.get('step_index')}: {child.get('id')} — {child.get('title')}",
             f"Owner: {child.get('owner')}; status: {child.get('status')}",
+            *((f"{CODEX_SESSION_LABEL}: {session}",) if session else ()),
             *(excerpts or ["No readable artifact excerpt; use the queue metadata only."]),
         )))
     return _queue_unique_artifact_paths(paths), "\n\n".join(sections)
+
+
+def _executive_child_codex_session(child: dict) -> str:
+    """The Codex thread.started ID line the child's runner receipt recorded."""
+    if str(child.get("owner") or "") != "codex":
+        return ""
+    latest = _queue_latest_receipt(child)
+    try:
+        content = (BASE_DIR / str((latest or {}).get("path") or "")).read_text(encoding="utf-8")
+    except (OSError, ValueError):
+        return "unavailable"
+    match = _CODEX_SESSION_LINE_RE.search(content)
+    return match.group("value").strip() if match else "unavailable"
 
 
 def _finalize_executive_objective_parent(parent_id: str) -> dict | None:
@@ -11327,7 +11486,9 @@ def _finalize_executive_objective_parent(parent_id: str) -> dict | None:
     prompt = "\n".join((
         "Synthesize the completed Agentic OS executive objective for Liam.",
         "Return one coherent executive result, not a stage-by-stage transcript.",
+        "The first line is exactly PASS when the evidence shows every requirement of the original objective met, otherwise exactly NEEDS ATTENTION.",
         "State the strongest outcome, evidence, durable artifacts, external-action status, blockers, and the next action only if one truly remains.",
+        f"Each Codex stage's `{CODEX_SESSION_LABEL}` line is the real Codex session ID, recorded by the runner from the Codex stream.",
         "Do not claim any send, publish, connector mutation, CRM/Calendar/Drive change, deployment, commit, or push.",
         "",
         "Original objective:",
@@ -11358,29 +11519,45 @@ def _finalize_executive_objective_parent(parent_id: str) -> dict | None:
             str((_queue_latest_receipt(last) or {}).get("path") or ""),
             "All stages completed, but the final Hermes executive synthesis failed.",
         )
+    # The synthesis verdict decides the parent: a requirement the evidence does
+    # not show met is never closed as PASS/done. No verdict line fails closed.
+    verdict = _closeout_verdict(answer)
+    passed = verdict == "PASS"
+    answer_body = "\n".join(answer.splitlines()[1:]).strip() if verdict else answer
+    if verdict and not answer_body:
+        answer_body = answer
+    sessions = [
+        (child.get("id"), _executive_child_codex_session(child))
+        for child in children if str(child.get("owner") or "") == "codex"
+    ]
+    session_lines = [f"- {child_id}: {session}" for child_id, session in sessions]
     outcome_path = f"workflows/queue_artifacts/{parent_id}_executive_outcome.md"
     durable_replace_text(BASE_DIR / outcome_path, "\n".join((
         "# Executive Objective Outcome", "",
         f"> Revisit: when objective {parent_id} is continued or superseded. · Last touched: {datetime.date.today().isoformat()}.",
         "", f"Parent work item: {parent_id}",
         f"Conversation: {objective.get('conversation_id') or 'dashboard-operator'}",
-        "", "## Executive result", "", answer,
+        f"Verdict: {'PASS' if passed else 'NEEDS ATTENTION'}",
+        *((f"{CODEX_SESSION_LABEL}:", *session_lines) if session_lines else ()),
+        "", "## Executive result", "", answer_body,
         "", "## Evidence and artifacts", "",
         *(f"- `{path}`" for path in evidence_paths),
         "", "## External actions", "", "- None. The complete objective remained local-only.", "",
     )))
     receipt_path = f"queue/receipts/{parent_id}-executive-objective.md"
     durable_replace_text(BASE_DIR / receipt_path, "\n".join((
-        "PASS", "", f"Work item ID: {parent_id}",
-        "Summary for operator:", f"- {answer}",
+        "PASS" if passed else "NEEDS ATTENTION", "", f"Work item ID: {parent_id}",
+        *((f"{CODEX_SESSION_LABEL}:", *session_lines, "") if session_lines else ()),
+        "Summary for operator:", f"- {answer_body}",
         "", "Validation:", f"- {len(children)} dependent stage(s) completed with done receipts before synthesis.",
+        f"- Executive synthesis verdict: {verdict or 'none stated (treated as NEEDS ATTENTION)'}.",
         "", "Artifacts:", f"- {outcome_path}", *(f"- {path}" for path in evidence_paths),
         "", "External actions:", "- None.",
-        "", "Blockers:", "- None",
-        "", "Next action:", "- None; the objective is complete.",
+        "", "Blockers:", "- None" if passed else "- The executive synthesis found an objective requirement not evidenced as met; see Summary.",
+        "", "Next action:", "- None; the objective is complete." if passed else "- Resolve the unmet requirement named in the Summary, then rerun the objective.",
         "", "Token usage:", f"- {synthesis.get('token_usage_text') or 'Token usage: unavailable from current CLI output'}", "",
     )))
-    updated = _load_queue_tool().attach_receipt(BASE_DIR, parent_id, receipt_path, "done")
+    updated = _load_queue_tool().attach_receipt(BASE_DIR, parent_id, receipt_path, "done" if passed else "blocked")
     queue_tool = _load_queue_tool()
     with queue_write_lock(BASE_DIR):
         items = queue_tool.load_items(BASE_DIR)
@@ -11389,14 +11566,17 @@ def _finalize_executive_objective_parent(parent_id: str) -> dict | None:
         row["objective"]["completed_at"] = queue_tool.now_iso()
         row["objective"]["evidence_paths"] = evidence_paths
         queue_tool.save_items(BASE_DIR, items)
+    event_name = "executive_objective_completed" if passed else "executive_objective_blocked"
     event = {
-        "event": "executive_objective_completed",
-        "effect_id": aos_orchestration.effect_identity("executive_objective_completed", parent_id),
+        "event": event_name,
+        "effect_id": aos_orchestration.effect_identity(event_name, parent_id),
         "created_at": datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
         "parent_id": parent_id,
         "child_ids": [child.get("id") for child in children],
         "outcome_artifact": outcome_path,
         "receipt_path": receipt_path,
+        "verdict": "PASS" if passed else "NEEDS ATTENTION",
+        "codex_sessions": dict(sessions),
     }
     aos_orchestration.append_jsonl(BASE_DIR / aos_orchestration.EVENTS_PATH, event)
     return _queue_find_item(parent_id)
@@ -11628,6 +11808,7 @@ def run_queue_item(item_id: str):
                 revision_instructions, attempt_number, max_attempts, prior_worker_result,
             )
             worker_result = _queue_run_worker(owner, prompt, run_item, attempt_number)
+            worker_result = _queue_apply_worker_disposition(run_item, owner, worker_result)
             worker_failure_class = str(worker_result.get("failure_class") or "")
             if worker_result.get("success"):
                 review_result = (
