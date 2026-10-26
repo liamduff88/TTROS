@@ -5076,6 +5076,64 @@ class HermesComposioTests(unittest.TestCase):
                 for name, case in cases.items():
                     item, worker_result = self.read_only_codex_review_fixture(root, **case)
                     self.assertIsNone(backend._queue_model_review_waiver(item, "codex", 1, worker_result), name)
+                    basis, reason = backend._queue_model_review_waiver_decision(item, "codex", 1, worker_result)
+                    self.assertIsNone(basis, name)
+                    self.assertTrue(reason, f"{name}: a declined waiver names its reason")
+
+    def test_model_review_waiver_ignores_permission_verbs_in_a_prohibition(self):
+        # AOS-2026-9960: the planner's "No Telegram message is authorized" vetoed the waiver.
+        context = (
+            "In /home/liam/agentic-os-live, execute exactly `git rev-parse --short HEAD` once. "
+            "Do not run another command, change files, retry, or use a connector. "
+            "No Telegram message is authorized by this objective."
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch.object(backend, "BASE_DIR", root):
+                item, worker_result = self.read_only_codex_review_fixture(
+                    root, commands=[("/bin/bash -lc 'git rev-parse --short HEAD'", 0)],
+                    item_overrides={"context": context},
+                )
+                basis, reason = backend._queue_model_review_waiver_decision(item, "codex", 1, worker_result)
+                self.assertIsNotNone(basis)
+                self.assertEqual("", reason)
+                item, worker_result = self.read_only_codex_review_fixture(
+                    root, item_overrides={"context": context + " Check the stored credentials."},
+                )
+                self.assertEqual(
+                    (None, "risk term 'credentials' in the step title/context/definition of done"),
+                    backend._queue_model_review_waiver_decision(item, "codex", 1, worker_result),
+                )
+
+    def test_declined_waiver_reason_is_recorded_in_the_receipt(self):
+        review_result = {
+            "success": True, "output": "PASS", "returncode": 0,
+            "token_usage_text": "Token usage: 900 total",
+            "token_usage": {"available": True, "session_id": "hermes-review-1"},
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            item, worker_result = self.read_only_codex_review_fixture(
+                root, item_overrides={"context": "Report what would deploy next."},
+            )
+            self.write_queue_templates(root)
+            self.write_queue_items(root, [item])
+            with patch.object(backend, "BASE_DIR", root), \
+                 patch.object(backend, "_queue_run_worker", return_value=worker_result), \
+                 patch.object(backend, "_queue_run_hermes_review", return_value=review_result) as model_review, \
+                 patch.object(backend, "_queue_resolve_route_metadata", return_value=self.route_metadata_fixture("codex")), \
+                 patch.object(backend, "_notify_queue_completion", return_value=None):
+                result = backend.run_queue_item(item["id"])
+                receipt = (root / result["receipt_path"]).read_text(encoding="utf-8")
+        model_review.assert_called_once()
+        self.assertEqual(
+            "risk term 'deploy' in the step title/context/definition of done",
+            result["attempts"][0]["review_result"]["waiver_declined"],
+        )
+        self.assertIn(
+            "Review mode: model (deterministic waiver declined: risk term 'deploy' in the step title/context/definition of done)",
+            receipt,
+        )
 
     def test_model_review_waiver_leaves_executive_child_identification_intact(self):
         with tempfile.TemporaryDirectory() as tmp:

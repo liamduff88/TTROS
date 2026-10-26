@@ -183,19 +183,22 @@ class ExecutiveParentVerdictTests(unittest.TestCase):
     def setUpClass(cls):
         cls.backend = importlib.import_module("dashboard.backend.main")
 
-    def _finalize(self, root, answer):
+    def _finalize(self, root, answer, *, review_mode="", receipt_verdict="PASS", receipt_status="done",
+                  original_command="Run the command and report the session."):
         child_receipt = "queue/receipts/AOS-2026-0011.md"
         (root / child_receipt).parent.mkdir(parents=True, exist_ok=True)
         (root / child_receipt).write_text(
-            f"PASS\n\nWork item ID: AOS-2026-0011\nCodex session ID (thread.started): attempt 1 {THREAD_ID}\n",
+            f"{receipt_verdict}\n\nWork item ID: AOS-2026-0011\nCodex session ID (thread.started): attempt 1 {THREAD_ID}\n"
+            + (f"Review mode: {review_mode}\n" if review_mode else "")
+            + "\nSummary for operator:\n- Summary for operator:** Stdout: `1d55094`. Exit code: `0`.\n",
             encoding="utf-8",
         )
         parent = item("AOS-2026-0010", "agent_working", owner="hermes", owner_type="workflow",
                       tags=["executive_objective", "parent"],
-                      objective={"original_command": "Run the command and report the session.", "version": 1})
+                      objective={"original_command": original_command, "version": 1})
         child = item("AOS-2026-0011", "done", parent_id="AOS-2026-0010", step_index=1,
                      tags=["executive_objective_child"], review="model",
-                     receipts=[{"path": child_receipt, "status": "done", "created_at": "2026-10-26T06:26:05Z"}])
+                     receipts=[{"path": child_receipt, "status": receipt_status, "created_at": "2026-10-26T06:26:05Z"}])
         write_items(root, [parent, child])
         prompts = []
 
@@ -207,7 +210,7 @@ class ExecutiveParentVerdictTests(unittest.TestCase):
              patch.object(self.backend, "_run_hermes_message", fake_hermes), \
              patch.object(self.backend, "assemble_model_context", lambda prompt, **_k: type("C", (), {"request": prompt})()):
             self.backend._finalize_executive_objective_parent("AOS-2026-0010")
-        return read_item(root, "AOS-2026-0010"), prompts[0]
+        return read_item(root, "AOS-2026-0010"), (prompts[0] if prompts else None)
 
     def test_needs_attention_synthesis_never_closes_the_parent_as_pass(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -235,6 +238,88 @@ class ExecutiveParentVerdictTests(unittest.TestCase):
             outcome = (root / "workflows/queue_artifacts/AOS-2026-0010_executive_outcome.md").read_text(encoding="utf-8")
             self.assertIn(f"- AOS-2026-0011: attempt 1 {THREAD_ID}", outcome)
             self.assertIn("Verdict: PASS", outcome)
+
+
+    # AOS-2026-9959: the synthesis judged its own unfinished parent and the
+    # post-synthesis Telegram delivery, so a done child could never PASS it.
+    WAIVED = ("deterministic evidence (model review requested, not invoked: read-only low-risk Codex step; "
+              f"session {THREAD_ID} verified from its raw stream; 1 read-only command(s) all exited 0; no file change)")
+
+    def test_stream_proven_children_close_the_parent_without_a_synthesis_model_call(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            parent, prompt = self._finalize(root, "unused", review_mode=self.WAIVED)
+            self.assertIsNone(prompt, "no Hermes synthesis invocation")
+            self.assertEqual("done", parent["status"])
+            receipt = (root / "queue/receipts/AOS-2026-0010-executive-objective.md").read_text(encoding="utf-8")
+            self.assertTrue(receipt.startswith("PASS\n"))
+            self.assertIn("- Parent AOS-2026-0010: done", receipt)
+            self.assertIn("- Child AOS-2026-0011 (codex): done; receipt queue/receipts/AOS-2026-0011.md (done, PASS)", receipt)
+            self.assertIn("AOS-2026-0011: Stdout: `1d55094`. Exit code: `0`.", receipt)
+            self.assertIn("Token usage: no agent invocation (deterministic synthesis", receipt)
+            self.assertNotIn("agent_working", receipt)
+            outcome = (root / "workflows/queue_artifacts/AOS-2026-0010_executive_outcome.md").read_text(encoding="utf-8")
+            self.assertIn("- Parent AOS-2026-0010: done", outcome)
+            ledger = [json.loads(line) for line in (root / "queue/token_ledger.jsonl").read_text(encoding="utf-8").splitlines()]
+            rows = [row for row in ledger if row.get("item_id") == "AOS-2026-0010"]
+            self.assertFalse([row for row in rows if row.get("event") == "model_invocation"])
+            synthesis = [row for row in rows if row.get("event") == "executive_synthesis_deterministic"]
+            self.assertEqual(1, len(synthesis))
+            self.assertEqual("no agent invocation", synthesis[0]["model_confirmed"])
+
+    def test_model_reviewed_child_keeps_the_synthesis_and_is_told_the_runner_owned_facts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            parent, prompt = self._finalize(root, "PASS\n\nDone.", review_mode="model")
+            self.assertEqual("done", parent["status"])
+            self.assertIn("Do not search or read files", prompt)
+            self.assertIn("Parent AOS-2026-0010 is agent_working only because this synthesis is its finalization step", prompt)
+            self.assertIn("queue/receipts/AOS-2026-0010-executive-objective.md", prompt)
+            self.assertIn("sends this parent receipt to the operator's Telegram chat", prompt)
+            self.assertIn("- Child AOS-2026-0011 (codex): done; receipt queue/receipts/AOS-2026-0011.md (done, PASS); review mode: model", prompt)
+
+    def test_risky_objective_keeps_the_model_synthesis_even_when_children_are_stream_proven(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            parent, prompt = self._finalize(
+                Path(tmp), "NEEDS ATTENTION\n\nThe send was not done.", review_mode=self.WAIVED,
+                original_command="Read the draft, then send it to the customer.",
+            )
+            self.assertIsNotNone(prompt)
+            self.assertEqual("blocked", parent["status"])
+
+    def test_child_receipt_disagreement_blocks_the_parent_before_any_synthesis(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            parent, prompt = self._finalize(root, "PASS", receipt_verdict="NEEDS ATTENTION", receipt_status="blocked")
+            self.assertIsNone(prompt)
+            self.assertEqual("blocked", parent["status"])
+            blocked = (root / "queue/receipts/AOS-2026-0010-executive-objective-blocked.md").read_text(encoding="utf-8")
+            self.assertIn("Child reconciliation failed before synthesis: AOS-2026-0011 receipt status blocked differs "
+                          "from queue status done; receipt verdict NEEDS ATTENTION.", blocked)
+            self.assertFalse((root / "queue/receipts/AOS-2026-0010-executive-objective.md").exists())
+
+
+class TelegramResultDeliveryReceiptTests(unittest.TestCase):
+    def test_sent_receipt_names_the_delivered_report_and_its_attachment(self):
+        orchestration = importlib.import_module("tools.aos_orchestration")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            receipt = root / "queue/receipts/AOS-2026-0010-executive-objective.md"
+            receipt.parent.mkdir(parents=True, exist_ok=True)
+            receipt.write_text("PASS\n", encoding="utf-8")
+            row = item("AOS-2026-0010", "done", owner="hermes")
+            prepared = {
+                "item_id": "AOS-2026-0010", "key": "async_completion:done", "recipient": "100",
+                "idempotency_key": "AOS-2026-0010|telegram_escalation|async_completion:done|100",
+                "effect_id": "orchestration:fixture", "status": "done", "document_paths": [str(receipt)],
+            }
+            result = orchestration.record_telegram_send_result(root, row, prepared, {"documents": [{"sent": True}]})
+            text = (root / result["receipt_path"]).read_text(encoding="utf-8")
+        self.assertTrue(result["sent"])
+        self.assertEqual("telegram_escalation", result["event"], "idempotency event name unchanged")
+        self.assertEqual([{"path": "queue/receipts/AOS-2026-0010-executive-objective.md", "sent": True}], result["attachments"])
+        self.assertIn("- Detail: recipient:100; key:async_completion:done; "
+                      "attachments:queue/receipts/AOS-2026-0010-executive-objective.md (sent)", text)
 
 
 class PlannerStepTests(unittest.TestCase):

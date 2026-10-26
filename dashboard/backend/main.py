@@ -10697,10 +10697,12 @@ def _queue_item_read_only(item: dict) -> bool:
 # A requested Hermes review is waived only for a low-risk read-only Codex step
 # whose own persisted raw stream proves what ran. Every check below must hold;
 # any gap keeps the model review. The `review: model` tag itself is untouched:
-# child identification depends on it.
+# child identification depends on it. Permission verbs (authorize/authorised)
+# are not risk terms: planner contexts use them to state what is NOT allowed
+# ("No Telegram message is authorized"), which vetoed AOS-2026-9960's waiver.
 _DETERMINISTIC_REVIEW_RISK_RE = re.compile(
     r"\.hermes\.md|connectors/|\b(?:secrets?|credentials?|passwords?|api[ _-]?keys?|oauth|"
-    r"auth(?:n|z|s|enticat\w*|ori[sz]ation|ori[sz]e[ds]?)?|"
+    r"auth(?:n|z|s|enticat\w*|ori[sz]ation)?|"
     r"permissions?|security|vulnerab\w*|exploit\w*|delet\w*|deploy\w*|publish\w*|send\w*|payments?|"
     r"invoices?|customers?|crm|calendar|production|canonical|promot\w*|migrat\w*)\b",
     re.IGNORECASE,
@@ -10846,46 +10848,62 @@ def _queue_codex_stream_text(worker_result: dict) -> str | None:
 
 
 def _queue_model_review_waiver(item: dict, owner: str, attempt: int, worker_result: dict) -> str | None:
-    """Return the evidence basis for skipping a requested Hermes review, or None to keep it.
+    """Return the evidence basis for skipping a requested Hermes review, or None to keep it."""
+    return _queue_model_review_waiver_decision(item, owner, attempt, worker_result)[0]
+
+
+def _queue_model_review_waiver_decision(
+    item: dict, owner: str, attempt: int, worker_result: dict,
+) -> tuple[str | None, str]:
+    """(evidence basis, "") when a requested Hermes review is waived, else (None, the precise reason).
 
     Fails closed: a step that is not a first-attempt, read-only, low-risk Codex
     step, or whose raw stream does not independently prove a clean session,
     completed turn, successful read-only commands and no file change, keeps
-    the model review.
+    the model review. The reason names the first check that kept it.
     """
-    if not _queue_model_review_requested(item) or owner != "codex" or attempt != 1:
-        return None
-    if not _queue_item_read_only(item) or aos_orchestration.external_effect_review_status(BASE_DIR, item):
-        return None
-    if _DETERMINISTIC_REVIEW_RISK_RE.search(
+    if not _queue_model_review_requested(item):
+        return None, "model review not requested"
+    if owner != "codex":
+        return None, f"owner is {owner}, not codex"
+    if attempt != 1:
+        return None, f"attempt {attempt} is a correction, not the first attempt"
+    if not _queue_item_read_only(item):
+        return None, "allowed actions are not read-only"
+    external = aos_orchestration.external_effect_review_status(BASE_DIR, item)
+    if external:
+        return None, f"external effect requires {external}"
+    risk = _DETERMINISTIC_REVIEW_RISK_RE.search(
         " ".join(str(item.get(field) or "") for field in ("title", "context", "definition_of_done"))
-    ):
-        return None
+    )
+    if risk:
+        return None, f"risk term '{risk.group(0)}' in the step title/context/definition of done"
     closeout = str(worker_result.get("review_output") or worker_result.get("output") or "")
     blockers = (_field_from_output(closeout, "Blockers") or "none").strip().rstrip(".").casefold()
-    if (
-        not worker_result.get("success")
-        or worker_result.get("timed_out")
-        or worker_result.get("failure_class")
-        or int(worker_result.get("returncode", -1) or 0) != 0
-        or worker_result.get("file_changes")
-        or worker_result.get("handoff_sessions")
-        or _closeout_verdict(closeout) != "PASS"
-        or blockers not in {"none", "no blockers", "n/a"}
+    for failed, reason in (
+        (not worker_result.get("success"), "worker result not successful"),
+        (worker_result.get("timed_out"), "worker timed out"),
+        (worker_result.get("failure_class"), f"worker failure class {worker_result.get('failure_class')}"),
+        (int(worker_result.get("returncode", -1) or 0) != 0, "worker exit code not 0"),
+        (worker_result.get("file_changes"), "worker reported file changes"),
+        (worker_result.get("handoff_sessions"), "worker handed off to another session"),
+        (_closeout_verdict(closeout) != "PASS", "closeout verdict is not PASS"),
+        (blockers not in {"none", "no blockers", "n/a"}, "closeout names a blocker"),
     ):
-        return None
+        if failed:
+            return None, reason
     session_id = str(worker_result.get("session_id") or "")
     usage = worker_result.get("token_usage") if isinstance(worker_result.get("token_usage"), dict) else {}
     if not session_id or usage.get("session_id") != session_id:
-        return None
+        return None, "session ID missing or not matched by the token usage record"
     stream = _queue_codex_stream_text(worker_result)
     if stream is None:
-        return None
+        return None, "exactly one persisted Codex raw stream is not available"
     try:
         if require_clean_session_id(stream) != session_id:
-            return None
-    except CodexPolicyError:
-        return None
+            return None, "raw stream session ID differs from the reported session ID"
+    except CodexPolicyError as exc:
+        return None, f"raw stream session is not clean: {exc}"
     turns_started = turns_completed = 0
     started: set[str] = set()
     completed: dict[str, dict] = {}
@@ -10900,10 +10918,10 @@ def _queue_model_review_waiver(item: dict, owner: str, attempt: int, worker_resu
         turns_started += kind == "turn.started"
         turns_completed += kind == "turn.completed"
         if kind in {"turn.failed", "error"}:
-            return None
+            return None, f"raw stream has a {kind} event"
         entry = event.get("item") if isinstance(event.get("item"), dict) else {}
         if entry.get("type") == "file_change":
-            return None
+            return None, "raw stream has a file_change"
         if entry.get("type") != "command_execution":
             continue
         entry_id = str(entry.get("id") or "")
@@ -10911,21 +10929,23 @@ def _queue_model_review_waiver(item: dict, owner: str, attempt: int, worker_resu
             started.add(entry_id)
         elif kind == "item.completed":
             completed[entry_id] = entry
-    if turns_started < 1 or turns_completed != turns_started or not completed or started - set(completed):
-        return None
+    if turns_started < 1 or turns_completed != turns_started:
+        return None, f"raw stream turns started {turns_started}, completed {turns_completed}"
+    if not completed or started - set(completed):
+        return None, "raw stream has no command, or a command that never completed"
     allow_tests = "local_test" in {str(value) for value in item.get("allowed_actions") or []}
     for entry in completed.values():
         if entry.get("status") != "completed" or entry.get("exit_code") != 0:
-            return None
+            return None, f"command did not complete with exit 0: {str(entry.get('command') or '')[:120]}"
         if not _codex_command_read_only(str(entry.get("command") or ""), allow_tests=allow_tests):
-            return None
+            return None, f"command is not a known non-writing read: {str(entry.get('command') or '')[:120]}"
     commands = " ".join(str(entry.get("command") or "") for entry in completed.values())
     if any(path not in commands for path in _queue_referenced_test_paths(item)):
-        return None
+        return None, "a test the definition of done names was not run"
     return (
         f"read-only low-risk Codex step; session {session_id} verified from its raw stream; "
         f"{len(completed)} read-only command(s) all exited 0; no file change"
-    )
+    ), ""
 
 
 def _queue_apply_worker_disposition(item: dict, owner: str, worker_result: dict) -> dict:
@@ -11283,7 +11303,13 @@ def _queue_review_mode_label(item: dict, attempts: list[dict]) -> str:
     ), "")
     if basis:
         return f"deterministic evidence (model review requested, not invoked: {basis})"
-    return "model" if _queue_model_review_requested(item) else "none (deterministic proof)"
+    if not _queue_model_review_requested(item):
+        return "none (deterministic proof)"
+    declined = next((
+        str(attempt["review_result"].get("waiver_declined"))
+        for attempt in attempts if attempt["review_result"].get("waiver_declined")
+    ), "")
+    return f"model (deterministic waiver declined: {declined})" if declined else "model"
 
 
 def _queue_run_receipt_text(
@@ -11727,6 +11753,92 @@ def _executive_child_codex_session(child: dict) -> str:
     return match.group("value").strip() if match else "unavailable"
 
 
+_REVIEW_MODE_LINE_RE = re.compile(r"(?m)^Review mode: (?P<value>[^\r\n]+)$")
+
+
+def _executive_child_reconciliation(child: dict) -> dict:
+    """The child's queue status set against its own latest durable receipt."""
+    latest = _queue_latest_receipt(child) or {}
+    receipt_path = str(latest.get("path") or "")
+    try:
+        content = (BASE_DIR / receipt_path).read_text(encoding="utf-8") if receipt_path else ""
+    except (OSError, ValueError):
+        content = ""
+    review = _REVIEW_MODE_LINE_RE.search(content)
+    record = {
+        "id": str(child.get("id") or ""),
+        "owner": str(child.get("owner") or ""),
+        "status": str(child.get("status") or ""),
+        "receipt_path": receipt_path,
+        "receipt_status": str(latest.get("status") or ""),
+        "verdict": _closeout_verdict(content) if content else "",
+        "review_mode": review.group("value").strip() if review else "unavailable",
+    }
+    problems = []
+    if not content:
+        problems.append("no readable receipt")
+    if record["receipt_status"] != record["status"]:
+        problems.append(f"receipt status {record['receipt_status'] or 'none'} differs from queue status {record['status']}")
+    if record["verdict"] != "PASS":
+        problems.append(f"receipt verdict {record['verdict'] or 'none'}")
+    record["disagreement"] = "; ".join(problems)
+    return record
+
+
+def _queue_receipt_section_bullets(receipt_path: str, heading: str) -> list[str]:
+    """The bullets directly under a runner receipt heading, each one bounded line."""
+    try:
+        lines = (BASE_DIR / receipt_path).read_text(encoding="utf-8").splitlines()
+    except (OSError, ValueError):
+        return []
+    start = next((index for index, line in enumerate(lines) if line.strip() == heading), None)
+    if start is None:
+        return []
+    bullets = []
+    for line in lines[start + 1:]:
+        if not line.strip().startswith("- "):
+            break
+        bullets.append(line.strip()[2:].strip()[:700])
+    return bullets
+
+
+def _executive_stage_report(receipt_path: str) -> str:
+    """One child's operator summary and its recorded model usage, from its own receipt."""
+    summary = next(iter(_queue_receipt_section_bullets(receipt_path, "Summary for operator:")), "")
+    summary = re.sub(r"^\**Summary for operator:?\**:?\**\s*", "", summary).strip() or "no operator summary in the receipt"
+    usage = [line for line in _queue_receipt_section_bullets(receipt_path, "Token usage:") if " counters: " not in line]
+    return "; ".join((summary, *(f"token usage {line}" for line in usage)))
+
+
+def _executive_child_status_lines(parent_id: str, parent_status: str, children: list[dict]) -> list[str]:
+    return [
+        f"- Parent {parent_id}: {parent_status}",
+        *(
+            f"- Child {row['id']} ({row['owner']}): {row['status']}; receipt {row['receipt_path']} "
+            f"({row['receipt_status']}, {row['verdict']}); review mode: {row['review_mode']}"
+            for row in children
+        ),
+    ]
+
+
+def _executive_synthesis_deterministic(parent: dict, reconciled: list[dict]) -> bool:
+    """Every stage closed on stream-proven deterministic evidence: no model is needed to judge it.
+
+    Only a read-only Codex stage whose requested review was waived on its raw
+    stream qualifies, and only for an objective with no risk term of its own;
+    anything else keeps the Hermes synthesis.
+    """
+    objective = parent.get("objective") if isinstance(parent.get("objective"), dict) else {}
+    return (
+        bool(reconciled)
+        and all(
+            row["owner"] == "codex" and row["review_mode"].startswith("deterministic evidence")
+            for row in reconciled
+        )
+        and not _DETERMINISTIC_REVIEW_RISK_RE.search(str(objective.get("original_command") or parent.get("context") or ""))
+    )
+
+
 def _finalize_executive_objective_parent(parent_id: str) -> dict | None:
     parent = _queue_find_item(parent_id)
     if parent.get("status") == "done":
@@ -11734,37 +11846,83 @@ def _finalize_executive_objective_parent(parent_id: str) -> dict | None:
     children = _executive_objective_children(parent_id)
     if not children or any(child.get("status") != "done" for child in children):
         return None
+    # Synthesis never runs before every child's queue status and its durable
+    # receipt agree; a disagreement blocks the parent with the exact reason.
+    reconciled = [_executive_child_reconciliation(child) for child in children]
+    disagreeing = next((row for row in reconciled if row["disagreement"]), None)
+    if disagreeing:
+        child = next(child for child in children if str(child.get("id") or "") == disagreeing["id"])
+        return _block_executive_objective_parent(
+            child, disagreeing["receipt_path"],
+            f"Child reconciliation failed before synthesis: {disagreeing['id']} {disagreeing['disagreement']}.",
+        )
     evidence_paths, evidence_text = _executive_objective_evidence(children)
     objective = parent.get("objective") if isinstance(parent.get("objective"), dict) else {}
-    prompt = "\n".join((
-        "Synthesize the completed Agentic OS executive objective for Liam.",
-        "Return one coherent executive result, not a stage-by-stage transcript.",
-        "The first line is exactly PASS when the evidence shows every requirement of the original objective met, otherwise exactly NEEDS ATTENTION.",
-        "State the strongest outcome, evidence, durable artifacts, external-action status, blockers, and the next action only if one truly remains.",
-        f"Each Codex stage's `{CODEX_SESSION_LABEL}` line is the real Codex session ID, recorded by the runner from the Codex stream.",
-        "Do not claim any send, publish, connector mutation, CRM/Calendar/Drive change, deployment, commit, or push.",
-        "",
-        "Original objective:",
-        str(objective.get("original_command") or parent.get("context") or ""),
-        "",
-        "Completed stage evidence:",
-        evidence_text,
-    ))
-    context = assemble_model_context(
-        prompt,
-        surface="queue:executive-objective-synthesis",
-        session_id=f"{parent_id}:final",
-        session_key=str(objective.get("conversation_id") or "dashboard-operator"),
+    outcome_path = f"workflows/queue_artifacts/{parent_id}_executive_outcome.md"
+    receipt_path = f"queue/receipts/{parent_id}-executive-objective.md"
+    delivery_line = (
+        "After the verdict the runner sends this parent receipt to the operator's Telegram chat through the "
+        "idempotent send path; that delivery is recorded in its own telegram-escalation receipt and "
+        "orchestration event, not here."
     )
-    synthesis = _run_hermes_message(
-        context,
-        role="executive_synthesis",
-        item_id=parent_id,
-        timeout=QUEUE_HERMES_REVIEW_TIMEOUT_SECONDS,
-        profile="aos-orchestrator",
-        task_label=f"Executive objective synthesis: {parent_id}",
-    )
-    answer = str(synthesis.get("reply") or synthesis.get("output") or "").strip()
+    if _executive_synthesis_deterministic(parent, reconciled):
+        synthesis = {
+            "success": True,
+            "token_usage_text": "Token usage: no agent invocation (deterministic synthesis; every stage closed on raw-stream evidence)",
+        }
+        answer = "\n".join((
+            "PASS",
+            f"All {len(reconciled)} planned stage(s) completed and closed on deterministic raw-stream evidence; "
+            "no Hermes executive synthesis model was invoked.",
+            *(
+                f"{row['id']}: {_executive_stage_report(row['receipt_path'])}"
+                for row in reconciled
+            ),
+            delivery_line,
+        ))
+        aos_orchestration.append_no_agent_token_line(
+            BASE_DIR, parent, "executive_synthesis_deterministic",
+            effect_id=aos_orchestration.effect_identity("executive_synthesis_deterministic", parent_id),
+        )
+    else:
+        prompt = "\n".join((
+            "Synthesize the completed Agentic OS executive objective for Liam.",
+            "Return one coherent executive result, not a stage-by-stage transcript.",
+            "The first line is exactly PASS when the evidence shows every requirement of the original objective met, otherwise exactly NEEDS ATTENTION.",
+            "State the strongest outcome, evidence, durable artifacts, external-action status, blockers, and the next action only if one truly remains.",
+            f"Each Codex stage's `{CODEX_SESSION_LABEL}` line is the real Codex session ID, recorded by the runner from the Codex stream.",
+            "Do not claim any send, publish, connector mutation, CRM/Calendar/Drive change, deployment, commit, or push.",
+            "All evidence is below. Do not search or read files; judge only what is given.",
+            "",
+            "Runner-owned facts (recorded by the deterministic runner; not open requirements for you to verify):",
+            f"- Parent {parent_id} is agent_working only because this synthesis is its finalization step. "
+            f"Your verdict sets it: PASS closes it done, anything else blocks it. Its receipt is written to "
+            f"{receipt_path} and its outcome to {outcome_path} from your answer.",
+            f"- {delivery_line}",
+            "- Child reconciliation (queue status agrees with each child's durable receipt):",
+            *_executive_child_status_lines(parent_id, "agent_working (finalizing)", reconciled)[1:],
+            "",
+            "Original objective:",
+            str(objective.get("original_command") or parent.get("context") or ""),
+            "",
+            "Completed stage evidence:",
+            evidence_text,
+        ))
+        context = assemble_model_context(
+            prompt,
+            surface="queue:executive-objective-synthesis",
+            session_id=f"{parent_id}:final",
+            session_key=str(objective.get("conversation_id") or "dashboard-operator"),
+        )
+        synthesis = _run_hermes_message(
+            context,
+            role="executive_synthesis",
+            item_id=parent_id,
+            timeout=QUEUE_HERMES_REVIEW_TIMEOUT_SECONDS,
+            profile="aos-orchestrator",
+            task_label=f"Executive objective synthesis: {parent_id}",
+        )
+        answer = str(synthesis.get("reply") or synthesis.get("output") or "").strip()
     if not synthesis.get("success") or not answer:
         last = children[-1]
         return _block_executive_objective_parent(
@@ -11776,6 +11934,7 @@ def _finalize_executive_objective_parent(parent_id: str) -> dict | None:
     # not show met is never closed as PASS/done. No verdict line fails closed.
     verdict = _closeout_verdict(answer)
     passed = verdict == "PASS"
+    parent_status = "done" if passed else "blocked"
     answer_body = "\n".join(answer.splitlines()[1:]).strip() if verdict else answer
     if verdict and not answer_body:
         answer_body = answer
@@ -11784,7 +11943,7 @@ def _finalize_executive_objective_parent(parent_id: str) -> dict | None:
         for child in children if str(child.get("owner") or "") == "codex"
     ]
     session_lines = [f"- {child_id}: {session}" for child_id, session in sessions]
-    outcome_path = f"workflows/queue_artifacts/{parent_id}_executive_outcome.md"
+    status_lines = _executive_child_status_lines(parent_id, parent_status, reconciled)
     durable_replace_text(BASE_DIR / outcome_path, "\n".join((
         "# Executive Objective Outcome", "",
         f"> Revisit: when objective {parent_id} is continued or superseded. · Last touched: {datetime.date.today().isoformat()}.",
@@ -11792,17 +11951,18 @@ def _finalize_executive_objective_parent(parent_id: str) -> dict | None:
         f"Conversation: {objective.get('conversation_id') or 'dashboard-operator'}",
         f"Verdict: {'PASS' if passed else 'NEEDS ATTENTION'}",
         *((f"{CODEX_SESSION_LABEL}:", *session_lines) if session_lines else ()),
+        "", "## Final statuses", "", *status_lines, f"- Parent receipt: {receipt_path}",
         "", "## Executive result", "", answer_body,
         "", "## Evidence and artifacts", "",
         *(f"- `{path}`" for path in evidence_paths),
         "", "## External actions", "", "- None. The complete objective remained local-only.", "",
     )))
-    receipt_path = f"queue/receipts/{parent_id}-executive-objective.md"
     durable_replace_text(BASE_DIR / receipt_path, "\n".join((
         "PASS" if passed else "NEEDS ATTENTION", "", f"Work item ID: {parent_id}",
         *((f"{CODEX_SESSION_LABEL}:", *session_lines, "") if session_lines else ()),
+        "Final statuses:", *status_lines, "",
         "Summary for operator:", f"- {answer_body}",
-        "", "Validation:", f"- {len(children)} dependent stage(s) completed with done receipts before synthesis.",
+        "", "Validation:", f"- {len(children)} dependent stage(s) completed with done receipts that agree with their queue status before synthesis.",
         f"- Executive synthesis verdict: {verdict or 'none stated (treated as NEEDS ATTENTION)'}.",
         "", "Artifacts:", f"- {outcome_path}", *(f"- {path}" for path in evidence_paths),
         "", "External actions:", "- None.",
@@ -11810,7 +11970,7 @@ def _finalize_executive_objective_parent(parent_id: str) -> dict | None:
         "", "Next action:", "- None; the objective is complete." if passed else "- Resolve the unmet requirement named in the Summary, then rerun the objective.",
         "", "Token usage:", f"- {synthesis.get('token_usage_text') or 'Token usage: unavailable from current CLI output'}", "",
     )))
-    updated = _load_queue_tool().attach_receipt(BASE_DIR, parent_id, receipt_path, "done" if passed else "blocked")
+    updated = _load_queue_tool().attach_receipt(BASE_DIR, parent_id, receipt_path, parent_status)
     queue_tool = _load_queue_tool()
     with queue_write_lock(BASE_DIR):
         items = queue_tool.load_items(BASE_DIR)
@@ -12064,12 +12224,16 @@ def run_queue_item(item_id: str):
             worker_result = _queue_apply_worker_disposition(run_item, owner, worker_result)
             worker_failure_class = str(worker_result.get("failure_class") or "")
             if worker_result.get("success"):
-                review_waiver = _queue_model_review_waiver(run_item, owner, attempt_number, worker_result)
+                review_waiver, waiver_declined = _queue_model_review_waiver_decision(
+                    run_item, owner, attempt_number, worker_result,
+                )
                 review_result = (
                     _queue_run_hermes_review(run_item, owner, attempt_number, worker_result)
                     if _queue_review_required(run_item, worker_result) and review_waiver is None
                     else _queue_deterministic_review_result(review_waiver)
                 )
+                if review_waiver is None and _queue_model_review_requested(run_item):
+                    review_result["waiver_declined"] = waiver_declined
             else:
                 review_result = {
                     "success": False,

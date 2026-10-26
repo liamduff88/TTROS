@@ -1304,10 +1304,6 @@ def record_telegram_send_result(
             "created_at": now_iso(),
             "effect_id": f"{stable_effect}:result",
         }
-    receipt_path = log_notification_receipt(
-        root, item, "telegram-escalation", status, "sent",
-        f"recipient:{recipient}", effect_id=stable_effect,
-    )
     attachment_refs = []
     for document_path in prepared["document_paths"]:
         try:
@@ -1315,6 +1311,30 @@ def record_telegram_send_result(
         except ValueError:
             attachment_refs.append(Path(document_path).name)
     delivery_documents = delivery_result.get("documents") if isinstance(delivery_result, dict) else []
+    attachments = [
+        {
+            "path": path,
+            "sent": (
+                bool(delivery_documents[index].get("sent"))
+                if index < len(delivery_documents) and isinstance(delivery_documents[index], dict)
+                else True
+            ),
+        }
+        for index, path in enumerate(attachment_refs)
+    ]
+    # The receipt names what was delivered: a completion report and an
+    # unanswered-attention escalation share this send path and event name.
+    detail = "; ".join((
+        f"recipient:{recipient}",
+        f"key:{key or 'none'}",
+        "attachments:" + (
+            ", ".join(f"{row['path']} ({'sent' if row['sent'] else 'not sent'})" for row in attachments)
+            or "none"
+        ),
+    ))
+    receipt_path = log_notification_receipt(
+        root, item, "telegram-escalation", status, "sent", detail, effect_id=stable_effect,
+    )
     return {
         "event": "telegram_escalation",
         "item_id": item_id,
@@ -1325,17 +1345,7 @@ def record_telegram_send_result(
         "sent": True,
         "duplicate_blocked": False,
         "bridge_function": "connectors.telegram_bridge.telegram_bridge.send",
-        "attachments": [
-            {
-                "path": path,
-                "sent": (
-                    bool(delivery_documents[index].get("sent"))
-                    if index < len(delivery_documents) and isinstance(delivery_documents[index], dict)
-                    else True
-                ),
-            }
-            for index, path in enumerate(attachment_refs)
-        ],
+        "attachments": attachments,
         "receipt_path": receipt_path,
         "created_at": now_iso(),
         "effect_id": f"{stable_effect}:result",
