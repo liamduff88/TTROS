@@ -457,17 +457,44 @@ class TechnicalWorkOrderPromptTest(unittest.TestCase):
             )
         prepared = policy.prepare_fresh_prompt(context.render())
         self.assertEqual("technical_only", context.classification)
+        self.assertTrue(prepared.startswith(policy.PERMISSION_HEADER + "\n\nTask AOS-2026-9103: "))
         self.assertEqual(1, prepared.count(policy.PERMISSION_HEADER))
-        self.assertEqual(1, prepared.count("Objective (definition of done):"))
-        self.assertEqual(1, prepared.count("Summary for operator:"))
+        order = prepared[len(policy.PERMISSION_HEADER):].strip().splitlines()
+        self.assertEqual(["Task", "Context", "Pointers", "Done", "Allowed", "Closeout"], [line.split()[0].rstrip(":") for line in order])
+        non_blank = [line for line in prepared.splitlines() if line.strip()]
+        self.assertLessEqual(len(non_blank), 10)
         self.assertIn("Pointers: tools/aos_codex_policy.py", prepared)
+        self.assertIn("Stop and report instead of: git_push.", prepared)
+        self.assertIn("Token usage", prepared)
         for unrelated in ("lead_gen_agent", "voice_agent_setup", "client_memory/workflow.md", "fit_call_prep"):
             self.assertNotIn(unrelated, prepared)
-        self.assertIn("relevant session recency", prepared.split("Not applicable to this technical step:", 1)[1].split("\n", 1)[0])
-        self.assertIn("action boundaries", prepared)  # safety boundary preserved
-        self.assertIn("[TTROS_ASSEMBLED_CONTEXT_V1]", prepared)
-        self.assertNotIn("## provenance", prepared)
+        for manifest_only in (
+            "[TTROS_ASSEMBLED_CONTEXT_V1]", "Not applicable", "## provenance", "## action boundaries",
+            "## recent receipts", "queue reference validity", "Fresh-session", "ephemeral", "500,000",
+            "Required artifact/receipt shape", "Summary for operator:\n",
+        ):
+            self.assertNotIn(manifest_only, prepared)
         self.assertTrue(any(block.name == "provenance" and block.sources for block in context.blocks))
+        self.assertTrue(any(block.name == "action boundaries" for block in context.blocks))  # kept in the manifest
+
+    def test_technical_worker_keeps_a_cited_items_status_but_not_its_own(self):
+        item = {
+            "id": "AOS-2026-9105", "title": "Repair the receipt parser", "owner": "codex",
+            "context": "The parser broke after AOS-2026-9106; repair it.", "definition_of_done": "Focused test passes.",
+            "allowed_actions": ["local_read"], "stop_conditions": ["git_push"],
+        }
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch.object(context_assembler, "ASSEMBLY_DIR", Path(tmp) / "assemblies"):
+            context, _pack = context_assembler.worker_context_pack(
+                item, owner="codex", execution_instructions=backend._queue_actual_run_prompt(item, "codex"),
+                pack_dir=Path(tmp),
+            )
+        rendered = context.render()
+        self.assertIn("Cited queue items, current status:\n- AOS-2026-9106:", rendered)
+        self.assertNotIn("- AOS-2026-9105:", rendered)
+        self.assertNotIn("Pointers:", rendered)  # none provided -> line omitted
+        self.assertEqual("The parser broke after AOS-2026-9106; repair it.", context_assembler.worker_brief(context.request).split("Context: ", 1)[1].split("\n", 1)[0])
+        self.assertNotIn("Allowed:", context_assembler.worker_brief(context.request))
 
     def test_business_terms_keep_codex_step_knowledge_sensitive(self):
         item = {"id": "AOS-2026-9104", "title": "Prospect follow-up export", "owner": "codex",
@@ -494,8 +521,9 @@ class TechnicalWorkOrderPromptTest(unittest.TestCase):
         )
         self.assertEqual(("dashboard:codex", "technical_only"), (context.surface, context.classification))
         self.assertEqual(1, prepared.count(policy.PERMISSION_HEADER))
-        self.assertIn("Not applicable to this technical step:", prepared)
-        self.assertIn("action boundaries", prepared)  # safety boundary preserved
+        self.assertIn(context_assembler.DIRECT_WORKER_BOUNDARY, prepared)  # no item stop list here
+        self.assertLessEqual(len([line for line in prepared.splitlines() if line.strip()]), 10)
+        self.assertNotIn("Not applicable", prepared)
         self.assertNotIn("## provenance", prepared)
         self.assertNotIn("## identity/company", prepared)
         self.assertTrue(any(block.name == "provenance" and block.sources for block in context.blocks))
@@ -503,7 +531,7 @@ class TechnicalWorkOrderPromptTest(unittest.TestCase):
     def test_direct_dashboard_codex_with_business_terms_keeps_full_context(self):
         context, prepared = self._direct_codex_prompt("Export the prospect follow-up list.")
         self.assertEqual("knowledge_sensitive", context.classification)
-        self.assertNotIn("Not applicable to this technical step:", prepared)
+        self.assertIn("[TTROS_ASSEMBLED_CONTEXT_V1]", prepared)
         self.assertIn("## identity/company", prepared)
 
     def test_named_playbook_is_still_selected_for_a_technical_step(self):

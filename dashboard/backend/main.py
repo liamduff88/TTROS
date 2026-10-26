@@ -89,8 +89,8 @@ from context_assembler import (
     _load_deletion_tombstones,
     assemble as assemble_model_context,
     codex_classification,
+    codex_work_order_header,
     require_assembled_context,
-    work_order_header,
     worker_context_pack,
 )
 from step6_cost_control import (
@@ -10113,6 +10113,12 @@ def _queue_render_prompt(item: dict, target: str) -> str:
         "<DEFINITION_OF_DONE>": item.get("definition_of_done") or "Complete the scoped queue item and return the required closeout.",
         "<VALIDATION_COMMANDS_OR_CHECKS>": "Run relevant local validation for the scoped change. Do not call external systems.",
     }
+    if target == "codex" and not small_task:
+        # The Codex work order states each part on one line.
+        for placeholder, field in (
+            ("<SOURCE_REFERENCES>", "sources"), ("<ALLOWED_ACTIONS>", "allowed_actions"), ("<STOP_CONDITIONS>", "stop_conditions"),
+        ):
+            replacements[placeholder] = ", ".join(str(value) for value in item.get(field) or []) or "none listed"
     if small_task and target == "claude":
         # Live read, never a pasted copy — the small template must never drift
         # from the authoritative rules/never.md as that file is amended.
@@ -10250,34 +10256,26 @@ def _queue_actual_department_run_prompt(
 
 
 def _queue_codex_execution_instructions(item: dict, attempt: int, max_attempts: int) -> str:
-    """Codex worker instructions in the rules/prompt_writing.md shape.
+    """The complete Codex work order, one line per rules/prompt_writing.md part.
 
-    It opens with the worker pack's own header (objective, scope, pointers),
-    which ``worker_context_pack`` states once; the launcher adds the
-    permission header and fresh-session contract once.
+    The launcher adds the permission header once. Session isolation, the fuse,
+    token accounting and no-push are enforced by the Codex runtime, not prose.
     """
     run_prompt_path = str(item.get("run_prompt_path") or "").strip()
-    lines = [work_order_header(item), ""]
+    lines = [codex_work_order_header(item)]
     if run_prompt_path:
         if not re.fullmatch(r"queue/run_prompts/[A-Za-z0-9_.-]+\.md", run_prompt_path):
             raise ValueError("invalid run_prompt_path")
-        lines.extend((f"Full task brief: read `{run_prompt_path}` first; it is authoritative for scope.", ""))
+        lines.append(f"Full brief: `{run_prompt_path}` (authoritative for scope).")
     allowed = ", ".join(str(value) for value in item.get("allowed_actions") or []) or "local_read, local_edit, local_test"
     stops = ", ".join(str(value) for value in item.get("stop_conditions") or []) or "any external or destructive action"
+    attempt_note = f" This is attempt {attempt}/{max_attempts}." if attempt > 1 else ""
     lines.extend((
-        f"Permissions: allowed {allowed}. Stop and report instead of: {stops}. "
-        "Access model: `context/ACCESS_MODEL.md`. Never expose secrets.",
-        "Validation: run the focused local check that proves the objective; do not call external systems.",
-        "Tool-output bounds: read files by line range; keep only the tail of passing test output; never dump "
-        "work_items.jsonl, ledgers, receipt directories or queue history into the session.",
-        f"Required local artifact path: {_queue_default_artifact_path(item)} (write durable output there and list it under Artifacts).",
-        f"Closeout: attach a durable receipt (`python3 tools/aos-queue.py receipt {item.get('id', '')} <path> --status <status>`) "
-        "and leave this item in its honest status (human_review, done, needs_input or blocked). The supervisor "
-        "reconciles this session's token usage against this item; do not select another queue item.",
-        f"Current attempt: {attempt}/{max_attempts}",
-        "",
-        "Required artifact/receipt shape:",
-        _queue_required_receipt_shape(),
+        f"Allowed: {allowed}. Stop and report instead of: {stops}.{attempt_note}",
+        f"Closeout: write the result to {_queue_default_artifact_path(item)}, attach it with "
+        f"`python3 tools/aos-queue.py receipt {item.get('id', '')} <path> --status done|human_review|needs_input|blocked`, "
+        "and reply PASS or NEEDS ATTENTION with Summary for operator, Files touched, Validation (commands and exit codes), "
+        "Artifacts, Blockers and Token usage (or unavailable).",
     ))
     return "\n".join(lines).rstrip() + "\n"
 
@@ -10365,8 +10363,6 @@ def _queue_codex_correction_prompt(
         PERMISSION_HEADER,
         "",
         "## Fresh compact correction work order",
-        "",
-        "Start a new independently scoped Codex session. Do not resume or inherit the prior transcript, and do not replay orchestration history.",
         "",
         "Original bounded task:",
         f"- ID: {item.get('id', '')}",

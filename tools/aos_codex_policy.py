@@ -35,6 +35,11 @@ SUPPORTED_EFFORTS = ("low", "medium", "high")
 COMPLEXITY_TIERS = ("simple", "medium", "complex")
 TIER_BY_DIAL = {"light": "simple", "standard": "medium", "heavy": "complex"}
 MODEL_ROUTES_PATH = Path("queue/model_routes.json")
+NO_PUSH_GIT_ENV = {
+    "GIT_CONFIG_COUNT": "1",
+    "GIT_CONFIG_KEY_0": "url.codex-push-forbidden://.pushInsteadOf",
+    "GIT_CONFIG_VALUE_0": "",
+}
 
 
 def _positive_environment_integer(name: str, default: int) -> int:
@@ -54,14 +59,6 @@ Do not ask for permission during this scoped local task. Assume approval for loc
 Do not ask before editing files inside the stated folder. Make the changes, validate, and return the compact closeout.
 
 Stop only for real external/destructive actions."""
-FRESH_SESSION_POLICY = """## Fresh-session and retained-context contract
-
-- This invocation is a new, independently scoped ephemeral Codex session. Do not resume, inherit, or search for any previous Codex transcript or session.
-- Work only from this prompt and the repository/artifact paths it names. Do not replay orchestration history.
-- Keep logs, screenshots, browser evidence, and verbose test output in local artifacts; retain only compact summaries and paths in prompts and closeouts.
-- Native automatic compaction may summarise retained conversation for session hygiene; it must preserve the assembled context needed to complete the task.
-- The only token breaker is this session's own 500,000-token fuse (input + output). Many tool calls each re-send the whole context, so prefer few, targeted reads.
-- If a clean session cannot be created, fail explicitly without doing task work."""
 
 @dataclass(frozen=True)
 class CodexRuntimeTarget:
@@ -390,16 +387,19 @@ def describe_fuse_stop(breach: dict) -> str:
 
 
 def prepare_fresh_prompt(prompt: str) -> str:
-    """Apply the mandatory permission/session header without a hidden byte cap."""
+    """Apply the mandatory permission header once, without a hidden byte cap.
+
+    Session isolation, the fuse and no-push are enforced by the launch itself
+    (``--ephemeral``, ``require_clean_session_id``, ``StreamingSessionFuse``,
+    ``build_environment``), so the prompt does not restate them.
+    """
     task = str(prompt or "").strip()
     if not task:
         raise CodexPolicyError("Codex clean-session prompt is empty")
     # The canonical header goes first exactly once; copies embedded by a
     # template (e.g. the manual codex-run prompt) are dropped, not repeated.
     task = re.sub(r"\n{3,}", "\n\n", task.replace(PERMISSION_HEADER, "")).strip()
-    sections = [PERMISSION_HEADER, FRESH_SESSION_POLICY, task]
-    prepared = "\n\n".join(sections).rstrip() + "\n"
-    return prepared
+    return f"{PERMISSION_HEADER}\n\n{task}\n"
 
 
 def require_clean_session_id(output: str) -> str:
@@ -492,6 +492,10 @@ def build_environment(target: CodexRuntimeTarget = CODEX_TARGET) -> dict[str, st
     env["USER"] = target.linux_user
     env["LOGNAME"] = target.linux_user
     env["CODEX_HOME"] = str(target.codex_home)
+    # Codex never pushes; the approved closeout pushes outside Codex. An empty
+    # pushInsteadOf rewrites every push URL to a transport git cannot open,
+    # while fetch, status and diff keep working.
+    env.update(NO_PUSH_GIT_ENV)
     env["PATH"] = os.pathsep.join((
         str(target.executable.parent),
         str(Path(account.pw_dir) / ".local" / "bin"),

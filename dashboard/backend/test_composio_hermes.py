@@ -2191,7 +2191,7 @@ class HermesComposioTests(unittest.TestCase):
                 self.assertNotIn("$VARS", command)
                 self.assertNotIn("`ticks`", command)
             self.assertIn(adversarial_title, prompts[0])
-            self.assertIn("Required local artifact path:", prompts[0])
+            self.assertIn("Closeout: write the result to workflows/queue_artifacts/AOS-2026-0099_", prompts[0])
             self.assertEqual(token_tasks[0], f"AOS-2026-0099 | codex | {adversarial_title[:160]}")
             self.assertEqual(len(token_tasks), 2)
             self.assertIn("Review this Agentic OS queue worker result", token_tasks[1])
@@ -3154,8 +3154,11 @@ class HermesComposioTests(unittest.TestCase):
                     "Do not ask for permission during this scoped local task. Assume approval for local reads, local edits, local file creation, dependency installation, validation commands, local dev-server startup, browser preview, and screenshot capture inside the stated scope.",
                     prompt,
                 )
-                self.assertIn(f"- ID: {item_id}", prompt)
-                self.assertIn("- Title: Patch dashboard queue prompt copy", prompt)
+                if prompt_response is codex:
+                    self.assertIn(f"Task {item_id}: Patch dashboard queue prompt copy", prompt)
+                else:
+                    self.assertIn(f"- ID: {item_id}", prompt)
+                    self.assertIn("- Title: Patch dashboard queue prompt copy", prompt)
                 self.assertIn("## Launch from Linux", prompt)
                 self.assertIn("Do not launch agents automatically.", prompt)
             codex_prompt = codex["prompt"]
@@ -4504,7 +4507,7 @@ class HermesComposioTests(unittest.TestCase):
                 result = backend.run_queue_item("AOS-2026-0002")
 
         run.assert_called_once()
-        self.assertIn("Required local artifact path", run.call_args.args[0].request)
+        self.assertIn("Closeout: write the result to workflows/queue_artifacts/AOS-2026-0002_", run.call_args.args[0].request)
         self.assertEqual(run.call_args.args[1]["id"], "AOS-2026-0002")
         claude.assert_not_called()
         hermes.assert_not_called()

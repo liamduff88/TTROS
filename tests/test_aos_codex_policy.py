@@ -1,12 +1,13 @@
 """Regression contract for mandatory Agentic OS Codex full-access execution.
 
-Revisit: when an Agentic OS route gains a new Codex subprocess constructor. · Last touched: 2026-07-17.
+Revisit: when an Agentic OS route gains a new Codex subprocess constructor. · Last touched: 2026-10-25.
 """
 
 from __future__ import annotations
 
 import inspect
 import os
+import subprocess
 import tempfile
 import unittest
 from dataclasses import replace
@@ -40,9 +41,28 @@ class AosCodexPolicyTest(unittest.TestCase):
         self.assertNotIn("approval_policy", parameters)
         self.assertNotIn("root", parameters)
         prompt = policy.prepare_fresh_prompt("bounded task sentinel")
-        self.assertTrue(prompt.startswith("PERMISSION MODE — SCOPED LOCAL TASK APPROVED"))
-        self.assertIn("new, independently scoped ephemeral Codex session", prompt)
-        self.assertIn("bounded task sentinel", prompt)
+        self.assertEqual(f"{policy.PERMISSION_HEADER}\n\nbounded task sentinel\n", prompt)
+        # Isolation is the --ephemeral launch plus require_clean_session_id, not prose.
+        self.assertNotIn("ephemeral", prompt)
+
+    def test_codex_environment_blocks_push_but_not_fetch(self):
+        env = policy.build_environment()
+        for key, value in policy.NO_PUSH_GIT_ENV.items():
+            self.assertEqual(value, env[key])
+        with tempfile.TemporaryDirectory() as tmp:
+            subprocess.run(["git", "init", "-q", tmp], check=True)
+            subprocess.run(["git", "-C", tmp, "remote", "add", "origin", "https://example.invalid/r.git"], check=True)
+
+            def url(*args: str, environ: dict) -> str:
+                return subprocess.run(
+                    ["git", "-C", tmp, "remote", "get-url", *args, "origin"],
+                    env=environ, check=True, capture_output=True, text=True,
+                ).stdout.strip()
+
+            plain = {k: v for k, v in os.environ.items() if not k.startswith("GIT_CONFIG_")}
+            self.assertEqual("https://example.invalid/r.git", url("--push", environ=plain))  # control
+            self.assertEqual("codex-push-forbidden://https://example.invalid/r.git", url("--push", environ=env))
+            self.assertEqual("https://example.invalid/r.git", url(environ=env))
 
     def test_clean_session_identity_is_required_and_never_synthesized(self):
         self.assertEqual(

@@ -1,0 +1,105 @@
+{
+  "model_calls": {
+    "actual": 2,
+    "declared_max": 2
+  },
+  "surface": "queue worker path (_queue_actual_run_prompt -> worker_context_pack -> _run_codex_local), no queue mutation",
+  "parent_item": "AOS-2026-9950",
+  "nonce": "NONCE-abb37be665bf",
+  "checks": {
+    "every_step_succeeded": true,
+    "every_step_has_real_thread_id": true,
+    "thread_ids_distinct": true,
+    "fuse_scopes_distinct": true,
+    "argv_ephemeral_no_resume": true,
+    "step2_did_not_see_step1_nonce": true,
+    "step2_prompt_lacks_nonce": true,
+    "push_url_blocked_inside_codex": true,
+    "prompts_within_10_non_blank_lines": true
+  },
+  "verdict": "PASS",
+  "steps": [
+    {
+      "item_id": "AOS-2026-9951",
+      "success": true,
+      "failure_class": null,
+      "session_id": "01a175fb-51cf-7253-8390-60f4c603e4eb",
+      "invocation_id": "codex-e31ec7363f5644c9a34b8acfa7fea002",
+      "fuse_scope": "session:codex-e31ec7363f5644c9a34b8acfa7fea002",
+      "model": "gpt-6-luna",
+      "reasoning_effort": "low",
+      "argv": [
+        "/home/liam/.local/npm/bin/codex",
+        "--sandbox",
+        "danger-full-access",
+        "--ask-for-approval",
+        "never",
+        "-C",
+        "/home/liam/agentic-os-live",
+        "--config",
+        "model_auto_compact_token_limit=75000",
+        "--config",
+        "model_reasoning_effort=low",
+        "exec",
+        "--model",
+        "gpt-6-luna",
+        "--ephemeral",
+        "--skip-git-repo-check",
+        "--json",
+        "--color",
+        "never",
+        "-"
+      ],
+      "prompt_sent": "PERMISSION MODE — SCOPED LOCAL TASK APPROVED\n\nDo not ask for permission during this scoped local task. Assume approval for local reads, local edits, local file creation, dependency installation, validation commands, local dev-server startup, browser preview, and screenshot capture inside the stated scope.\n\nDo not ask before editing files inside the stated folder. Make the changes, validate, and return the compact closeout.\n\nStop only for real external/destructive actions.\n\nTask AOS-2026-9951: Isolation probe step 1: template count\nContext: Probe step: skip the artifact and receipt; reply with exactly one line and nothing else. Remember the value NONCE-abb37be665bf. Count the files directly inside queue/templates with one listing command, run `git remote get-url --push origin`, and reply: COUNT=<n> PUSH_URL=<url>.\nPointers: queue/templates/\nDone when: The reply is the single requested line; nothing is edited or written.\nAllowed: local_read. Stop and report instead of: local_edit, external_send, git_commit, git_push.\nCloseout: write the result to workflows/queue_artifacts/AOS-2026-9951_Isolation_probe_step_1_template_count.md, attach it with `python3 tools/aos-queue.py receipt AOS-2026-9951 <path> --status done|human_review|needs_input|blocked`, and reply PASS or NEEDS ATTENTION with Summary for operator, Files touched, Validation (commands and exit codes), Artifacts, Blockers and Token usage (or unavailable).\n",
+      "prompt_bytes": 1434,
+      "prompt_non_blank_lines": 10,
+      "context_manifest": "queue/context_assemblies/ctx-7105ca2bc8f44f90b76935143d93b391.json",
+      "output": "NEEDS ATTENTION\n\n- **Summary for operator:** Read-only probe completed: `COUNT=9`; push URL is `codex-push-forbidden://https://github.com/liamduff88/TTROS.git`.\n- **Files touched:** None.\n- **Validation:** `find queue/templates -maxdepth 1 -type f | wc -l` — exit 0; `git remote get-url --push origin` — exit 0.\n- **Artifacts:** None. The requested artifact and receipt would require local writes, which this task explicitly disallows.\n- **Blockers:** Closeout writes were not performed because the task says to stop instead of `local_edit`.\n- **Token usage:** unavailable.",
+      "token_usage_text": "Token usage: input 69899, output 796, cached input 53504, reasoning 252, total 70695",
+      "stream_artifacts": [
+        "logs/codex_sessions/codex-e31ec7363f5644c9a34b8acfa7fea002.stdout.jsonl"
+      ]
+    },
+    {
+      "item_id": "AOS-2026-9952",
+      "success": true,
+      "failure_class": null,
+      "session_id": "01a175fb-818a-7dd3-93ee-feaeebe8feae",
+      "invocation_id": "codex-ce093420dcbf406f8c0a5f1caa956101",
+      "fuse_scope": "session:codex-ce093420dcbf406f8c0a5f1caa956101",
+      "model": "gpt-6-luna",
+      "reasoning_effort": "low",
+      "argv": [
+        "/home/liam/.local/npm/bin/codex",
+        "--sandbox",
+        "danger-full-access",
+        "--ask-for-approval",
+        "never",
+        "-C",
+        "/home/liam/agentic-os-live",
+        "--config",
+        "model_auto_compact_token_limit=75000",
+        "--config",
+        "model_reasoning_effort=low",
+        "exec",
+        "--model",
+        "gpt-6-luna",
+        "--ephemeral",
+        "--skip-git-repo-check",
+        "--json",
+        "--color",
+        "never",
+        "-"
+      ],
+      "prompt_sent": "PERMISSION MODE — SCOPED LOCAL TASK APPROVED\n\nDo not ask for permission during this scoped local task. Assume approval for local reads, local edits, local file creation, dependency installation, validation commands, local dev-server startup, browser preview, and screenshot capture inside the stated scope.\n\nDo not ask before editing files inside the stated folder. Make the changes, validate, and return the compact closeout.\n\nStop only for real external/destructive actions.\n\nTask AOS-2026-9952: Isolation probe step 2: prior-session recall\nContext: Probe step: skip the artifact and receipt; reply with exactly one line and nothing else. Without running any command, if this session already holds a value that starts with NONCE- from any earlier message, reply PRIOR=<that value>; otherwise reply PRIOR=none.\nPointers: queue/templates/\nDone when: The reply is the single requested line; nothing is edited or written.\nAllowed: local_read. Stop and report instead of: local_edit, external_send, git_commit, git_push.\nCloseout: write the result to workflows/queue_artifacts/AOS-2026-9952_Isolation_probe_step_2_prior-session_recall.md, attach it with `python3 tools/aos-queue.py receipt AOS-2026-9952 <path> --status done|human_review|needs_input|blocked`, and reply PASS or NEEDS ATTENTION with Summary for operator, Files touched, Validation (commands and exit codes), Artifacts, Blockers and Token usage (or unavailable).\n",
+      "prompt_bytes": 1427,
+      "prompt_non_blank_lines": 10,
+      "context_manifest": "queue/context_assemblies/ctx-bec217d81b57430491f561cc9ee87cbe.json",
+      "output": "PRIOR=none",
+      "token_usage_text": "Token usage: input 15053, output 8, cached input 11520, reasoning 0, total 15061",
+      "stream_artifacts": [
+        "logs/codex_sessions/codex-ce093420dcbf406f8c0a5f1caa956101.stdout.jsonl"
+      ]
+    }
+  ]
+}

@@ -2,6 +2,17 @@
 > Revisit: when a behavior-affecting system decision is made. · Last touched: 2026-10-25.
 > One entry per behavior-affecting change. Newest first.
 
+## 2026-10-25 — Codex work orders are 5–10 lines; runtime rules leave the prompt
+A technical Codex step's final prompt is the permission header once plus a one-line-per-part work
+order (task, context, pointers, done when, allowed/stop, closeout). The six-bullet fresh-session
+contract, the global boundary block, relevance-matched receipts, the step's own queue row, the
+assembly marker/manifest lines and the receipt template no longer reach Codex; the manifest keeps
+them. Isolation (`--ephemeral`, one real `thread.started`), the 500K fuse, token accounting and
+model/effort stay enforced by the launcher. Codex's no-push rule is now enforced too: its
+environment rewrites every push URL to an unopenable transport (`NO_PUSH_GIT_ENV`); the approved
+closeout outside Codex pushes. AOS-2026-0947: 79 lines / 5,810 bytes -> 9 non-blank lines /
+2,349 bytes.
+
 ## 2026-10-25 — Codex in-flight fuse estimate is unverified; a fuse stop no longer blocks the item
 AOS-2026-0947 (first David → Hermes → Codex run after `e2e12d3`) was killed after 35 s at an
 "in-flight lower-bound estimate" of 515,610. The estimate re-counted all tool output so far on

@@ -313,26 +313,27 @@ class AssembledContext:
 
 
     def _render_technical_worker(self, *, include_request: bool) -> str:
-        """Work-order render: N/A blocks collapse to one line; counts, selection
-        notes and full provenance stay in the assembly artifact."""
-        lines = [
-            f"[{MARKER}]",
-            f"Invocation: {self.invocation_id} · {self.surface} · {self.classification} · "
-            f"assembler v{ASSEMBLER_VERSION}, source discovery 0 model tokens · "
-            f"full manifest: queue/context_assemblies/{self.invocation_id}.json",
-        ]
-        if self.warnings:
-            lines.extend(("Warnings:", *(f"- {warning}" for warning in self.warnings)))
-        absent = [block.name for block in self.blocks if block.content.startswith("N/A")]
-        if absent:
-            lines.append("Not applicable to this technical step: " + ", ".join(absent) + ".")
+        """Work-order render (rules/prompt_writing.md): the order itself plus only
+        what adds to it. N/A blocks, provenance, the step's own queue row and the
+        global boundary block (the order's stop list and the Codex runtime carry
+        those) stay in the manifest at queue/context_assemblies/<invocation>.json."""
+        cited = set(re.findall(r"AOS-\d{4}-\d{4}", self.request)) - {self.session_id}
+        lines = [self.request.strip()] if include_request else []
+        if self.surface in DIRECT_WORKER_SURFACES:
+            lines.append(DIRECT_WORKER_BOUNDARY)
         for block in self.blocks:
-            if block.content.startswith("N/A") or block.name == "provenance":
-                continue  # provenance stays complete in the manifest named above
+            if block.content.startswith("N/A") or block.name in TECHNICAL_WORKER_MANIFEST_ONLY:
+                continue
+            if block.name == "queue reference validity":
+                rows = [
+                    line for line in block.content.splitlines()
+                    if (match := re.match(r"- (AOS-\d{4}-\d{4}):", line)) and match.group(1) in cited
+                ]
+                if rows:
+                    lines.extend(("", "Cited queue items, current status:", *rows))
+                continue
             lines.extend(("", f"## {block.name}", block.content))
-        if include_request:
-            lines.extend(("", "## Current request", self.request))
-        return "\n".join(lines).rstrip() + "\n"
+        return "\n".join(lines).strip() + "\n"
 
 
 def require_assembled_context(value: Any) -> AssembledContext:
@@ -414,6 +415,8 @@ def relevance_query(request: str) -> str:
 
 
 WORKER_INSTRUCTIONS_MARKER = "\nTask-scoped execution instructions:\n"
+# The Codex work order's launcher lines begin here (see codex_work_order_header).
+CODEX_INSTRUCTIONS_MARKER = "\nAllowed: "
 
 
 def worker_brief(request: str) -> str:
@@ -422,11 +425,21 @@ def worker_brief(request: str) -> str:
     Template words ("work", "agent", "session", "source") otherwise dominate
     relevance and select unrelated business playbooks (AOS-2026-0943).
     """
-    return str(request or "").split(WORKER_INSTRUCTIONS_MARKER, 1)[0].strip()
+    text = str(request or "")
+    for marker in (WORKER_INSTRUCTIONS_MARKER, CODEX_INSTRUCTIONS_MARKER):
+        text = text.split(marker, 1)[0]
+    return text.strip()
 
 
 # A direct Dashboard Codex request is a one-step work order without a queue item.
 DIRECT_WORKER_SURFACES = frozenset({"dashboard:codex"})
+# A direct request has no item stop list, so it carries the boundary in one line.
+DIRECT_WORKER_BOUNDARY = (
+    "Boundaries: local work in this repository only. Stop and report before any external send or "
+    "publish, connector or account change, deploy, spending, credential access, destructive deletion, "
+    "git commit or push."
+)
+TECHNICAL_WORKER_MANIFEST_ONLY = frozenset({"provenance", "action boundaries", "recent receipts and outcomes"})
 
 
 def codex_classification(brief: str) -> str:
@@ -1901,6 +1914,19 @@ def work_order_header(item: dict[str, Any]) -> str:
     ))
 
 
+def codex_work_order_header(item: dict[str, Any]) -> str:
+    """Task, context, pointers and completion criteria for a Codex step, one line each."""
+    sources = item.get("sources") if isinstance(item.get("sources"), list) else []
+    lines = [f"Task {str(item.get('id') or '').strip()}: {item.get('title') or ''}"]
+    context = " ".join(str(item.get("context") or "").split())
+    if context:
+        lines.append(f"Context: {context}")
+    if sources:
+        lines.append("Pointers: " + ", ".join(str(value) for value in sources))
+    lines.append("Done when: " + " ".join(str(item.get("definition_of_done") or "").split()))
+    return "\n".join(lines)
+
+
 def worker_context_pack(
     item: dict[str, Any],
     *,
@@ -1913,16 +1939,16 @@ def worker_context_pack(
         raise ContextAssemblyError("worker context pack requires a canonical work-item id")
     header = work_order_header(item)
     instructions = str(execution_instructions or "").strip()
-    if instructions.startswith(header):
-        # A self-contained work order (the Codex builder) opens with this
-        # exact header; state it once.
-        instructions = instructions[len(header):].strip()
-    request = "\n".join((
-        header,
-        "",
-        "Task-scoped execution instructions:",
-        instructions or "No additional execution instructions.",
-    ))
+    if owner == "codex" and instructions.startswith(codex_work_order_header(item)):
+        # The Codex builder's work order is complete; it is the request as is.
+        request = instructions
+    else:
+        request = "\n".join((
+            header,
+            "",
+            "Task-scoped execution instructions:",
+            instructions or "No additional execution instructions.",
+        ))
     classification = str(item.get("context_classification") or "") or None
     if classification is None and owner == "codex":
         # This was previously implicit: the old template's own word "backend"

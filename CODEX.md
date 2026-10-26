@@ -1,5 +1,5 @@
 # CODEX.md — Codex workbench, TTROS Agentic OS
-> Revisit: quarterly, or on major repo refactor, Codex CLI change, or model-generation jump. · Last touched: 2026-08-17.
+> Revisit: quarterly, or on major repo refactor, Codex CLI change, or model-generation jump. · Last touched: 2026-10-25.
 
 ## Role
 Repo inspection, audits, validation runs, and adversarial checks. Codex is the
@@ -24,14 +24,12 @@ department agent.
 ## Hard rules (full list: rules/never.md)
 - All work targets AgenticOSClean and the live workspace only.
 - Never touch protected paths, North Shore files, secrets, .env, credentials.
-- Routine completed and proven TTROS source work is logically committed and
-  normally pushed to the authoritative existing Git remote at completion;
-  separate Liam approval is not required.
-- Stage only proven task source changes; preserve unrelated or unfinished work
-  and exclude credentials, secrets, generated/runtime data, and protected
-  material. Never force-push or rewrite shared history, and do not clean,
-  reset, or stash unrelated work. Explicit `do not commit` or `do not push`
-  instructions override this default; unresolved remote divergence is a blocker.
+- Codex never pushes; the launcher blocks push in its environment. The approved
+  closeout outside Codex (Claude Code after review) commits and pushes proven work.
+  Commit only when the work order allows `git_commit`.
+- Preserve unrelated or unfinished work and exclude credentials, secrets,
+  generated/runtime data, and protected material. Never rewrite shared history,
+  and do not clean, reset, or stash unrelated work.
 - Keep existing tests green: tests.test_aos_queue, tests.test_aos_paths,
   dashboard.backend.test_composio_hermes.
 - Do NOT assume sandbox network checks represent live connector status —
