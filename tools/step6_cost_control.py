@@ -401,6 +401,19 @@ def preflight(scope: Scope, *, dial_override: str | None = None, root: Path = RO
     return status
 
 
+def _stopped_by_session_fuse(row: dict[str, Any]) -> bool:
+    """True for a Codex session the supervisor itself stopped at its own fuse.
+
+    Its usage is unknown but its cause is known and confined to that session,
+    so it does not block a fresh session under the same item. Rows written
+    before ``stop_cause`` existed carry only the supervisor's reason prefix.
+    """
+    fuse = row.get("fuse") if isinstance(row.get("fuse"), dict) else {}
+    if row.get("scope_type") != "session":
+        return False
+    return fuse.get("stop_cause") == "session_fuse" or str(fuse.get("reason") or "").startswith("stopped at session fuse (")
+
+
 def codex_session_scope(invocation_id: str) -> Scope:
     """Each Codex launch is its own fuse scope; never its parent work item."""
     return Scope("session", str(invocation_id or "").strip())
@@ -422,6 +435,7 @@ def work_item_usage(item_id: str, *, root: Path = ROOT, ledger_path: Path = LEDG
     total = 0
     sessions: list[dict[str, Any]] = []
     unknown_since_reset: list[str] = []
+    fuse_stopped: list[str] = []
     unknown_all = 0
     for row in _ledger_rows(root, ledger_path):
         if row.get("event") == "fuse_scope_reset" and row.get("scope_key") == item_key:
@@ -441,7 +455,10 @@ def work_item_usage(item_id: str, *, root: Path = ROOT, ledger_path: Path = LEDG
             total += amount
         else:
             unknown_all += 1
-            unknown_since_reset.append(f"{identity or 'missing invocation_id'}: canonical usage unavailable")
+            if _stopped_by_session_fuse(row):
+                fuse_stopped.append(identity)
+            else:
+                unknown_since_reset.append(f"{identity or 'missing invocation_id'}: canonical usage unavailable")
         sessions.append({
             "invocation_id": identity,
             "scope_key": row.get("scope_key"),
@@ -455,6 +472,7 @@ def work_item_usage(item_id: str, *, root: Path = ROOT, ledger_path: Path = LEDG
         "invocation_count": len(seen),
         "unknown_invocations": unknown_all,
         "accounting_unknown_since_reset": unknown_since_reset,
+        "fuse_stopped_sessions": fuse_stopped,
         "invocations": sessions,
         "note": "reporting aggregate; each Codex session has its own 500K fuse",
     }
@@ -473,7 +491,8 @@ def codex_session_preflight(
     The parent item's spent total no longer blocks a new step, but unknown
     accounting anywhere in the item (since its last explicit reset) still
     fails closed: an unparseable usage stream means the next session's fuse
-    could not be trusted either.
+    could not be trusted either. A session stopped at its own fuse is the
+    exception: its usage stays unknown, but a fresh session gets a fresh fuse.
     """
     scope = codex_session_scope(invocation_id)
     status = preflight(scope, dial_override=dial_override, root=root, ledger_path=ledger_path)
@@ -802,11 +821,13 @@ def record_unavailable_invocation(
     surface: str = "unknown",
     work_item_id: str = "",
     model_selection: dict[str, Any] | None = None,
+    stop_cause: str | None = None,
 ) -> dict[str, Any]:
     """Persist an attempted provider call whose exact counters are unavailable.
 
     This is deliberately not a zero-token row.  Its missing canonical total
-    makes the named scope fail closed on the next preflight.
+    makes the named scope fail closed on the next preflight. ``stop_cause``
+    ``"session_fuse"`` marks a Codex session the supervisor stopped itself.
     """
     existing = [
         row for row in _scope_rows(scope, _ledger_rows(root, ledger_path))
@@ -835,7 +856,10 @@ def record_unavailable_invocation(
         "budget_class": dial["value"],
         "cost_dial": dial,
         "exact_usage": {"input": None, "cached_input": None, "output": None, "reasoning": None, "canonical_total": None},
-        "fuse": {"limit": FUSE_LIMIT, "invocation_tokens": None, "accounting_status": "unknown", "reason": str(reason)},
+        "fuse": {
+            "limit": FUSE_LIMIT, "invocation_tokens": None, "accounting_status": "unknown", "reason": str(reason),
+            **({"stop_cause": stop_cause} if stop_cause else {}),
+        },
         "cost": {"status": "unpriced", "usd": None, "reason": "exact token usage unavailable"},
         "token_usage": {
             "orchestrator": {"input": 0, "output": 0},

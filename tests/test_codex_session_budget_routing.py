@@ -110,6 +110,42 @@ class SessionFuseScopeTest(unittest.TestCase):
             self.assertEqual(1, step6.work_item_usage(ITEM, root=root)["unknown_invocations"])
 
 
+    def test_fuse_stopped_session_does_not_block_a_fresh_session(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root(tmp)
+            step6.record_unavailable_invocation(
+                step6.codex_session_scope("codex-stopped"), invocation_id="codex-stopped", provider="openai-codex",
+                model="gpt-6-sol", reason="stopped at session fuse (fixture); Codex emitted no terminal usage",
+                root=root, surface="test:codex", work_item_id=ITEM, stop_cause="session_fuse",
+            )
+            # Row shape written for AOS-2026-0947 before stop_cause existed (reason prefix only).
+            step6.record_unavailable_invocation(
+                step6.codex_session_scope("codex-454889f5823f454ebc8400e17219c2de"),
+                invocation_id="codex-454889f5823f454ebc8400e17219c2de", provider="openai-codex", model="gpt-6-sol",
+                reason="stopped at session fuse (in_flight_lower_bound_estimate 515610/500000); Codex emitted no terminal usage",
+                root=root, surface="test:codex", work_item_id=ITEM,
+            )
+            aggregate = step6.work_item_usage(ITEM, root=root)
+            self.assertEqual([], aggregate["accounting_unknown_since_reset"])
+            self.assertEqual(2, aggregate["unknown_invocations"])
+            self.assertEqual(0, aggregate["known_tokens"])
+            self.assertEqual(2, len(aggregate["fuse_stopped_sessions"]))
+            _scope, status = step6.codex_session_preflight("codex-fresh", work_item_id=ITEM, root=root)
+            self.assertFalse(status["paused"])
+            self.assertEqual(0, status["canonical_tokens"])
+            # A stopped session's own scope still fails closed; only the sibling is freed.
+            with self.assertRaises(step6.FusePausedError):
+                step6.codex_session_preflight("codex-stopped", work_item_id=ITEM, root=root)
+            # Any other unknown accounting in the item still blocks the next session.
+            step6.record_unavailable_invocation(
+                step6.codex_session_scope("codex-lost"), invocation_id="codex-lost", provider="openai-codex",
+                model="gpt-6-sol", reason="Codex terminal usage unavailable", root=root, surface="test:codex",
+                work_item_id=ITEM,
+            )
+            with self.assertRaisesRegex(step6.FusePausedError, "codex-lost: canonical usage unavailable"):
+                step6.codex_session_preflight("codex-fresh-2", work_item_id=ITEM, root=root)
+
+
 class TornLedgerReadTest(unittest.TestCase):
     def test_in_flight_final_line_is_retried_and_permanent_tear_is_corrupt(self):
         import threading
@@ -154,7 +190,7 @@ class StreamingFuseTest(unittest.TestCase):
         self.assertEqual(30_500, fuse.exact_cumulative)
         self.assertEqual(1, fuse.requests_estimated)
 
-    def test_lower_bound_estimate_stops_a_long_single_turn(self):
+    def test_unverified_estimate_stops_a_long_single_turn(self):
         fuse = policy.StreamingSessionFuse("p" * 40_000)
         breach = None
         rounds = 0
@@ -165,7 +201,7 @@ class StreamingFuseTest(unittest.TestCase):
                 {"type": "item.completed", "item": {"type": "command_execution", "command": "cat f", "aggregated_output": "o" * 40_000}},
             ))
         self.assertIsNotNone(breach)
-        self.assertEqual("in_flight_lower_bound_estimate", breach["basis"])
+        self.assertEqual(policy.ESTIMATE_BASIS, breach["basis"])
         self.assertGreaterEqual(breach["tokens"], 500_000)
         self.assertLess(rounds, 40)
         self.assertIsNone(fuse.exact_cumulative)
@@ -182,9 +218,57 @@ class StreamingFuseTest(unittest.TestCase):
                 stopped_at = index
                 break
         self.assertIsNotNone(stopped_at)
-        self.assertEqual("in_flight_lower_bound_estimate", fuse.breach["basis"])
+        self.assertEqual(policy.ESTIMATE_BASIS, fuse.breach["basis"])
         self.assertLess(stopped_at, len(lines) - 1, "the stop must precede turn.completed")
         self.assertIsNone(fuse.exact_cumulative)
+
+    def test_real_aos_0947_stream_is_not_stopped_by_the_estimate(self):
+        """AOS-2026-0947 was stopped after 35s at a 515,610 'lower-bound' estimate (21 tool calls)."""
+        stream_path = ROOT / "logs" / "codex_sessions" / "codex-454889f5823f454ebc8400e17219c2de.stdout.jsonl"
+        if not stream_path.exists():
+            self.skipTest("AOS-2026-0947 stream artifact not present")
+        fuse = policy.StreamingSessionFuse("x" * 5_810)  # route log initial_prompt_bytes
+        for line in stream_path.read_text(encoding="utf-8").splitlines(keepends=True):
+            self.assertIsNone(fuse.feed(line))
+        self.assertEqual(17, fuse.requests_estimated)  # 21 tool starts, 2 messages, in 17 responses
+        self.assertEqual(17 * (5_810 // 4 + policy.REQUEST_OVERHEAD_FLOOR_TOKENS), fuse.in_flight_estimate)
+        self.assertIsNone(fuse.exact_cumulative)
+        summary = fuse.summary()
+        self.assertNotIn("estimated_lower_bound", summary)
+        self.assertIn("not a lower bound", summary["in_flight_estimate_status"])
+
+    def test_message_and_tool_calls_in_one_response_count_once(self):
+        fuse = policy.StreamingSessionFuse("")
+        fuse.feed(_events(
+            {"type": "turn.started"},
+            {"type": "item.completed", "item": {"type": "agent_message", "text": "plan"}},
+            {"type": "item.started", "item": {"type": "command_execution"}},
+            {"type": "item.started", "item": {"type": "command_execution"}},
+            {"type": "item.completed", "item": {"type": "command_execution", "aggregated_output": "o" * 400_000}},
+            {"type": "item.completed", "item": {"type": "command_execution", "aggregated_output": "o" * 400_000}},
+            {"type": "item.started", "item": {"type": "command_execution"}},
+        ))
+        self.assertEqual(2, fuse.requests_estimated)
+        self.assertEqual(2 * policy.REQUEST_OVERHEAD_FLOOR_TOKENS, fuse.in_flight_estimate)
+
+    def test_estimate_breach_is_labelled_unverified_and_exact_breach_is_not(self):
+        fuse = policy.StreamingSessionFuse("p" * 400_000)
+        breach = fuse.feed(_events({"type": "item.started", "item": {"type": "command_execution"}},
+                                   {"type": "item.completed", "item": {"type": "command_execution"}},
+                                   {"type": "item.started", "item": {"type": "command_execution"}},
+                                   {"type": "item.completed", "item": {"type": "command_execution"}},
+                                   {"type": "item.started", "item": {"type": "command_execution"}},
+                                   {"type": "item.completed", "item": {"type": "command_execution"}},
+                                   {"type": "item.started", "item": {"type": "command_execution"}},
+                                   {"type": "item.completed", "item": {"type": "command_execution"}},
+                                   {"type": "item.started", "item": {"type": "command_execution"}}))
+        self.assertEqual(policy.ESTIMATE_BASIS, breach["basis"])
+        self.assertIs(False, breach["verified"])
+        text = policy.describe_fuse_stop(breach)
+        self.assertIn("unverified in-flight estimate", text)
+        self.assertIn("not provider usage and not a lower bound", text)
+        exact = policy.describe_fuse_stop({"basis": "exact_turn_usage", "tokens": 512_000, "limit": 500_000})
+        self.assertEqual("exact provider usage 512,000 of 500,000", exact)
 
     def test_run_streaming_kills_the_process_group_at_the_fuse(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -210,7 +294,7 @@ class StreamingFuseTest(unittest.TestCase):
             )
             self.assertLess(time.monotonic() - started, 20)
             self.assertFalse(result["timed_out"])
-            self.assertEqual("in_flight_lower_bound_estimate", result["fuse_breach"]["basis"])
+            self.assertEqual(policy.ESTIMATE_BASIS, result["fuse_breach"]["basis"])
             self.assertIsNotNone(result["returncode"])
             self.assertIn('"thread_id": "flood"', result["stdout"])
 
@@ -339,15 +423,21 @@ class BackendCodexSessionTest(unittest.TestCase):
             self.assertLess(time.monotonic() - started, 30)
             self.assertFalse(result["success"])
             self.assertEqual("session_fuse_stop", result["failure_class"])
-            self.assertEqual("in_flight_lower_bound_estimate", result["invocation"]["session_fuse"]["stopped"]["basis"])
+            self.assertEqual(policy.ESTIMATE_BASIS, result["invocation"]["session_fuse"]["stopped"]["basis"])
             row = next(
                 json.loads(line) for line in (root / "queue" / "token_ledger.jsonl").read_text().splitlines()
                 if json.loads(line).get("event") == "model_invocation"
             )
             self.assertIsNone(row["fuse"]["invocation_tokens"])
             self.assertIn("stopped at session fuse", row["fuse"]["reason"])
-            with self.assertRaises(step6.FusePausedError):
-                step6.codex_session_preflight("codex-after-stop", work_item_id=ITEM, root=root)
+            self.assertIn("not provider usage", row["fuse"]["reason"])
+            self.assertEqual("session_fuse", row["fuse"]["stop_cause"])
+            self.assertIn("unverified in-flight estimate", result["output"])
+            self.assertNotIn("lower bound estimate", result["output"])
+            # The stopped session's usage stays unknown; a fresh session is not blocked by it.
+            _scope, status = step6.codex_session_preflight("codex-after-stop", work_item_id=ITEM, root=root)
+            self.assertFalse(status["paused"])
+            self.assertEqual(1, status["work_item_aggregate"]["unknown_invocations"])
 
 
 class TechnicalWorkOrderPromptTest(unittest.TestCase):

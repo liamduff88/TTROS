@@ -289,13 +289,19 @@ def select_model_and_effort(
 # codex-cli 0.164.0 ``exec --json`` emits exact usage only in turn.completed,
 # once per turn, and an exec run is normally one turn. A single long turn can
 # therefore exceed 500K before any exact counter exists. The monitor enforces
-# the exact counter whenever one streams, and between turns uses a LOWER-BOUND
-# estimate: every model request re-sends the prompt, a fixed overhead floor and
-# all tool output so far. The estimate only triggers a stop; it is never
-# recorded as usage (a stopped session records usage as unavailable).
+# the exact counter whenever one streams, and between turns stops on an
+# UNVERIFIED in-flight estimate: inferred model requests x (prompt + fixed
+# overhead floor). It is neither usage nor a proven lower bound -- the stream
+# shows tool events, not model requests, and a stopped session records usage
+# as unavailable. Cumulative tool output is deliberately not re-counted per
+# request: against the 25 recorded streams with exact usage that term
+# overshot the provider total up to 4.67x and stopped AOS-2026-0947 after 35s
+# (scripts/codex_fuse_calibration.txt); without it the estimate ranged 0.24x
+# to 1.27x of exact, so a stop can land before or after the true 500K point.
 REQUEST_OVERHEAD_FLOOR_TOKENS = 12_000  # measured ~20K via `codex debug prompt-input` 2026-10-25
 CHARS_PER_TOKEN_ESTIMATE = 4
-TOOL_OUTPUT_CHAR_CAP = 40_000  # catalog truncation_policy: 10,000 tokens per tool output
+ESTIMATE_BASIS = "in_flight_estimate_unverified"
+TOOL_ITEM_TYPES = frozenset({"command_execution", "file_change"})
 
 
 class StreamingSessionFuse:
@@ -305,40 +311,27 @@ class StreamingSessionFuse:
         self.limit = limit
         self._prompt_tokens = len(prompt) // CHARS_PER_TOKEN_ESTIMATE
         self._buffer = ""
-        self._context_chars = 0
-        self._last_event = "completed"
+        self._in_response = False
         self.requests_estimated = 0
-        self.estimated_lower_bound = 0
+        self.in_flight_estimate = 0
         self.exact_cumulative: int | None = None
         self.turn_usage_events = 0
         self.breach: dict | None = None
-
-    def _request(self) -> None:
-        self.requests_estimated += 1
-        self.estimated_lower_bound += (
-            self._prompt_tokens + REQUEST_OVERHEAD_FLOOR_TOKENS
-            + self._context_chars // CHARS_PER_TOKEN_ESTIMATE
-        )
 
     def _event(self, event: dict) -> None:
         kind = event.get("type")
         item = event.get("item") if isinstance(event.get("item"), dict) else {}
         if kind == "turn.started":
-            self._last_event = "completed"
-        elif kind == "item.started":
-            if self._last_event == "completed":
-                self._request()
-            self._last_event = "started"
-        elif kind == "item.completed":
-            if self._last_event == "completed" and not self.requests_estimated:
-                self._request()
-            self._last_event = "completed"
-            text = str(item.get("aggregated_output") or item.get("text") or "")
-            if item.get("type") == "command_execution":
-                text = str(item.get("command") or "") + text
-            elif item.get("type") == "file_change":
-                text = json.dumps(item.get("changes"))
-            self._context_chars += min(len(text), TOOL_OUTPUT_CHAR_CAP)
+            self._in_response = False
+        elif kind == "item.started" or (kind == "item.completed" and item.get("type") == "agent_message"):
+            # One model response may carry a message and several tool calls;
+            # only a tool result in between proves a further request.
+            if not self._in_response:
+                self.requests_estimated += 1
+                self.in_flight_estimate += self._prompt_tokens + REQUEST_OVERHEAD_FLOOR_TOKENS
+                self._in_response = True
+        if kind == "item.completed" and item.get("type") in TOOL_ITEM_TYPES:
+            self._in_response = False
         elif kind == "turn.completed":
             usage = event.get("usage") if isinstance(event.get("usage"), dict) else {}
             value_in, value_out = usage.get("input_tokens"), usage.get("output_tokens")
@@ -348,11 +341,12 @@ class StreamingSessionFuse:
         if self.breach is None:
             if self.exact_cumulative is not None and self.exact_cumulative >= self.limit:
                 self.breach = {"basis": "exact_turn_usage", "tokens": self.exact_cumulative, "limit": self.limit}
-            elif self.estimated_lower_bound >= self.limit:
+            elif self.in_flight_estimate >= self.limit:
                 self.breach = {
-                    "basis": "in_flight_lower_bound_estimate",
-                    "tokens": self.estimated_lower_bound,
+                    "basis": ESTIMATE_BASIS,
+                    "tokens": self.in_flight_estimate,
                     "limit": self.limit,
+                    "verified": False,
                 }
 
     def feed(self, text: str) -> dict | None:
@@ -374,14 +368,25 @@ class StreamingSessionFuse:
             "scope": "this Codex session only",
             "exact_cumulative_streamed": self.exact_cumulative,
             "turn_usage_events": self.turn_usage_events,
-            "estimated_lower_bound": self.estimated_lower_bound,
+            "in_flight_estimate": self.in_flight_estimate,
+            "in_flight_estimate_status": "unverified heuristic; not usage and not a lower bound",
             "requests_estimated": self.requests_estimated,
             "stopped": self.breach,
             "latency_note": (
                 "codex exec --json reports exact usage only at turn.completed; between turns the "
-                "fuse uses a lower-bound estimate, so a stop can land after the true 500K point"
+                "fuse stops on an unverified estimate, so a stop can land before or after the true 500K point"
             ),
         }
+
+
+def describe_fuse_stop(breach: dict) -> str:
+    """Operator wording for a fuse stop that never passes an estimate off as usage."""
+    if breach.get("basis") == "exact_turn_usage":
+        return f"exact provider usage {breach['tokens']:,} of {breach['limit']:,}"
+    return (
+        f"unverified in-flight estimate ~{breach['tokens']:,} of {breach['limit']:,}; "
+        "not provider usage and not a lower bound"
+    )
 
 
 def prepare_fresh_prompt(prompt: str) -> str:

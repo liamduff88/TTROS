@@ -33,8 +33,9 @@ TASK = (
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument("--transcript", type=Path, default=Path(__file__).with_suffix(".txt"))
     args = parser.parse_args()
-    transcript = Path(__file__).with_suffix(".txt")
+    transcript = args.transcript
     if transcript.exists() and not args.overwrite:
         print(f"refusing to overwrite {transcript}; pass --overwrite", file=sys.stderr)
         return 2

@@ -1,0 +1,92 @@
+{
+  "model_calls": {
+    "actual": 1,
+    "declared_max": 1
+  },
+  "surface": "dashboard:codex via _run_codex_local (direct route, no work item)",
+  "success": true,
+  "failure_class": null,
+  "returncode": 0,
+  "elapsed_seconds": 4.376,
+  "command_stage": "completion",
+  "session_id": "01a175da-ed10-7901-91f1-9fec7865176d",
+  "fuse_scope": "session:codex-989710760a4e41d4891e2dab9b6426b9",
+  "model_selection": {
+    "tier": "simple",
+    "model": "gpt-6-luna",
+    "reasoning_effort": "low",
+    "reason": "classified simple (score -2: short brief 176 chars (-1), simple terms ['count', 'read-only', 'status check'] (-1))",
+    "classification": {
+      "tier": "simple",
+      "score": -2,
+      "reasons": [
+        "short brief 176 chars (-1)",
+        "simple terms ['count', 'read-only', 'status check'] (-1)"
+      ]
+    },
+    "cost_dial": {
+      "value": "standard",
+      "source": "global_config"
+    },
+    "catalog_check": "codex-cli 0.164.0 `codex debug models` on 2026-10-25 lists gpt-6-luna and gpt-6-sol with low/medium/high effort",
+    "actual_model": "gpt-6-luna",
+    "actual_model_source": "codex exec --model argument; codex-cli JSON output does not echo model identity"
+  },
+  "initial_prompt_bytes": 39899,
+  "session_fuse": {
+    "limit": 500000,
+    "scope": "this Codex session only",
+    "exact_cumulative_streamed": 56053,
+    "turn_usage_events": 1,
+    "in_flight_estimate": 43866,
+    "in_flight_estimate_status": "unverified heuristic; not usage and not a lower bound",
+    "requests_estimated": 2,
+    "stopped": null,
+    "latency_note": "codex exec --json reports exact usage only at turn.completed; between turns the fuse stops on an unverified estimate, so a stop can land before or after the true 500K point"
+  },
+  "token_usage_text": "Token usage: input 55956, output 97, cached input 39296, reasoning 0, total 56053",
+  "output": "TEMPLATE_COUNT=9",
+  "stream_artifacts": [
+    "logs/codex_sessions/codex-989710760a4e41d4891e2dab9b6426b9.stdout.jsonl"
+  ],
+  "ledger_rows": [
+    {
+      "event": "model_invocation",
+      "scope_key": "session:codex-989710760a4e41d4891e2dab9b6426b9",
+      "invocation_id": "codex-989710760a4e41d4891e2dab9b6426b9",
+      "model_requested": "gpt-6-luna",
+      "model_selection": {
+        "actual_model": "gpt-6-luna",
+        "actual_model_source": "codex exec --model argument; codex-cli JSON output does not echo model identity",
+        "cost_dial": {
+          "source": "global_config",
+          "value": "standard"
+        },
+        "model": "gpt-6-luna",
+        "reason": "classified simple (score -2: short brief 176 chars (-1), simple terms ['count', 'read-only', 'status check'] (-1))",
+        "reasoning_effort": "low",
+        "tier": "simple"
+      },
+      "exact_usage": {
+        "cache_semantics": "included_in_provider_input",
+        "cached_input": 39296,
+        "canonical_total": 56053,
+        "fresh_input": 16660,
+        "input": 55956,
+        "output": 97,
+        "reasoning": 0
+      },
+      "fuse": {
+        "blocks_next_invocation": false,
+        "formula": "provider_input + provider_output; cached_input never added again; reasoning is output subset",
+        "invocation_tokens": 56053,
+        "limit": 500000,
+        "paused_after": false,
+        "percent_after": 11.211,
+        "scope_total_after": 56053,
+        "scope_total_before": 0,
+        "thresholds_emitted": []
+      }
+    }
+  ]
+}

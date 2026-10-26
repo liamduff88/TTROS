@@ -38,6 +38,7 @@ from aos_codex_policy import (
     CODEX_TARGET,
     CodexPolicyError,
     StreamingSessionFuse,
+    describe_fuse_stop,
     build_environment as build_codex_environment,
     build_exec_command as build_codex_exec_command,
     cumulative_usage_snapshot,
@@ -1784,12 +1785,13 @@ def run_codex_work_item(
             step6_scope, invocation_id=session_id, provider="openai-codex",
             model=str(invocation.get("actual_model") or "unavailable"),
             reason=(
-                f"stopped at session fuse ({fuse_breach['basis']} {fuse_breach['tokens']}/{fuse_breach['limit']}); "
+                f"stopped at session fuse ({describe_fuse_stop(fuse_breach)}); "
                 "Codex emitted no terminal usage"
                 if fuse_breach else "Codex terminal usage unavailable"
             ),
             dial_override=dial_override, root=root, surface="queue:codex",
             work_item_id=item_id, model_selection=selection,
+            stop_cause="session_fuse" if fuse_breach else None,
         )
         result = reconcile_codex_usage(
             root, item_id, None, cli_version, session_id,
@@ -1821,8 +1823,8 @@ def run_codex_work_item(
         )
     if fuse_breach:
         raise QueueError(
-            f"Codex session stopped at its 500,000-token fuse ({fuse_breach['basis']} "
-            f"{fuse_breach['tokens']:,}); process-exit usage was reconciled"
+            f"Codex session stopped by its own session fuse ({describe_fuse_stop(fuse_breach)}); "
+            "process-exit usage was reconciled"
         )
     if timed_out:
         raise QueueError(

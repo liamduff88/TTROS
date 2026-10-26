@@ -2,6 +2,20 @@
 > Revisit: when a behavior-affecting system decision is made. · Last touched: 2026-10-25.
 > One entry per behavior-affecting change. Newest first.
 
+## 2026-10-25 — Codex in-flight fuse estimate is unverified; a fuse stop no longer blocks the item
+AOS-2026-0947 (first David → Hermes → Codex run after `e2e12d3`) was killed after 35 s at an
+"in-flight lower-bound estimate" of 515,610. The estimate re-counted all tool output so far on
+every request inferred from tool events; replayed over the 25 recorded streams with exact
+`turn.completed` usage it overshot the provider total up to 4.59× (11 of 25 above exact), so it
+was never a lower bound. The in-flight estimate is now inferred requests × (prompt + 12K floor),
+with a message and its tool calls counted as one response, labelled
+`in_flight_estimate_unverified` and described as "not provider usage and not a lower bound"
+(corpus: 0.24×–1.27× of exact; one false stop at 457,759 exact, two sessions above 500K
+not stopped in flight). Exact `turn.completed` usage still stops at 500K. A session stopped by its
+own fuse records usage as unknown with `stop_cause: session_fuse` and no longer blocks a fresh
+session under the same item; any other unknown accounting still does. Evidence:
+`scripts/codex_fuse_calibration.txt`.
+
 ## 2026-10-25 — Per-session Codex fuse, work-order prompts, automatic Codex model tier
 Each Codex launch (dashboard worker, `/api/wsl/codex`, `aos-queue codex-run`) is now its own
 fresh ephemeral session with its own 500,000-token fuse (`session:codex-…`); the parent work item

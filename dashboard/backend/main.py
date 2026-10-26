@@ -53,6 +53,7 @@ from aos_codex_policy import (
     CodexPolicyError,
     PERMISSION_HEADER,
     StreamingSessionFuse,
+    describe_fuse_stop,
     build_environment as build_codex_environment,
     build_exec_command as build_codex_exec_command,
     cumulative_usage_snapshot,
@@ -1246,7 +1247,7 @@ def _run_codex_local(context: AssembledContext, item: dict | None = None, *, att
                 provider="openai-codex",
                 model=str(token_usage.get("model") or invocation.get("actual_model") or "unavailable"),
                 reason=(
-                    f"stopped at session fuse ({fuse_breach['basis']} {fuse_breach['tokens']}/{fuse_breach['limit']}); "
+                    f"stopped at session fuse ({describe_fuse_stop(fuse_breach)}); "
                     "Codex emitted no terminal usage"
                     if fuse_breach else "Codex terminal usage unavailable"
                 ),
@@ -1255,6 +1256,7 @@ def _run_codex_local(context: AssembledContext, item: dict | None = None, *, att
                 surface=context.surface,
                 work_item_id=item_id,
                 model_selection=selection,
+                stop_cause="session_fuse" if fuse_breach else None,
             )
     except CostControlError as exc:
         token_usage["step6_error"] = str(exc)
@@ -1275,8 +1277,8 @@ def _run_codex_local(context: AssembledContext, item: dict | None = None, *, att
         failure_class = "session_fuse_stop"
         command_stage = "session_fuse"
         output = (
-            f"Codex session stopped at its 500,000-token fuse ({fuse_breach['basis']}: "
-            f"{fuse_breach['tokens']:,}). {token_usage_text}"
+            f"Codex session stopped by its own session fuse ({describe_fuse_stop(fuse_breach)}). "
+            f"{token_usage_text}"
         )
         returncode = process.returncode if process.returncode is not None else -1
         success = False

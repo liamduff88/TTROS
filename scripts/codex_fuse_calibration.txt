@@ -1,0 +1,39 @@
+limit 500000; floor 12000; chars/token 4
+
+invocation      prompt_B req  estimate   legacy     exact      est/exact legacy/exact
+codex-036f70572    27855  36    682668    940903    819198       0.83      1.15
+codex-0999236e0    36551  23    486151    893460    490328       0.99      1.82
+codex-0c486a630   117070   1     41267     41267     45036       0.92      0.92
+codex-209821d19    27192  42    789516   1875775   1320385       0.60      1.42
+codex-2756fefa0     4944   1     13236     13236     16653       0.79      0.79
+codex-2e0e7b555     4433   2     26216     26246     31997       0.82      0.82
+codex-32befbbc8    32780  40    807800   1654252    864959       0.93      1.91
+codex-338d6e72e    32818  28    565712   1102166   1415907       0.40      0.78
+codex-401d9009b     1887  10    124710    251875    323157       0.39      0.78
+codex-454889f58     5810  17    228684    515646  (no exact usage)
+codex-50ec9c22f    25227  25    457650    645627    591453       0.77      1.09
+codex-640cea77f    28389  15    286455    453173    274167       1.04      1.65
+codex-79e7f91b1    32643  27    544320   1101295    761740       0.71      1.45
+codex-7f2f1856e    32674  38    766384   1957004    795130       0.96      2.46
+codex-843c914f5     1703  18    223650    804667    930423       0.24      0.86
+codex-871ab916b     1325   1     12331     12331     12967       0.95      0.95
+codex-8a7052410    39264   3     65448     66333     85322       0.77      0.78
+codex-8d2dc6fa0     2235   1     12558     12558     13610       0.92      0.92
+codex-8dba596bf    31219  53   1049612   3795718    826989       1.27      4.59
+codex-8e64c8df0     4737   1     13184     13184     16457       0.80      0.80
+codex-ad73a9078     1968  11    137412    189241    158895       0.86      1.19
+codex-adb7ef010     4944   1     13236     13236     16475       0.80      0.80
+codex-c624c412a     1334   1     12333     12333     13254       0.93      0.93
+codex-e26a4d3a5    27257  27    507978   1166890    457759       1.11      2.55
+codex-f627da834     1688   1     12422     12422     15813       0.79      0.79
+codex-f7bb4f417     1700   9    111825    226940    295367       0.38      0.77
+
+streams with exact usage: 25
+estimate/exact: min 0.24 max 1.27; over 1.0: 3
+legacy/exact:   min 0.77 max 4.59; over 1.0: 11
+estimate would stop below the limit (exact < 500,000): 1 ['codex-e26a4d3a5 exact 457,759']
+legacy would stop below the limit: 2 ['codex-0999236e0 exact 490,328', 'codex-e26a4d3a5 exact 457,759']
+estimate would not stop although exact >= 500,000: 2 ['codex-50ec9c22f exact 591,453', 'codex-843c914f5 exact 930,423']
+
+AOS-2026-0947 (codex-454889f5823f454ebc8400e17219c2de): {"estimate": 228684, "requests": 17, "legacy": 515646, "stopped": null}
+AOS-2026-0947 verdict: new fuse would NOT stop this stream
