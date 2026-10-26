@@ -8,7 +8,7 @@ publications, and commits only coherent vault-local knowledge transactions.
 It never invokes a model, changes Agentic OS code, pushes, or acts externally.
 
 Revisit: when session-candidate, Brain transaction, Graphify, or search
-publication contracts change. · Last touched: 2026-08-04.
+publication contracts change. · Last touched: 2026-10-25.
 """
 
 from __future__ import annotations
@@ -619,7 +619,9 @@ def run(
         validation = analyze_vault(brain_root)
         derived["validation"] = {"status": validation["status"], "checks": validation["checks"], "canonical_note_count": len(validation["canonical_paths"])}
         if validation["status"] != "PASS" or failure_injection == "validation":
-            raise NightlyHygieneError("Brain Markdown/link validation failed")
+            failed_checks = sorted(name for name, passed in validation["checks"].items() if passed is False)
+            detail = ", ".join(failed_checks) if failed_checks else "forced validation failure"
+            raise NightlyHygieneError(f"Brain Markdown/link validation failed: {detail}")
 
     try:
         if plan.documents:

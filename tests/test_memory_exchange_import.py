@@ -1,6 +1,6 @@
 """Memory Exchange v2 deterministic importer tests.
 
-Revisit: when the Memory Ingest v2 contract changes. · Last touched: 2026-10-07.
+Revisit: when the Memory Ingest v2 contract changes. · Last touched: 2026-10-25.
 """
 import copy
 import hashlib
@@ -11,7 +11,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from tools.memory_exchange_import import process, list_ready
+from unittest import mock
+
+from tools import brain_memory
+from tools.memory_exchange_import import (
+    delink_intake, historical_index_text, list_ready, process, repair_historical_index,
+)
+from tools.validate_business_brain import analyze_vault
 
 REAL_KENNETH_PACKAGE = Path("/tmp/ttros-memory-exchange-acceptance/03_READY_FOR_TTROS/INGEST_20261001T004700-0700_kenneth-20260918-meeting")
 
@@ -336,6 +342,134 @@ class ConsumerConfigurationTests(unittest.TestCase):
         self.assertNotIn("business_brain:sources/historical_calls/", glob["brain_pointer_prefixes"])
         self.assertIn("business_brain:sources/historical_calls/", glob["graphify_targets"][0]["path_prefixes"])
         self.assertEqual(registry["denied_brain_pointers"], ["business_brain:memory/north_shore_sales_coach.md"])
+
+
+def _write(path, text):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+
+
+def _vault_fixture(brain, *, link_index=True):
+    """The smallest vault analyze_vault passes: roots, Obsidian settings, the historical-calls INDEX."""
+    _write(brain / "README.md", "---\nid: readme\n---\n# Brain\n\n[[index/MEMORY_INDEX|Memory Index]]"
+           + (" · [[sources/historical_calls/INDEX|Historical Calls]]" if link_index else "") + "\n")
+    _write(brain / "index/MEMORY_INDEX.md", "---\nid: memory-index\n---\n# Index\n\n[[README]]\n")
+    _write(brain / "sources/historical_calls/INDEX.md",
+           "---\nid: hc-index\n---\n# Historical Calls\n\n| a | b |\n|---|---|\n\n[[index/MEMORY_INDEX|Memory Index]]\n")
+    _write(brain / "inbox/distilled_packets/packet-1.md", "packet\n")
+    for name in ("app.json", "appearance.json", "core-plugins.json", "workspace.json"):
+        _write(brain / ".obsidian" / name, "{}\n")
+    _write(brain / ".obsidian/graph.json", json.dumps({"search": "-path:_backups"}) + "\n")
+
+
+class HistoricalVaultContractTests(unittest.TestCase):
+    def test_delink_intake_only_touches_intake_wiki_links(self):
+        text = ("[[inbox/distilled_packets/packet-1]] [[inbox/source_notes/n.md|Note]] "
+                "[[memory/clients]] ![[inbox/distilled_packets/img]]")
+        self.assertEqual(
+            "`inbox/distilled_packets/packet-1.md` Note (`inbox/source_notes/n.md`) "
+            "[[memory/clients]] ![[inbox/distilled_packets/img]]",
+            delink_intake(text),
+        )
+
+    def test_index_entries_are_added_once_before_the_footer(self):
+        index = "# Historical Calls\n\n| a |\n\n[[index/MEMORY_INDEX|Memory Index]]\n"
+        notes = {"sources/historical_calls/b.md": "---\ntitle: \"B [x] | y\"\n---\n",
+                 "sources/historical_calls/a.md": "---\nid: a\n---\n"}
+        once = historical_index_text(index, notes)
+        self.assertEqual(once, historical_index_text(once, notes))
+        self.assertTrue(once.endswith("- [[sources/historical_calls/b|B x y]]\n\n[[index/MEMORY_INDEX|Memory Index]]\n"))
+        self.assertIn("## Memory Exchange imports", once)
+        self.assertLess(once.index("historical_calls/a|a]]"), once.index("historical_calls/b|"))
+        more = historical_index_text(once, {"sources/historical_calls/c.md": "---\ntitle: C\n---\n"})
+        self.assertEqual(1, more.count("## Memory Exchange imports"))
+        self.assertIn("- [[sources/historical_calls/b|B x y]]\n- [[sources/historical_calls/c|C]]\n", more)
+
+
+class HistoricalTransactionTests(unittest.TestCase):
+    """The live path: a Git-backed Brain written through brain_memory.write_transaction."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.brain = (self.root / "TTROS Business Brain").resolve()
+
+    def _git_brain(self, *, link_index=True):
+        _vault_fixture(self.brain, link_index=link_index)
+        subprocess.run(["git", "init", "-q", str(self.brain)], check=True)
+        subprocess.run(["git", "-C", str(self.brain), "add", "."], check=True)
+        subprocess.run(["git", "-C", str(self.brain), "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+                        "commit", "-qm", "fixture"], check=True)
+        for patcher in (mock.patch.object(brain_memory, "VAULT_ROOT", self.brain),
+                        mock.patch("tools.brain_git_closure.push_commit", return_value="local_only"),
+                        mock.patch("tools.brain_git_closure.record"),
+                        mock.patch("tools.aos_indexer.index_one", return_value={"status": "success"}),
+                        mock.patch("tools.aos_entity_index.ensure_current")):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def _package(self, body):
+        pkg = self.root / "ready" / "MI-20261025-historical"
+        name = "historical/new-call.md"
+        payload = ("---\nid: icm-new-call\ntype: knowledge\ntitle: \"New call\"\n---\n# New call\n\n" + body).encode()
+        _write(pkg / name, payload.decode())
+        manifest = {
+            "schema_version": "2.0", "semantic_contract_version": "2.0.0",
+            "reconciliation_contract_version": "2.0.0", "transport_mode": "directory-v1",
+            "status": "ready_for_ttros", "package_id": pkg.name, "batch_id": "new-call",
+            "batch_fingerprint_sha256": "a" * 64, "package_disposition": "evidence_only", "source_count": 1,
+            "sources": [{"source_id": "SRC-001", "role": "batch_input", "title": "call"}],
+            "canonical_comparison": {"status": "partial"}, "has_conflicts": False, "requires_human_review": False,
+            "output_count": 1,
+            "package_files": [{"path": name, "size_bytes": len(payload), "sha256": sha(payload)}],
+            "outputs": [{"package_path": name, "size_bytes": len(payload), "sha256": sha(payload),
+                         "source_ids": ["SRC-001"], "requires_human_review": False, "conflict_ids": [],
+                         "operation": "historical_record", "temporal_posture": "historical",
+                         "target": {"namespace": "historical", "suggested_relative_path": name,
+                                    "canonical_ref": None, "expected_base_sha256": None}}],
+        }
+        (pkg / "INGEST_MANIFEST.json").write_text(json.dumps(manifest), encoding="utf-8")
+        return pkg
+
+    def test_import_indexes_the_note_and_delinks_intake_in_one_commit(self):
+        self._git_brain()
+        pkg = self._package("- [[inbox/distilled_packets/packet-1]] — provenance\n")
+        row = process(pkg, brain=self.brain, root=self.root, refresh=covered)
+        self.assertEqual("imported", row["outcome"], row.get("reason"))
+        note = (self.brain / "sources/historical_calls/new-call.md").read_text(encoding="utf-8")
+        self.assertIn("`inbox/distilled_packets/packet-1.md` — provenance", note)
+        index = (self.brain / "sources/historical_calls/INDEX.md").read_text(encoding="utf-8")
+        self.assertIn("- [[sources/historical_calls/new-call|New call]]", index)
+        changed = subprocess.check_output(["git", "-C", str(self.brain), "show", "--name-only", "--format=", "HEAD"], text=True).split()
+        self.assertEqual(["sources/historical_calls/INDEX.md", "sources/historical_calls/new-call.md"], sorted(changed))
+        self.assertEqual("PASS", analyze_vault(self.brain)["status"])
+
+    def test_import_that_would_leave_the_note_unreachable_is_rolled_back(self):
+        self._git_brain(link_index=False)  # the roots do not reach the INDEX, so the new note stays unreachable
+        head = subprocess.check_output(["git", "-C", str(self.brain), "rev-parse", "HEAD"], text=True)
+        row = process(self._package("Evidence.\n"), brain=self.brain, root=self.root, refresh=covered)
+        self.assertEqual("rejected", row["outcome"])
+        self.assertIn("unreachable ['sources/historical_calls/new-call.md']", row["reason"])
+        self.assertFalse((self.brain / "sources/historical_calls/new-call.md").exists())
+        self.assertEqual(head, subprocess.check_output(["git", "-C", str(self.brain), "rev-parse", "HEAD"], text=True))
+
+    def test_repair_dry_run_proves_the_fix_on_a_copy_without_writing(self):
+        self._git_brain()
+        _write(self.brain / "sources/historical_calls/old-call.md",
+               "---\nid: old-call\ntitle: Old call\n---\n# Old\n\n[[inbox/distilled_packets/packet-1]]\n")
+        before = {p: p.read_bytes() for p in self.brain.rglob("*") if p.is_file() and ".git" not in p.parts}
+        self.assertEqual("FAIL", analyze_vault(self.brain)["status"])
+        report = repair_historical_index(self.brain, dry_run=True)
+        self.assertEqual("validated", report["outcome"])
+        self.assertEqual({"broken_links": 1, "unreachable": 1, "status": "FAIL"}, report["before"])
+        self.assertEqual("PASS", report["after_on_copy"]["status"])
+        self.assertEqual(["sources/historical_calls/INDEX.md", "sources/historical_calls/old-call.md"], report["documents"])
+        self.assertEqual(before, {p: p.read_bytes() for p in self.brain.rglob("*") if p.is_file() and ".git" not in p.parts})
+        committed = repair_historical_index(self.brain, dry_run=False)
+        self.assertEqual("committed", committed["outcome"])
+        self.assertEqual("PASS", analyze_vault(self.brain)["status"])
+        self.assertEqual("unchanged", repair_historical_index(self.brain, dry_run=True)["outcome"])
 
 
 if __name__ == "__main__":

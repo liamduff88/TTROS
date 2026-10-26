@@ -1,6 +1,12 @@
 """Deterministic TTROS Memory Exchange directory-v1 importer.
 
-Revisit: when the frozen Memory Ingest manifest contract changes. · Last touched: 2026-10-07.
+Historical records keep the vault contract the nightly hygiene validator
+enforces: each new note is listed in the historical-calls INDEX within the
+same Brain transaction, and links into noncanonical intake become plain
+pointers. ``--repair-historical-index`` applies the same rule to notes
+imported before it existed (dry-run proves the result on a vault copy).
+
+Revisit: when the frozen Memory Ingest manifest contract changes. · Last touched: 2026-10-25.
 """
 from __future__ import annotations
 
@@ -22,6 +28,9 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from tools.business_brain import BUSINESS_BRAIN_ROOT
+from tools.validate_business_brain import (
+    INTAKE_PREFIXES, WIKI_LINK_RE, analyze_vault, canonical_wiki_target, parse_frontmatter,
+)
 
 TOKEN_USAGE = "Token usage: no agent invocation."
 SHA = re.compile(r"[0-9a-f]{64}\Z")
@@ -29,6 +38,9 @@ IDENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
 # Package namespaces are deliberately mapped to fixed Brain roots.
 TARGET_ROOTS = {"historical": "sources/historical_calls", "canonical": "memory"}
 OPERATIONS = {"historical_record", "canonical_replace"}
+HISTORICAL_INDEX = "sources/historical_calls/INDEX.md"
+HISTORICAL_INDEX_SECTION = "## Memory Exchange imports"
+HISTORICAL_INDEX_EXEMPT = {"INDEX.md", "MANIFEST.md"}
 
 
 class ImportFailure(ValueError):
@@ -206,6 +218,130 @@ def validate(package: Path, brain: Path) -> dict:
     return {"manifest": manifest, "fingerprint": fingerprint, "outputs": planned, "bytes": file_map}
 
 
+def delink_intake(text: str) -> str:
+    """Render wiki links into noncanonical intake as plain pointers (the validator counts them broken)."""
+    def plain(match: re.Match) -> str:
+        raw = match.group(1)
+        target = canonical_wiki_target(raw)
+        if not target.startswith(INTAKE_PREFIXES):
+            return match.group(0)
+        alias = raw.split("|", 1)[1].strip() if "|" in raw else ""
+        return f"{alias} (`{target}`)" if alias else f"`{target}`"
+    return WIKI_LINK_RE.sub(plain, text)
+
+
+def _historical_index_entry(relative: str, text: str) -> str:
+    fields, _body = parse_frontmatter(text)
+    title = " ".join(re.sub(r"[\[\]|]", " ", fields.get("title") or Path(relative).stem).split())
+    return f"- [[{relative.removesuffix('.md')}|{title}]]"
+
+
+def historical_index_text(index_text: str, notes: dict[str, str]) -> str:
+    """Add an INDEX entry for each historical note not already linked from it."""
+    linked = {canonical_wiki_target(raw) for raw in WIKI_LINK_RE.findall(index_text)}
+    entries = [_historical_index_entry(relative, text) for relative, text in sorted(notes.items())
+               if relative not in linked]
+    if not entries:
+        return index_text
+    lines = index_text.rstrip("\n").split("\n")
+    if HISTORICAL_INDEX_SECTION in lines:
+        start = lines.index(HISTORICAL_INDEX_SECTION)
+        end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith(("#", "[[index/"))), len(lines))
+        while end > start + 1 and not lines[end - 1].strip():
+            end -= 1
+        lines[end:end] = entries
+    else:
+        # The section goes before the closing navigation line when there is one.
+        at = len(lines) - 1 if lines[-1].startswith("[[index/") else len(lines)
+        lines[at:at] = [HISTORICAL_INDEX_SECTION, "",
+                        "Historical evidence imported through Memory Exchange; no statement here is canonical truth.",
+                        "", *entries, ""]
+    return "\n".join(lines) + "\n"
+
+
+def _historical_notes(relatives) -> list[str]:
+    prefix = HISTORICAL_INDEX.rsplit("/", 1)[0] + "/"
+    return sorted(r for r in relatives if r.startswith(prefix) and "/" not in r[len(prefix):]
+                  and r.endswith(".md") and r[len(prefix):] not in HISTORICAL_INDEX_EXEMPT)
+
+
+def require_historical_notes_navigable(brain: Path, relatives) -> None:
+    """Post-write gate: the written historical notes have no broken link and are reachable."""
+    notes = set(_historical_notes(relatives))
+    if not notes:
+        return
+    result = analyze_vault(brain)
+    broken = sorted({row["source"] for row in result["broken_links"] if row["source"] in notes})
+    unreachable = sorted(notes & set(result["unreachable"]))
+    if broken or unreachable:
+        raise ImportFailure(f"historical notes break the vault contract: broken links in {broken}; unreachable {unreachable}")
+
+
+def historical_index_repair_plan(brain: Path) -> dict[str, str]:
+    """Documents that bring existing historical notes back into the vault contract."""
+    result = analyze_vault(brain)
+    needs = set(_historical_notes(row["source"] for row in result["broken_links"]))
+    needs |= set(_historical_notes(result["unreachable"]))
+    documents: dict[str, str] = {}
+    for relative in sorted(needs):
+        text = (brain / relative).read_text(encoding="utf-8")
+        fixed = delink_intake(text)
+        if fixed != text:
+            documents[relative] = fixed
+    index_path = brain / HISTORICAL_INDEX
+    index_text = index_path.read_text(encoding="utf-8")
+    notes = {relative: documents.get(relative) or (brain / relative).read_text(encoding="utf-8")
+             for relative in sorted(set(_historical_notes(result["unreachable"])))}
+    updated = historical_index_text(index_text, notes)
+    if updated != index_text:
+        documents[HISTORICAL_INDEX] = updated
+    return documents
+
+
+def repair_historical_index(brain: Path = BUSINESS_BRAIN_ROOT, *, dry_run: bool = True) -> dict:
+    """Plan (and, only when dry_run is False, commit) the historical-index repair.
+
+    Dry-run copies the vault's Markdown and Obsidian settings to a temporary
+    directory, applies the plan there and reports the copy's validation, so the
+    live vault is never touched.
+    """
+    before = analyze_vault(brain)
+    documents = historical_index_repair_plan(brain)
+    report = {"operation": "repair_historical_index", "dry_run": dry_run, "documents": sorted(documents),
+              "before": {"status": before["status"], "broken_links": len(before["broken_links"]),
+                         "unreachable": len(before["unreachable"])},
+              "token_usage": TOKEN_USAGE}
+    if not documents:
+        return {**report, "outcome": "unchanged"}
+    if dry_run:
+        with tempfile.TemporaryDirectory(prefix="historical-index-repair-") as temp:
+            copy = Path(temp) / "vault"
+            shutil.copytree(brain, copy, ignore=shutil.ignore_patterns(".git"))
+            for relative, text in documents.items():
+                (copy / relative).write_text(text, encoding="utf-8")
+            after = analyze_vault(copy)
+        report["after_on_copy"] = {"status": after["status"], "checks": after["checks"],
+                                   "broken_links": after["broken_links"], "unreachable": after["unreachable"]}
+        return {**report, "outcome": "validated" if after["status"] == "PASS" else "would_still_fail"}
+    from tools import brain_memory
+    if brain.resolve() != brain_memory.VAULT_ROOT:
+        raise ImportFailure("repair writes only through the live Brain transaction")
+
+    def vault_passes(_changed: tuple[str, ...]) -> None:
+        after = analyze_vault(brain)
+        if after["status"] != "PASS":
+            failed = sorted(name for name, passed in after["checks"].items() if passed is False)
+            raise ImportFailure(f"vault still fails after repair: {', '.join(failed)}")
+
+    write = brain_memory.write_transaction(
+        documents, source="memory-exchange-historical-index-repair",
+        session_id=f"historical-index-repair-{dt.datetime.now(dt.timezone.utc).date().isoformat()}",
+        expected_hashes={relative: digest((brain / relative).read_bytes()) for relative in documents},
+        post_write_validator=vault_passes,
+    )
+    return {**report, "outcome": "committed", "commit": write.commit, "sync_status": write.sync_status}
+
+
 @contextmanager
 def locked(path: Path):
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -358,6 +494,13 @@ def process(package: Path, *, brain: Path = BUSINESS_BRAIN_ROOT, root: Path = RO
         try:
             plan = validate(package, brain)
             manifest, fingerprint, outputs = plan["manifest"], plan["fingerprint"], plan["outputs"]
+            for output in outputs:
+                if output["operation"] == "historical_record":
+                    raw = plan["bytes"][output["source"]]
+                    try:
+                        plan["bytes"][output["source"]] = delink_intake(raw.decode("utf-8")).encode("utf-8")
+                    except UnicodeDecodeError:
+                        pass
             rows = ledger_rows(ledger)
             prior = [row for row in rows if row.get("package_id") == manifest["package_id"] and row.get("outcome") != "rejected"]
             if any(row.get("fingerprint") != fingerprint for row in prior):
@@ -431,6 +574,14 @@ def process(package: Path, *, brain: Path = BUSINESS_BRAIN_ROOT, root: Path = RO
             if use_transaction:
                 documents = {Path(o["target"]).relative_to(brain).as_posix():
                              plan["bytes"][o["source"]].decode("utf-8") for o in outputs if o["action"] != "already_present"}
+                new_historical = {relative: documents[relative] for relative in _historical_notes(documents)}
+                # Only a vault with the historical-calls INDEX can satisfy the contract the gate checks.
+                indexed_vault = bool(new_historical) and (brain / HISTORICAL_INDEX).is_file()
+                if indexed_vault:
+                    index_text = (brain / HISTORICAL_INDEX).read_text(encoding="utf-8")
+                    updated_index = historical_index_text(index_text, new_historical)
+                    if updated_index != index_text:
+                        documents[HISTORICAL_INDEX] = updated_index
                 if documents:
                     write = brain_memory.write_transaction(
                         documents, source="memory-exchange-import", session_id=manifest["package_id"],
@@ -438,6 +589,8 @@ def process(package: Path, *, brain: Path = BUSINESS_BRAIN_ROOT, root: Path = RO
                                          for relative in documents},
                         attribution={"authenticated_identity": "liam-drive-channel", "surface": "chatgpt",
                                      "actor_class": "authorised_client", "surface_source": "address"},
+                        post_write_validator=(lambda changed: require_historical_notes_navigable(brain, changed))
+                        if indexed_vault else None,
                     )
                     receipt["commit"] = write.commit
                     receipt["sync_status"] = write.sync_status
@@ -607,7 +760,16 @@ def main() -> int:
     parser.add_argument("--checkpoint-only", action="store_true", help="process only CHECKPOINT.json packages")
     parser.add_argument("--typed-only", action="store_true",
                         help="process only typed Shared Brain CHECKPOINT.json and SUBMIT.json packages")
+    parser.add_argument("--repair-historical-index", action="store_true",
+                        help="list unindexed historical notes and de-link intake links; --dry-run proves it on a vault copy")
     args = parser.parse_args()
+    if args.repair_historical_index:
+        try:
+            result = repair_historical_index(args.brain, dry_run=args.dry_run)
+        except ImportFailure as exc:
+            result = {"operation": "repair_historical_index", "outcome": "rejected", "reason": str(exc)}
+        print(json.dumps(result, indent=2))
+        return 0 if result["outcome"] in {"validated", "committed", "unchanged"} else 1
     if not (args.ready or args.package):
         parser.error("provide --ready or --package")
     if args.move and not args.ready:

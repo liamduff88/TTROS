@@ -1,6 +1,6 @@
 """Context Assembler v2 and nightly knowledge-hygiene completion proofs.
 
-Revisit: when Step 7 retrieval routes or Step 8 transaction boundaries change. · Last touched: 2026-08-04.
+Revisit: when Step 7 retrieval routes or Step 8 transaction boundaries change. · Last touched: 2026-10-25.
 """
 
 from __future__ import annotations
@@ -287,6 +287,23 @@ class NightlyHygieneTests(unittest.TestCase):
                 self.assertEqual(service._artifact_hashes(service.published), graph_before)
                 self.assertEqual(hashlib.sha256(fixture.db.read_bytes()).hexdigest(), search_before)
                 self.assertEqual(service.status()["state"], "fresh")
+
+    def test_validation_failure_names_failed_check_and_rolls_back(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            fixture = self.fixture(Path(temp))
+            before_files = hashes(fixture.brain)
+            real_analyze = nightly_knowledge_hygiene.analyze_vault
+
+            def failed_validation(brain_root):
+                result = real_analyze(brain_root)
+                result["status"] = "FAIL"
+                result["checks"]["zero_broken_wiki_links"] = False
+                return result
+
+            with mock.patch.object(nightly_knowledge_hygiene, "analyze_vault", side_effect=failed_validation):
+                with self.assertRaisesRegex(nightly_knowledge_hygiene.NightlyHygieneError, "Brain Markdown/link validation failed: zero_broken_wiki_links"):
+                    self.run_fixture(fixture)
+            self.assertEqual(hashes(fixture.brain), before_files)
 
 
 if __name__ == "__main__":
