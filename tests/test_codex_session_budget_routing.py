@@ -171,11 +171,25 @@ def _events(*events: dict) -> str:
 
 
 class StreamingFuseTest(unittest.TestCase):
-    def test_exact_turn_usage_at_limit_breaches(self):
+    def test_exact_turn_usage_at_limit_refuses_the_next_turn(self):
         fuse = policy.StreamingSessionFuse("prompt")
         self.assertIsNone(fuse.feed(_events({"type": "turn.completed", "usage": {"input_tokens": 400_000, "output_tokens": 1}})))
-        breach = fuse.feed(_events({"type": "turn.completed", "usage": {"input_tokens": 499_990, "output_tokens": 10}}))
-        self.assertEqual({"basis": "exact_turn_usage", "tokens": 500_000, "limit": 500_000}, breach)
+        self.assertIsNone(fuse.feed(_events({"type": "turn.started"})))
+        # The turn that reaches the limit has completed; it is kept, not stopped.
+        self.assertIsNone(fuse.feed(_events({"type": "turn.completed", "usage": {"input_tokens": 499_990, "output_tokens": 10}})))
+        self.assertTrue(fuse.summary()["limit_reached_at_turn_end"])
+        breach = fuse.feed(_events({"type": "turn.started"}))
+        self.assertEqual({"basis": policy.EXACT_BASIS, "tokens": 500_000, "limit": 500_000}, breach)
+
+    def test_single_turn_that_ends_over_the_limit_is_recorded_not_stopped(self):
+        fuse = policy.StreamingSessionFuse("prompt")
+        self.assertIsNone(fuse.feed(_events(
+            {"type": "turn.started"},
+            {"type": "turn.completed", "usage": {"input_tokens": 599_000, "output_tokens": 1_000}},
+        )))
+        self.assertIsNone(fuse.breach)
+        self.assertEqual(600_000, fuse.exact_cumulative)
+        self.assertTrue(fuse.summary()["limit_reached_at_turn_end"])
 
     def test_small_session_never_breaches_and_split_lines_are_buffered(self):
         fuse = policy.StreamingSessionFuse("x" * 4_000)
@@ -190,36 +204,37 @@ class StreamingFuseTest(unittest.TestCase):
         self.assertEqual(30_500, fuse.exact_cumulative)
         self.assertEqual(1, fuse.requests_estimated)
 
-    def test_unverified_estimate_stops_a_long_single_turn(self):
+    def test_unverified_estimate_never_stops_a_long_single_turn(self):
         fuse = policy.StreamingSessionFuse("p" * 40_000)
-        breach = None
-        rounds = 0
-        while breach is None and rounds < 200:
-            rounds += 1
-            breach = fuse.feed(_events(
+        for _ in range(200):
+            self.assertIsNone(fuse.feed(_events(
                 {"type": "item.started", "item": {"type": "command_execution"}},
                 {"type": "item.completed", "item": {"type": "command_execution", "command": "cat f", "aggregated_output": "o" * 40_000}},
-            ))
-        self.assertIsNotNone(breach)
-        self.assertEqual(policy.ESTIMATE_BASIS, breach["basis"])
-        self.assertGreaterEqual(breach["tokens"], 500_000)
-        self.assertLess(rounds, 40)
+            )))
+        self.assertGreater(fuse.in_flight_estimate, 8 * fuse.limit)
         self.assertIsNone(fuse.exact_cumulative)
+        self.assertIsNone(fuse.summary()["stopped"])
 
-    def test_real_aos_0943_stream_would_stop_before_its_end(self):
+    def test_real_aos_0943_stream_runs_to_its_exact_usage(self):
         stream_path = ROOT / "logs" / "codex_sessions" / "codex-338d6e72e2d441349c26c9a1538e38ce.stdout.jsonl"
         if not stream_path.exists():
             self.skipTest("AOS-2026-0943 stream artifact not present")
-        lines = stream_path.read_text(encoding="utf-8").splitlines(keepends=True)
         fuse = policy.StreamingSessionFuse("x" * 32_818)
-        stopped_at = None
-        for index, line in enumerate(lines):
-            if fuse.feed(line) is not None:
-                stopped_at = index
-                break
-        self.assertIsNotNone(stopped_at)
-        self.assertEqual(policy.ESTIMATE_BASIS, fuse.breach["basis"])
-        self.assertLess(stopped_at, len(lines) - 1, "the stop must precede turn.completed")
+        for line in stream_path.read_text(encoding="utf-8").splitlines(keepends=True):
+            self.assertIsNone(fuse.feed(line))
+        self.assertEqual(1_415_907, fuse.exact_cumulative)
+        self.assertTrue(fuse.summary()["limit_reached_at_turn_end"])
+
+    def test_real_aos_9954_stream_is_not_stopped_by_the_estimate(self):
+        """AOS-2026-9954 was stopped after 111s at an unverified 507,720 estimate (40 tool calls)."""
+        stream_path = ROOT / "logs" / "codex_sessions" / "codex-787ca932c741441e88c8a95d8214adec.stdout.jsonl"
+        if not stream_path.exists():
+            self.skipTest("AOS-2026-9954 stream artifact not present")
+        fuse = policy.StreamingSessionFuse("x" * 2_774)  # 2,776 prompt bytes; the header em dash is 3 bytes, 1 char
+        for line in stream_path.read_text(encoding="utf-8").splitlines(keepends=True):
+            self.assertIsNone(fuse.feed(line))
+        self.assertEqual(40, fuse.requests_estimated)
+        self.assertEqual(507_720, fuse.in_flight_estimate)  # the figure the old fuse stopped on
         self.assertIsNone(fuse.exact_cumulative)
 
     def test_real_aos_0947_stream_is_not_stopped_by_the_estimate(self):
@@ -235,7 +250,7 @@ class StreamingFuseTest(unittest.TestCase):
         self.assertIsNone(fuse.exact_cumulative)
         summary = fuse.summary()
         self.assertNotIn("estimated_lower_bound", summary)
-        self.assertIn("not a lower bound", summary["in_flight_estimate_status"])
+        self.assertIn("never stops a session", summary["in_flight_estimate_status"])
 
     def test_message_and_tool_calls_in_one_response_count_once(self):
         fuse = policy.StreamingSessionFuse("")
@@ -251,24 +266,15 @@ class StreamingFuseTest(unittest.TestCase):
         self.assertEqual(2, fuse.requests_estimated)
         self.assertEqual(2 * policy.REQUEST_OVERHEAD_FLOOR_TOKENS, fuse.in_flight_estimate)
 
-    def test_estimate_breach_is_labelled_unverified_and_exact_breach_is_not(self):
+    def test_estimate_past_the_limit_is_telemetry_and_only_exact_usage_is_described(self):
         fuse = policy.StreamingSessionFuse("p" * 400_000)
-        breach = fuse.feed(_events({"type": "item.started", "item": {"type": "command_execution"}},
-                                   {"type": "item.completed", "item": {"type": "command_execution"}},
-                                   {"type": "item.started", "item": {"type": "command_execution"}},
-                                   {"type": "item.completed", "item": {"type": "command_execution"}},
-                                   {"type": "item.started", "item": {"type": "command_execution"}},
-                                   {"type": "item.completed", "item": {"type": "command_execution"}},
-                                   {"type": "item.started", "item": {"type": "command_execution"}},
-                                   {"type": "item.completed", "item": {"type": "command_execution"}},
-                                   {"type": "item.started", "item": {"type": "command_execution"}}))
-        self.assertEqual(policy.ESTIMATE_BASIS, breach["basis"])
-        self.assertIs(False, breach["verified"])
-        text = policy.describe_fuse_stop(breach)
-        self.assertIn("unverified in-flight estimate", text)
-        self.assertIn("not provider usage and not a lower bound", text)
-        exact = policy.describe_fuse_stop({"basis": "exact_turn_usage", "tokens": 512_000, "limit": 500_000})
-        self.assertEqual("exact provider usage 512,000 of 500,000", exact)
+        self.assertIsNone(fuse.feed(_events(*(
+            {"type": "item.started" if i % 2 == 0 else "item.completed", "item": {"type": "command_execution"}}
+            for i in range(9)
+        ))))
+        self.assertGreaterEqual(fuse.in_flight_estimate, fuse.limit)
+        exact = policy.describe_fuse_stop({"basis": policy.EXACT_BASIS, "tokens": 512_000, "limit": 500_000})
+        self.assertEqual("exact provider usage 512,000 of 500,000; further turn refused", exact)
 
     def test_run_streaming_kills_the_process_group_at_the_fuse(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -278,6 +284,9 @@ class StreamingFuseTest(unittest.TestCase):
                 "import json, sys, time\n"
                 "sys.stdin.read()\n"
                 "print(json.dumps({'type':'thread.started','thread_id':'flood'}), flush=True)\n"
+                "print(json.dumps({'type':'turn.started'}), flush=True)\n"
+                "print(json.dumps({'type':'turn.completed','usage':{'input_tokens':600000,'output_tokens':100}}), flush=True)\n"
+                "print(json.dumps({'type':'turn.started'}), flush=True)\n"
                 "for _ in range(400):\n"
                 "    print(json.dumps({'type':'item.started','item':{'type':'command_execution'}}), flush=True)\n"
                 "    print(json.dumps({'type':'item.completed','item':{'type':'command_execution','command':'x','aggregated_output':'o'*40000}}), flush=True)\n"
@@ -294,7 +303,7 @@ class StreamingFuseTest(unittest.TestCase):
             )
             self.assertLess(time.monotonic() - started, 20)
             self.assertFalse(result["timed_out"])
-            self.assertEqual(policy.ESTIMATE_BASIS, result["fuse_breach"]["basis"])
+            self.assertEqual(policy.EXACT_BASIS, result["fuse_breach"]["basis"])
             self.assertIsNotNone(result["returncode"])
             self.assertIn('"thread_id": "flood"', result["stdout"])
 
@@ -357,16 +366,19 @@ class ModelRoutingTest(unittest.TestCase):
 
 
 class BackendCodexSessionTest(unittest.TestCase):
-    def _fake(self, root: Path, *, flood: bool = False) -> Path:
+    def _fake(self, root: Path, *, flood: bool = False, input_tokens: int = 900) -> Path:
         fake = root / "codex-fixture"
         body = (
+            "print(json.dumps({'type':'turn.started'}), flush=True)\n"
+            "print(json.dumps({'type':'turn.completed','usage':{'input_tokens':600000,'cached_input_tokens':570000,'output_tokens':100}}), flush=True)\n"
+            "print(json.dumps({'type':'turn.started'}), flush=True)\n"
             "for _ in range(400):\n"
             "    print(json.dumps({'type':'item.started','item':{'type':'command_execution'}}), flush=True)\n"
             "    print(json.dumps({'type':'item.completed','item':{'type':'command_execution','command':'x','aggregated_output':'o'*40000}}), flush=True)\n"
             "time.sleep(3600)\n"
             if flood else
             "print(json.dumps({'type':'item.completed','item':{'type':'agent_message','text':'PASS'}}), flush=True)\n"
-            "print(json.dumps({'type':'turn.completed','usage':{'input_tokens':900,'cached_input_tokens':100,'output_tokens':40}}), flush=True)\n"
+            f"print(json.dumps({{'type':'turn.completed','usage':{{'input_tokens':{input_tokens},'cached_input_tokens':100,'output_tokens':40}}}}), flush=True)\n"
         )
         fake.write_text(
             "#!/usr/bin/env python3\n"
@@ -423,21 +435,36 @@ class BackendCodexSessionTest(unittest.TestCase):
             self.assertLess(time.monotonic() - started, 30)
             self.assertFalse(result["success"])
             self.assertEqual("session_fuse_stop", result["failure_class"])
-            self.assertEqual(policy.ESTIMATE_BASIS, result["invocation"]["session_fuse"]["stopped"]["basis"])
+            self.assertEqual(policy.EXACT_BASIS, result["invocation"]["session_fuse"]["stopped"]["basis"])
             row = next(
                 json.loads(line) for line in (root / "queue" / "token_ledger.jsonl").read_text().splitlines()
                 if json.loads(line).get("event") == "model_invocation"
             )
-            self.assertIsNone(row["fuse"]["invocation_tokens"])
-            self.assertIn("stopped at session fuse", row["fuse"]["reason"])
-            self.assertIn("not provider usage", row["fuse"]["reason"])
-            self.assertEqual("session_fuse", row["fuse"]["stop_cause"])
-            self.assertIn("unverified in-flight estimate", result["output"])
-            self.assertNotIn("lower bound estimate", result["output"])
-            # The stopped session's usage stays unknown; a fresh session is not blocked by it.
+            # The stop is recorded with the exact usage that triggered it, never an estimate.
+            self.assertEqual(600_100, row["fuse"]["invocation_tokens"])
+            self.assertIn("exact provider usage 600,100 of 500,000", result["output"])
+            self.assertNotIn("estimate", result["output"])
+            # A fresh session gets a fresh fuse.
             _scope, status = step6.codex_session_preflight("codex-after-stop", work_item_id=ITEM, root=root)
             self.assertFalse(status["paused"])
-            self.assertEqual(1, status["work_item_aggregate"]["unknown_invocations"])
+
+    def test_completed_single_turn_over_the_limit_is_kept_not_failed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _fixture_root(tmp)
+            target = replace(policy.CODEX_TARGET, root=root, executable=self._fake(root, input_tokens=700_000), codex_home=root / ".codex")
+            item = {"id": ITEM, "title": "Status check", "context": "Read-only count.", "allowed_actions": ["local_read"]}
+            with patch.object(backend, "BASE_DIR", root), patch.object(backend, "CODEX_TARGET", target):
+                result = backend._run_codex_local(self._context(item), item)
+            self.assertTrue(result["success"], result.get("output"))
+            fuse = result["invocation"]["session_fuse"]
+            self.assertIsNone(fuse["stopped"])
+            self.assertTrue(fuse["limit_reached_at_turn_end"])
+            row = next(
+                json.loads(line) for line in (root / "queue" / "token_ledger.jsonl").read_text().splitlines()
+                if json.loads(line).get("event") == "model_invocation"
+            )
+            self.assertEqual(700_040, row["fuse"]["invocation_tokens"])
+            self.assertTrue(row["fuse"]["blocks_next_invocation"])
 
 
 class TechnicalWorkOrderPromptTest(unittest.TestCase):

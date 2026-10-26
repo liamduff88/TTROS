@@ -1,0 +1,34 @@
+Prediction for the 2026-10-25 fuse correction replay (written before the replay ran)
+
+Surface: recorded codex exec --json streams, logs/codex_sessions/*.stdout.jsonl. Zero model calls.
+
+1. Population derived in the run: 30 streams; 28 carry exact turn.completed usage; 2 do not
+   (codex-454889f58 = AOS-2026-0947, codex-787ca932c = AOS-2026-9954). Every stream is single-turn.
+2. Corrected fuse over each FULL stream (turn.completed included): 0 of 30 stopped.
+   No stop on the in-flight estimate is possible by construction.
+3. Previous fuse (1c70d68, estimate stops) replayed on AOS-2026-9954 with prompt 2,776 B:
+   STOPS on in_flight_estimate_unverified, requests 40, estimate 507,720 (reproduces the failure).
+   On AOS-2026-0947 with prompt 5,810 B: does not stop (17 requests, 228,684).
+4. Exact provider totals >= 500,000 among the 28 exact streams: at least 13 (the 2026-10-25
+   transcript shows 13 of 25). Each of those single-turn sessions completed; the corrected fuse
+   records limit_reached without stopping or failing them.
+5. Negative rehearsal (synthetic): a stream whose first turn.completed reports 600,000 and which
+   then starts a second turn MUST stop on exact_turn_usage. A stream whose only turn ends at
+   600,000 must NOT stop. If either fails, the detector is wrong.
+
+Full-suite prediction (written while the suite was running, before its result):
+   1,081 passed (1,073 at 316899a + 8 new tests) and the same 9 known failures.
+
+OUTCOME (recorded after the replay; see codex_fuse_calibration.txt)
+1. HELD: 30 streams, 28 exact, 2 without (0947, 9954); all single-turn.
+2. HELD: corrected fuse stopped 0 of 30.
+3. HELD: pre-correction rule stops 9954 at request 40, estimate 507,720 (exact reproduction once
+   the prompt is modelled as 2,774 chars: 2,776 bytes with a 3-byte em dash). 0947: no stop.
+4. MISSED: 9 exact streams are >= 500,000, not >= 13. The "13 of 25" was my misreading of the
+   earlier table, not a count. Verdict unaffected: all 9 completed and the corrected fuse records
+   limit_reached_at_turn_end for each.
+5. HELD: two-turn synthetic stops on exact_turn_usage at 600,000; one-turn synthetic does not stop.
+Full suite: first run 1,081 passed / 10 failed. The extra failure was mine
+(test_shared_brain_stage3 legacy importer: the new historical-note gate rejected imports into a
+vault without the historical-calls INDEX); the gate now applies only where that INDEX exists.
+Rerun: 1,082 passed / 9 failed, the 9 known failures. Prediction held at 1,081 + 1 test added since.

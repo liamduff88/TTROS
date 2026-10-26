@@ -7,7 +7,11 @@ stream is fed to the production ``StreamingSessionFuse`` with its
 in-flight estimate is compared with the provider's exact input+output.
 Prompt sizes come from ``initial_prompt_bytes`` in logs/local_agent_route.jsonl.
 The pre-fix estimator (cumulative tool output re-counted per inferred
-request) is replayed alongside for reference. Zero model calls.
+request) is replayed alongside for reference. Then every FULL stream is fed
+to the production fuse to record its stop decision, next to the stop the
+pre-correction rule (stop when the estimate reaches the limit) would have
+made, plus two synthetic streams that rehearse the exact-usage stop. Zero
+model calls. Prediction: codex_fuse_calibration.prediction.txt.
 
 Revisit: when the fuse estimator or codex exec --json events change. · Last touched: 2026-10-25.
 """
@@ -25,6 +29,24 @@ sys.path.insert(0, str(ROOT / "tools"))
 import aos_codex_policy as policy  # noqa: E402
 
 AOS_0947 = "codex-454889f5823f454ebc8400e17219c2de"
+AOS_9954 = "codex-787ca932c741441e88c8a95d8214adec"
+
+
+def prompt_text(size_bytes: int) -> str:
+    """Production prompts open with the permission header, whose em dash is 3 bytes / 1 char."""
+    return "\u2014" + "x" * (size_bytes - 3) if size_bytes >= 3 else "x" * size_bytes
+
+
+def stop_decisions(stream: str, prompt: str) -> dict:
+    """Feed one full stream line by line: the production stop and the pre-correction estimate stop."""
+    fuse = policy.StreamingSessionFuse(prompt)
+    old_stop = None
+    for index, line in enumerate(stream.splitlines(keepends=True)):
+        fuse.feed(line)
+        if old_stop is None and fuse.exact_cumulative is None and fuse.in_flight_estimate >= fuse.limit:
+            old_stop = {"line": index, "requests": fuse.requests_estimated, "estimate": fuse.in_flight_estimate}
+    return {"stopped": fuse.breach, "limit_reached_at_turn_end": fuse.limit_reached_at_turn_end,
+            "exact": fuse.exact_cumulative, "old_estimate_stop": old_stop}
 
 
 def legacy_estimate(events: list[dict], prompt_tokens: int) -> int:
@@ -77,6 +99,7 @@ def main() -> int:
     lines.append("invocation      prompt_B req  estimate   legacy     exact      est/exact legacy/exact")
     ratios, legacy_ratios, false_stops, misses, legacy_false = [], [], [], [], []
     focus: dict | None = None
+    decisions: dict[str, dict] = {}
     for path in sorted((ROOT / "logs" / "codex_sessions").glob("*.stdout.jsonl")):
         invocation = path.name.split(".")[0]
         events, exact = [], None
@@ -90,7 +113,9 @@ def main() -> int:
                 exact = int(usage["input_tokens"]) + int(usage["output_tokens"])
             else:
                 events.append(event)
-        prompt = "x" * prompt_bytes.get(invocation, 0)
+        prompt = prompt_text(prompt_bytes.get(invocation, 0))
+        decision = stop_decisions(path.read_text(encoding="utf-8"), prompt)
+        decisions[invocation] = decision
         fuse = policy.StreamingSessionFuse(prompt, limit=10**12)
         fuse.feed("".join(json.dumps(event) + "\n" for event in events))
         estimate = fuse.in_flight_estimate
@@ -125,8 +150,36 @@ def main() -> int:
         f"estimate would not stop although exact >= {limit:,}: {len(misses)} {misses}",
         "",
         f"AOS-2026-0947 ({AOS_0947}): {json.dumps(focus)}",
-        "AOS-2026-0947 verdict: "
-        + ("new fuse WOULD stop this stream" if focus and focus["stopped"] else "new fuse would NOT stop this stream"),
+    ]
+    exact_streams = [d for d in decisions.values() if d["exact"] is not None]
+    over = [name[:15] for name, d in decisions.items() if d["exact"] is not None and d["exact"] >= limit]
+    stopped = [name[:15] for name, d in decisions.items() if d["stopped"]]
+    old_stops = [name[:15] for name, d in decisions.items() if d["old_estimate_stop"]]
+    synthetic = {
+        "two_turns_first_ends_at_600k": "".join(json.dumps(e) + "\n" for e in (
+            {"type": "turn.started"},
+            {"type": "turn.completed", "usage": {"input_tokens": 599_000, "output_tokens": 1_000}},
+            {"type": "turn.started"},
+            {"type": "item.started", "item": {"type": "command_execution"}},
+        )),
+        "one_turn_ends_at_600k": "".join(json.dumps(e) + "\n" for e in (
+            {"type": "turn.started"},
+            {"type": "turn.completed", "usage": {"input_tokens": 599_000, "output_tokens": 1_000}},
+        )),
+    }
+    rehearsal = {name: stop_decisions(stream, "prompt")["stopped"] for name, stream in synthetic.items()}
+    assert rehearsal["two_turns_first_ends_at_600k"] == {"basis": policy.EXACT_BASIS, "tokens": 600_000, "limit": limit}
+    assert rehearsal["one_turn_ends_at_600k"] is None
+    lines += [
+        "",
+        "STOP DECISIONS (full streams, production fuse)",
+        f"streams: {len(decisions)}; with exact usage: {len(exact_streams)}; without: {len(decisions) - len(exact_streams)}",
+        f"exact provider total >= {limit:,}: {len(over)} {over}",
+        f"corrected fuse stopped: {len(stopped)} {stopped}",
+        f"pre-correction estimate rule would stop: {len(old_stops)} {old_stops}",
+        f"AOS-2026-0947: {json.dumps(decisions.get(AOS_0947))}",
+        f"AOS-2026-9954: {json.dumps(decisions.get(AOS_9954))}",
+        f"negative rehearsal: {json.dumps(rehearsal)}",
     ]
     text = "\n".join(lines) + "\n"
     transcript.write_text(text, encoding="utf-8")
