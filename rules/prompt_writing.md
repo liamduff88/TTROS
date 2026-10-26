@@ -6,7 +6,8 @@ One writing standard for every prompt handed to a worker step. It is applied by 
 Hermes when it writes a stage's `context` and `definition_of_done`, by David when it fills an
 `execution_handoff` (`objective`, `source_refs`), and deterministically by the queue builder
 (`_queue_actual_run_prompt`, `queue/templates/codex_task.prompt.md`, and the Context
-Assembler's technical-worker mode). No extra model call writes or rewrites prompts.
+Assembler's technical-worker mode, which also serves direct Dashboard Codex requests). No extra
+model call writes or rewrites prompts.
 
 ## A work order has six parts, once each
 

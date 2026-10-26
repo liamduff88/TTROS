@@ -87,6 +87,7 @@ from context_assembler import (
     AssembledContext,
     _load_deletion_tombstones,
     assemble as assemble_model_context,
+    codex_classification,
     require_assembled_context,
     work_order_header,
     worker_context_pack,
@@ -14346,6 +14347,7 @@ def wsl_codex(body: TaskRun):
             body.task,
             surface="dashboard:codex",
             session_id=f"codex-{uuid.uuid4().hex}",
+            classification=codex_classification(body.task),
         )),
         "codex", "codex", body.task,
         {

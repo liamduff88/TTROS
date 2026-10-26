@@ -425,9 +425,21 @@ def worker_brief(request: str) -> str:
     return str(request or "").split(WORKER_INSTRUCTIONS_MARKER, 1)[0].strip()
 
 
+# A direct Dashboard Codex request is a one-step work order without a queue item.
+DIRECT_WORKER_SURFACES = frozenset({"dashboard:codex"})
+
+
+def codex_classification(brief: str) -> str:
+    """Codex steps are technical unless the brief carries business terms."""
+    return "knowledge_sensitive" if BUSINESS_RE.search(str(brief or "")) else "technical_only"
+
+
 def is_technical_worker(classification: str, surface: str) -> bool:
-    """A technical-only queue worker step gets the rules/prompt_writing.md shape."""
-    return classification == "technical_only" and str(surface or "").startswith("worker:")
+    """A technical-only worker step gets the rules/prompt_writing.md shape."""
+    surface = str(surface or "")
+    return classification == "technical_only" and (
+        surface.startswith("worker:") or surface in DIRECT_WORKER_SURFACES
+    )
 
 
 CARD_QUERY_STOP_TERMS = frozenset({
@@ -1913,10 +1925,9 @@ def worker_context_pack(
     ))
     classification = str(item.get("context_classification") or "") or None
     if classification is None and owner == "codex":
-        # Codex steps are technical unless the brief carries business terms.
         # This was previously implicit: the old template's own word "backend"
         # made every Codex request match TECHNICAL_RE.
-        classification = "knowledge_sensitive" if BUSINESS_RE.search(header) else "technical_only"
+        classification = codex_classification(header)
     context = assemble(
         request,
         surface=f"worker:{owner}",

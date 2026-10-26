@@ -387,6 +387,35 @@ class TechnicalWorkOrderPromptTest(unittest.TestCase):
             context, _pack = context_assembler.worker_context_pack(item, owner="codex", pack_dir=Path(tmp))
         self.assertEqual("knowledge_sensitive", context.classification)
 
+    def _direct_codex_prompt(self, task: str) -> tuple[context_assembler.AssembledContext, str]:
+        captured: list = []
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch.object(context_assembler, "ASSEMBLY_DIR", Path(tmp) / "assemblies"), \
+             patch.object(backend, "_run_codex_local", side_effect=lambda ctx: captured.append(ctx) or {
+                 "success": True, "output": "ok", "stdout": "", "stderr": "", "returncode": 0,
+             }):
+            backend.wsl_codex(backend.TaskRun(task=task))
+        self.assertEqual(1, len(captured))
+        return captured[0], policy.prepare_fresh_prompt(captured[0].render())
+
+    def test_direct_dashboard_codex_gets_the_same_compact_work_order(self):
+        context, prepared = self._direct_codex_prompt(
+            "Read-only status check: count the files directly inside queue/templates."
+        )
+        self.assertEqual(("dashboard:codex", "technical_only"), (context.surface, context.classification))
+        self.assertEqual(1, prepared.count(policy.PERMISSION_HEADER))
+        self.assertIn("Not applicable to this technical step:", prepared)
+        self.assertIn("action boundaries", prepared)  # safety boundary preserved
+        self.assertNotIn("## provenance", prepared)
+        self.assertNotIn("## identity/company", prepared)
+        self.assertTrue(any(block.name == "provenance" and block.sources for block in context.blocks))
+
+    def test_direct_dashboard_codex_with_business_terms_keeps_full_context(self):
+        context, prepared = self._direct_codex_prompt("Export the prospect follow-up list.")
+        self.assertEqual("knowledge_sensitive", context.classification)
+        self.assertNotIn("Not applicable to this technical step:", prepared)
+        self.assertIn("## identity/company", prepared)
+
     def test_named_playbook_is_still_selected_for_a_technical_step(self):
         block = context_assembler._matching_workflows_block(
             "Run the submit-confirm path for record shared-submit-1", require_named=True,
