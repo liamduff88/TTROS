@@ -96,7 +96,10 @@ def _now() -> str:
 # ---------------------------------------------------------------------------
 
 class RemoteAccessDenied(Exception):
-    pass
+    def __init__(self, reason: str, identity: str = "", access_path: str = ""):
+        super().__init__(reason)
+        self.identity = identity
+        self.access_path = access_path
 
 
 def verify_dashboard_access_jwt(assertion: str) -> str | None:
@@ -155,7 +158,9 @@ def authenticate(headers: Any) -> dict[str, str]:
             raise RemoteAccessDenied("no verified operator identity (Cloudflare Access or Tailscale)")
         path = "tailscale_serve"
     if identity.lower() not in allowed_identities():
-        raise RemoteAccessDenied("identity is not authorised for Remote PC")
+        # Name the refused identity so the operator can see which account Access or Tailscale
+        # actually verified; it is never added to the allowlist from here.
+        raise RemoteAccessDenied(f"identity {identity} ({path}) is not authorised for Remote PC", identity, path)
     return {"identity": identity, "access_path": path}
 
 
@@ -163,17 +168,19 @@ def require_operator(request: Request) -> dict[str, str]:
     try:
         return authenticate(request.headers)
     except RemoteAccessDenied as exc:
-        _record_denial(request, str(exc))
+        _record_denial(request, str(exc), exc.identity, exc.access_path)
         raise HTTPException(status_code=403, detail=f"Remote PC refused: {exc}")
 
 
-def _record_denial(request: Request, reason: str) -> None:
+def _record_denial(request: Request, reason: str, identity: str = "", access_path: str = "") -> None:
     headers = request.headers
     row = {
         "at": _now(),
         "method": request.method,
         "path": request.url.path,
         "reason": reason,
+        "identity": identity,
+        "access_path": access_path,
         "origin": headers.get("origin", ""),
         "cloudflare": any(headers.get(name) for name in CLOUDFLARE_HEADERS),
         "tailscale_login": headers.get("tailscale-user-login", ""),

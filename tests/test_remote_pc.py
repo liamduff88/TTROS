@@ -68,7 +68,9 @@ class IdentityGateTest(unittest.TestCase):
         self.assertDenied({**TAILNET, "sec-fetch-site": "cross-site"}, "cross-site request")
 
     def test_other_tailnet_identity_is_refused(self):
-        self.assertDenied({**TAILNET, "tailscale-user-login": "someone@example.com"}, "not authorised")
+        self.assertDenied({**TAILNET, "tailscale-user-login": "someone@example.com"}, "identity someone@example.com (tailscale_serve) is not authorised")
+        row = json.loads((Path(self.tmp.name) / "denied.jsonl").read_text().splitlines()[-1])
+        self.assertEqual((row["identity"], row["access_path"]), ("someone@example.com", "tailscale_serve"))
 
     def test_funnel_request_is_refused(self):
         self.assertDenied({**TAILNET, "tailscale-funnel-request": "?1"}, "Funnel")
