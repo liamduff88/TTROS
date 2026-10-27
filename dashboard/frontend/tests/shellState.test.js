@@ -98,7 +98,13 @@ test('destinationForView resolves every routable id to one of the five global de
   assert.equal(destinationForView('unknown-view'), 'cockpit')
 })
 
-test('DESTINATIONS names exactly the five global destinations in order', () => {
-  assert.deepEqual(DESTINATIONS.map(destination => destination.id), ['cockpit', 'work-queue', 'results', 'search', 'system'])
-  assert.deepEqual(DESTINATIONS.map(destination => destination.label), ['David', 'Work Queue', 'Results', 'Search', 'System'])
+test('DESTINATIONS names exactly the global destinations in order', () => {
+  assert.deepEqual(DESTINATIONS.map(destination => destination.id), ['cockpit', 'work-queue', 'results', 'search', 'system', 'remote-pc'])
+  assert.deepEqual(DESTINATIONS.map(destination => destination.label), ['David', 'Work Queue', 'Results', 'Search', 'System', 'Remote PC'])
+})
+
+test('Remote PC is its own destination with a stable route', () => {
+  assert.equal(destinationForView('remote-pc'), 'remote-pc')
+  assert.equal(shellPathForView('remote-pc'), '/remote-pc')
+  assert.deepEqual(shellRouteFromPath('/remote-pc'), { view: 'remote-pc', viewParams: {} })
 })

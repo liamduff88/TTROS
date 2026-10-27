@@ -10,6 +10,7 @@ import LogsResults from './views/LogsResults'
 import Connectors from './views/Connectors'
 import Queue from './views/Queue'
 import LaneWorkspace from './views/LaneWorkspace'
+import RemotePC from './views/RemotePC'
 import { getDashboardCockpit, getHealth, getOverview, getQueueSummary } from './api'
 import { Cockpit } from './views/DashboardV1'
 import { ResultsHub, SearchHub, SystemHub } from './views/Hubs'
@@ -44,6 +45,7 @@ const VIEWS = {
   'connections-spine': withTab(SystemHub, 'connections'),
   'prompt-library': withTab(SystemHub, 'prompts'),
   settings: withTab(SystemHub, 'settings'),
+  'remote-pc': RemotePC,
   overview: Overview,
   agents: AgentsPage,
   'agent-workbench': AgentWorkbench,

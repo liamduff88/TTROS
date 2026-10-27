@@ -57,22 +57,25 @@ export const VIEW_META = {
   search: { label: 'Search', workbench: 'hermes' },
   results: { label: 'Results', workbench: 'hermes' },
   system: { label: 'System', workbench: 'hermes' },
+  'remote-pc': { label: 'Remote PC', workbench: 'hermes' },
 }
 
 export const initialSessionTabs = () => [
   { id: 'cockpit', ...VIEW_META.cockpit, preview: false },
 ]
 
-// The dashboard's five global destinations (BUILD_SPECIFICATION "I —
-// Information hierarchy"). `cockpit` keeps its existing technical id (and
-// every existing test/session-storage value that names it) but is presented
-// throughout the UI as "David" via VIEW_META.cockpit.label above.
+// The dashboard's global destinations: the five from BUILD_SPECIFICATION "I —
+// Information hierarchy", plus Remote PC (Windows host control). `cockpit`
+// keeps its existing technical id (and every existing test/session-storage
+// value that names it) but is presented throughout the UI as "David" via
+// VIEW_META.cockpit.label above.
 export const DESTINATIONS = [
   { id: 'cockpit', label: 'David' },
   { id: 'work-queue', label: 'Work Queue' },
   { id: 'results', label: 'Results' },
   { id: 'search', label: 'Search' },
   { id: 'system', label: 'System' },
+  { id: 'remote-pc', label: 'Remote PC' },
 ]
 
 // Every routable view id — including legacy views now folded into a hub's
@@ -100,6 +103,7 @@ const VIEW_DESTINATION = {
   'tokens-roi': 'system',
   settings: 'system',
   'prompt-library': 'system',
+  'remote-pc': 'remote-pc',
 }
 
 export const destinationForView = view => VIEW_DESTINATION[view] || 'cockpit'
@@ -117,6 +121,7 @@ const DESTINATION_PATH = {
   results: '/results',
   search: '/search',
   system: '/system',
+  'remote-pc': '/remote-pc',
 }
 const PATH_TO_DESTINATION = Object.fromEntries(Object.entries(DESTINATION_PATH).map(([id, path]) => [path, id]))
 

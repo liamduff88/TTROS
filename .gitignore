@@ -50,6 +50,8 @@ queue/receipts/*.patch
 
 # Local intake receipts, validation captures, and upload staging
 queue/receipts/memory_intake/
+# Remote PC receipts carry Windows command output; private runtime data.
+queue/receipts/remote_pc/
 queue/receipts/source_intake/claims/*.claims.yaml
 !queue/receipts/source_intake/claims/d9cb4668fd766474278e414bb53223f944342004f34be23020c161fa4160dd74.claims.yaml
 queue/receipts/*.png

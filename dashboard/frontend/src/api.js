@@ -115,3 +115,29 @@ export const getMemoryEntity = id => api.get('/memory/entity', { params: { id } 
 export const getMemoryDocument = path => api.get('/memory/document', { params: { path } }).then(r => r.data)
 export const browseMemory = dir => api.get('/memory/browse', { params: { dir } }).then(r => r.data)
 export const openMemoryPath = (path, kind = 'file') => api.post('/memory/open', { path, kind }).then(r => r.data)
+
+// Remote PC — Windows PowerShell, files and desktop status. Every route checks the
+// operator identity at the backend; the custom header forces a CORS preflight so no
+// other site can drive these routes from a browser. PowerShell runs and uploads need
+// a prepare → confirm round trip bound to the exact action.
+const remotePcHeaders = { 'X-TTROS-Remote-PC': '1' }
+const apiRemote = axios.create({ baseURL: '/api/remote-pc', timeout: 30000, headers: remotePcHeaders })
+const apiRemoteLong = axios.create({ baseURL: '/api/remote-pc', timeout: 330000, headers: remotePcHeaders })
+export const getRemotePcStatus = (refresh = false) => apiRemoteLong.get('/status', { params: { refresh } }).then(r => r.data)
+export const prepareRemotePowerShell = (command, timeout_seconds) => apiRemote.post('/powershell/prepare', { command, timeout_seconds }).then(r => r.data)
+export const runRemotePowerShell = (command, timeout_seconds, confirmation_token) => apiRemoteLong.post('/powershell/run', { command, timeout_seconds, confirmation_token }).then(r => r.data)
+export const getRemotePcReceipts = () => apiRemote.get('/receipts').then(r => r.data)
+export const getRemotePcReceipt = id => apiRemote.get(`/receipts/${encodeURIComponent(id)}`).then(r => r.data)
+export const listRemotePcFiles = path => apiRemote.get('/files', { params: { path } }).then(r => r.data)
+export const downloadRemotePcFile = path => apiRemoteLong.get('/files/download', { params: { path }, responseType: 'blob' }).then(r => r.data)
+export const prepareRemotePcUpload = (directory, filename, size) => apiRemote.post('/files/upload/prepare', { directory, filename, size }).then(r => r.data)
+export const uploadRemotePcFile = (directory, file, confirmation_token) => {
+  const form = new FormData()
+  form.append('directory', directory)
+  form.append('filename', file.name)
+  form.append('size', String(file.size))
+  form.append('confirmation_token', confirmation_token)
+  form.append('file', file)
+  return apiRemoteLong.post('/files/upload', form).then(r => r.data)
+}
+export const revealRemotePcPath = path => apiRemote.post('/files/reveal', { path }).then(r => r.data)

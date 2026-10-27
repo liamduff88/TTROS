@@ -1,5 +1,5 @@
 import {
-  BookOpen, Coins, Github, Layers, Link2, ListChecks, MessageCircle, Radio,
+  BookOpen, Coins, Github, Layers, Link2, ListChecks, MessageCircle, Monitor, Radio,
   Search, Settings, Settings2, Share2, Sparkles, UploadCloud, Workflow,
 } from 'lucide-react'
 import { DESTINATIONS } from '../shellState'
@@ -13,6 +13,7 @@ const DESTINATION_ICONS = {
   results: Layers,
   search: Search,
   system: Settings2,
+  'remote-pc': Monitor,
 }
 
 export const NAV_ITEMS = DESTINATIONS.map(destination => ({ ...destination, icon: DESTINATION_ICONS[destination.id] }))

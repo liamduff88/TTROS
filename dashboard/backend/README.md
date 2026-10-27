@@ -27,3 +27,16 @@ Do not commit real values. Add them only to the local backend process
 environment or an untracked local `dashboard/backend/.env` file. Until the
 required variables are present, `/api/latitude/status` reports degraded state
 and `/api/latitude/heartbeat` sends nothing.
+
+## Remote PC
+
+`remote_pc.py` serves `/api/remote-pc/*`: Windows PowerShell, file browse/download/upload,
+Explorer reveal, desktop-host status and receipts. Every route verifies the operator at the
+backend — a Cloudflare Access JWT (pinned by `TTROS_DASHBOARD_ACCESS_AUD`) on the Cloudflare
+path, or the Tailscale Serve `Tailscale-User-Login` header on the tailnet path — against
+`TTROS_REMOTE_PC_IDENTITIES`, and requires the `X-TTROS-Remote-PC: 1` header so no other site
+can drive it from a browser. Funnel requests are refused. PowerShell runs and uploads need a
+prepare → run round trip whose single-use token is bound to the exact command (and timeout)
+or upload target and size. Receipts and refused attempts are written to
+`queue/receipts/remote_pc/` (git-ignored). Execution is WSL interop → Windows PowerShell 5.1
+as the signed-in Windows user at medium integrity; it cannot elevate.

@@ -109,6 +109,7 @@ from step6_cost_control import (
     set_override as set_step6_override,
 )
 from graphify_service import GRAPH_CSP, GraphifyError, GraphifyService, RepoIdentity, validate_github_url
+from remote_pc import router as remote_pc_router
 
 app = FastAPI(title="Agentic OS API", version="0.1.0")
 
@@ -124,6 +125,8 @@ SHARED_BRAIN_HTTP_ENABLED = os.environ.get("TTROS_SHARED_BRAIN_HTTP", "").strip(
 if SHARED_BRAIN_HTTP_ENABLED:
     from shared_brain_http import install as install_shared_brain_http
     install_shared_brain_http(app)
+
+app.include_router(remote_pc_router)
 
 BASE_DIR = aos_root()
 PACKETS_DIR = BASE_DIR / "packets"
