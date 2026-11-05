@@ -5,8 +5,11 @@ enforces: each new note is listed in the historical-calls INDEX within the
 same Brain transaction, and links into noncanonical intake become plain
 pointers. ``--repair-historical-index`` applies the same rule to notes
 imported before it existed (dry-run proves the result on a vault copy).
+Trailing whitespace Markdown ignores is stripped at the same render step, so
+the Brain's `git diff --check` gate cannot block an otherwise valid note; one
+package's failure never stops the rest of the READY queue.
 
-Revisit: when the frozen Memory Ingest manifest contract changes. · Last touched: 2026-10-25.
+Revisit: when the frozen Memory Ingest manifest contract changes. · Last touched: 2026-11-05.
 """
 from __future__ import annotations
 
@@ -20,6 +23,7 @@ import re
 import shutil
 import sys
 import tempfile
+import traceback
 from contextlib import contextmanager
 from pathlib import Path, PurePosixPath
 
@@ -228,6 +232,46 @@ def delink_intake(text: str) -> str:
         alias = raw.split("|", 1)[1].strip() if "|" in raw else ""
         return f"{alias} (`{target}`)" if alias else f"`{target}`"
     return WIKI_LINK_RE.sub(plain, text)
+
+
+_FENCE = re.compile(r" {0,3}(`{3,}|~{3,})")
+_HARD_BREAK = re.compile(r" {2,}\Z")
+
+
+def strip_insignificant_whitespace(text: str) -> tuple[str, dict]:
+    """Drop the trailing whitespace the Brain's `git diff --check` gate refuses, where Markdown ignores it.
+
+    Like delink_intake this renders the note *after* the package hash is verified; the receipt keeps
+    the package sha256 beside the written_sha256 and lists what was removed. Whitespace that can
+    carry meaning is left alone, so the gate still rejects the package: lines inside fenced code,
+    and two-plus spaces before a non-blank line (a Markdown hard break).
+    """
+    lines = text.split("\n")
+    fence, stripped = None, []
+    for index, line in enumerate(lines):
+        marker = _FENCE.match(line)
+        toggles = bool(marker) and (fence is None or marker.group(1)[0] == fence)
+        inside = fence is not None and not toggles
+        if toggles:
+            fence = None if fence else marker.group(1)[0]
+        body = line.rstrip(" \t")
+        if body == line or inside:
+            continue
+        following = lines[index + 1] if index + 1 < len(lines) else ""
+        if body and following.strip() and _HARD_BREAK.search(line):
+            continue
+        lines[index] = body
+        stripped.append(index + 1)
+    blank_tail = 0
+    while fence is None and len(lines) > 2 and lines[-1] == "" and lines[-2] == "":
+        lines.pop()
+        blank_tail += 1
+    report = {}
+    if stripped:
+        report["trailing_whitespace_lines"] = stripped
+    if blank_tail:
+        report["trailing_blank_lines_removed"] = blank_tail
+    return "\n".join(lines), report
 
 
 def _historical_index_entry(relative: str, text: str) -> str:
@@ -498,9 +542,12 @@ def process(package: Path, *, brain: Path = BUSINESS_BRAIN_ROOT, root: Path = RO
                 if output["operation"] == "historical_record":
                     raw = plan["bytes"][output["source"]]
                     try:
-                        plan["bytes"][output["source"]] = delink_intake(raw.decode("utf-8")).encode("utf-8")
+                        text, normalised = strip_insignificant_whitespace(delink_intake(raw.decode("utf-8")))
                     except UnicodeDecodeError:
-                        pass
+                        continue
+                    plan["bytes"][output["source"]] = text.encode("utf-8")
+                    if normalised:
+                        output["render_normalisation"] = normalised
             rows = ledger_rows(ledger)
             prior = [row for row in rows if row.get("package_id") == manifest["package_id"] and row.get("outcome") != "rejected"]
             if any(row.get("fingerprint") != fingerprint for row in prior):
@@ -583,15 +630,19 @@ def process(package: Path, *, brain: Path = BUSINESS_BRAIN_ROOT, root: Path = RO
                     if updated_index != index_text:
                         documents[HISTORICAL_INDEX] = updated_index
                 if documents:
-                    write = brain_memory.write_transaction(
-                        documents, source="memory-exchange-import", session_id=manifest["package_id"],
-                        expected_hashes={relative: digest((brain / relative).read_bytes()) if (brain / relative).is_file() else None
-                                         for relative in documents},
-                        attribution={"authenticated_identity": "liam-drive-channel", "surface": "chatgpt",
-                                     "actor_class": "authorised_client", "surface_source": "address"},
-                        post_write_validator=(lambda changed: require_historical_notes_navigable(brain, changed))
-                        if indexed_vault else None,
-                    )
+                    try:
+                        write = brain_memory.write_transaction(
+                            documents, source="memory-exchange-import", session_id=manifest["package_id"],
+                            expected_hashes={relative: digest((brain / relative).read_bytes()) if (brain / relative).is_file() else None
+                                             for relative in documents},
+                            attribution={"authenticated_identity": "liam-drive-channel", "surface": "chatgpt",
+                                         "actor_class": "authorised_client", "surface_source": "address"},
+                            post_write_validator=(lambda changed: require_historical_notes_navigable(brain, changed))
+                            if indexed_vault else None,
+                        )
+                    except brain_memory.BrainContentCheckError as exc:
+                        # The transaction rolled back; these bytes fail every retry, so reject the package.
+                        raise ImportFailure(f"Brain content check failed: {exc}") from exc
                     receipt["commit"] = write.commit
                     receipt["sync_status"] = write.sync_status
             else:
@@ -788,7 +839,19 @@ def main() -> int:
         _republish_import_receipts(args.imported, args.root)
     results = []
     for package in packages:
-        result = process(package, brain=args.brain, root=args.root, dry_run=args.dry_run)
+        try:
+            result = process(package, brain=args.brain, root=args.root, dry_run=args.dry_run)
+        except Exception as exc:
+            # One package's unexpected failure must not starve the rest of the queue. The package
+            # stays in READY for the next poll; the traceback, ledger row and exit status keep it visible.
+            traceback.print_exc(file=sys.stderr)
+            result = {"outcome": "error", "package": package.name, "reason": f"{type(exc).__name__}: {exc}"[-2000:],
+                      "timestamp": dt.datetime.now(dt.timezone.utc).isoformat(), "token_usage": TOKEN_USAGE}
+            if not args.dry_run:
+                with locked(args.root / "queue/locks/memory_exchange_import.lock"):
+                    append(args.root / "queue/receipts/memory_exchange_import.jsonl", result)
+            results.append(result)
+            continue
         if result["outcome"] == "disabled":
             results.append(result)
             continue
@@ -816,7 +879,7 @@ def main() -> int:
         results.append(result)
     print(json.dumps(results, indent=2))
     print(TOKEN_USAGE)
-    return 1 if any(r["outcome"] in {"rejected", "refresh_pending", "disabled"} or
+    return 1 if any(r["outcome"] in {"rejected", "refresh_pending", "disabled", "error"} or
                     str(r.get("external_package_move", "")).startswith("pending:") or
                     str(r.get("receipt_publication", "")).startswith("pending:") for r in results) else 0
 

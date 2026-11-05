@@ -60,6 +60,12 @@ class ConcurrentEditError(BrainMemoryError):
     """The source changed after it was read, so no overwrite was attempted."""
 
 
+class BrainContentCheckError(BrainMemoryError):
+    """`git diff --check` found whitespace or conflict-marker errors in the staged content.
+
+    Deterministic: the same bytes fail every time, unlike a Git or filesystem failure."""
+
+
 @dataclass(frozen=True)
 class BrainWriteResult:
     changed_paths: tuple[str, ...]
@@ -363,7 +369,11 @@ def _write_transaction_inner(
                 indexed = [line for line in _git("diff", "--cached", "--name-only").stdout.splitlines() if line]
                 if sorted(indexed) != sorted(changed):
                     raise BrainMemoryError("vault Git staged paths do not match the memory transaction")
-                _git("diff", "--cached", "--check")
+                checked = _git("diff", "--cached", "--check", check=False)
+                if checked.returncode == 2:  # content errors; any other nonzero is Git itself failing
+                    raise BrainContentCheckError((checked.stdout or checked.stderr).strip()[-2000:])
+                if checked.returncode:
+                    raise BrainMemoryError((checked.stderr or checked.stdout or "git diff --check failed").strip()[-2000:])
                 for relative in changed:
                     indexed_bytes = _git("show", f":{relative}").stdout.encode("utf-8")
                     if sha256_bytes(indexed_bytes) != new_hashes[relative] or file_sha256(_target(relative)) != new_hashes[relative]:

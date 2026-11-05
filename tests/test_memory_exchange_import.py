@@ -16,6 +16,7 @@ from unittest import mock
 from tools import brain_memory
 from tools.memory_exchange_import import (
     delink_intake, historical_index_text, list_ready, process, repair_historical_index,
+    strip_insignificant_whitespace,
 )
 from tools.validate_business_brain import analyze_vault
 
@@ -311,6 +312,47 @@ class ConsumerReceiptTests(unittest.TestCase):
         self.assertEqual(self.consume(), 0)
         self.assertEqual(receipt.stat().st_mtime_ns, stamp)
 
+    def _second_package(self):
+        """A second valid READY package, sorted after the first, with its own ID, batch and target."""
+        pkg = self.ready / "MI-20261002-second-package"
+        name = "historical/second-package.md"
+        payload = b"---\nid: second-package\ntype: historical\n---\n# Second package\nEvidence.\n"
+        (pkg / "historical").mkdir(parents=True)
+        (pkg / name).write_bytes(payload)
+        manifest = copy.deepcopy(self.manifest)
+        manifest.update({"package_id": pkg.name, "batch_id": "second-package", "batch_fingerprint_sha256": "b" * 64})
+        manifest["package_files"] = [{"path": name, "size_bytes": len(payload), "sha256": sha(payload)}]
+        manifest["outputs"][0].update({"package_path": name, "size_bytes": len(payload), "sha256": sha(payload)})
+        manifest["outputs"][0]["target"]["suggested_relative_path"] = name
+        (pkg / "INGEST_MANIFEST.json").write_text(json.dumps(manifest), encoding="utf-8")
+        return pkg
+
+    def test_one_package_failure_does_not_block_the_rest_of_the_queue(self):
+        from tools import memory_exchange_import as mod
+        second = self._second_package()
+        real = mod.process
+
+        def failing_first(package, **kwargs):
+            if package.name == self.pkg.name:
+                raise brain_memory.BrainMemoryError("simulated Git failure")
+            return real(package, **kwargs)
+
+        with mock.patch.object(mod, "process", failing_first), mock.patch("traceback.print_exc") as printed:
+            self.assertEqual(self.consume(), 1)  # the failure stays visible in the exit status
+        printed.assert_called_once()
+        self.assertTrue((self.imported / (second.name + ".IMPORT_RECEIPT.json")).is_file())
+        self.assertTrue(self.pkg.is_dir(), "the failed package stays in READY for the next poll")
+        self.assertFalse((self.rejected / self.pkg.name).exists())
+        rows = [json.loads(line) for line in (self.root / "queue/receipts/memory_exchange_import.jsonl").read_text().splitlines()]
+        errors = [row for row in rows if row["outcome"] == "error"]
+        self.assertEqual([(self.pkg.name, "BrainMemoryError: simulated Git failure")],
+                         [(row["package"], row["reason"]) for row in errors])
+        self.assertNotIn("package_id", errors[0])  # an error row must not read as a fingerprint collision later
+        # Once the fault clears, the next poll imports the package exactly once.
+        self.assertEqual(self.consume(), 0)
+        self.assertTrue((self.imported / (self.pkg.name + ".IMPORT_RECEIPT.json")).is_file())
+        self.assertFalse(self.pkg.exists())
+
     def test_rejected_manifest_gets_receipt_typed_package_does_not(self):
         import os
         from unittest.mock import patch
@@ -371,6 +413,16 @@ class HistoricalVaultContractTests(unittest.TestCase):
             "[[memory/clients]] ![[inbox/distilled_packets/img]]",
             delink_intake(text),
         )
+
+    def test_only_insignificant_trailing_whitespace_is_stripped(self):
+        text = ("# T\n\n**Open loops:** decide. \n\nline \t\n   \nhard break  \nnext line\n"
+                "```\ncode  \n```\n~~~ \nkept \n~~~\nend\n\n\n")
+        out, report = strip_insignificant_whitespace(text)
+        self.assertEqual("# T\n\n**Open loops:** decide.\n\nline\n\nhard break  \nnext line\n"
+                         "```\ncode  \n```\n~~~\nkept \n~~~\nend\n", out)
+        self.assertEqual({"trailing_whitespace_lines": [3, 5, 6, 12], "trailing_blank_lines_removed": 2}, report)
+        self.assertEqual(("clean\n", {}), strip_insignificant_whitespace("clean\n"))
+        self.assertEqual(("final", {"trailing_whitespace_lines": [1]}), strip_insignificant_whitespace("final  "))
 
     def test_index_entries_are_added_once_before_the_footer(self):
         index = "# Historical Calls\n\n| a |\n\n[[index/MEMORY_INDEX|Memory Index]]\n"
@@ -453,6 +505,36 @@ class HistoricalTransactionTests(unittest.TestCase):
         self.assertIn("unreachable ['sources/historical_calls/new-call.md']", row["reason"])
         self.assertFalse((self.brain / "sources/historical_calls/new-call.md").exists())
         self.assertEqual(head, subprocess.check_output(["git", "-C", str(self.brain), "rev-parse", "HEAD"], text=True))
+
+    def test_insignificant_trailing_whitespace_imports_with_package_hash_kept(self):
+        """The Ryan founder-brand shape: one trailing space before a blank line."""
+        self._git_brain()
+        pkg = self._package("**Open loops:** decide posture. \n\nMore evidence.\n")
+        name = pkg / "historical/new-call.md"
+        package_bytes = name.read_bytes()
+        row = process(pkg, brain=self.brain, root=self.root, refresh=covered)
+        self.assertEqual("imported", row["outcome"], row.get("reason"))
+        self.assertEqual(package_bytes, name.read_bytes(), "package evidence is never rewritten")
+        output = row["outputs"][0]
+        self.assertEqual(sha(package_bytes), output["sha256"])
+        self.assertEqual({"trailing_whitespace_lines": [8]}, output["render_normalisation"])
+        note = self.brain / "sources/historical_calls/new-call.md"
+        self.assertEqual(sha(note.read_bytes()), output["written_sha256"])
+        self.assertIn("**Open loops:** decide posture.\n\nMore evidence.\n", note.read_text(encoding="utf-8"))
+        check = subprocess.run(["git", "-C", str(self.brain), "diff", "--check", "HEAD~1", "HEAD"])
+        self.assertEqual(0, check.returncode)
+
+    def test_meaningful_whitespace_is_rejected_cleanly_not_crashed(self):
+        """A Markdown hard break is kept, so the Brain gate fails: a rejection receipt, no write."""
+        self._git_brain()
+        head = subprocess.check_output(["git", "-C", str(self.brain), "rev-parse", "HEAD"], text=True)
+        row = process(self._package("first line  \nsecond line\n"), brain=self.brain, root=self.root, refresh=covered)
+        self.assertEqual("rejected", row["outcome"])
+        self.assertIn("Brain content check failed", row["reason"])
+        self.assertIn("trailing whitespace", row["reason"])
+        self.assertFalse((self.brain / "sources/historical_calls/new-call.md").exists())
+        self.assertEqual(head, subprocess.check_output(["git", "-C", str(self.brain), "rev-parse", "HEAD"], text=True))
+        self.assertEqual("", subprocess.check_output(["git", "-C", str(self.brain), "status", "--porcelain"], text=True))
 
     def test_repair_dry_run_proves_the_fix_on_a_copy_without_writing(self):
         self._git_brain()
