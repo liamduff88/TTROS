@@ -5706,8 +5706,11 @@ class HermesComposioTests(unittest.TestCase):
             self.assertIsNone(re.search(pattern, result["output"]))
 
     def test_backend_action_route_reuses_shared_helper(self):
-        with patch.object(backend, "_run_composio_adapter", return_value={"ok": True, "result": {}}) as adapter:
-            result = backend.composio_action(backend.ComposioAction(tool_slug="gmail_fetch_emails", json_args={"max_results": 1}))
+        request = object()
+        with patch.object(backend, "require_remote_operator", return_value={"identity": "op", "access_path": "tailscale_serve"}) as gate, \
+             patch.object(backend, "_run_composio_adapter", return_value={"ok": True, "result": {}}) as adapter:
+            result = backend.composio_action(backend.ComposioAction(tool_slug="gmail_fetch_emails", json_args={"max_results": 1}), request)
+        gate.assert_called_once_with(request, "Composio action")
         adapter.assert_called_once_with("tool-run", "GMAIL_FETCH_EMAILS", {"max_results": 1})
         self.assertEqual(result["tool_slug"], "GMAIL_FETCH_EMAILS")
 

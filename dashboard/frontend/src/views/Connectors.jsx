@@ -45,7 +45,7 @@ const ACTION_PRESETS = [
   {
     id: 'draft-mail',
     title: 'Prepare draft',
-    description: 'Create a draft only after explicit operator write intent.',
+    description: 'Refused on this read-only route; drafts use the governed Gmail draft adapter.',
     icon: FilePenLine,
     intent: 'draft',
     requiresIntent: true,
@@ -156,9 +156,11 @@ export default function Connectors() {
 
     setActionLoading(true)
     try {
-      const res = await fetch(`${API_BASE}/api/connectors/composio/action`, {
+      // Same-origin (Vite proxy) with the operator header: the backend verifies the
+      // Cloudflare Access / Tailscale identity and runs read-only actions only.
+      const res = await fetch('/api/connectors/composio/action', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-TTROS-Remote-PC': '1' },
         body: JSON.stringify({ tool_slug: cleanToolSlug, json_args: parsedPayload.value }),
       })
       const data = await res.json().catch(() => ({}))
@@ -188,8 +190,8 @@ export default function Connectors() {
               <h1 className="mt-2 text-3xl font-semibold">Connector Controls</h1>
               <p className="mt-2 max-w-3xl text-sm text-[var(--text-dim)]">
                 Cockpit actions use the existing Composio route into clean WSL AgenticOSClean.
-                Read, search, status, and draft preparation stay visible here; external sends,
-                writes, and pushes require explicit operator intent.
+                Read, search and status actions run here for a verified operator; sends,
+                drafts, writes and pushes are refused on this route and use their governed paths.
               </p>
             </div>
 

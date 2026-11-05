@@ -109,7 +109,7 @@ from step6_cost_control import (
     set_override as set_step6_override,
 )
 from graphify_service import GRAPH_CSP, GraphifyError, GraphifyService, RepoIdentity, validate_github_url
-from remote_pc import router as remote_pc_router
+from remote_pc import require_operator as require_remote_operator, router as remote_pc_router
 
 app = FastAPI(title="Agentic OS API", version="0.1.0")
 
@@ -127,6 +127,14 @@ if SHARED_BRAIN_HTTP_ENABLED:
     install_shared_brain_http(app)
 
 app.include_router(remote_pc_router)
+
+# One read-only LinkedIn MCP operation (LINKEDIN_GET_MY_INFO) for future ChatGPT access.
+# Off unless TTROS_LINKEDIN_MCP_HTTP is set; separate from the Shared Brain contract. The
+# runner resolves at call time so it always goes through the one shared adapter path.
+LINKEDIN_MCP_HTTP_ENABLED = os.environ.get("TTROS_LINKEDIN_MCP_HTTP", "").strip().lower() in {"1", "true", "yes"}
+if LINKEDIN_MCP_HTTP_ENABLED:
+    from linkedin_profile_mcp import install as install_linkedin_profile_mcp
+    install_linkedin_profile_mcp(app, lambda mode, subject, args: _run_composio_adapter(mode, subject, args))
 
 BASE_DIR = aos_root()
 PACKETS_DIR = BASE_DIR / "packets"
@@ -5211,6 +5219,41 @@ COMPOSIO_SMOKE_CHECKS = (
     ("Google Sheets", "registry-status", "googlesheets", None),
     ("GitHub", "tool-info", "GITHUB_GET_THE_AUTHENTICATED_USER", None),
 )
+
+# Dashboard generic Composio paths are read-only and fail closed.  A slug runs only
+# when it is well formed, names an explicit read verb and contains no mutation
+# verb; anything else (a mutation, or a slug this list cannot classify) is refused
+# before the adapter is reached.  Mutations keep their own governed routes (queue
+# exact authority, Gmail draft adapter, AgentMail); none is reachable from here.
+_COMPOSIO_SLUG_RE = re.compile(r"^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+){1,15}$")
+_COMPOSIO_READ_VERBS = frozenset({
+    "GET", "LIST", "FETCH", "SEARCH", "FIND", "READ", "RETRIEVE", "QUERY", "LOOKUP", "VIEW", "DESCRIBE", "COUNT",
+})
+_COMPOSIO_MUTATION_VERBS = frozenset({
+    "ACCEPT", "ADD", "APPEND", "APPROVE", "ARCHIVE", "ASSIGN", "BATCH", "BLOCK", "BOOK", "BULK", "CANCEL", "CHANGE",
+    "CHARGE", "CLEAR", "CLOSE", "COMMENT", "CONNECT", "COPY", "CREATE", "DECLINE", "DELETE", "DISABLE", "DISCONNECT",
+    "DISPATCH", "DUPLICATE", "EDIT", "EMPTY", "ENABLE", "EXECUTE", "EXPORT", "FOLLOW", "FORWARD", "GRANT", "IMPORT",
+    "INSERT", "INVITE", "LABEL", "LIKE", "MARK", "MERGE", "MODIFY", "MOVE", "MUTE", "PATCH", "PAY", "PIN", "POST",
+    "PUBLISH", "PUT", "REACT", "REGISTER", "REMOVE", "RENAME", "REPLACE", "REPLY", "REPORT", "REQUEST", "RESET",
+    "RESHARE", "RESTORE", "REVOKE", "RUN", "SAVE", "SCHEDULE", "SEND", "SET", "SHARE", "STAR", "START", "STOP",
+    "SUBMIT", "SUBSCRIBE", "SYNC", "TRANSFER", "TRASH", "TRIGGER", "UNARCHIVE", "UNFOLLOW", "UNPIN", "UNSTAR",
+    "UNSUBSCRIBE", "UNTRASH", "UPDATE", "UPLOAD", "UPSERT", "WRITE",
+})
+
+
+def classify_composio_action(tool_slug: str) -> tuple[str, str]:
+    """Return ("read", reason) only for a positively classified read; else refuse."""
+    slug = str(tool_slug or "").strip().upper()
+    if not _COMPOSIO_SLUG_RE.fullmatch(slug):
+        return "invalid", "tool slug is not a well-formed Composio action name"
+    tokens = slug.split("_")
+    mutation = sorted(set(tokens) & _COMPOSIO_MUTATION_VERBS)
+    if mutation:
+        return "mutation", f"mutation verb {mutation[0]} is not executable from the Dashboard generic route"
+    if not set(tokens) & _COMPOSIO_READ_VERBS:
+        return "unknown", "action could not be verified as read-only"
+    return "read", "explicit read verb and no mutation verb"
+
 
 _COMPOSIO_ACTION_TASK_RE = re.compile(
     r"^\s*(?:run\s+)?composio\s+action\s+([A-Z][A-Z0-9_]+)\s+(\{.*\})\s*[.!]?\s*$",
@@ -14683,6 +14726,9 @@ def _try_composio_task(task: str) -> dict | None:
             return _composio_closeout([("Composio action", False, f"invalid JSON: {exc.msg}")])
         if not isinstance(json_args, dict):
             return _composio_closeout([("Composio action", False, "arguments must be a JSON object")])
+        kind, reason = classify_composio_action(tool_slug)
+        if kind != "read":
+            return _composio_closeout([(tool_slug, False, f"refused ({kind}): {reason}")])
         response = _run_composio_adapter("tool-run", tool_slug, json_args)
         detail = "shared adapter returned ok" if response.get("ok") else str(response.get("error", "adapter failed"))[:180]
         return _composio_closeout([(tool_slug, bool(response.get("ok")), detail)])
@@ -14989,9 +15035,20 @@ class ComposioAction(BaseModel):
 
 
 @app.post("/api/connectors/composio/action")
-def composio_action(body: ComposioAction):
-    """Execute one generic Composio tool through the shared workspace adapter."""
-    tool = body.tool_slug.strip().upper()
+def composio_action(body: ComposioAction, request: Request):
+    """Run one read-only Composio tool for a verified operator through the shared adapter.
+
+    The caller must carry the same verified operator identity Remote PC requires
+    (Cloudflare Access JWT or Tailscale Serve identity, allowlisted). The action must
+    classify as read; mutations and unclassifiable slugs are refused before the adapter.
+    """
+    require_remote_operator(request, "Composio action")
+    tool = str(body.tool_slug or "").strip().upper()
+    if not isinstance(body.json_args, dict):
+        raise HTTPException(status_code=422, detail="json_args must be a JSON object")
+    kind, reason = classify_composio_action(tool)
+    if kind != "read":
+        raise HTTPException(status_code=403, detail=f"Composio action refused ({kind}): {reason}")
     response = _run_composio_adapter("tool-run", tool, body.json_args)
     response.setdefault("tool_slug", tool)
     response.setdefault("args", body.json_args)

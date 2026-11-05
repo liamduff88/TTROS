@@ -164,12 +164,13 @@ def authenticate(headers: Any) -> dict[str, str]:
     return {"identity": identity, "access_path": path}
 
 
-def require_operator(request: Request) -> dict[str, str]:
+def require_operator(request: Request, surface: str = "Remote PC") -> dict[str, str]:
+    """Verified-operator gate, shared by other operator-only Dashboard routes (e.g. Composio action)."""
     try:
         return authenticate(request.headers)
     except RemoteAccessDenied as exc:
         _record_denial(request, str(exc), exc.identity, exc.access_path)
-        raise HTTPException(status_code=403, detail=f"Remote PC refused: {exc}")
+        raise HTTPException(status_code=403, detail=f"{surface} refused: {exc}")
 
 
 def _record_denial(request: Request, reason: str, identity: str = "", access_path: str = "") -> None:
