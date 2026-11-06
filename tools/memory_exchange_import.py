@@ -10,6 +10,8 @@ the Brain's `git diff --check` gate cannot block an otherwise valid note; one
 package's failure never stops the rest of the READY queue.
 canonical_replace is refused unless TTROS_MEMORY_ALLOW_CANONICAL_REPLACE=1. Undeclared
 desktop.ini/Thumbs.db files are ignored, and skipped READY folders are reported.
+A historical note without knowledge_type gets the manifest's first knowledge_types_present
+value at render time.
 
 Revisit: when the frozen Memory Ingest manifest contract changes. · Last touched: 2026-11-06.
 """
@@ -299,6 +301,32 @@ def strip_insignificant_whitespace(text: str) -> tuple[str, dict]:
     return "\n".join(lines), report
 
 
+_KNOWLEDGE_TYPE = re.compile(r"[a-z][a-z0-9_]{0,63}\Z")
+
+
+def insert_knowledge_type(text: str, manifest: dict) -> tuple[str, str | None]:
+    """Fix 7: give a note with no knowledge_type the package's first knowledge_types_present value.
+
+    Render-time only, so existing Brain notes are never touched. A note that already declares one,
+    has no frontmatter, or a package without a safe slug value is left exactly as it is.
+    """
+    present = manifest.get("knowledge_types_present")
+    value = present[0] if isinstance(present, list) and present else None
+    if not isinstance(value, str) or not _KNOWLEDGE_TYPE.fullmatch(value):
+        return text, None
+    lines = text.splitlines(keepends=True)
+    if not lines or lines[0].rstrip("\r\n") != "---":
+        return text, None
+    closing = next((i for i in range(1, len(lines)) if lines[i].rstrip("\r\n") == "---"), None)
+    if closing is None:
+        return text, None
+    if any(re.match(r"knowledge_type\s*:", line) for line in lines[1:closing]):
+        return text, None
+    newline = "\r\n" if lines[closing].endswith("\r\n") else "\n"
+    lines.insert(closing, f"knowledge_type: {value}{newline}")
+    return "".join(lines), value
+
+
 def _historical_index_entry(relative: str, text: str) -> str:
     fields, _body = parse_frontmatter(text)
     title = " ".join(re.sub(r"[\[\]|]", " ", fields.get("title") or Path(relative).stem).split())
@@ -570,9 +598,12 @@ def process(package: Path, *, brain: Path = BUSINESS_BRAIN_ROOT, root: Path = RO
                         text, normalised = strip_insignificant_whitespace(delink_intake(raw.decode("utf-8")))
                     except UnicodeDecodeError:
                         continue
+                    text, knowledge_type = insert_knowledge_type(text, manifest)
                     plan["bytes"][output["source"]] = text.encode("utf-8")
                     if normalised:
                         output["render_normalisation"] = normalised
+                    if knowledge_type:
+                        output["knowledge_type_inserted"] = knowledge_type
             rows = ledger_rows(ledger)
             prior = [row for row in rows if row.get("package_id") == manifest["package_id"] and row.get("outcome") != "rejected"]
             if any(row.get("fingerprint") != fingerprint for row in prior):

@@ -76,6 +76,7 @@
         {"source": "business_brain", "path_prefix": "business_brain:inbox/distilled_packets/"},
         {"source": "business_brain", "path_prefix": "business_brain:sources/intake/records/"},
         {"source": "business_brain", "path_prefix": "business_brain:sources/historical_calls/"},
+        {"source": "business_brain", "path_prefix": "business_brain:people/"},
         {
           "source": "business_brain",
           "paths": [
@@ -221,7 +222,8 @@
           "path_prefixes": [
             "business_brain:sources/historical_calls/",
             "business_brain:sources/intake/records/",
-            "business_brain:sources/intake/cards/"
+            "business_brain:sources/intake/cards/",
+            "business_brain:people/"
           ]
         }
       ],

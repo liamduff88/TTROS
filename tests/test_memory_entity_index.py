@@ -123,6 +123,24 @@ class MemoryEntityIndexTest(unittest.TestCase):
             self.assertEqual((ingest["role"], ingest["knowledge_type"], ingest["canonical"], ingest["package_id"]), ("knowledge", "historical_evidence", False, "MI-test"))
             self.assertTrue(meta["business_brain:memory/clients.md"]["canonical"])
 
+    def test_sources_are_historical_evidence_and_never_canonical(self):
+        """Fix 7: an undeclared ingest note under sources/ is historical evidence, not canonical knowledge."""
+        knowledge = {"id": "n", "type": "knowledge"}
+        self.assertEqual(("knowledge", "historical_evidence", "Historical evidence", False),
+                         E.classify("sources/historical_calls/ryan-beta-testing-7c476039148b.md", knowledge, "# Ryan\n"))
+        # A declared label is kept, but sources/ evidence never becomes canonical.
+        self.assertEqual(("knowledge", "verified_fact", "Verified / current knowledge", False),
+                         E.classify("sources/historical_calls/x.md", {**knowledge, "knowledge_type": "verified_fact"}, ""))
+        self.assertFalse(E.classify("sources/historical_calls/x.md", knowledge, "**Temporal posture:** current\n")[3])
+        # Labels outside sources/ are unchanged.
+        self.assertEqual(("knowledge", "canonical", "Canonical knowledge", True), E.classify("memory/company.md", knowledge, ""))
+        self.assertEqual(("knowledge", "client_project_context", "Project / client context", True),
+                         E.classify("memory/clients.md", knowledge, ""))
+        self.assertEqual("explicit_decision", E.classify("decisions/DECISIONS.md", knowledge, "")[1])
+        self.assertEqual("inbox", E.classify("inbox/distilled_packets/s.md", knowledge, "")[1])
+        self.assertEqual(("knowledge", "verified_fact", "Verified / current knowledge", True),
+                         E.classify("memory/company.md", {**knowledge, "knowledge_type": "verified_fact"}, ""))
+
     def test_ensure_current_rebuilds_only_on_change(self):
         with tempfile.TemporaryDirectory() as temp:
             db = self.build(Path(temp))

@@ -1,5 +1,5 @@
 # MEMORY_PROMOTION_POLICY.md — what earns a place in the Business Brain
-> Revisit: when a new memory area is added or a promotion causes contamination. · Last touched: 2026-07-15.
+> Revisit: when a new memory area is added or a promotion causes contamination. · Last touched: 2026-11-06.
 
 ## The flow
 ```
@@ -28,17 +28,35 @@ Memory is read by reference, never dumped wholesale into a task.
 ## Executable authority tiers
 
 Every candidate is classified by `tools/business_brain_promotion.py` after its
-exact `client_scope`, canonical target, and provenance identities pass the
-shared registry. An unclassifiable candidate fails closed to Liam review.
+exact `client_scope` and canonical target pass the shared registry and its
+provenance passes the rule below. An unclassifiable candidate fails closed to Liam review.
 
 ### Deterministic automatic
 
-Only `generated_marker_section` is enabled. It may update exactly
-`business_brain:index/MEMORY_INDEX.md`, inside the exact
-`block-2-outcome-index` machine marker. The writer refuses every other target,
-marker, or byte outside that boundary. The rule is deterministic, idempotent,
-receipt-backed, and requires no queue item. No other candidate automatic class
-is enabled yet.
+Two rules are enabled. Each rule names the one writer allowed to apply it, and no
+other candidate automatic class is enabled.
+
+- **`generated_marker_section`**. It may update exactly
+  `business_brain:index/MEMORY_INDEX.md`, inside the exact
+  `block-2-outcome-index` machine marker. The promotion writer refuses every
+  other target, marker, or byte outside that boundary. The rule is
+  deterministic, idempotent, receipt-backed, and requires no queue item.
+- **`generated_navigation`** (Liam decision D1, 2026-11-06). It covers navigation
+  link lists only:
+  - the generated section of `index/MEMORY_INDEX.md`;
+  - folder `INDEX.md` link lists (`sources/*/INDEX.md`);
+  - hub-page link lists (`people/*.md`).
+
+  The content lives inside the `TTROS:HERMES:generated-navigation` managed
+  section. It is written only through `brain_memory.managed_section` plus
+  `brain_memory.write_transaction` (commit, push, search and entity refresh),
+  never through the promotion writer, which refuses it. The rule renders links
+  only. Any change to what a note *says*, including a hub page's prose, stays
+  Liam-review tier.
+
+Provenance for any candidate must be either a registered evidence identity in
+the scope registry, or an indexed global Brain pointer. The second is the same
+check `shared_brain_submit` uses (Liam decision D2, 2026-11-06).
 
 ### Liam review required
 
@@ -77,15 +95,38 @@ directly. A promotion is a proposal until Liam accepts it — mirrors the
 
 ## Gate and transaction
 
-No caller writes to the Business Brain outside the promotion writer.
+The real write gate is `brain_memory.write_transaction`. It is the one path that
+commits to the Business Brain: it takes the Brain lock, checks expected hashes,
+runs `git diff --check` and an optional post-write validator, commits, pushes
+when `TTROS_BRAIN_AUTOPUSH` is on, and refreshes search and the entity index.
+The importer, submit, confirm, source intake, nightly hygiene and
+generated_navigation all write through it. The promotion writer is a separate,
+narrower path. It applies only `generated_marker_section` (and accepted
+review-tier proposals), replaces the file directly, and does **not** commit.
 Review-tier work uses the normal `human_review` ACCEPT/REVISE gate;
-deterministic automatic work uses only the single allowlisted rule above. The
-writer validates vault containment, `_backups` exclusion, scope ownership,
+deterministic automatic work uses only the allowlisted rules above. The
+promotion writer validates vault containment, `_backups` exclusion, scope ownership,
 preimage hash, tier and marker; writes through same-directory atomic replace;
 validates the postimage; creates a provenance receipt; and records refresh
 state. If validation or provenance/linkage fails after mutation it atomically
 restores and verifies the exact preimage, records the failed attempt, and
 leaves no successful reference.
+
+## Submit records and the semantic route (decisions D3, D4)
+
+These are policy only. The implementation comes in a later phase.
+
+- **D3.** Hub pages cite `inbox/distilled_packets/` submit records as plain
+  pointers, never wiki-links. The vault validator treats links into `inbox/` as
+  broken. Confirming a submit creates a review-tier proposal to add it to a
+  `decisions/` managed section. Confirmation alone never writes canonical memory.
+- **D4.** `source_intake_semantic` shares field names only with the ChatGPT
+  ingest-note schema. It stays optional and operator-run, and its historical
+  INDEX regex is fixed separately. Filing (identity resolution, navigation,
+  proposals, checks) stays model-free.
+
+Approval for D1–D5: Liam, 2026-11-06,
+`business_brain:inbox/distilled_packets/shared-submit-9ee2033508c914546d5426dcff7e857c.md`.
 
 ## Enforcement
 

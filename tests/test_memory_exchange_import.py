@@ -16,7 +16,8 @@ from unittest import mock
 
 from tools import brain_memory
 from tools.memory_exchange_import import (
-    CANONICAL_REPLACE_FLAG, delink_intake, historical_index_text, list_ready, process, repair_historical_index,
+    CANONICAL_REPLACE_FLAG, delink_intake, historical_index_text, insert_knowledge_type, list_ready, process,
+    repair_historical_index,
     strip_insignificant_whitespace,
 )
 from tools.validate_business_brain import analyze_vault
@@ -248,6 +249,43 @@ class ImportTests(unittest.TestCase):
                           ("stray", "no INGEST_MANIFEST.json, CHECKPOINT.json or SUBMIT.json at the folder's top level")],
                          skipped)
         self.assertEqual([self.pkg], list_ready(self.ready))
+
+    def test_new_note_gets_first_knowledge_type_at_render_time(self):
+        self.manifest["knowledge_types_present"] = ["historical_evidence", "uncertainty"]; self.write()
+        row = self.run_import(False)
+        self.assertEqual("imported", row["outcome"], row.get("reason"))
+        self.assertEqual("historical_evidence", row["outputs"][0]["knowledge_type_inserted"])
+        note = Path(row["outputs"][0]["target"]).read_bytes()
+        self.assertEqual(self.payload.replace(b"type: historical\n---", b"type: historical\nknowledge_type: historical_evidence\n---"), note)
+        self.assertEqual(sha(note), row["outputs"][0]["written_sha256"])
+        self.assertEqual(self.payload, (self.pkg / self.name).read_bytes(), "package evidence is never rewritten")
+        self.assertEqual("already_imported", self.run_import(False)["outcome"])
+
+    def test_existing_note_is_never_relabelled(self):
+        self.manifest["knowledge_types_present"] = ["historical_evidence"]; self.write()
+        target = self.brain / "sources/historical_calls" / Path(self.name).name
+        target.parent.mkdir(parents=True); target.write_bytes(self.payload)
+        row = self.run_import(False)
+        self.assertEqual(("imported", "already_present"), (row["outcome"], row["outputs"][0]["action"]))
+        self.assertEqual(self.payload, target.read_bytes())
+
+    def test_insert_knowledge_type_only_when_missing_and_safe(self):
+        note = "---\nid: n\ntype: knowledge\n---\n# Body\n"
+        self.assertEqual(("---\nid: n\ntype: knowledge\nknowledge_type: open_loop\n---\n# Body\n", "open_loop"),
+                         insert_knowledge_type(note, {"knowledge_types_present": ["open_loop", "uncertainty"]}))
+        self.assertEqual(("---\r\nid: n\r\nknowledge_type: open_loop\r\n---\r\n", "open_loop"),
+                         insert_knowledge_type("---\r\nid: n\r\n---\r\n", {"knowledge_types_present": ["open_loop"]}))
+        declared = "---\nid: n\nknowledge_type: hypothesis\n---\n"
+        for text, manifest in ((declared, {"knowledge_types_present": ["open_loop"]}),           # already declared
+                               ("# No frontmatter\n", {"knowledge_types_present": ["open_loop"]}),
+                               ("---\nid: n\nno closer\n", {"knowledge_types_present": ["open_loop"]}),
+                               (note, {}), (note, {"knowledge_types_present": []}),
+                               (note, {"knowledge_types_present": "open_loop"}),
+                               (note, {"knowledge_types_present": ["Open Loop"]}),
+                               (note, {"knowledge_types_present": ["x\nid: injected"]}),
+                               (note, {"knowledge_types_present": [7]})):
+            with self.subTest(text=text, manifest=manifest):
+                self.assertEqual((text, None), insert_knowledge_type(text, manifest))
 
     def test_canonical_replacement_guards(self):
         self.enterContext(mock.patch.dict(os.environ, {CANONICAL_REPLACE_FLAG: "1"}))
@@ -486,6 +524,14 @@ class ConsumerConfigurationTests(unittest.TestCase):
         self.assertNotIn("business_brain:sources/historical_calls/", glob["brain_pointer_prefixes"])
         self.assertIn("business_brain:sources/historical_calls/", glob["graphify_targets"][0]["path_prefixes"])
         self.assertEqual(registry["denied_brain_pointers"], ["business_brain:memory/north_shore_sales_coach.md"])
+
+    def test_people_hubs_are_searchable_and_graphed_but_not_dashboard_writable(self):
+        """D5 (Liam, 2026-11-06): people/ joins search and Graphify only; brain_pointer_prefixes is the save gate."""
+        glob = json.loads((self.repo / "context/client_scope_registry.json").read_text())["scopes"]["global"]
+        self.assertIn({"source": "business_brain", "path_prefix": "business_brain:people/"}, glob["search_source_identities"])
+        self.assertIn("business_brain:people/", glob["graphify_targets"][0]["path_prefixes"])
+        self.assertFalse(any(p.startswith("business_brain:people") for p in glob["brain_pointer_prefixes"] + glob["brain_pointers"]))
+        self.assertFalse(any("topics/" in json.dumps(row) for row in glob["search_source_identities"]), "topics/ is deferred")
 
 
 def _write(path, text):

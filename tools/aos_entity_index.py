@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Derived, rebuildable entity index for the Memory entity browser.
 
-Revisit: when Business Brain frontmatter or the Memory Ingest manifest gains entity keys. · Last touched: 2026-10-02.
+Revisit: when Business Brain frontmatter or the Memory Ingest manifest gains entity keys. · Last touched: 2026-11-06.
 
 The Business Brain files stay authoritative. This module only reads files the
 existing search index already exposes to the global scope, extracts entities
@@ -36,9 +36,12 @@ import aos_indexer  # noqa: E402
 from business_brain import BUSINESS_BRAIN_PREFIX, BUSINESS_BRAIN_ROOT  # noqa: E402
 
 TOKEN_USAGE_TEXT = "Token usage: no agent invocation"
-INDEX_VERSION = "entity-index-v2"
+# v3: sources/ evidence is labelled historical_evidence and never canonical. Bumping the version
+# changes the fingerprint, so ensure_current() rebuilds the derived index once.
+INDEX_VERSION = "entity-index-v3"
 MEMORY_EXCHANGE_RECEIPTS = aos_indexer.LIVE_ROOT / "queue" / "receipts" / "memory_exchange_import.jsonl"
 CANONICAL_AREAS = ("memory/", "operating_context/", "decisions/", "prospects/")
+EVIDENCE_AREA = "sources/"
 INDEX_NAMES = {"README.md", "INDEX.md", "MEMORY_INDEX.md", "index.md"}
 HONORIFICS = {"dr", "mr", "mrs", "ms", "prof"}
 NAME_RE = re.compile(
@@ -168,14 +171,17 @@ def classify(relative: str, fm: dict, body: str) -> tuple[str, str, str, bool]:
         return "source", source_kind or "source_record", SOURCE_LABELS.get(source_kind, "Source record"), False
     if kind == "source_card":
         return "knowledge", "source_card", KNOWLEDGE_LABELS["source_card"], False
+    # sources/ holds preserved evidence: whatever a note declares, it is never canonical truth.
+    evidence_area = relative.startswith(EVIDENCE_AREA)
     declared = str(fm.get("knowledge_type") or "").strip().lower()
     if declared in KNOWLEDGE_LABELS:
-        return "knowledge", declared, KNOWLEDGE_LABELS[declared], declared not in {"historical_evidence", "interpretation", "hypothesis", "uncertainty"}
+        return "knowledge", declared, KNOWLEDGE_LABELS[declared], (
+            declared not in {"historical_evidence", "interpretation", "hypothesis", "uncertainty"} and not evidence_area)
     posture = TEMPORAL_RE.search(body[:2000])
     if posture:
         value = posture.group(1).lower()
         ktype = "historical_evidence" if value == "historical" else "verified_fact" if value == "current" else value
-        return "knowledge", ktype, KNOWLEDGE_LABELS.get(ktype, value.replace("_", " ").title()), ktype == "verified_fact"
+        return "knowledge", ktype, KNOWLEDGE_LABELS.get(ktype, value.replace("_", " ").title()), ktype == "verified_fact" and not evidence_area
     if relative.startswith("inbox/"):
         return "knowledge", "inbox", KNOWLEDGE_LABELS["inbox"], False
     status = str(fm.get("status") or "").lower()
@@ -191,6 +197,8 @@ def classify(relative: str, fm: dict, body: str) -> tuple[str, str, str, bool]:
     ):
         if relative.startswith(prefix):
             return "knowledge", ktype, KNOWLEDGE_LABELS[ktype], True
+    if evidence_area:
+        return "knowledge", "historical_evidence", KNOWLEDGE_LABELS["historical_evidence"], False
     return "knowledge", "canonical", KNOWLEDGE_LABELS["canonical"], relative.startswith(CANONICAL_AREAS)
 
 

@@ -10,10 +10,10 @@ if str(ROOT / "tools") not in sys.path:
     sys.path.insert(0, str(ROOT / "tools"))
 
 from business_brain_promotion import (
-    AUTOMATIC_TIER, NEVER_TIER, REVIEW_TIER, PromotionCandidate, PromotionError,
-    PromotionWriter, evaluate_promotion, review_proposal, sha256_text,
+    AUTOMATIC_TIER, ENABLED_AUTOMATIC_RULES, NEVER_TIER, PROMOTION_WRITER, REVIEW_TIER, TRANSACTION_WRITER,
+    PromotionCandidate, PromotionError, PromotionWriter, evaluate_promotion, review_proposal, sha256_text,
 )
-from tests.business_brain_test_support import make_registry, write_note
+from tests.business_brain_test_support import make_registry, registry_data, write_note
 
 
 class BusinessBrainPromotionTest(unittest.TestCase):
@@ -194,6 +194,93 @@ class BusinessBrainPromotionTest(unittest.TestCase):
             archived = list((repo / "queue/receipts").glob(f"brain-promotion-{candidate.write_id}-failed-*.json"))
             self.assertEqual(len(archived), 1)
             self.assertEqual(json.loads(archived[0].read_text())["status"], "failed")
+
+
+class GeneratedNavigationRuleTest(unittest.TestCase):
+    """D1: generated_navigation is automatic for navigation link lists only, and never via PromotionWriter."""
+    fixture, candidate = BusinessBrainPromotionTest.fixture, BusinessBrainPromotionTest.candidate
+
+    def nav(self, target_path, **overrides):
+        return self.candidate(target_path, **{"change_class": "generated_navigation", "marker": "generated-navigation",
+                                              "content": "- [[sources/historical_calls/INDEX|Historical Calls]]", **overrides})
+
+    def test_rule_is_registered_with_its_transaction_writer(self):
+        rule = ENABLED_AUTOMATIC_RULES["generated_navigation"]
+        self.assertEqual(TRANSACTION_WRITER, rule["writer"])
+        self.assertEqual({"generated-navigation"}, rule["markers"])
+        self.assertEqual(PROMOTION_WRITER, ENABLED_AUTOMATIC_RULES["generated_marker_section"]["writer"])
+
+    def test_navigation_targets_and_marker_are_automatic_everything_else_is_review(self):
+        data = registry_data()
+        data["scopes"]["global"]["brain_pointers"].append("business_brain:sources/historical_calls/INDEX.md")
+        registry = make_registry(data)
+        with tempfile.TemporaryDirectory() as temp:
+            _repo, vault, target, _writer = self.fixture(Path(temp))
+            write_note(vault / "sources/historical_calls/INDEX.md", "hc-index", "Historical Calls", "Index")
+            result = evaluate_promotion(self.nav(target), registry=registry)
+            self.assertEqual((AUTOMATIC_TIER, TRANSACTION_WRITER), (result["tier"], result["writer"]))
+            folder = evaluate_promotion(self.nav(target, target="business_brain:sources/historical_calls/INDEX.md"), registry=registry)
+            self.assertEqual(AUTOMATIC_TIER, folder["tier"])
+            for overrides in ({"target": "business_brain:memory/global.md"},       # a content note, not navigation
+                              {"marker": "block-2-outcome-index"},                   # another rule's marker
+                              {"change_class": "positioning"}):                     # content change on a nav target
+                with self.subTest(**overrides):
+                    self.assertEqual(REVIEW_TIER, evaluate_promotion(self.nav(target, **overrides), registry=registry)["tier"])
+
+    def test_promotion_writer_refuses_generated_navigation_and_writes_nothing(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo, _vault, target, writer = self.fixture(Path(temp))
+            before = target.read_bytes()
+            with self.assertRaisesRegex(PromotionError, "written only by brain_memory.managed_section"):
+                writer.apply(self.nav(target))
+            self.assertEqual(before, target.read_bytes())
+            self.assertEqual([], list((repo / "queue/receipts").iterdir()))
+
+
+class ProvenanceRuleTest(unittest.TestCase):
+    """D2: provenance is a registered evidence identity OR an indexed global Brain pointer (submit's rule)."""
+    fixture, candidate = BusinessBrainPromotionTest.fixture, BusinessBrainPromotionTest.candidate
+
+    def setUp(self):
+        import sqlite3
+        from unittest import mock
+        import shared_brain_read
+        temp = tempfile.TemporaryDirectory(); self.addCleanup(temp.cleanup)
+        self.root = Path(temp.name)
+        _repo, self.vault, self.target, _writer = self.fixture(self.root)
+        write_note(self.vault / "memory/unindexed.md", "note-unindexed", "Unindexed", "Not in the search index")
+        db = self.root / "index.db"
+        with sqlite3.connect(db) as conn:
+            conn.execute("CREATE TABLE documents (path TEXT, source TEXT, client_scope TEXT)")
+            conn.executemany("INSERT INTO documents VALUES (?, ?, ?)", [
+                ("business_brain:memory/global.md", "business_brain", "global"),
+                ("business_brain:memory/client-a.md", "business_brain", "client-a")])
+        for patcher in (mock.patch.object(shared_brain_read, "VAULT_ROOT", self.vault),
+                        mock.patch.object(shared_brain_read.aos_indexer, "runtime_db_path", lambda path=None: db)):
+            patcher.start(); self.addCleanup(patcher.stop)
+
+    def tier(self, reference):
+        return evaluate_promotion(self.candidate(self.target, provenance_refs=(reference,)), registry=make_registry())
+
+    def test_registered_evidence_identity_is_accepted(self):
+        self.assertEqual(AUTOMATIC_TIER, self.tier("proof:block-2:accepted-block-1")["tier"])
+
+    def test_indexed_global_pointer_is_accepted(self):
+        self.assertEqual(AUTOMATIC_TIER, self.tier("business_brain:memory/global.md")["tier"])
+
+    def test_unindexed_pointer_is_rejected(self):
+        result = self.tier("business_brain:memory/unindexed.md")
+        self.assertEqual(NEVER_TIER, result["tier"])
+        self.assertIn("neither a registered evidence identity nor an indexed global Brain pointer", result["refusal_reason"])
+
+    def test_non_global_pointer_is_rejected(self):
+        self.assertEqual(NEVER_TIER, self.tier("business_brain:memory/client-a.md")["tier"])
+
+    def test_unreadable_index_fails_closed(self):
+        from unittest import mock
+        import shared_brain_read
+        with mock.patch.object(shared_brain_read.aos_indexer, "runtime_db_path", lambda path=None: self.root / "missing.db"):
+            self.assertEqual(NEVER_TIER, self.tier("business_brain:memory/global.md")["tier"])
 
 
 if __name__ == "__main__":

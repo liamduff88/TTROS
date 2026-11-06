@@ -4,13 +4,18 @@ The vault mutation, validation, receipt, and optional run-ledger linkage are one
 recoverable transaction. A transient preimage journal lives under the existing
 queue lock convention and is removed after success or verified rollback.
 
-Revisit: when an automatic change class is enabled or promotion policy changes. · Last touched: 2026-07-15.
+Automatic rules name their writer: generated_navigation (D1) is classified here but
+written only through brain_memory.managed_section + write_transaction. Provenance may be a
+registered evidence identity or an indexed global Brain pointer (D2).
+
+Revisit: when an automatic change class is enabled or promotion policy changes. · Last touched: 2026-11-06.
 """
 
 from __future__ import annotations
 
 import datetime as dt
 import difflib
+import fnmatch
 import hashlib
 import json
 import os
@@ -31,11 +36,23 @@ TOKEN_USAGE_TEXT = "Token usage: no agent invocation"
 AUTOMATIC_TIER = "deterministic_automatic"
 REVIEW_TIER = "liam_review_required"
 NEVER_TIER = "never_promote"
+PROMOTION_WRITER = "business_brain_promotion.PromotionWriter"
+TRANSACTION_WRITER = "brain_memory.managed_section+write_transaction"
+# Each rule names the only writer allowed to apply it. PromotionWriter applies only its own rules.
 ENABLED_AUTOMATIC_RULES = {
     "generated_marker_section": {
         "targets": {"business_brain:index/MEMORY_INDEX.md"},
         "markers": {"block-2-outcome-index"},
-    }
+        "writer": PROMOTION_WRITER,
+    },
+    # D1 (Liam, 2026-11-06; business_brain:inbox/distilled_packets/shared-submit-9ee2033508c914546d5426dcff7e857c.md):
+    # navigation link lists only, inside the HERMES managed section of this id. Content stays review-tier.
+    "generated_navigation": {
+        "targets": {"business_brain:index/MEMORY_INDEX.md"},
+        "target_patterns": ("business_brain:sources/*/INDEX.md", "business_brain:people/*.md"),
+        "markers": {"generated-navigation"},
+        "writer": TRANSACTION_WRITER,
+    },
 }
 REVIEW_CHANGE_CLASSES = {
     "positioning", "pricing", "offers", "client_commitment", "communications_fact",
@@ -81,20 +98,46 @@ def _utc_now() -> str:
     return dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z")
 
 
+def indexed_global_pointer(reference: str) -> bool:
+    """D2: the provenance rule shared_brain_submit._validate uses (an indexed global Brain record)."""
+    try:
+        try:
+            import shared_brain_read
+        except ModuleNotFoundError:
+            from tools import shared_brain_read
+        return shared_brain_read._indexed_target(reference) is not None
+    except Exception:
+        return False  # an unreadable index proves nothing, so the reference fails closed
+
+
+def _validate_provenance(gate: ClientScopeRegistry, client_scope: str, reference: str) -> None:
+    try:
+        gate.validate_evidence_identity(client_scope, reference)
+    except ClientScopeError:
+        if not indexed_global_pointer(reference):
+            raise ClientScopeError(
+                f"provenance is neither a registered evidence identity nor an indexed global Brain pointer: {reference or '(missing)'}")
+
+
+def _rule_covers(rule: dict, canonical: str) -> bool:
+    return canonical in rule["targets"] or any(fnmatch.fnmatchcase(canonical, pattern) for pattern in rule.get("target_patterns", ()))
+
+
 def evaluate_promotion(candidate: PromotionCandidate, *, registry: ClientScopeRegistry | None = None) -> dict[str, Any]:
     gate = registry or load_registry()
     try:
         canonical = gate.validate_brain_pointer(candidate.client_scope, candidate.target)
         for reference in candidate.provenance_refs:
-            gate.validate_evidence_identity(candidate.client_scope, reference)
+            _validate_provenance(gate, candidate.client_scope, reference)
     except ClientScopeError as exc:
         return {"tier": NEVER_TIER, "writable": False, "refusal_reason": f"scope_rejection: {exc}", "candidate_diff": None}
     if candidate.change_class in NEVER_CHANGE_CLASSES:
         return {"tier": NEVER_TIER, "writable": False, "refusal_reason": f"never_promote:{candidate.change_class}", "candidate_diff": None}
     if candidate.change_class in ENABLED_AUTOMATIC_RULES:
         rule = ENABLED_AUTOMATIC_RULES[candidate.change_class]
-        if canonical in rule["targets"] and candidate.marker in rule["markers"]:
-            return {"tier": AUTOMATIC_TIER, "writable": True, "reason": "exact allowlisted target and machine marker"}
+        if _rule_covers(rule, canonical) and candidate.marker in rule["markers"]:
+            return {"tier": AUTOMATIC_TIER, "writable": True, "reason": "exact allowlisted target and machine marker",
+                    "writer": rule["writer"]}
         return {"tier": REVIEW_TIER, "writable": False, "reason_for_review_tier": "automatic rule target or marker mismatch"}
     if candidate.change_class in REVIEW_CHANGE_CLASSES:
         return {"tier": REVIEW_TIER, "writable": False, "reason_for_review_tier": f"always_review:{candidate.change_class}"}
@@ -231,6 +274,9 @@ class PromotionWriter:
             raise PromotionError(evaluation["refusal_reason"])
         if evaluation["tier"] == REVIEW_TIER and not approval_reference:
             raise PromotionError("review-tier promotion has no accepted human_review reference")
+        if evaluation["tier"] == AUTOMATIC_TIER and evaluation["writer"] != PROMOTION_WRITER:
+            # generated_navigation commits through write_transaction; this writer never commits.
+            raise PromotionError(f"{candidate.change_class} is written only by {evaluation['writer']}")
         existing_path = self._receipt_path(candidate.write_id)
         if existing_path.exists():
             try:
