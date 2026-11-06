@@ -5,10 +5,12 @@ This is the script-only job used by the existing Hermes scheduler.  It folds
 only explicitly structured session candidates, reconciles deterministic
 staleness/contradiction state, refreshes the disposable Graphify/search
 publications, and commits only coherent vault-local knowledge transactions.
-It never invokes a model, changes Agentic OS code, pushes, or acts externally.
+It never invokes a model or changes Agentic OS code. Its one external effect is
+the Brain push: the commit goes through brain_memory.write_transaction, which
+pushes the Brain to its origin whenever TTROS_BRAIN_AUTOPUSH is enabled.
 
 Revisit: when session-candidate, Brain transaction, Graphify, or search
-publication contracts change. · Last touched: 2026-10-25.
+publication contracts change. · Last touched: 2026-11-06.
 """
 
 from __future__ import annotations

@@ -8,8 +8,10 @@ imported before it existed (dry-run proves the result on a vault copy).
 Trailing whitespace Markdown ignores is stripped at the same render step, so
 the Brain's `git diff --check` gate cannot block an otherwise valid note; one
 package's failure never stops the rest of the READY queue.
+canonical_replace is refused unless TTROS_MEMORY_ALLOW_CANONICAL_REPLACE=1. Undeclared
+desktop.ini/Thumbs.db files are ignored, and skipped READY folders are reported.
 
-Revisit: when the frozen Memory Ingest manifest contract changes. · Last touched: 2026-11-05.
+Revisit: when the frozen Memory Ingest manifest contract changes. · Last touched: 2026-11-06.
 """
 from __future__ import annotations
 
@@ -45,6 +47,23 @@ OPERATIONS = {"historical_record", "canonical_replace"}
 HISTORICAL_INDEX = "sources/historical_calls/INDEX.md"
 HISTORICAL_INDEX_SECTION = "## Memory Exchange imports"
 HISTORICAL_INDEX_EXEMPT = {"INDEX.md", "MANIFEST.md"}
+# canonical_replace rewrites canonical memory/ notes, so it stays off unless the operator's
+# env file (the one the timer loads) sets this to exactly "1".
+CANONICAL_REPLACE_FLAG = "TTROS_MEMORY_ALLOW_CANONICAL_REPLACE"
+# Files the Windows/Drive shell drops into folders. Undeclared copies are ignored, never read.
+IGNORED_JUNK_FILES = frozenset({"desktop.ini", "thumbs.db"})
+LEDGER = "queue/receipts/memory_exchange_import.jsonl"
+
+
+def canonical_replace_allowed() -> bool:
+    return os.environ.get(CANONICAL_REPLACE_FLAG, "").strip() == "1"
+
+
+def _ignorable_junk(package: Path, name: str) -> bool:
+    """An undeclared shell junk file: matched by name only, and never through a symlink."""
+    path = package / name
+    return (path.name.lower() in IGNORED_JUNK_FILES and path.is_file()
+            and not any(p.is_symlink() for p in (path, *path.parents) if package in p.parents))
 
 
 class ImportFailure(ValueError):
@@ -94,6 +113,8 @@ def _target(brain: Path, output: dict, disposition: str, comparison: dict) -> tu
     operation = output.get("operation")
     if operation not in OPERATIONS:
         raise ImportFailure(f"unsupported operation: {operation}")
+    if operation == "canonical_replace" and not canonical_replace_allowed():
+        raise ImportFailure(f"canonical_replace is disabled; the operator enables it with {CANONICAL_REPLACE_FLAG}=1")
     target = required_dict(output.get("target"), "output.target")
     namespace = target.get("namespace")
     name = target.get("suggested_relative_path")
@@ -184,9 +205,12 @@ def validate(package: Path, brain: Path) -> dict:
         if digest(raw) != sha:
             raise ImportFailure(f"SHA-256 mismatch: {name}")
         file_map[name] = raw
-    # All regular files other than the manifest must be declared; no hidden payloads.
+    # All regular files other than the manifest must be declared; no hidden payloads. The only
+    # exception is undeclared desktop.ini/Thumbs.db: listed here, then never hashed, copied or written.
     actual = {p.relative_to(package).as_posix() for p in package.rglob("*") if p.is_file() or p.is_symlink()}
-    if actual != set(file_map) | {"INGEST_MANIFEST.json"}:
+    declared = set(file_map) | {"INGEST_MANIFEST.json"}
+    ignored = sorted(name for name in actual - declared if _ignorable_junk(package, name))
+    if actual - set(ignored) != declared:
         raise ImportFailure("unexpected or undeclared package file")
     planned = []
     seen_targets = set()
@@ -219,7 +243,8 @@ def validate(package: Path, brain: Path) -> dict:
         seen_targets.add(destination)
         planned.append({"source": source, "target": str(destination), "pointer": pointer,
                         "sha256": sha, "operation": row["operation"], "expected_base_sha256": row["target"].get("expected_base_sha256")})
-    return {"manifest": manifest, "fingerprint": fingerprint, "outputs": planned, "bytes": file_map}
+    return {"manifest": manifest, "fingerprint": fingerprint, "outputs": planned, "bytes": file_map,
+            "ignored_files": ignored}
 
 
 def delink_intake(text: str) -> str:
@@ -601,6 +626,8 @@ def process(package: Path, *, brain: Path = BUSINESS_BRAIN_ROOT, root: Path = RO
                        "external_package_move": "pending", "token_usage": TOKEN_USAGE}
             receipt["sources"] = manifest["sources"]
             receipt["knowledge_types_present"] = manifest.get("knowledge_types_present", [])
+            if plan["ignored_files"]:
+                receipt["ignored_package_files"] = plan["ignored_files"]
             if outcome == "already_imported":
                 # Preserve the successful refresh/closure evidence on an idempotent rerun.
                 for key in ("search_refresh", "graphify_refresh", "commit", "sync_status"):
@@ -703,11 +730,50 @@ def _null_context():
     yield
 
 
-def list_ready(ready: Path) -> list[Path]:
+def list_ready(ready: Path, on_skip=None) -> list[Path]:
+    """Packages directly beneath READY. ``on_skip(folder, reason)`` hears each folder left out.
+
+    Plain files (such as READY's own desktop.ini) are not folders and are passed over silently.
+    """
     if not ready.is_dir():
         return []
-    return sorted(p for p in ready.iterdir() if p.is_dir() and not p.is_symlink()
-                  and ((p / "INGEST_MANIFEST.json").is_file() or (p / "CHECKPOINT.json").is_file() or (p / "SUBMIT.json").is_file()))
+    packages = []
+    for p in sorted(ready.iterdir()):
+        if p.is_symlink():
+            reason = "symlinked folder is never followed"
+        elif not p.is_dir():
+            continue
+        elif (p / "INGEST_MANIFEST.json").is_file() or (p / "CHECKPOINT.json").is_file() or (p / "SUBMIT.json").is_file():
+            packages.append(p)
+            continue
+        else:
+            reason = "no INGEST_MANIFEST.json, CHECKPOINT.json or SUBMIT.json at the folder's top level"
+        if on_skip:
+            on_skip(p, reason)
+    return packages
+
+
+def _report_skipped(root: Path, *, dry_run: bool):
+    """Print every skipped READY folder; add a ledger note only when its skip reason is new.
+
+    The timer polls every two minutes, and each ledger append changes the entity-index
+    fingerprint, so an unchanged skip is printed again but not re-recorded.
+    """
+    def report(folder: Path, reason: str) -> None:
+        print(f"memory-exchange: skipped READY folder {folder.name!r}: {reason}", flush=True)
+        if dry_run:
+            return
+        ledger = root / LEDGER
+        with locked(root / "queue/locks/memory_exchange_import.lock"):
+            try:
+                latest = next((row for row in reversed(ledger_rows(ledger)) if row.get("package") == folder.name), None)
+            except ImportFailure:
+                latest = None
+            if latest and latest.get("outcome") == "skipped" and latest.get("reason") == reason:
+                return
+            append(ledger, {"outcome": "skipped", "package": folder.name, "reason": reason,
+                            "timestamp": dt.datetime.now(dt.timezone.utc).isoformat(), "token_usage": TOKEN_USAGE})
+    return report
 
 
 class DirectoryTransport:
@@ -717,8 +783,8 @@ class DirectoryTransport:
                  source: Path | None = None):
         self.source, self.ready, self.imported, self.rejected = source, ready, imported, rejected
 
-    def list_ready_packages(self) -> list[Path]:
-        return list_ready(self.ready)
+    def list_ready_packages(self, on_skip=None) -> list[Path]:
+        return list_ready(self.ready, on_skip)
 
     def materialize(self, package: Path) -> Path:
         if package.parent != self.ready or package not in self.list_ready_packages():
@@ -829,7 +895,8 @@ def main() -> int:
     if args.package and transport:
         packages = [transport.materialize(args.package)]
     else:
-        packages = [args.package] if args.package else transport.list_ready_packages()
+        packages = [args.package] if args.package else transport.list_ready_packages(
+            _report_skipped(args.root, dry_run=args.dry_run))
     if args.checkpoint_only:
         packages = [package for package in packages if (package / "CHECKPOINT.json").is_file()]
     if args.typed_only:

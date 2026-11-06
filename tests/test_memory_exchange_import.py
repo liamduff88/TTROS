@@ -1,10 +1,11 @@
 """Memory Exchange v2 deterministic importer tests.
 
-Revisit: when the Memory Ingest v2 contract changes. · Last touched: 2026-10-25.
+Revisit: when the Memory Ingest v2 contract changes. · Last touched: 2026-11-06.
 """
 import copy
 import hashlib
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -15,7 +16,7 @@ from unittest import mock
 
 from tools import brain_memory
 from tools.memory_exchange_import import (
-    delink_intake, historical_index_text, list_ready, process, repair_historical_index,
+    CANONICAL_REPLACE_FLAG, delink_intake, historical_index_text, list_ready, process, repair_historical_index,
     strip_insignificant_whitespace,
 )
 from tools.validate_business_brain import analyze_vault
@@ -177,7 +178,79 @@ class ImportTests(unittest.TestCase):
         target.write_text("different")
         self.assertIn("target collision", self.run_import()["reason"])
 
+    def _canonical_replace(self):
+        """A canonical_replace package whose base hash matches an existing memory/ target."""
+        self.manifest["package_disposition"] = "canonical_changes"
+        self.manifest["canonical_comparison"]["status"] = "complete"
+        target = self.brain / "memory" / self.name; target.parent.mkdir(parents=True)
+        target.write_text("base")
+        self.manifest["outputs"][0].update(
+            operation="canonical_replace", temporal_posture="current",
+            target={"namespace": "canonical", "suggested_relative_path": self.name,
+                    "canonical_ref": "business_brain:memory/historical/kenneth-nikshen-targeting-2026-09-18.md",
+                    "expected_base_sha256": sha(b"base")})
+        self.write()
+
+    def test_canonical_replace_is_rejected_unless_the_operator_flag_is_1(self):
+        self._canonical_replace()
+        for value in (None, "", "0", "true", "yes"):
+            with self.subTest(flag=value), mock.patch.dict(os.environ, {}, clear=False):
+                os.environ.pop(CANONICAL_REPLACE_FLAG, None)
+                if value is not None:
+                    os.environ[CANONICAL_REPLACE_FLAG] = value
+                row = self.run_import()
+                self.assertEqual("rejected", row["outcome"])
+                self.assertIn(f"canonical_replace is disabled; the operator enables it with {CANONICAL_REPLACE_FLAG}=1",
+                              row["reason"])
+        with mock.patch.dict(os.environ, {CANONICAL_REPLACE_FLAG: "1"}):
+            row = self.run_import()
+        self.assertEqual("validated", row["outcome"], row.get("reason"))
+        self.assertEqual("replace", row["outputs"][0]["action"])
+
+    def test_undeclared_shell_junk_is_ignored_and_never_read_or_written(self):
+        junk = [self.pkg / "desktop.ini", self.pkg / "historical/DESKTOP.INI", self.pkg / "historical/Thumbs.db",
+                self.pkg / "deep/nested/thumbs.DB"]
+        for path in junk:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b"junk")
+            path.chmod(0)  # any attempt to hash or copy the file would raise
+        self.addCleanup(lambda: [p.chmod(0o600) for p in junk])
+        row = self.run_import()
+        self.assertEqual("validated", row["outcome"], row.get("reason"))
+        self.assertEqual(["deep/nested/thumbs.DB", "desktop.ini", "historical/DESKTOP.INI", "historical/Thumbs.db"],
+                         row["ignored_package_files"])
+        imported = self.run_import(False)
+        self.assertEqual("imported", imported["outcome"], imported.get("reason"))
+        self.assertEqual([o["pointer"] for o in imported["outputs"]],
+                         ["business_brain:sources/historical_calls/kenneth-nikshen-targeting-2026-09-18.md"])
+        written = sorted(p.relative_to(self.brain).as_posix() for p in self.brain.rglob("*") if p.is_file())
+        self.assertEqual(["sources/historical_calls/kenneth-nikshen-targeting-2026-09-18.md"], written)
+
+    def test_every_other_undeclared_file_is_still_rejected(self):
+        for name in ("notes.txt", "desktop.ini.md", "historical/desktop.ini.bak", "thumbs.db.exe", ".DS_Store"):
+            with self.subTest(name=name):
+                self.setUp()
+                (self.pkg / name).parent.mkdir(parents=True, exist_ok=True)
+                (self.pkg / name).write_text("x")
+                self.assertIn("unexpected or undeclared", self.run_import()["reason"])
+        with self.subTest(name="symlinked desktop.ini"):
+            self.setUp()
+            (self.pkg / "desktop.ini").symlink_to(self.pkg / self.name)
+            self.assertIn("unexpected or undeclared", self.run_import()["reason"])
+
+    def test_list_ready_reports_each_skipped_folder_without_changing_discovery(self):
+        (self.ready / "stray").mkdir(); (self.ready / "stray/notes.txt").write_text("x")
+        (self.ready / "linked").symlink_to(self.pkg)
+        (self.ready / "desktop.ini").write_text("[.ShellClassInfo]\n")
+        skipped = []
+        self.assertEqual([self.pkg], list_ready(self.ready, lambda folder, reason: skipped.append((folder.name, reason))))
+        self.assertEqual([("linked", "symlinked folder is never followed"),
+                          ("stray", "no INGEST_MANIFEST.json, CHECKPOINT.json or SUBMIT.json at the folder's top level")],
+                         skipped)
+        self.assertEqual([self.pkg], list_ready(self.ready))
+
     def test_canonical_replacement_guards(self):
+        self.enterContext(mock.patch.dict(os.environ, {CANONICAL_REPLACE_FLAG: "1"}))
         self.manifest["package_disposition"] = "canonical_changes"
         self.manifest["canonical_comparison"]["status"] = "complete"
         out = self.manifest["outputs"][0]
@@ -352,6 +425,35 @@ class ConsumerReceiptTests(unittest.TestCase):
         self.assertEqual(self.consume(), 0)
         self.assertTrue((self.imported / (self.pkg.name + ".IMPORT_RECEIPT.json")).is_file())
         self.assertFalse(self.pkg.exists())
+
+    def test_skipped_ready_folder_is_printed_every_poll_and_noted_once(self):
+        from unittest.mock import patch
+        from tools import memory_exchange_import as mod
+        (self.ready / "stray").mkdir(); (self.ready / "stray/notes.txt").write_text("x")
+        self.imported, self.rejected = self.root / "04_IMPORTED", self.root / "05_REJECTED"
+        argv = ["memory_exchange_import.py", "--ready", str(self.ready), "--brain", str(self.brain),
+                "--root", str(self.root), "--imported", str(self.imported), "--rejected", str(self.rejected), "--move"]
+        line = ("memory-exchange: skipped READY folder 'stray': "
+                "no INGEST_MANIFEST.json, CHECKPOINT.json or SUBMIT.json at the folder's top level")
+        for _poll in range(2):
+            with patch.object(sys, "argv", argv), patch.object(mod, "_refresh", lambda p, b, r: covered(p)), \
+                    patch("builtins.print") as printed:
+                self.assertEqual(0, mod.main())
+            self.assertIn(mock.call(line, flush=True), printed.call_args_list)
+        rows = [json.loads(l) for l in (self.root / "queue/receipts/memory_exchange_import.jsonl").read_text().splitlines()]
+        notes = [row for row in rows if row["outcome"] == "skipped"]
+        self.assertEqual([("stray", line.split(": ", 2)[2])], [(row["package"], row["reason"]) for row in notes])
+        self.assertTrue((self.ready / "stray").is_dir(), "a skipped folder is never moved")
+        self.assertTrue((self.imported / self.pkg.name).is_dir(), "the valid package is still imported")
+
+    def test_dry_run_prints_skipped_folders_but_writes_no_ledger(self):
+        (self.ready / "stray").mkdir()
+        command = [sys.executable, str(Path(__file__).resolve().parents[1] / "tools/memory_exchange_import.py"),
+                   "--ready", str(self.ready), "--brain", str(self.brain), "--root", str(self.root), "--dry-run"]
+        result = subprocess.run(command, capture_output=True, text=True, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("memory-exchange: skipped READY folder 'stray'", result.stdout)
+        self.assertFalse((self.root / "queue/receipts/memory_exchange_import.jsonl").exists())
 
     def test_rejected_manifest_gets_receipt_typed_package_does_not(self):
         import os
