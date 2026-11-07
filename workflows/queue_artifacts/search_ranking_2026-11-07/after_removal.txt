@@ -1,0 +1,60 @@
+snapshot after_removal (model calls: 0 of declared max 0)
+[queries] how to get my first paying customers
+   1. sources/historical_calls/undated-chris-donnelly-build-million-business-098e5a08/INDEX.md  |  Chris Donnelly: How to build a million-turnover business without selli
+   2. sources/historical_calls/undated-chris-donnelly-build-million-business-098e5a08/free-to-paid-conversion.md  |  Chris Donnelly: Converting initial users to paying customers
+   3. sources/historical_calls/undated-chris-donnelly-build-million-business-098e5a08/micro-plan-paying-customers.md  |  Chris Donnelly: Micro-plan and 100 paying customers
+[queries] how often should I post on LinkedIn
+   1. sources/historical_calls/undated-chris-donnelly-linkedin-bible-2026-71a9ee9c/content-repurposing.md  |  Chris Donnelly: Content repurposing across channels
+   2. sources/historical_calls/undated-chris-donnelly-linkedin-bible-2026-71a9ee9c/linkedin-engagement.md  |  Chris Donnelly: Engagement and community participation
+   3. sources/historical_calls/undated-chris-donnelly-linkedin-bible-2026-71a9ee9c/post-types-and-mix.md  |  Chris Donnelly: Lead-generation post formats and mix
+[queries] lead magnet ideas to collect emails
+   1. sources/historical_calls/undated-chris-donnelly-linkedin-bible-2026-71a9ee9c/owned-email-audience.md  |  Chris Donnelly: Owned email audience strategy
+   2. sources/historical_calls/undated-lara-acosta-linkedin-content-strategy-2026-7ded0d7c/three-value-bridge-lead-magnets.md  |  Lara Acosta: Three value-bridge lead magnets
+   3. sources/historical_calls/undated-chris-donnelly-build-million-business-098e5a08/INDEX.md  |  Chris Donnelly: How to build a million-turnover business without selli
+[queries] who did I talk to about scheduler beta testing
+   1. sources/historical_calls/2026-11-04-ryan-spencer-liam-first-meeting-491e7000/scheduler-beta-testing.md  |  Ryan Spencer / Liam: Scheduler beta testing arrangement (4 Nov 2026)
+   2. sources/historical_calls/2026-11-04-ryan-spencer-liam-first-meeting-491e7000/INDEX.md  |  Ryan Spencer / Liam: first meeting on scheduler, marketing and collabo
+   3. sources/historical_calls/2026-11-04-ryan-spencer-liam-first-meeting-491e7000/ryan-directory-website.md  |  Ryan Spencer / Liam: Ryan's resource-directory website proposal (4 Nov
+[controls] Ryan Spencer
+   1. people/ryan-spencer.md  |  Ryan Spencer
+   2. sources/historical_calls/2026-11-04-ryan-spencer-liam-first-meeting-491e7000/ryan-directory-website.md  |  Ryan Spencer / Liam: Ryan's resource-directory website proposal (4 Nov
+   3. sources/historical_calls/2026-11-04-ryan-spencer-liam-first-meeting-491e7000/coaching-services-exchange.md  |  Ryan Spencer / Liam: Coaching and mutual service exchange (4 Nov 2026)
+[controls] Chris Donnelly
+   1. people/chris-donnelly.md  |  Chris Donnelly
+   2. sources/historical_calls/undated-chris-donnelly-linkedin-bible-2026-71a9ee9c/ideal-client-profile.md  |  Chris Donnelly: Ideal client profile framework
+   3. sources/historical_calls/undated-chris-donnelly-build-million-business-098e5a08/founder-brand-ideal-customers.md  |  Chris Donnelly: Founder marketing for ideal customers
+[controls] Kenneth CCI
+   1. people/kenneth-moodley.md  |  Kenneth Moodley
+   2. sources/historical_calls/INDEX.md  |  Historical Calls — Records Index
+   3. inbox/distilled_packets/shared-submit-bbeb744f722cae1756ebcb6e78f52c1b.md  |  CCI/TRACC opportunity — Kenneth and Liam, 2026-10-05
+[controls] Andrea Roberts
+   1. people/andrea-roberts.md  |  Andrea Roberts
+   2. people/INDEX.md  |  People
+   3. sources/historical_calls/INDEX.md  |  Historical Calls — Records Index
+[controls] What did Fred say about MLS
+   1. sources/historical_calls/undated-chris-donnelly-linkedin-bible-2026-71a9ee9c/positioning-statement.md  |  Chris Donnelly: Specific positioning statement
+   2. sources/historical_calls/2026-11-04-ryan-spencer-liam-first-meeting-491e7000/personal-vs-company-brand.md  |  Ryan Spencer / Liam: Personal versus company branding (4 Nov 2026)
+   3. sources/historical_calls/undated-lara-acosta-linkedin-content-strategy-2026-7ded0d7c/documenting-building-in-public.md  |  Lara Acosta: Documenting work in public
+[david search_calls] {
+ "who did I talk to about scheduler beta testing": [
+  "sources/historical_calls/2026-11-04-ryan-spencer-liam-first-meeting-491e7000/scheduler-beta-testing.md",
+  "sources/historical_calls/2026-11-04-ryan-spencer-liam-first-meeting-491e7000/INDEX.md",
+  "sources/historical_calls/2026-11-04-ryan-spencer-liam-first-meeting-491e7000/ryan-directory-website.md"
+ ]
+}
+[david card prefetch] {
+ "Ryan Spencer": [],
+ "Chris Donnelly": [],
+ "Kenneth CCI": [],
+ "Andrea Roberts": [],
+ "What did Fred say about MLS": [],
+ "how to get my first paying customers": [],
+ "how often should I post on LinkedIn": [],
+ "lead magnet ideas to collect emails": [],
+ "who did I talk to about scheduler beta testing": []
+}
+[graph] {"nodes": 869, "edges": 1171, "sha256": "504d01932226cdcf71e7b1c6ae8b1375f410927430e590a9e6f86945aba28a7c"}
+[entities] {"person:ryan-spencer": {"knowledge": 12, "sources": 1}, "person:chris-donnelly": {"knowledge": 24, "sources": 2}}
+[entity_tables] {"documents": 5023, "entities": 273, "entity_aliases": 293, "entity_links": 425}
+[vault] {"status": "PASS", "canonical_note_count": 298, "broken_links": 0, "unreachable": 0, "failed_checks": []}
+[v3_record_titles] {"491e7000": "title: \"Original: Ryan Spencer / Liam: first meeting on scheduler, marketing and collaboration (4 Nov 2026)\"", "098e5a08": "title: \"Original: Chris Donnelly: How to build a million-turnover business without selling your time\"", "7ded0d7c": "title: \"Original: Lara Acosta: LinkedIn 4-3-2-1 strategy and audience conversion\"", "f44cccaa": "title: \"Original: Nick Saraev: AI consulting method for 2027\""}
