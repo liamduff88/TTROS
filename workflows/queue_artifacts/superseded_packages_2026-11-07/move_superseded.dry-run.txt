@@ -1,0 +1,79 @@
+move superseded pre-v3 packages, dry-run (model calls: 0 of declared max 0)
+dropped package IDs: 35
+ledger rows still naming one of them: 0 []
+READY before: ['desktop.ini']
+IMPORTED entries before: 131; SUPERSEDED exists: False
+watched suffixes before: IMPORTED ['INGEST_20261008_customer-research-decisions_88e0ed70f72a', 'INGEST_20261008_launch-growth-design_88e0ed70f72a', 'INGEST_20261008_production-agent-delivery_88e0ed70f72a', 'INGEST_20261026_ai-department-retainer-tools_6e9806531b13', 'INGEST_20261026_paid-assessment-proposal-demo_6e9806531b13', 'INGEST_20261026_warm-referral-acquisition_6e9806531b13'] READY []
+folders matched: 35; IDs with no folder: []; IDs with >1 folder: {}
+v3 folders in the move set: []
+entries to move: 70
+  INGEST_20261001T004700-0700_kenneth-20260918-meeting
+  INGEST_20261001T004700-0700_kenneth-20260918-meeting.IMPORT_RECEIPT.json
+  INGEST_20261007_talking-websites_a419ccc4959a
+  INGEST_20261007_talking-websites_a419ccc4959a.IMPORT_RECEIPT.json
+  INGEST_20261008_arpi-collaboration_six-source
+  INGEST_20261008_arpi-collaboration_six-source.IMPORT_RECEIPT.json
+  INGEST_20261008_cci-ai-future_six-source
+  INGEST_20261008_cci-ai-future_six-source.IMPORT_RECEIPT.json
+  INGEST_20261008_community-building_six-source
+  INGEST_20261008_community-building_six-source.IMPORT_RECEIPT.json
+  INGEST_20261008_customer-research-decisions_88e0ed70f72a
+  INGEST_20261008_customer-research-decisions_88e0ed70f72a.IMPORT_RECEIPT.json
+  INGEST_20261008_fred-dashboard_six-source
+  INGEST_20261008_fred-dashboard_six-source.IMPORT_RECEIPT.json
+  INGEST_20261008_fred-document-privacy_six-source
+  INGEST_20261008_fred-document-privacy_six-source.IMPORT_RECEIPT.json
+  INGEST_20261008_grand-network_six-source
+  INGEST_20261008_grand-network_six-source.IMPORT_RECEIPT.json
+  INGEST_20261008_kenneth-outreach_six-source
+  INGEST_20261008_kenneth-outreach_six-source.IMPORT_RECEIPT.json
+  INGEST_20261008_launch-growth-design_88e0ed70f72a
+  INGEST_20261008_launch-growth-design_88e0ed70f72a.IMPORT_RECEIPT.json
+  INGEST_20261008_liam-career_six-source
+  INGEST_20261008_liam-career_six-source.IMPORT_RECEIPT.json
+  INGEST_20261008_production-agent-delivery_88e0ed70f72a
+  INGEST_20261008_production-agent-delivery_88e0ed70f72a.IMPORT_RECEIPT.json
+  INGEST_20261008_project-flow-scheduler_six-source
+  INGEST_20261008_project-flow-scheduler_six-source.IMPORT_RECEIPT.json
+  INGEST_20261009_jenny-bun_f1c71c361e1c
+  INGEST_20261009_jenny-bun_f1c71c361e1c.IMPORT_RECEIPT.json
+  INGEST_20261009_liam-workflows_f1c71c361e1c
+  INGEST_20261009_liam-workflows_f1c71c361e1c.IMPORT_RECEIPT.json
+  INGEST_20261026_ai-department-retainer-tools_6e9806531b13
+  INGEST_20261026_ai-department-retainer-tools_6e9806531b13.IMPORT_RECEIPT.json
+  INGEST_20261026_ai-workflows_9fae9db6dd69
+  INGEST_20261026_ai-workflows_9fae9db6dd69.IMPORT_RECEIPT.json
+  INGEST_20261026_conversion-funnels_de2d3b812a8c
+  INGEST_20261026_conversion-funnels_de2d3b812a8c.IMPORT_RECEIPT.json
+  INGEST_20261026_dream100-acquisition_de2d3b812a8c
+  INGEST_20261026_dream100-acquisition_de2d3b812a8c.IMPORT_RECEIPT.json
+  INGEST_20261026_language-to-action_9fae9db6dd69
+  INGEST_20261026_language-to-action_9fae9db6dd69.IMPORT_RECEIPT.json
+  INGEST_20261026_main-street-targeting_de2d3b812a8c
+  INGEST_20261026_main-street-targeting_de2d3b812a8c.IMPORT_RECEIPT.json
+  INGEST_20261026_paid-assessment-proposal-demo_6e9806531b13
+  INGEST_20261026_paid-assessment-proposal-demo_6e9806531b13.IMPORT_RECEIPT.json
+  INGEST_20261026_warm-referral-acquisition_6e9806531b13
+  INGEST_20261026_warm-referral-acquisition_6e9806531b13.IMPORT_RECEIPT.json
+  INGEST_20261028_amber-barter-terms-d2d12ee6
+  INGEST_20261028_amber-barter-terms-d2d12ee6.IMPORT_RECEIPT.json
+  INGEST_20261028_amber-followups-d2d12ee6
+  INGEST_20261028_amber-followups-d2d12ee6.IMPORT_RECEIPT.json
+  INGEST_20261028_amber-ttr-discovery-d2d12ee6
+  INGEST_20261028_amber-ttr-discovery-d2d12ee6.IMPORT_RECEIPT.json
+  INGEST_20261028_gtm-account-signals-f9e36fa6
+  INGEST_20261028_gtm-account-signals-f9e36fa6.IMPORT_RECEIPT.json
+  INGEST_20261028_gtm-playbooks-trust-f9e36fa6
+  INGEST_20261028_gtm-playbooks-trust-f9e36fa6.IMPORT_RECEIPT.json
+  INGEST_20261028_gtm-relevance-outreach-f9e36fa6
+  INGEST_20261028_gtm-relevance-outreach-f9e36fa6.IMPORT_RECEIPT.json
+  INGEST_20261030_john-installers-c0d40c0e
+  INGEST_20261030_john-installers-c0d40c0e.IMPORT_RECEIPT.json
+  INGEST_20261030_john-operations-c0d40c0e
+  INGEST_20261030_john-operations-c0d40c0e.IMPORT_RECEIPT.json
+  INGEST_20261030_john-products-c0d40c0e
+  INGEST_20261030_john-products-c0d40c0e.IMPORT_RECEIPT.json
+  INGEST_20261030_john-shipping-c0d40c0e
+  INGEST_20261030_john-shipping-c0d40c0e.IMPORT_RECEIPT.json
+  INGEST_20261030_john-training-marketing-c0d40c0e
+  INGEST_20261030_john-training-marketing-c0d40c0e.IMPORT_RECEIPT.json

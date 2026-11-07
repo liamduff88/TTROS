@@ -1,0 +1,3 @@
+negative rehearsal: v3 Lara package id MI-lara-acosta-linkedin-content-strategy-2026-7ded0d7cd9d8 ledger rows: 4 (live-row gate would trip if >0)
+v3 name gate on Lara folder: True
+watch regex on a _6e9806531b13 name: True
