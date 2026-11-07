@@ -1,0 +1,396 @@
+[
+ {
+  "id": "V1",
+  "who": "Dr Kenneth Moodley; Nikshen; CCI",
+  "filename": "Meeting with Kenneth friday sept 18th(2).txt",
+  "sha": "9a7b988b",
+  "match": "sha256",
+  "hits": [
+   "Meeting with Kenneth friday sept 18th.txt"
+  ]
+ },
+ {
+  "id": "V2",
+  "who": "Arpi (first name only, SEO specialist); Liam",
+  "filename": "Meeting wit Arpi.txt",
+  "sha": "fbf9c589",
+  "match": "sha256",
+  "hits": [
+   "Careers and AI strategy with Arpi.txt",
+   "Meeting wit Arpi.txt"
+  ]
+ },
+ {
+  "id": "V3",
+  "who": "Grand Connection group: Susan Jarema, Brian Gray, Danielle Benzon, Krystal Hille",
+  "filename": "Meeting Title Grand Connection.txt",
+  "sha": "99f577a8",
+  "match": "sha256",
+  "hits": [
+   "Meeting Title Grand Connection.txt"
+  ]
+ },
+ {
+  "id": "V4",
+  "who": "Fred Haiderzada",
+  "filename": "Fred meeting Dashboard first walkthrough and feedback.txt",
+  "sha": "c2aaf6bb",
+  "match": "sha256",
+  "hits": [
+   "Fred meeting Dashboard first walkthrough and feedback.txt"
+  ]
+ },
+ {
+  "id": "V5",
+  "who": "Fred Haiderzada",
+  "filename": "meeting with fred re dashboard Oct.txt",
+  "sha": "08b18645",
+  "match": "sha256",
+  "hits": [
+   "meeting with fred re dashboard Oct.txt"
+  ]
+ },
+ {
+  "id": "V6",
+  "who": "External video; presenter not named",
+  "filename": "8 GitHub Repos To Go Viral and Make Money.txt",
+  "sha": "88e0ed70",
+  "match": "sha256",
+  "hits": [
+   "8 GitHub Repos To Go Viral and Make Money.txt"
+  ]
+ },
+ {
+  "id": "V7",
+  "who": "External video; presenter not named",
+  "filename": "How I sell \"Talking Websites\" ... (FULL Guide 2026).txt",
+  "sha": "a419ccc4",
+  "match": "sha256",
+  "hits": [
+   "How I sell \u201cTalking Websites\u201d to local businesses for 499per mo (FULL Guide 2026).txt"
+  ]
+ },
+ {
+  "id": "V8",
+  "who": "Jenny Holly Hansen (BUN); Kenneth mentioned as introducer",
+  "filename": "1st meeting with Jenny Holly hansen BUN business unlimited network.txt",
+  "sha": "f1c71c36",
+  "match": "sha256",
+  "hits": [
+   "1st meeting with Jenny Holly hansen BUN business unlimited network.txt"
+  ]
+ },
+ {
+  "id": "V9",
+  "who": "Jake Van Clief (external)",
+  "filename": "Do You Actually Need AI Agents - Jake Van Clief.txt",
+  "sha": "9fae9db6",
+  "match": "sha256",
+  "hits": [
+   "Do You Actually Need AI Agents - Jake Van Clief.txt"
+  ]
+ },
+ {
+  "id": "V10",
+  "who": "Greg Isenberg (external)",
+  "filename": "The $1,000 per hour 1-person AI business -Greg Isenberg.txt",
+  "sha": "de2d3b81",
+  "match": "sha256",
+  "hits": [
+   "The $1,000 per hour 1-person AI business -Greg Isenberg.txt"
+  ]
+ },
+ {
+  "id": "V11",
+  "who": "External video/podcast; speakers not named",
+  "filename": "Sounds Too Simple, But One Client Pays $15K per Month.txt",
+  "sha": "6e980653",
+  "match": "sha256",
+  "hits": [
+   "Sounds Too Simple, But One Client Pays $15K per Month.txt"
+  ]
+ },
+ {
+  "id": "V12",
+  "who": "Amber Noakes (barter network)",
+  "filename": "Amber Noakes Barter network 1st call.txt",
+  "sha": "d2d12ee6",
+  "match": "sha256",
+  "hits": [
+   "Amber Noakes Barter network 1st call.txt"
+  ]
+ },
+ {
+  "id": "V13",
+  "who": "Alex, CEO of Frontal (external; surname not given)",
+  "filename": "I Asked a GTM Expert How He Finds Buyers Nobody Else Can See.txt",
+  "sha": "f9e36fa6",
+  "match": "sha256",
+  "hits": [
+   "I Asked a GTM Expert How He Finds Buyers Nobody Else Can See.txt"
+  ]
+ },
+ {
+  "id": "V14",
+  "who": "John, or Jean Bach (identity not confirmed: the request said John, the filename ",
+  "filename": "meeting with Jean bach and Liam oct 10th.txt",
+  "sha": "d187ca2c",
+  "match": "sha256",
+  "hits": [
+   "meeting with Jean bach and Liam oct 10th.txt"
+  ]
+ },
+ {
+  "id": "L1",
+  "who": "Andrea Roberts",
+  "filename": "Meeting Title meeting with Andrea roberts.txt",
+  "sha": "b890ee5b656f087875dbd4e3e60f2437391adccc2a9bc606779ce7c9f50555a2",
+  "match": "sha256",
+  "hits": [
+   "Meeting Title meeting with Andrea roberts.txt"
+  ]
+ },
+ {
+  "id": "L2",
+  "who": "Andrea (surname inferred)",
+  "filename": "second call with Andrea.txt",
+  "sha": "d26174810ddeb226bf80c55b04d8154f3fe40104a2671ffa5fe154b8fc28b7f9",
+  "match": "sha256",
+  "hits": [
+   "second call with Andrea.txt"
+  ]
+ },
+ {
+  "id": "L3",
+  "who": "Dr Kenneth Moodley",
+  "filename": "Call with Dr Kenneth after 2nd cci call.md",
+  "sha": "d38f763f650282c80370b0bee705066f68aeac56493c0a97a39d597254dfd5f1",
+  "match": "sha256",
+  "hits": [
+   "Call with Dr Kenneth after 2nd cci call.md"
+  ]
+ },
+ {
+  "id": "L4",
+  "who": "Dr Kenneth Moodley",
+  "filename": "Call with Kenneth after first CCI call.md",
+  "sha": "350d9a1f8bc4ea5b2cf275071c0ed8c964abc1df78677fe33ee76ebfaab653eb",
+  "match": "sha256",
+  "hits": [
+   "Call with Kenneth after first CCI call.md"
+  ]
+ },
+ {
+  "id": "L5",
+  "who": "CCI; Ollie; Kenneth Moodley",
+  "filename": "second call with CCI Ollie and Kenneth.txt",
+  "sha": "4d80f48274bfa3986cea5851239f293755e75185b7920d2d46ec3abbac4903a2",
+  "match": "sha256",
+  "hits": [
+   "second call with CCI Ollie and Kenneth.txt"
+  ]
+ },
+ {
+  "id": "L6",
+  "who": "CCI (people not attributed)",
+  "filename": "First call with CCI.txt",
+  "sha": "94079fd55c0d1c8c524d119c8f9ca5f0e6ff1993c84c10cd7e0bc437dd818459",
+  "match": "sha256",
+  "hits": [
+   "First call with CCI.txt"
+  ]
+ },
+ {
+  "id": "L7",
+  "who": "Lance; Trent",
+  "filename": "hermes_water_treatment_system_summary_for_trent.md",
+  "sha": "7d3871ea24d861088189fc8695df2016e62eb7de0c7faafb59e5b2b233bfe3dc",
+  "match": "sha256",
+  "hits": [
+   "hermes_water_treatment_system_summary_for_trent (1).md",
+   "hermes_water_treatment_system_summary_for_trent.md"
+  ]
+ },
+ {
+  "id": "L8",
+  "who": "Kenneth Moodley",
+  "filename": "call with Kenneth June 30th.txt",
+  "sha": "bb26a216def6804c1e157a5d1eae13ded3d6dd58a31e90455ed6f3343e899ee6",
+  "match": "sha256",
+  "hits": [
+   "call with Kenneth June 30th.txt"
+  ]
+ },
+ {
+  "id": "L9",
+  "who": "Kenneth Moodley",
+  "filename": "Meeting Title Kenneth meet meeting.txt",
+  "sha": "2b6bda4ca5309207233cfb43bf778b2675f8db5195a6c04faad45bb29720d4c9",
+  "match": "sha256",
+  "hits": [
+   "Meeting Title Kenneth meet meeting.txt"
+  ]
+ },
+ {
+  "id": "L10",
+  "who": "Kenneth Moodley",
+  "filename": "call with kenneth sme new rr.txt",
+  "sha": "02ed7e0a78e267afdcf6bf4ff3b00818f0d7f46c67f56f3660d0bece64c08d5a",
+  "match": "sha256",
+  "hits": [
+   "call with kenneth sme new rr.txt"
+  ]
+ },
+ {
+  "id": "L11",
+  "who": "Ken Stanick (Quinn founder)",
+  "filename": "Meeting Ken Stanick.txt",
+  "sha": "1b59141c713cd108f0eaf1955688a45fabef28d2f207621b036c93e37f2ed81f",
+  "match": "sha256",
+  "hits": [
+   "Meeting Ken Stanick.txt"
+  ]
+ },
+ {
+  "id": "L12",
+  "who": "Mike Knapp",
+  "filename": "TTR_MIKE_KNAPP_MSP_GO_TO_MARKET_CONTEXT_2026-07-22.md",
+  "sha": "23bfff12a4beff560fa5082584511a78e780b6347d1dfeba316740c6c32081a2",
+  "match": "sha256",
+  "hits": [
+   "TTR_MIKE_KNAPP_MSP_GO_TO_MARKET_CONTEXT_2026-07-22.md"
+  ]
+ },
+ {
+  "id": "L13",
+  "who": "Mike Knapp",
+  "filename": "chat with Mike Knapp.txt",
+  "sha": "316f9908a9d7f0ac3c4c2cdd54a1b125088d3c1f86f9d622eff4cb0f921e6bbe",
+  "match": "sha256",
+  "hits": [
+   "chat with Mike Knapp.txt"
+  ]
+ },
+ {
+  "id": "L14",
+  "who": "Trent MacGregor",
+  "filename": "transcript. call with trent 1.txt",
+  "sha": "416b52129c2ff27e170588a3c21e2a8466d69774cb280cafb635a2704c32c74e",
+  "match": "sha256",
+  "hits": [
+   "transcript. call with trent 1.txt"
+  ]
+ },
+ {
+  "id": "L15",
+  "who": "Trent MacGregor",
+  "filename": "trent call transcript july 9th.txt",
+  "sha": "290c72e5efe04be152de33c05694b6dbd1a939264a95d1b83c7bac258d5e552d",
+  "match": "sha256",
+  "hits": [
+   "trent call transcript july 9th.txt"
+  ]
+ },
+ {
+  "id": "I1",
+  "who": "Fred Haiderzada",
+  "filename": "Fred Haiderzada meeting sept 9th.txt",
+  "sha": "d9cb4668fd766474278e414bb53223f944342004f34be23020c161fa4160dd74",
+  "match": "sha256",
+  "hits": [
+   "Fred Haiderzada meeting sept 9th.txt",
+   "Fred meeting transcript.txt"
+  ]
+ },
+ {
+  "id": "I2",
+  "who": "Keith Daser (Deliver Digital)",
+  "filename": "second meeting with Keith Daser.txt",
+  "sha": "6893e4089f95271a02ef2eb27de8a2a3c27c4d2e36172363a84d32dac2187de1",
+  "match": "sha256",
+  "hits": [
+   "second meeting with Keith Daser.txt"
+  ]
+ },
+ {
+  "id": "I3",
+  "who": "Fred Haiderzada",
+  "filename": "Fred Haiderzada meeting sept 22 system walkthrough.txt",
+  "sha": "e5966652b3cb4d4f7d39115fe3571734ff1cb17c47ad1ba32a654c6beb1a6d04",
+  "match": "sha256",
+  "hits": [
+   "Fred Haiderzada meeting sept 22 system walkthrough.txt"
+  ]
+ },
+ {
+  "id": "I4",
+  "who": "Fred Haiderzada \u2014 Fred, Sep 15, AI agent / CMA",
+  "filename": "normalized.md",
+  "sha": "e6992b0d485d63187684730ed01a5812ed31f125a5133c8751a799d450bc1ace",
+  "match": "none",
+  "hits": []
+ },
+ {
+  "id": "I5",
+  "who": "Santosh (Deliver Digital) \u2014 Santosh, Deliver Digital, Sep 15",
+  "filename": "normalized.md",
+  "sha": "57530d71e5d06ce8a863c389ee9270d6ff50018c5f4bbf6717eff7f065de473e",
+  "match": "none",
+  "hits": []
+ },
+ {
+  "id": "I6",
+  "who": "Kendol Mason and others \u2014 Zoom chat log 2026-09-19",
+  "filename": "normalized.md",
+  "sha": "2149e00a1fe53ae50cb4736041405533082c0d99d75847a840fa7ef6d766df56",
+  "match": "none",
+  "hits": []
+ },
+ {
+  "id": "I7",
+  "who": "External video \u2014 \"7 and 1/2 years ago, I started an AI business...\"",
+  "filename": "normalized.md",
+  "sha": "63b30df30a95630e2ebb8a16dc574e0a7cbe09e6ee20714776832b067096a28c",
+  "match": "none",
+  "hits": []
+ },
+ {
+  "id": "I8",
+  "who": "External video (Eden) \u2014 \"This quote has been living in my head...\"",
+  "filename": "normalized.md",
+  "sha": "f03e282e6be46a8dbe037a082c00002c9b9c1e4cf925eb5bc3cb93e7f31d8b6c",
+  "match": "none",
+  "hits": []
+ },
+ {
+  "id": "I9",
+  "who": "Fred Haiderzada \u2014 Fred Hermes Real-Estate Assistant project brief",
+  "filename": "normalized.md",
+  "sha": "05337feeede0e17b00d5d313e0c26427048270081803aa4a8996ab08fa3a71cf",
+  "match": "sha256",
+  "hits": [
+   "Fred_Hermes_Project_Claude_Review_Brief.md"
+  ]
+ },
+ {
+  "id": "I10",
+  "who": "Liam (personal brand) \u2014 \"The Conscious AI Operator\"",
+  "filename": "personal-brand-strategy _1_.md",
+  "sha": "284f9c3400503df41492e49fccfe43c96657965987f5c6610928520e976498d3",
+  "match": "sha256",
+  "hits": [
+   "personal-brand-strategy (1).md",
+   "personal-brand-strategy.md"
+  ]
+ },
+ {
+  "id": "I11",
+  "who": "Liam \u2014 Weekly ideas, 2026-09-13",
+  "filename": "normalized.md",
+  "sha": "eee5588d94c5835d6400f7e683fc6a63fce4af296a0efb0190103713c54ad099",
+  "match": "sha256",
+  "hits": [
+   "Weekly content ideas.md"
+  ]
+ }
+]
