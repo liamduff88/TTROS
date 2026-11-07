@@ -36,9 +36,11 @@ import aos_indexer  # noqa: E402
 from business_brain import BUSINESS_BRAIN_PREFIX, BUSINESS_BRAIN_ROOT  # noqa: E402
 
 TOKEN_USAGE_TEXT = "Token usage: no agent invocation"
-# v3: sources/ evidence is labelled historical_evidence and never canonical. Bumping the version
-# changes the fingerprint, so ensure_current() rebuilds the derived index once.
-INDEX_VERSION = "entity-index-v3"
+# v3: sources/ evidence is labelled historical_evidence and never canonical.
+# v4: people/ person hubs (memory filing, D1 generated navigation) are navigation, like INDEX files.
+# Bumping the version changes the fingerprint, so ensure_current() rebuilds the derived index once.
+INDEX_VERSION = "entity-index-v4"
+PERSON_HUB_AREA = "people/"
 MEMORY_EXCHANGE_RECEIPTS = aos_indexer.LIVE_ROOT / "queue" / "receipts" / "memory_exchange_import.jsonl"
 CANONICAL_AREAS = ("memory/", "operating_context/", "decisions/", "prospects/")
 EVIDENCE_AREA = "sources/"
@@ -166,6 +168,9 @@ def classify(relative: str, fm: dict, body: str) -> tuple[str, str, str, bool]:
     name = Path(relative).name
     if name in INDEX_NAMES or kind in {"index", "navigation"}:
         return "index", "index", KNOWLEDGE_LABELS["index"], False
+    if kind == "person" and relative.startswith(PERSON_HUB_AREA):
+        # A hub is a generated link list: it must not become one more record of the person it lists.
+        return "index", "index", "Person hub · navigation", False
     if kind in {"historical_source", "source"}:
         source_kind = str(fm.get("source_document_kind") or "").lower()
         return "source", source_kind or "source_record", SOURCE_LABELS.get(source_kind, "Source record"), False

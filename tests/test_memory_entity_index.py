@@ -141,6 +141,22 @@ class MemoryEntityIndexTest(unittest.TestCase):
         self.assertEqual(("knowledge", "verified_fact", "Verified / current knowledge", True),
                          E.classify("memory/company.md", {**knowledge, "knowledge_type": "verified_fact"}, ""))
 
+    def test_person_hubs_are_navigation_not_records(self):
+        """v4: a people/ hub (generated link list) never becomes one more record of its person."""
+        hub = {"id": "person-kenneth-moodley", "type": "person", "entity_key": "person:kenneth-moodley"}
+        self.assertEqual(("index", "index", "Person hub · navigation", False), E.classify("people/kenneth-moodley.md", hub, "# Kenneth Moodley\n"))
+        self.assertEqual("knowledge", E.classify("memory/kenneth.md", hub, "")[0], "only hubs under people/ are navigation")
+        docs = {**DOCS, "people/kenneth-moodley.md": "---\nid: person-kenneth-moodley\ntype: person\nentity_key: person:kenneth-moodley\n"
+                "title: \"Kenneth Moodley\"\n---\n# Kenneth Moodley\n\n- [[sources/historical_calls/moodley|Call with Dr Kenneth Moodley]]\n"}
+        with patch.dict(DOCS, docs), tempfile.TemporaryDirectory() as temp:
+            db = self.build(Path(temp))
+            view = E.entity_view("person:kenneth-moodley", db_path=db)
+            paths = {item["path"] for item in view["knowledge"] + view["sources"]}
+            self.assertNotIn("business_brain:people/kenneth-moodley.md", paths)
+            self.assertEqual("index", E.document_meta(["business_brain:people/kenneth-moodley.md"], db_path=db)
+                             ["business_brain:people/kenneth-moodley.md"]["role"])
+            self.assertEqual("single", E.search_entities("Kenneth Moodley", db_path=db)["resolution"])
+
     def test_ensure_current_rebuilds_only_on_change(self):
         with tempfile.TemporaryDirectory() as temp:
             db = self.build(Path(temp))

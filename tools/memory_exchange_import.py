@@ -11,7 +11,10 @@ package's failure never stops the rest of the READY queue.
 canonical_replace is refused unless TTROS_MEMORY_ALLOW_CANONICAL_REPLACE=1. Undeclared
 desktop.ini/Thumbs.db files are ignored, and skipped READY folders are reported.
 A historical note without knowledge_type gets the manifest's first knowledge_types_present
-value at render time.
+value at render time. After a successful import (transaction returned, refresh done) the notes
+are filed by tools/memory_filing.py (generated navigation only). It is on by default and off with
+TTROS_MEMORY_FILING=0. A filing failure leaves the import `imported` with `filing: pending`, and
+the next poll retries it.
 
 Revisit: when the frozen Memory Ingest manifest contract changes. · Last touched: 2026-11-06.
 """
@@ -580,8 +583,41 @@ def _refresh(paths: list[str], brain: Path, root: Path) -> tuple[dict, dict]:
         return search, {"status": "pending", "reason": str(exc)}
 
 
+FILING_FLAG = "TTROS_MEMORY_FILING"
+
+
+def _file_import(filing, receipt: dict, brain: Path, root: Path) -> dict:
+    """Run the filing stage for one finished import. It never raises and never changes the import outcome."""
+    if os.environ.get(FILING_FLAG, "").strip() == "0":
+        return {"status": "disabled", "reason": f"{FILING_FLAG}=0"}
+    pointers = [o["pointer"] for o in receipt["outputs"] if o.get("operation") == "historical_record"]
+    try:
+        if filing is None:
+            from tools import memory_filing
+            filing = memory_filing.file_imported
+        result = filing(pointers, brain=brain, root=root, package_id=receipt["package_id"])
+        return result if isinstance(result, dict) and result.get("status") else {"status": "pending", "reason": "filing returned no status"}
+    except Exception as exc:
+        reason = f"{type(exc).__name__}: {exc}"[-2000:]
+        try:  # leave a filing_pending receipt so the next poll's retry finds these notes
+            from tools import memory_filing
+            memory_filing.record_pending(root, pointers, reason=reason, trigger=f"import:{receipt['package_id']}")
+        except Exception:
+            pass
+        return {"status": "pending", "reason": reason}
+
+
+def _retry_filing(brain: Path, root: Path):
+    """Each poll retries notes whose last filing did not finish. Never affects the import exit status."""
+    try:
+        from tools import memory_filing
+        return memory_filing.retry_pending(brain=brain, root=root)
+    except Exception as exc:
+        return {"outcome": "filing_retry_error", "reason": f"{type(exc).__name__}: {exc}"[-2000:]}
+
+
 def process(package: Path, *, brain: Path = BUSINESS_BRAIN_ROOT, root: Path = ROOT,
-            dry_run: bool = False, refresh=None) -> dict:
+            dry_run: bool = False, refresh=None, filing=None) -> dict:
     if (package / "CHECKPOINT.json").exists():
         return process_checkpoint_package(package, brain=brain, dry_run=dry_run)
     if (package / "SUBMIT.json").exists():
@@ -740,6 +776,9 @@ def process(package: Path, *, brain: Path = BUSINESS_BRAIN_ROOT, root: Path = RO
                 search, graph = {"status": "pending", "reason": str(exc)}, {"status": "pending"}
             receipt["search_refresh"], receipt["graphify_refresh"] = search, graph
             receipt["outcome"] = "imported" if search.get("status") == "success" and graph.get("status") in {"success", "not_applicable"} else "refresh_pending"
+            # Filing runs only now: the Brain transaction has returned and the refresh is done.
+            if receipt["outcome"] == "imported" and use_transaction:
+                receipt["filing"] = _file_import(filing, receipt, brain, root)
             append(ledger, receipt)
             return receipt
         except ImportFailure as exc:
@@ -976,6 +1015,10 @@ def main() -> int:
                         append(args.root / "queue/receipts/memory_exchange_import.jsonl", result)
         results.append(result)
     print(json.dumps(results, indent=2))
+    if not args.dry_run and not (args.checkpoint_only or args.typed_only):
+        retry = _retry_filing(args.brain, args.root)
+        if retry.get("outcome") not in {"nothing_pending", "disabled"}:
+            print("memory-filing retry: " + json.dumps({k: retry.get(k) for k in ("outcome", "reason", "commit", "notes")}), flush=True)
     print(TOKEN_USAGE)
     return 1 if any(r["outcome"] in {"rejected", "refresh_pending", "disabled", "error"} or
                     str(r.get("external_package_move", "")).startswith("pending:") or

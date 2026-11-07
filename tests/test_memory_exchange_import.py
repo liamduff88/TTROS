@@ -605,7 +605,9 @@ class HistoricalTransactionTests(unittest.TestCase):
                         mock.patch("tools.brain_git_closure.push_commit", return_value="local_only"),
                         mock.patch("tools.brain_git_closure.record"),
                         mock.patch("tools.aos_indexer.index_one", return_value={"status": "success"}),
-                        mock.patch("tools.aos_entity_index.ensure_current")):
+                        mock.patch("tools.aos_entity_index.ensure_current"),
+                        # These tests pin the import commit itself; the filing stage has its own tests.
+                        mock.patch.dict(os.environ, {"TTROS_MEMORY_FILING": "0"})):
             patcher.start()
             self.addCleanup(patcher.stop)
 
