@@ -302,6 +302,75 @@ class FilingTransactionTests(unittest.TestCase):
         self.assertIn("business_brain:people/ryan-spencer.md", seen[0], "the retry refreshes the hubs again")
 
 
+class ZeroNoteHubTests(unittest.TestCase):
+    """A hub whose notes were all removed for re-ingest is kept, marked, and only warned about."""
+
+    setUp, git_brain, file = FilingTransactionTests.setUp, FilingTransactionTests.git_brain, FilingTransactionTests.file
+
+    def remove_ryan_notes(self):
+        hc = self.brain / "sources/historical_calls/INDEX.md"
+        hc.write_text("".join(line for line in hc.read_text().splitlines(keepends=True) if "ryan-a" not in line and "ryan-b" not in line))
+        for name in ("ryan-a.md", "ryan-b.md"):
+            (self.brain / "sources/historical_calls" / name).unlink()
+        subprocess.run(["git", "-C", str(self.brain), "add", "-A"], check=True)
+        subprocess.run(["git", "-C", str(self.brain), "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+                        "commit", "-qm", "remove ryan"], check=True)
+
+    def test_zero_note_hub_is_kept_marked_and_filed(self):
+        self.git_brain()
+        self.assertEqual("filed", self.file()["outcome"])
+        self.remove_ryan_notes()
+        receipt = self.file()
+        self.assertEqual("filed", receipt["outcome"], receipt.get("reason"))
+        hub = (self.brain / "people/ryan-spencer.md").read_text(encoding="utf-8")
+        self.assertIn(F.AWAITING, hub)
+        self.assertNotIn("sources/historical_calls/ryan-a", hub)
+        index = (self.brain / "people/INDEX.md").read_text(encoding="utf-8")
+        self.assertIn("- [[people/ryan-spencer|Ryan Spencer]] · no notes yet (awaiting re-ingest)\n", index)
+        self.assertIn("- [[people/ryan-mcveigh|Ryan McVeigh]] · 1 record · latest", index)
+        plan = F.build_plan(self.brain, db_path=self.db)
+        self.assertEqual({"person:ryan-spencer"}, {h["entity_id"] for h in plan["hubs"] if h["awaiting_reingest"]})
+        self.assertEqual("PASS", analyze_vault(self.brain)["status"])
+        self.assertEqual("unchanged", self.file()["outcome"], "the marked render is stable")
+
+    def live(self, hubs, entities=None):
+        graph = {"nodes": [{"kind": "note", "source_path": "business_brain:" + h["relative"], "id": h["relative"]} for h in hubs]
+                 + [{"kind": "note", "source_path": n, "id": n} for h in hubs for n in h["notes"]],
+                 "edges": [{"source": h["relative"], "target": n, "relation": "wiki_link"} for h in hubs for n in h["notes"]]}
+        found = {"groups": {"people": [{"path": "business_brain:" + h["relative"]} for h in hubs]}}
+        exact = [{"entity_id": e, "entity_type": "person", "match": "exact"} for e in (entities or [])]
+        view = {"knowledge": [{"path": n} for h in hubs for n in h["notes"]], "sources": []}
+        with mock.patch.object(F.entity_index, "ensure_current"), \
+                mock.patch.object(F.aos_indexer, "search", return_value=found), \
+                mock.patch.object(F.entity_index, "search_entities", return_value={"entities": exact, "resolution": "none"}), \
+                mock.patch.object(F.entity_index, "entity_view", return_value=view):
+            return F.verify_live({}, brain=self.brain, registry=Registry(), db_path=self.db, hubs=hubs, graph_loader=lambda: graph)
+
+    def test_f5_warns_for_a_zero_note_hub_and_still_fails_a_hub_with_notes(self):
+        empty = {"relative": "people/ryan-spencer.md", "title": "Ryan Spencer", "entity_id": "person:ryan-spencer", "notes": []}
+        full = {"relative": "people/kenneth-moodley.md", "title": "Kenneth Moodley", "entity_id": "person:kenneth-moodley",
+                "notes": ["business_brain:sources/historical_calls/kenneth.md"]}
+        only_empty = self.live([empty])
+        self.assertTrue(only_empty["passed"], only_empty["problems"])
+        self.assertEqual(1, len(only_empty["warnings"]))
+        self.assertIn("awaiting re-ingest", only_empty["warnings"][0])
+        both = self.live([empty, full])
+        self.assertFalse(both["passed"], "a hub with notes that resolves to no person still fails")
+        self.assertEqual(["Kenneth Moodley resolves to no person, not person:kenneth-moodley"], both["problems"])
+        wrong = self.live([empty], entities=["person:ryan-mcveigh"])
+        self.assertFalse(wrong["passed"], "a zero-note hub that resolves to someone else still fails")
+        self.assertEqual([], wrong["warnings"])
+
+    def test_receipt_carries_the_warning(self):
+        self.git_brain()
+        self.assertEqual("filed", self.file()["outcome"])
+        self.remove_ryan_notes()
+        warn = lambda plan, hubs: {"passed": True, "problems": [], "hubs": [], "warnings": ["people/ryan-spencer.md awaiting"]}
+        receipt = self.file(verifier=warn, force_verify=True)
+        self.assertEqual("filed", receipt["outcome"])
+        self.assertEqual(["people/ryan-spencer.md awaiting"], receipt["warnings"])
+
+
 class ImporterIntegrationTests(unittest.TestCase):
     """Filing runs after the import transaction and refresh; it never blocks or undoes the import."""
 

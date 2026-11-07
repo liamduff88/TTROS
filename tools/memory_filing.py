@@ -26,7 +26,11 @@ are read too. A source INDEX (type: source_index) is navigation: never an eviden
 hub only as a topic note's "source", and its `## Needs identity` items are listed on NEEDS_IDENTITY
 with a link back to it.
 
-Revisit: when person/topic hub rules or the D1 navigation policy change. · Last touched: 2026-11-06.
+A hub with zero notes (its person's only evidence was removed for re-ingest) is kept and marked
+"No notes yet (awaiting re-ingest)." F5 reports it as a warning, not a failure: such a person has left
+the entity index, so the resolution check cannot apply until the notes return.
+
+Revisit: when person/topic hub rules or the D1 navigation policy change. · Last touched: 2026-11-07.
 """
 from __future__ import annotations
 
@@ -78,6 +82,7 @@ MACHINE_BLOCK_RE = re.compile(r"<!-- TTROS:MACHINE:([^:>]+):BEGIN -->[\s\S]*?<!-
 V3_NOTE_RE = re.compile(V3_SOURCE_FOLDER + r"[^/]+\.md\Z")
 SOURCE_INDEX_TYPE = "source_index"
 NEEDS_HEADING = "## Needs identity"
+AWAITING = "No notes yet (awaiting re-ingest)."
 OUTCOMES = ("filed", "unchanged", "filing_pending", "filing_failed")
 RETRY_OUTCOMES = {"filing_pending", "filing_failed"}
 ATTRIBUTION = {"authenticated_identity": "ttros-memory-filing", "surface": "ttros",
@@ -444,6 +449,8 @@ def build_plan(brain: Path, *, db_path: Path | None = None, owners=None) -> dict
                  for n in rows]
         pointers = {n["pointer"] for n in rows}
         cited = sorted((s for s in submits if s["refs"] & (pointers | {entity_id})), key=lambda s: s["pointer"])
+        if not rows:
+            lines = [AWAITING]
         if cited:
             lines += ["", "Submit records that cite these notes (plain pointers; not canonical until confirmed):", ""]
             lines += [f"- `{s['pointer']}` · {s['title']}" for s in cited]
@@ -453,16 +460,17 @@ def build_plan(brain: Path, *, db_path: Path | None = None, owners=None) -> dict
         else:
             names = sorted(identity["aliases"].get(entity_id, set()) | {title})
             existing = _new_hub(entity_id, title, names)
-        documents[relative] = _section(existing, "Linked records", "\n".join(lines) or "No linked records.")
+        documents[relative] = _section(existing, "Linked records", "\n".join(lines))
         latest = max((n["date"] for n in rows if n["date"]), default="")
         hub_rows.append({"entity_id": entity_id, "relative": relative, "title": title,
                          "notes": [n["pointer"] for n in rows], "count": len(rows), "latest": latest,
-                         "submits": [s["pointer"] for s in cited]})
+                         "submits": [s["pointer"] for s in cited], "awaiting_reingest": not rows})
     needs = identity["needs"]
     index_needs = _source_index_needs(brain)
     unresolved = len(needs) + len(index_needs)
-    people_lines = [f"- [[{h['relative'].removesuffix('.md')}|{h['title']}]] · {h['count']} "
-                    f"record{'s' if h['count'] != 1 else ''} · latest {h['latest'] or 'undated'}"
+    people_lines = [f"- [[{h['relative'].removesuffix('.md')}|{h['title']}]] · "
+                    + ("no notes yet (awaiting re-ingest)" if h["awaiting_reingest"] else
+                       f"{h['count']} record{'s' if h['count'] != 1 else ''} · latest {h['latest'] or 'undated'}")
                     for h in sorted(hub_rows, key=lambda h: (h["title"].lower(), h["entity_id"]))]
     people_lines += ["", f"[[people/NEEDS_IDENTITY|Needs identity]] · {unresolved} name"
                      f"{'s' if unresolved != 1 else ''} filing could not tie to one person"]
@@ -558,7 +566,7 @@ def verify_live(plan: dict, *, brain: Path, registry, db_path: Path | None, hubs
     graph = (graph_loader or (lambda: _published_graph(brain, registry)))()
     note_ids = {n["source_path"]: n["id"] for n in graph["nodes"] if n.get("kind") == "note"}
     edges = {(e["source"], e["target"]) for e in graph["edges"] if e.get("relation") == "wiki_link"}
-    problems, rows = [], []
+    problems, warnings, rows = [], [], []
     for hub in hubs:
         pointer = PREFIX + hub["relative"]
         found = aos_indexer.search(hub["title"], source="business_brain", client_scope="global", registry=registry,
@@ -577,12 +585,17 @@ def verify_live(plan: dict, *, brain: Path, registry, db_path: Path | None, hubs
         if not searchable:
             problems.append(f"{pointer} is not searchable")
         if exact != [hub["entity_id"]]:
-            problems.append(f"{hub['title']} resolves to {exact or 'no person'}, not {hub['entity_id']}")
+            message = f"{hub['title']} resolves to {exact or 'no person'}, not {hub['entity_id']}"
+            if not hub["notes"] and not exact:
+                # A zero-note hub's person has left the entity index; it returns with the re-ingest.
+                warnings.append(f"{pointer} has no notes yet (awaiting re-ingest); {message}")
+            else:
+                problems.append(message)
         if row["notes_missing_from_entity"]:
             problems.append(f"{hub['entity_id']} lacks {row['notes_missing_from_entity']}")
         if hub_id is None or missing_edges:
             problems.append(f"{pointer} graph lacks wiki_link edges to {missing_edges or 'its node'}")
-    return {"passed": not problems, "problems": problems, "hubs": rows}
+    return {"passed": not problems, "problems": problems, "warnings": warnings, "hubs": rows}
 
 
 # ---------------------------------------------------------------- run
@@ -693,6 +706,8 @@ def _attempt(receipt: dict, notes, brain: Path, root: Path, *, dry_run, db_path,
         checks = vault_checks(brain, before_index=before_index, notes=selected, documents=plan["documents"])
         live = (verifier or (lambda p, h: verify_live(p, brain=brain, registry=registry, db_path=db_path, hubs=h)))(plan, hubs)
         receipt["verify"] = {"vault": checks, "live": live}
+        if live.get("warnings"):
+            receipt["warnings"] = live["warnings"]
         if checks["passed"] and live["passed"]:
             receipt["outcome"] = "filed"
         else:
@@ -797,7 +812,7 @@ def main(argv=None) -> int:
     if args.json:
         print(json.dumps(result, indent=2, sort_keys=True))
     else:
-        print(json.dumps({k: result.get(k) for k in ("outcome", "reason", "commit", "documents", "hubs")}, indent=2))
+        print(json.dumps({k: result.get(k) for k in ("outcome", "reason", "warnings", "commit", "documents", "hubs")}, indent=2))
         print(TOKEN_USAGE)
     return 0 if result["outcome"] in {"filed", "unchanged", "validated"} else 1
 
