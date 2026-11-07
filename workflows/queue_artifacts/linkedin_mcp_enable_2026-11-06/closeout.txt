@@ -1,0 +1,13 @@
+LinkedIn MCP enable closeout, 2026-11-06. Surface: aos-backend PID 82131 (restarted 22:57:21 MST) + edge brain.timetorevenue.com.
+Enabled by ~/.config/systemd/user/aos-backend.service.d/linkedin-mcp.conf (TTROS_LINKEDIN_MCP_HTTP=1, identities=liamduff88@gmail.com).
+Live mount log: "linkedin_mcp mount path=/api/brain/linkedin tools=linkedin_get_my_profile".
+Q1 PASS loopback no-JWT 401 (404 pre-enable). Q2 PASS forged 401; control nonexistent path 404.
+Q3 PASS edge no-auth / forged header / bogus bearer all Cloudflare 401 invalid_token.
+Q4 PASS real install(): 1 tool, empty input schema; non-allowlisted 403; no-JWT 401 (live_read.txt + unit tests 4/4).
+Q5 PASS claude+chatgpt loopback 401 unauth; /api/health 200; authenticated claude.ai search 200 at 23:00:41;
+   ChatGPT checkpoint via Access, identity liamduff88@gmail.com, 200 at 22:57:33 on the new PID.
+Q6 PASS one live LINKEDIN_GET_MY_INFO read: success, live_calls=1 declared_max=1 (the first script attempt crashed before any call).
+Q7 PASS tunnel ingress forwards only ^/api/brain on the brain host; main.py host middleware also refuses non-/api/brain paths there;
+   brain mounts = claude, chatgpt (6 Shared Brain ops, no Composio) + linkedin (1 parameterless read).
+Licenses: mount live, edge+origin auth refuse unauthenticated, adapter path works. Does NOT license: ChatGPT has not yet called the
+LinkedIn connector itself (needs adding in ChatGPT); compatibility is inferred from the same Access app/verifier/identity ChatGPT uses for the Brain.

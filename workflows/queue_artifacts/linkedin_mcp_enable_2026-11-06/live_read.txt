@@ -1,0 +1,6 @@
+no-JWT status=401
+non-allowlisted status=403
+tools=['linkedin_get_my_profile'] count=1 input_properties={}
+success=True action=LINKEDIN_GET_MY_INFO error=None
+profile_keys=['firstName', 'headline', 'id', 'lastName', 'localizedFirstName', 'localizedHeadline', 'localizedLastName', 'profilePicture', 'profileUrl', 'vanityName']
+adapter_calls=[('tool-run', 'LINKEDIN_GET_MY_INFO', {})] live_calls=1 declared_max=1

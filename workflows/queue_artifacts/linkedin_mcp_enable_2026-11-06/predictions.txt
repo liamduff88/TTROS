@@ -1,0 +1,9 @@
+Written 2026-11-06 BEFORE any probe. LinkedIn MCP enable.
+P1 unauth GET/POST https://brain.timetorevenue.com/api/brain/linkedin/ (mount NOT yet enabled):
+   if Access covers the whole hostname -> 401 (Managed OAuth, WWW-Authenticate) or 302 to cloudflareaccess.com, never an origin FastAPI 404 JSON.
+   If origin 404 {"detail":"Not Found"} returns -> Access does NOT cover this path -> STOP, do not enable.
+P2 unauth /api/brain/chatgpt/ -> same Access response as P1 (known-protected control).
+P3 unauth /api/health on brain host -> Access response if host-wide; tunnel 404 if Access is path-scoped (discriminator).
+P4 after enable, loopback POST /api/brain/linkedin/ with no JWT -> 401; with garbage JWT -> 401.
+P5 loopback tools/list (in-process, test identity) -> exactly 1 tool: linkedin_get_my_profile.
+P6 Shared Brain claude+chatgpt mounts still log the same tool lists as before restart.

@@ -1,0 +1,14 @@
+== edge POST tools/list /api/brain/linkedin/ (no auth)
+{"error":"invalid_token","error_description":"Missing or invalid access token","resource_metadata":"https://brain.timetorevenue.com/.well-known/cloudflare-access-protected-resource/api/brain/linkedin/"}
+HTTP 401
+
+== edge POST with forged cf-access-jwt-assertion header
+HTTP 401
+== CONTROL origin loopback GET /api/brain/nonexistent-xyz/ (must differ: FastAPI 404)
+{"detail":"Not Found"}
+HTTP 404
+== CONTROL origin loopback /api/brain/linkedin/ pre-enable (expect 404: not mounted)
+{"detail":"Not Found"}
+HTTP 404
+== protected-resource metadata
+{"resource":"https://brain.timetorevenue.com/api/brain/linkedin/","protected":true,"team_domain":"timetorevenue.cloudflareaccess.com","authorization_servers":["https://timetorevenue.cloudflareaccess.com"],"authentication_methods":[{"name":"cloudflared","description":"Use `cloudflared access curl` to make the request to the protected resource. This will allow the user to authenticate interactively and authentication information will automatically be added to the request","documentation":"https://developers.cloudflare.com/cloudflare-one/tutorials/cli/"},{"name":"oauth","description":"Obtain an access token from the authorization server using an OAuth 2.0 flow and include it as a bearer token in the request. The user will authenticate interactively during the authorization flow.","documentation":"https://developers.cloudflare.com/cloudflare-one/identity/authorization-cookie/application-token/"}]}

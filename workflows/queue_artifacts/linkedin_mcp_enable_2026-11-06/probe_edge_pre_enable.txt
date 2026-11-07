@@ -1,0 +1,52 @@
+== GET /api/brain/linkedin/
+HTTP/2 401 
+www-authenticate: Bearer realm="OAuth", error="invalid_token", error_description="Missing or invalid access token", resource_metadata="https://brain.timetorevenue.com/.well-known/cloudflare-access-protected-resource/api/brain/linkedin/"
+server: cloudflare
+cf-ray: a565a807ad6ee19d-SJC
+body: {"error":"invalid_token","error_description":"Missing or invalid access token","resource_metadata":"https://brain.timetorevenue.com/.well-known/cloudflare-access-protected-resource/api/brain/linkedin/
+== POST /api/brain/linkedin/
+curl: (6) Could not resolve host: POST
+HTTP/2 401 
+www-authenticate: Bearer realm="OAuth", error="invalid_token", error_description="Missing or invalid access token", resource_metadata="https://brain.timetorevenue.com/.well-known/cloudflare-access-protected-resource/api/brain/linkedin/"
+server: cloudflare
+cf-ray: a565a8099e9b4809-SJC
+body: {"error":"invalid_token","error_description":"Missing or invalid access token","resource_metadata":"https://brain.timetorevenue.com/.well-known/cloudflare-access-protected-resource/api/brain/linkedin/
+== GET /api/brain/chatgpt/
+HTTP/2 401 
+www-authenticate: Bearer realm="OAuth", error="invalid_token", error_description="Missing or invalid access token", resource_metadata="https://brain.timetorevenue.com/.well-known/cloudflare-access-protected-resource/api/brain/chatgpt/"
+server: cloudflare
+cf-ray: a565a80b2bbff3e8-SJC
+body: {"error":"invalid_token","error_description":"Missing or invalid access token","resource_metadata":"https://brain.timetorevenue.com/.well-known/cloudflare-access-protected-resource/api/brain/chatgpt/"
+== POST /api/brain/chatgpt/
+curl: (6) Could not resolve host: POST
+HTTP/2 401 
+www-authenticate: Bearer realm="OAuth", error="invalid_token", error_description="Missing or invalid access token", resource_metadata="https://brain.timetorevenue.com/.well-known/cloudflare-access-protected-resource/api/brain/chatgpt/"
+server: cloudflare
+cf-ray: a565a80cff63cee1-SJC
+body: {"error":"invalid_token","error_description":"Missing or invalid access token","resource_metadata":"https://brain.timetorevenue.com/.well-known/cloudflare-access-protected-resource/api/brain/chatgpt/"
+== GET /api/health
+HTTP/2 401 
+www-authenticate: Bearer realm="OAuth", error="invalid_token", error_description="Missing or invalid access token", resource_metadata="https://brain.timetorevenue.com/.well-known/cloudflare-access-protected-resource/api/health"
+server: cloudflare
+cf-ray: a565a80edbeaf8f3-SJC
+body: {"error":"invalid_token","error_description":"Missing or invalid access token","resource_metadata":"https://brain.timetorevenue.com/.well-known/cloudflare-access-protected-resource/api/health"}
+== POST /api/health
+curl: (6) Could not resolve host: POST
+HTTP/2 401 
+www-authenticate: Bearer realm="OAuth", error="invalid_token", error_description="Missing or invalid access token", resource_metadata="https://brain.timetorevenue.com/.well-known/cloudflare-access-protected-resource/api/health"
+server: cloudflare
+cf-ray: a565a8102dbfc25f-YVR
+body: {"error":"invalid_token","error_description":"Missing or invalid access token","resource_metadata":"https://brain.timetorevenue.com/.well-known/cloudflare-access-protected-resource/api/health"}
+== GET /api/brain/nonexistent-xyz/
+HTTP/2 401 
+www-authenticate: Bearer realm="OAuth", error="invalid_token", error_description="Missing or invalid access token", resource_metadata="https://brain.timetorevenue.com/.well-known/cloudflare-access-protected-resource/api/brain/nonexistent-xyz/"
+server: cloudflare
+cf-ray: a565a81109589943-YVR
+body: {"error":"invalid_token","error_description":"Missing or invalid access token","resource_metadata":"https://brain.timetorevenue.com/.well-known/cloudflare-access-protected-resource/api/brain/nonexiste
+== POST /api/brain/nonexistent-xyz/
+curl: (6) Could not resolve host: POST
+HTTP/2 401 
+www-authenticate: Bearer realm="OAuth", error="invalid_token", error_description="Missing or invalid access token", resource_metadata="https://brain.timetorevenue.com/.well-known/cloudflare-access-protected-resource/api/brain/nonexistent-xyz/"
+server: cloudflare
+cf-ray: a565a811faa72c3d-YVR
+body: {"error":"invalid_token","error_description":"Missing or invalid access token","resource_metadata":"https://brain.timetorevenue.com/.well-known/cloudflare-access-protected-resource/api/brain/nonexiste

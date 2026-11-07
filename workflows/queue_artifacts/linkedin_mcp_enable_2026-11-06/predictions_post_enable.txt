@@ -1,0 +1,8 @@
+Written 2026-11-06 BEFORE enabling TTROS_LINKEDIN_MCP_HTTP (session 2). Surface: aos-backend 127.0.0.1:8010 + edge brain.timetorevenue.com.
+Q1 loopback POST /api/brain/linkedin/ no JWT -> 401 {"error":"unauthorized"} (was FastAPI 404 pre-enable; the change from 404 is the mount proof).
+Q2 loopback POST with forged cf-access-jwt-assertion -> 401.  Negative control: /api/brain/nonexistent-xyz/ still 404.
+Q3 edge unauth POST /api/brain/linkedin/ -> Cloudflare 401 invalid_token (unchanged); forged header -> 401.
+Q4 real install() on a fresh app, MCP tools/list via in-process client with allowlisted identity -> exactly 1 tool, linkedin_get_my_profile, empty input schema; non-allowlisted identity -> 403.
+Q5 Shared Brain: loopback /api/brain/claude/ and /api/brain/chatgpt/ no JWT -> 401; /api/health -> 200; one authenticated Shared Brain search via the claude.ai connector succeeds.
+Q6 one live tools/call through real install() + the production adapter command -> success:true, action LINKEDIN_GET_MY_INFO. Live LinkedIn calls this session: max 1.
+Q7 no other Composio route reachable to ChatGPT: brain host exposes only /api/brain/{claude,chatgpt,linkedin} MCP mounts; ChatGPT-facing tool set = 6 Shared Brain ops + 1 LinkedIn read; no slug/argument input.

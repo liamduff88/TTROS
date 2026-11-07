@@ -1,0 +1,30 @@
+== LOOPBACK no-JWT POST /api/brain/linkedin/
+{"error":"unauthorized"}
+HTTP 401
+== LOOPBACK no-JWT POST /api/brain/claude/
+{"error":"unauthorized"}
+HTTP 401
+== LOOPBACK no-JWT POST /api/brain/chatgpt/
+{"error":"unauthorized"}
+HTTP 401
+== LOOPBACK no-JWT POST /api/brain/nonexistent-xyz/
+{"detail":"Not Found"}
+HTTP 404
+== LOOPBACK forged JWT /api/brain/linkedin/
+{"error":"unauthorized"}
+HTTP 401
+== LOOPBACK /api/health
+
+HTTP 200
+== EDGE no-auth POST /api/brain/linkedin/
+{"error":"invalid_token","error_description":"Missing or invalid access token","resource_metadata":"https://brain.timetorevenue.com/.well-known/cloudflare-access-protected-resource/api/brain/linkedin/"}
+HTTP 401
+== EDGE forged cf-access-jwt-assertion
+{"error":"invalid_token","error_description":"Missing or invalid access token","resource_metadata":"https://brain.timetorevenue.com/.well-known/cloudflare-access-protected-resource/api/brain/linkedin/"}
+HTTP 401
+== EDGE bogus bearer
+{"error":"invalid_token","error_description":"Missing or invalid access token","resource_metadata":"https://brain.timetorevenue.com/.well-known/cloudflare-access-protected-resource/api/brain/linkedin/"}
+HTTP 401
+== EDGE protected-resource metadata
+{"resource":"https://brain.timetorevenue.com/api/brain/linkedin/","protected":true,"team_domain":"timetorevenue.cloudflareaccess.com","authorization_servers":["https://timetorevenue.cloudflareaccess.com"],"authentication_methods":[{"name":"cloudflared","description":"Use `cloudflared access curl` to make the request to the protected resource. This will allow the user to authenticate interactively and authentication information will automatically be added to the request","documentation":"https://developers.cloudflare.com/cloudflare-one/tutorials/cli/"},{"name":"oauth","description":"Obtain an access token from the authorization server using an OAuth 2.0 flow and include it as a bearer token in the request. The user will authenticate interactively during the authorization flow.","documentation":"https://developers.cloudflare.com/cloudflare-one/identity/authorization-cookie/application-token/"}]}
+HTTP 200
