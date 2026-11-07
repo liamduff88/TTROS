@@ -539,6 +539,33 @@ RANK_WEIGHT_SQL = (
 )
 
 
+PERSON_HUB_PREFIX = "business_brain:people/"
+PEOPLE_NAVIGATION_SLUGS = {"index", "needs-identity"}  # people/INDEX.md, people/NEEDS_IDENTITY.md
+
+
+def _name_norm(value: str) -> str:
+    # The same normalisation aos_entity_index.norm uses for person names.
+    return " ".join(re.findall(r"[a-z0-9]+", str(value or "").lower()))
+
+
+def person_hub_pointers(conn: sqlite3.Connection, query: str, scope_id: str) -> list[str]:
+    """People hubs whose full name is the query or a run of words inside it (2-4 words).
+
+    A hub qualifies only when its slug is that name and its indexed title is the same name,
+    so INDEX.md / NEEDS_IDENTITY.md and first-name-only queries never qualify.
+    """
+    words = _name_norm(query).split()
+    names = {" ".join(words[i:i + n]) for n in (2, 3, 4) for i in range(len(words) - n + 1)}
+    if not names:
+        return []
+    candidates = {f"{PERSON_HUB_PREFIX}{name.replace(' ', '-')}.md": name for name in names
+                  if name.replace(" ", "-") not in PEOPLE_NAVIGATION_SLUGS}
+    marks = ",".join("?" for _ in candidates)
+    rows = conn.execute(f"SELECT path, title FROM documents WHERE client_scope = ? AND path IN ({marks})",
+                        [scope_id, *candidates]).fetchall()
+    return sorted(row["path"] for row in rows if _name_norm(row["title"]) == candidates[row["path"]])
+
+
 def quote_fts_query(query: str) -> str:
     terms = re.findall(r"[\w.-]+", query)
     return " OR ".join(f'"{term}"' for term in terms[:12])
@@ -580,6 +607,7 @@ def search(
     conn = connect(db_path, readonly=True)
     limit = max(1, min(int(limit or 25), 100))
     params: list[object] = []
+    order_params: list[object] = []
     where = []
     join = ""
     select = "d.path, d.kind, d.source, d.client_scope" if path_only else "d.*"
@@ -594,6 +622,10 @@ def search(
         params.append(fts)
         select = ("d.path, d.kind, d.source, d.client_scope" if path_only else "d.*") + ", bm25(documents_fts) AS rank"
         order = f"{RANK_TIER_SQL}, rank * {RANK_WEIGHT_SQL}, d.mtime DESC"
+        hubs = person_hub_pointers(conn, query, scope.scope_id)
+        if hubs:  # a named person's hub comes first; bound as parameters, never interpolated
+            order = f"(CASE WHEN d.path IN ({','.join('?' for _ in hubs)}) THEN 0 ELSE 1 END), " + order
+            order_params = hubs
     else:
         order = "d.mtime DESC"
     if kind:
@@ -609,6 +641,7 @@ def search(
     if where:
         sql += " WHERE " + " AND ".join(where)
     sql += f" ORDER BY {order} LIMIT ?"
+    params.extend(order_params)
     params.append(limit)
     selected = conn.execute(sql, params).fetchall()
     rows = [dict(row) if path_only else public_row(row) for row in selected]

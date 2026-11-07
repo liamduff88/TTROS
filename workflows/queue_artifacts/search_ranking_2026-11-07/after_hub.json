@@ -1,0 +1,222 @@
+{
+  "queries": {
+    "how to get my first paying customers": [
+      {
+        "path": "sources/historical_calls/undated-chris-donnelly-build-million-business-098e5a08/INDEX.md",
+        "title": "Chris Donnelly: How to build a million-turnover business without selling your time"
+      },
+      {
+        "path": "sources/historical_calls/undated-chris-donnelly-build-million-business-098e5a08/free-to-paid-conversion.md",
+        "title": "Chris Donnelly: Converting initial users to paying customers"
+      },
+      {
+        "path": "sources/historical_calls/undated-chris-donnelly-build-million-business-098e5a08/micro-plan-paying-customers.md",
+        "title": "Chris Donnelly: Micro-plan and 100 paying customers"
+      }
+    ],
+    "how often should I post on LinkedIn": [
+      {
+        "path": "sources/historical_calls/2026-11-04-ryan-spencer-liam-first-meeting-491e7000/content-learning-and-capture.md",
+        "title": "Ryan Spencer / Liam: Content learning and transcript capture (4 Nov 2026)"
+      },
+      {
+        "path": "sources/historical_calls/undated-chris-donnelly-build-million-business-098e5a08/founder-brand-ideal-customers.md",
+        "title": "Chris Donnelly: Founder marketing for ideal customers"
+      },
+      {
+        "path": "sources/historical_calls/undated-lara-acosta-linkedin-content-strategy-2026-7ded0d7c/documenting-building-in-public.md",
+        "title": "Lara Acosta: Documenting work in public"
+      }
+    ],
+    "lead magnet ideas to collect emails": [
+      {
+        "path": "sources/historical_calls/undated-lara-acosta-linkedin-content-strategy-2026-7ded0d7c/three-value-bridge-lead-magnets.md",
+        "title": "Lara Acosta: Three value-bridge lead magnets"
+      },
+      {
+        "path": "sources/historical_calls/undated-chris-donnelly-build-million-business-098e5a08/INDEX.md",
+        "title": "Chris Donnelly: How to build a million-turnover business without selling your time"
+      },
+      {
+        "path": "sources/historical_calls/undated-chris-donnelly-build-million-business-098e5a08/lead-magnets-email-nurture.md",
+        "title": "Chris Donnelly: Lead magnets and email nurture"
+      }
+    ],
+    "who did I talk to about scheduler beta testing": [
+      {
+        "path": "sources/historical_calls/2026-11-04-ryan-spencer-liam-first-meeting-491e7000/scheduler-beta-testing.md",
+        "title": "Ryan Spencer / Liam: Scheduler beta testing arrangement (4 Nov 2026)"
+      },
+      {
+        "path": "sources/historical_calls/2026-11-04-ryan-spencer-liam-first-meeting-491e7000/INDEX.md",
+        "title": "Ryan Spencer / Liam: first meeting on scheduler, marketing and collaboration (4 Nov 2026)"
+      },
+      {
+        "path": "sources/historical_calls/2026-11-04-ryan-spencer-liam-first-meeting-491e7000/ryan-directory-website.md",
+        "title": "Ryan Spencer / Liam: Ryan's resource-directory website proposal (4 Nov 2026)"
+      }
+    ]
+  },
+  "david_search_calls": {
+    "who did I talk to about scheduler beta testing": [
+      "sources/historical_calls/2026-11-04-ryan-spencer-liam-first-meeting-491e7000/scheduler-beta-testing.md",
+      "sources/historical_calls/2026-11-04-ryan-spencer-liam-first-meeting-491e7000/INDEX.md",
+      "sources/historical_calls/2026-11-04-ryan-spencer-liam-first-meeting-491e7000/ryan-directory-website.md"
+    ]
+  },
+  "controls": {
+    "Ryan Spencer": [
+      {
+        "path": "people/ryan-spencer.md",
+        "title": "Ryan Spencer"
+      },
+      {
+        "path": "sources/historical_calls/2026-11-04-ryan-spencer-liam-first-meeting-491e7000/ryan-directory-website.md",
+        "title": "Ryan Spencer / Liam: Ryan's resource-directory website proposal (4 Nov 2026)"
+      },
+      {
+        "path": "sources/historical_calls/2026-11-04-ryan-spencer-liam-first-meeting-491e7000/coaching-services-exchange.md",
+        "title": "Ryan Spencer / Liam: Coaching and mutual service exchange (4 Nov 2026)"
+      }
+    ],
+    "Chris Donnelly": [
+      {
+        "path": "people/chris-donnelly.md",
+        "title": "Chris Donnelly"
+      },
+      {
+        "path": "sources/historical_calls/undated-chris-donnelly-build-million-business-098e5a08/founder-brand-ideal-customers.md",
+        "title": "Chris Donnelly: Founder marketing for ideal customers"
+      },
+      {
+        "path": "sources/historical_calls/undated-chris-donnelly-build-million-business-098e5a08/code-demand-validation.md",
+        "title": "Chris Donnelly: CODE: demand validation"
+      }
+    ],
+    "Kenneth CCI": [
+      {
+        "path": "sources/historical_calls/cards/call-kenneth-after-first-cci.card.md",
+        "title": "Kenneth and Liam discuss CCI AI pilot scope, BD workflow pain points, personalization, and social media strategy."
+      },
+      {
+        "path": "people/kenneth-moodley.md",
+        "title": "Kenneth Moodley"
+      },
+      {
+        "path": "sources/historical_calls/cards/call-dr-kenneth-after-second-cci.card.md",
+        "title": "Call with Dr Kenneth Moodley on framing CCI pilot benefits, Lamb Weston sharing, SME work, and boot camp ideas."
+      }
+    ],
+    "Andrea Roberts": [
+      {
+        "path": "people/andrea-roberts.md",
+        "title": "Andrea Roberts"
+      },
+      {
+        "path": "people/INDEX.md",
+        "title": "People"
+      },
+      {
+        "path": "sources/historical_calls/cards/andrea-roberts-june-26.card.md",
+        "title": "Meeting on Quin AI intros, Rascal compliance software, AI opportunities, and Liam's possible help building compliance automation."
+      }
+    ],
+    "What did Fred say about MLS": [
+      {
+        "path": "sources/intake/cards/d9cb4668fd766474278e414bb53223f944342004f34be23020c161fa4160dd74.card.md",
+        "title": "Fred discusses realtor workflow tracking, MLS reports, dashboards, CRM, and possible market-data product ideas."
+      },
+      {
+        "path": "sources/historical_calls/2026-11-04-ryan-spencer-liam-first-meeting-491e7000/personal-vs-company-brand.md",
+        "title": "Ryan Spencer / Liam: Personal versus company branding (4 Nov 2026)"
+      },
+      {
+        "path": "sources/historical_calls/undated-lara-acosta-linkedin-content-strategy-2026-7ded0d7c/documenting-building-in-public.md",
+        "title": "Lara Acosta: Documenting work in public"
+      }
+    ]
+  },
+  "david_card_prefetch": {
+    "Ryan Spencer": [],
+    "Chris Donnelly": [],
+    "Kenneth CCI": [
+      "business_brain:sources/historical_calls/cards/call-kenneth-after-first-cci.card.md",
+      "business_brain:sources/historical_calls/cards/call-dr-kenneth-after-second-cci.card.md",
+      "business_brain:sources/historical_calls/cards/kenneth-meeting-may-27.card.md"
+    ],
+    "Andrea Roberts": [
+      "business_brain:sources/historical_calls/cards/andrea-roberts-june-26.card.md"
+    ],
+    "What did Fred say about MLS": [
+      "business_brain:sources/intake/cards/d9cb4668fd766474278e414bb53223f944342004f34be23020c161fa4160dd74.card.md"
+    ],
+    "how to get my first paying customers": [],
+    "how often should I post on LinkedIn": [],
+    "lead magnet ideas to collect emails": [],
+    "who did I talk to about scheduler beta testing": []
+  },
+  "graph": {
+    "nodes": 1557,
+    "edges": 1884,
+    "sha256": "94b25e13faa68d1dfa806e2ba11ef1c973bb1d00ba5928eab2dfddcaf5edab50"
+  },
+  "entities": {
+    "person:ryan-spencer": {
+      "knowledge": 12,
+      "sources": 1,
+      "paths": [
+        "business_brain:sources/historical_calls/2026-11-04-ryan-spencer-liam-first-meeting-491e7000/coaching-services-exchange.md",
+        "business_brain:sources/historical_calls/2026-11-04-ryan-spencer-liam-first-meeting-491e7000/content-learning-and-capture.md",
+        "business_brain:sources/historical_calls/2026-11-04-ryan-spencer-liam-first-meeting-491e7000/icm-memory-retrieval-system.md",
+        "business_brain:sources/historical_calls/2026-11-04-ryan-spencer-liam-first-meeting-491e7000/personal-vs-company-brand.md",
+        "business_brain:sources/historical_calls/2026-11-04-ryan-spencer-liam-first-meeting-491e7000/recommended-people-resources.md",
+        "business_brain:sources/historical_calls/2026-11-04-ryan-spencer-liam-first-meeting-491e7000/ryan-directory-website.md",
+        "business_brain:sources/historical_calls/2026-11-04-ryan-spencer-liam-first-meeting-491e7000/scheduler-beta-testing.md",
+        "business_brain:sources/historical_calls/2026-11-04-ryan-spencer-liam-first-meeting-491e7000/scheduler-positioning-feedback.md",
+        "business_brain:sources/historical_calls/2026-11-04-ryan-spencer-liam-first-meeting-491e7000/scheduler-product-and-pricing.md",
+        "business_brain:sources/historical_calls/2026-11-04-ryan-spencer-liam-first-meeting-491e7000/small-business-workflow-onboarding.md",
+        "business_brain:sources/historical_calls/2026-11-04-ryan-spencer-liam-first-meeting-491e7000/solo-founder-build-constraints.md",
+        "business_brain:sources/historical_calls/2026-11-04-ryan-spencer-liam-first-meeting-491e7000/vancouver-networking-groups.md",
+        "business_brain:sources/intake/records/491e7000399832dc31f7d3e507db9ab751e4155d997f51ca38af8c02ee121d29.md"
+      ]
+    },
+    "person:chris-donnelly": {
+      "knowledge": 12,
+      "sources": 1,
+      "paths": [
+        "business_brain:sources/historical_calls/undated-chris-donnelly-build-million-business-098e5a08/code-consumer-trends.md",
+        "business_brain:sources/historical_calls/undated-chris-donnelly-build-million-business-098e5a08/code-demand-validation.md",
+        "business_brain:sources/historical_calls/undated-chris-donnelly-build-million-business-098e5a08/code-economic-sizing.md",
+        "business_brain:sources/historical_calls/undated-chris-donnelly-build-million-business-098e5a08/code-opportunity.md",
+        "business_brain:sources/historical_calls/undated-chris-donnelly-build-million-business-098e5a08/founder-brand-ideal-customers.md",
+        "business_brain:sources/historical_calls/undated-chris-donnelly-build-million-business-098e5a08/free-to-paid-conversion.md",
+        "business_brain:sources/historical_calls/undated-chris-donnelly-build-million-business-098e5a08/lead-magnets-email-nurture.md",
+        "business_brain:sources/historical_calls/undated-chris-donnelly-build-million-business-098e5a08/micro-plan-paying-customers.md",
+        "business_brain:sources/historical_calls/undated-chris-donnelly-build-million-business-098e5a08/product-market-fit-waitlist.md",
+        "business_brain:sources/historical_calls/undated-chris-donnelly-build-million-business-098e5a08/rapid-launch-feedback-loop.md",
+        "business_brain:sources/historical_calls/undated-chris-donnelly-build-million-business-098e5a08/repeatable-growth-volume.md",
+        "business_brain:sources/historical_calls/undated-chris-donnelly-build-million-business-098e5a08/scalable-product-design.md",
+        "business_brain:sources/intake/records/098e5a08d7aef17cdd9e87bb76fe5b6ead7c3719d4413bd5c48e37c67569335d.md"
+      ]
+    }
+  },
+  "entity_tables": {
+    "documents": 5093,
+    "entities": 308,
+    "entity_aliases": 329,
+    "entity_links": 490
+  },
+  "vault": {
+    "status": "PASS",
+    "canonical_note_count": 368,
+    "broken_links": 0,
+    "unreachable": 0,
+    "failed_checks": []
+  },
+  "v3_record_titles": {
+    "491e7000": "title: \"Original: Ryan Spencer / Liam: first meeting on scheduler, marketing and collaboration (4 Nov 2026)\"",
+    "098e5a08": "title: \"Original: Chris Donnelly: How to build a million-turnover business without selling your time\"",
+    "7ded0d7c": "title: \"Original: Lara Acosta: LinkedIn 4-3-2-1 strategy and audience conversion\"",
+    "f44cccaa": "title: \"Original: Nick Saraev: AI consulting method for 2027\""
+  }
+}

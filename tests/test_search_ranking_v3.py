@@ -29,6 +29,8 @@ DOCS = {
     "sources/historical_calls/cards/jordan.card.md": "# Card\nmissed calls\n" + FILLER,
     "sources/historical_calls/old-v2-call.md": "# Old call\nmissed calls\n" + FILLER,
     "people/jordan-ellis.md": "# Jordan Ellis\nPerson hub.\n",
+    "people/sam-ellis.md": "# Samuel Ellis\nTitle is not its slug name.\n",
+    "people/needs-identity.md": "# Needs identity\nJordan, Sam.\n",
 }
 
 
@@ -80,7 +82,28 @@ class SearchRankingV3Test(unittest.TestCase):
 
     def test_matching_is_unchanged(self):
         self.assertEqual(["people/jordan-ellis.md"], self.paths("hub"))
-        self.assertEqual(len(DOCS) - 1, len(self.paths("missed calls")))
+        self.assertEqual(len(DOCS) - 3, len(self.paths("missed calls")))
+
+    def test_person_full_name_puts_their_hub_first(self):
+        for query in ("Jordan Ellis", "what did jordan ellis say about missed calls"):
+            self.assertEqual("people/jordan-ellis.md", self.paths(query)[0], query)
+            self.assertEqual("people/jordan-ellis.md", self.paths(query, exact=False, path_only=True)[0], query)
+        # Without the name rule, the boosted v3 note outranks the hub for the same query.
+        conn = aos_indexer.connect(self.db, readonly=True)
+        self.assertEqual([], aos_indexer.person_hub_pointers(conn, "missed calls", "global"))
+        conn.close()
+
+    def test_only_an_exact_full_name_hub_qualifies(self):
+        conn = aos_indexer.connect(self.db, readonly=True)
+        try:
+            self.assertEqual([], aos_indexer.person_hub_pointers(conn, "Jordan", "global"))  # first name only
+            self.assertEqual([], aos_indexer.person_hub_pointers(conn, "Sam Ellis", "global"))  # title differs
+            self.assertEqual([], aos_indexer.person_hub_pointers(conn, "needs identity", "global"))  # not a name hub
+            self.assertEqual([], aos_indexer.person_hub_pointers(conn, "Jordan Ellis", "client-a"))  # other scope
+            self.assertEqual(["business_brain:people/jordan-ellis.md"],
+                             aos_indexer.person_hub_pointers(conn, "Jordan  ELLIS!", "global"))
+        finally:
+            conn.close()
 
 
 if __name__ == "__main__":

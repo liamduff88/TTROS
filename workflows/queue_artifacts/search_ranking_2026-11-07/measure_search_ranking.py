@@ -16,7 +16,7 @@ from tools import aos_indexer, aos_entity_index  # noqa: E402
 
 QUERIES = ["how to get my first paying customers", "how often should I post on LinkedIn",
            "lead magnet ideas to collect emails", "who did I talk to about scheduler beta testing"]
-CONTROLS = ["Ryan Spencer", "Kenneth CCI", "Andrea Roberts", "What did Fred say about MLS"]
+CONTROLS = ["Ryan Spencer", "Chris Donnelly", "Kenneth CCI", "Andrea Roberts", "What did Fred say about MLS"]
 PERSONS = ["person:ryan-spencer", "person:chris-donnelly"]
 V3_RECORDS = ["491e7000399832dc31f7d3e507db9ab751e4155d997f51ca38af8c02ee121d29",
               "098e5a08d7aef17cdd9e87bb76fe5b6ead7c3719d4413bd5c48e37c67569335d",

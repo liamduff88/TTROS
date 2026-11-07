@@ -1,0 +1,48 @@
+ledger rows 174; dropped 143 in 35 packages; left 31
+V1   rows_in_35= 19 rows_left=0 not_in_remove_list=[] | Meeting with Kenneth friday sept 18th(2).txt (9a7b988b, 57,3
+V2   rows_in_35= 12 rows_left=0 not_in_remove_list=[] | Meeting wit Arpi.txt (fbf9c589, 39,440 B)
+V3   rows_in_35= 16 rows_left=0 not_in_remove_list=[] | Meeting Title Grand Connection.txt (99f577a8, 54,049 B)
+V4   rows_in_35=  8 rows_left=0 not_in_remove_list=[] | Fred meeting Dashboard first walkthrough and feedback.txt, S
+V5   rows_in_35=  8 rows_left=0 not_in_remove_list=[] | meeting with fred re dashboard Oct.txt, Oct 1 (08b18645, 16,
+V6   rows_in_35= 12 rows_left=0 not_in_remove_list=[] | 8 GitHub Repos To Go Viral and Make Money.txt (88e0ed70, 28,
+V7   rows_in_35=  4 rows_left=0 not_in_remove_list=[] | How I sell "Talking Websites" ... (FULL Guide 2026).txt (a41
+V8   rows_in_35=  8 rows_left=0 not_in_remove_list=[] | 1st meeting with Jenny Holly hansen BUN business unlimited n
+V9   rows_in_35=  8 rows_left=0 not_in_remove_list=[] | Do You Actually Need AI Agents - Jake Van Clief.txt (9fae9db
+V10  rows_in_35= 12 rows_left=0 not_in_remove_list=[] | The $1,000 per hour 1-person AI business -Greg Isenberg.txt 
+V11  rows_in_35= 12 rows_left=0 not_in_remove_list=[] | Sounds Too Simple, But One Client Pays $15K per Month.txt (6
+V12  rows_in_35= 12 rows_left=0 not_in_remove_list=[] | Amber Noakes Barter network 1st call.txt, Oct 27 (d2d12ee6, 
+V13  rows_in_35= 12 rows_left=0 not_in_remove_list=[] | I Asked a GTM Expert How He Finds Buyers Nobody Else Can See
+V14  rows_in_35= 20 rows_left=0 not_in_remove_list=[] | John / Jean Bach call, Oct 10
+L1   rows_in_35=  0 rows_left=0 not_in_remove_list=[] | Meeting Title meeting with Andrea roberts.txt
+L2   rows_in_35=  0 rows_left=0 not_in_remove_list=[] | second call with Andrea.txt
+L3   rows_in_35=  0 rows_left=0 not_in_remove_list=[] | Call with Dr Kenneth after 2nd cci call.md
+L4   rows_in_35=  0 rows_left=0 not_in_remove_list=[] | Call with Kenneth after first CCI call.md
+L5   rows_in_35=  0 rows_left=0 not_in_remove_list=[] | second call with CCI Ollie and Kenneth.txt
+L6   rows_in_35=  0 rows_left=0 not_in_remove_list=[] | First call with CCI.txt
+L7   rows_in_35=  0 rows_left=0 not_in_remove_list=[] | hermes_water_treatment_system_summary_for_trent.md
+L8   rows_in_35=  0 rows_left=0 not_in_remove_list=[] | call with Kenneth June 30th.txt
+L9   rows_in_35=  0 rows_left=0 not_in_remove_list=[] | Meeting Title Kenneth meet meeting.txt
+L10  rows_in_35=  0 rows_left=0 not_in_remove_list=[] | call with kenneth sme new rr.txt
+L11  rows_in_35=  0 rows_left=0 not_in_remove_list=[] | Meeting Ken Stanick.txt
+L12  rows_in_35=  0 rows_left=0 not_in_remove_list=[] | TTR_MIKE_KNAPP_MSP_GO_TO_MARKET_CONTEXT_2026-07-22.md
+L13  rows_in_35=  0 rows_left=0 not_in_remove_list=[] | chat with Mike Knapp.txt
+L14  rows_in_35=  0 rows_left=0 not_in_remove_list=[] | transcript. call with trent 1.txt
+L15  rows_in_35=  0 rows_left=0 not_in_remove_list=[] | trent call transcript july 9th.txt
+I1   rows_in_35=  0 rows_left=0 not_in_remove_list=[] | Fred Haiderzada meeting sept 9th.txt
+I2   rows_in_35=  0 rows_left=0 not_in_remove_list=[] | second meeting with Keith Daser.txt
+I3   rows_in_35=  0 rows_left=0 not_in_remove_list=[] | Fred Haiderzada meeting sept 22 system walkthrough.txt
+I4   rows_in_35=  0 rows_left=0 not_in_remove_list=[] | normalized.md (Fred, Sep 15, AI agent / CMA)
+I5   rows_in_35=  0 rows_left=0 not_in_remove_list=[] | normalized.md (Santosh, Deliver Digital, Sep 15)
+I6   rows_in_35=  0 rows_left=0 not_in_remove_list=[] | normalized.md (Zoom chat log 2026-09-19)
+I7   rows_in_35=  0 rows_left=0 not_in_remove_list=[] | normalized.md ("7 and 1/2 years ago, I started an AI busines
+I8   rows_in_35=  0 rows_left=0 not_in_remove_list=[] | normalized.md ("This quote has been living in my head...")
+I9   rows_in_35=  0 rows_left=0 not_in_remove_list=[] | normalized.md (Fred Hermes Real-Estate Assistant project bri
+I10  rows_in_35=  0 rows_left=0 not_in_remove_list=[] | personal-brand-strategy _1_.md ("The Conscious AI Operator")
+I11  rows_in_35=  0 rows_left=0 not_in_remove_list=[] | normalized.md (Weekly ideas, 2026-09-13)
+(a) sources with no ledger rows in the 35 packages: 26: L1 L2 L3 L4 L5 L6 L7 L8 L9 L10 L11 L12 L13 L14 L15 I1 I2 I3 I4 I5 I6 I7 I8 I9 I10 I11
+(a) sources with a ledger row left after removal: 0 []
+(b) v3 folders 4, v3 records 4: ['sources/intake/records/098e5a08d7aef17cdd9e87bb76fe5b6ead7c3719d4413bd5c48e37c67569335d.md', 'sources/intake/records/491e7000399832dc31f7d3e507db9ab751e4155d997f51ca38af8c02ee121d29.md', 'sources/intake/records/7ded0d7cd9d8447def32df46dec9e1d6ae965917508a787904003a54f2b9c13f.md', 'sources/intake/records/f44cccaace70a48ac05695d64f8889d5d438c84fd4ce97abf6f0f1b01a07808a.md']
+(b) remove_list paths 93; under a v3 folder: 0 []; v3 source_record: 0 []
+(b) remove_list records: ['sources/intake/records/1d0944df77cface97721fbb004a84231688819b68442da4bfc09cba791be4a5a.md', 'sources/intake/records/90f7a3c9c97beb5868b87d0f1620defc41f1799b962b2a1ef18f67c1f8f00a40.md', 'sources/intake/records/dd44814fb376adab8752219c86e86c049c98ec9771e1f65bf11775ecad30a239.md']
+rows left by package: {None: 15, 'MI-lara-acosta-linkedin-content-strategy-2026-7ded0d7cd9d8': 4, 'MI-nick-saraev-ai-consulting-method-2027-f44cccaace70': 4, 'MI-chris-donnelly-build-million-business-098e5a08d7ae': 4, 'MI-ryan-spencer-liam-first-meeting-491e70003998': 4}
+rehearsal (Ryan v3 note, must be >0): rows_left = 4
