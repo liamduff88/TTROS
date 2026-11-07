@@ -5,7 +5,10 @@ The Obsidian vault is the only durable knowledge authority. This module never
 uses Hermes profile memory and stages/commits only the exact
 vault paths in the completed transaction.
 
-Revisit: when the One Brain write transaction or vault Git contract changes. · Last touched: 2026-10-03.
+A transaction may also delete exact notes (``deletions``), hash-checked and committed with its
+writes; nothing else in the contract changes (used by tools/memory_remove_notes.py).
+
+Revisit: when the One Brain write transaction or vault Git contract changes. · Last touched: 2026-11-07.
 """
 
 from __future__ import annotations
@@ -21,7 +24,7 @@ import tempfile
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
-from typing import Callable, Mapping
+from typing import Callable, Iterable, Mapping
 
 import yaml
 
@@ -75,6 +78,7 @@ class BrainWriteResult:
     validation: str = "markdown/frontmatter/git-index validated"
     sync_status: str = "local_only"
     index_status: str = "not_run"
+    deleted_paths: tuple[str, ...] = ()
 
 
 def utc_now() -> str:
@@ -278,13 +282,18 @@ def _write_transaction_inner(
     require_absent: bool = False,
     attribution: Mapping[str, str] | None = None,
     force_add: bool = False,
+    deletions: Iterable[str] = (),
 ) -> BrainWriteResult:
-    """Validate, atomically replace, verify, and commit exactly these notes."""
-    if not documents:
+    """Validate, atomically replace, verify, and commit exactly these notes (and delete ``deletions``)."""
+    deletions = list(deletions)
+    if not documents and not deletions:
         raise BrainMemoryError("empty Brain transaction")
     canonical = {_safe_relative(path): content for path, content in documents.items()}
     if len(canonical) != len(documents):
         raise BrainMemoryError("duplicate canonical Brain paths")
+    removals = [_safe_relative(path) for path in deletions]
+    if len(set(removals)) != len(removals) or set(removals) & set(canonical):
+        raise BrainMemoryError("duplicate or overlapping Brain deletion paths")
     stamped = {
         relative: apply_provenance(content, source=source, session_id=session_id)
         for relative, content in canonical.items()
@@ -299,7 +308,7 @@ def _write_transaction_inner(
                 raise BrainMemoryError("vault index already contains staged human changes; transaction refused")
             # Uncommitted continuity writes must not depend on unrelated staged work, but they
             # still refuse to overwrite a file the operator has staged themselves.
-            overlap = sorted(set(staged_before) & set(canonical))
+            overlap = sorted(set(staged_before) & (set(canonical) | set(removals)))
             if overlap:
                 raise BrainMemoryError(f"transaction targets are staged in the vault index: {', '.join(overlap)}")
 
@@ -318,12 +327,27 @@ def _write_transaction_inner(
                 raise ConcurrentEditError(f"concurrent edit detected before write: {relative}")
             if original != content.encode("utf-8"):
                 changed.append(relative)
-        if not changed:
+        deleted: list[str] = []
+        for relative in removals:
+            path = _target(relative)
+            if path.is_symlink() or (path.exists() and not path.is_file()):
+                raise BrainMemoryError(f"deletion target is not a regular file: {relative}")
+            original = path.read_bytes() if path.exists() else None
+            originals[relative] = original
+            current_hashes[relative] = sha256_bytes(original) if original is not None else None
+            expected = (expected_hashes or {}).get(relative, current_hashes[relative])
+            if current_hashes[relative] != expected:
+                raise ConcurrentEditError(f"concurrent edit detected before delete: {relative}")
+            if original is not None:
+                deleted.append(relative)
+        if not changed and not deleted:
             return BrainWriteResult((), None, session_id, source)
+        tracked_deleted = sorted(set(_git("ls-files", "-z", "--", *deleted).stdout.split("\0")) & set(deleted)) if deleted else []
 
         temp_paths: dict[str, Path] = {}
         new_hashes: dict[str, str] = {}
         replaced: list[str] = []
+        unlinked: list[str] = []
         try:
             for relative in changed:
                 path = _target(relative)
@@ -352,6 +376,18 @@ def _write_transaction_inner(
                 if failure_injection == "after_first_replace" and len(replaced) == 1:
                     raise BrainMemoryError("injected Brain write failure after first atomic replace")
 
+            for relative in deleted:
+                path = _target(relative)
+                if file_sha256(path) != current_hashes[relative]:
+                    raise ConcurrentEditError(f"concurrent edit detected during delete: {relative}")
+                path.unlink()
+                unlinked.append(relative)
+                directory_fd = os.open(path.parent, os.O_RDONLY)
+                try:
+                    os.fsync(directory_fd)
+                finally:
+                    os.close(directory_fd)
+
             for relative in changed:
                 path = _target(relative)
                 validate_markdown(path.read_text(encoding="utf-8"), relative=relative)
@@ -361,13 +397,16 @@ def _write_transaction_inner(
             if failure_injection == "provenance":
                 raise BrainMemoryError("injected provenance validation failure")
             if post_write_validator is not None:
-                post_write_validator(tuple(changed))
+                post_write_validator(tuple(changed + deleted))
 
             if commit:
                 # force_add stages these exact paths inside a Brain-ignored intake directory.
-                _git("add", *(("--force",) if force_add else ()), "--", *changed)
+                if changed:
+                    _git("add", *(("--force",) if force_add else ()), "--", *changed)
+                if tracked_deleted:
+                    _git("rm", "--cached", "--quiet", "--", *tracked_deleted)
                 indexed = [line for line in _git("diff", "--cached", "--name-only").stdout.splitlines() if line]
-                if sorted(indexed) != sorted(changed):
+                if sorted(indexed) != sorted(changed + tracked_deleted):
                     raise BrainMemoryError("vault Git staged paths do not match the memory transaction")
                 checked = _git("diff", "--cached", "--check", check=False)
                 if checked.returncode == 2:  # content errors; any other nonzero is Git itself failing
@@ -381,7 +420,7 @@ def _write_transaction_inner(
                 _git(
                     "-c", f"user.name={HERMES_AUTHOR_NAME}",
                     "-c", f"user.email={HERMES_AUTHOR_EMAIL}",
-                    "commit", "-m", f"hermes: {session_id}", "--", *changed,
+                    "commit", "-m", f"hermes: {session_id}", "--", *changed, *tracked_deleted,
                 )
                 commit_hash = _git("rev-parse", "HEAD").stdout.strip()
             else:
@@ -400,7 +439,7 @@ def _write_transaction_inner(
                 except Exception:
                     sync_status = "pending"
             return BrainWriteResult(tuple(changed), commit_hash, session_id, source,
-                                    sync_status=sync_status)
+                                    sync_status=sync_status, deleted_paths=tuple(deleted))
         except Exception:
             # Restore only files still containing our candidate.  If another
             # writer won after replacement, preserve that writer's bytes.
@@ -418,7 +457,18 @@ def _write_transaction_inner(
                         handle.flush()
                         os.fsync(handle.fileno())
                     os.replace(raw_tmp, path)
-            _git("restore", "--staged", "--", *changed, check=False)
+            for relative in reversed(unlinked):
+                path = _target(relative)
+                if path.exists():  # another writer recreated it; keep that writer's bytes
+                    continue
+                fd, raw_tmp = tempfile.mkstemp(prefix=f".{path.name}.rollback-", suffix=".tmp", dir=path.parent)
+                with os.fdopen(fd, "wb") as handle:
+                    handle.write(originals[relative] or b"")
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                os.replace(raw_tmp, path)
+            if changed or tracked_deleted:
+                _git("restore", "--staged", "--", *changed, *tracked_deleted, check=False)
             raise
         finally:
             for path in temp_paths.values():
@@ -431,13 +481,14 @@ def write_transaction(
     post_write_validator: Callable[[tuple[str, ...]], None] | None = None,
     failure_injection: str | None = None, require_absent: bool = False,
     attribution: Mapping[str, str] | None = None, force_add: bool = False,
+    deletions: Iterable[str] = (),
 ) -> BrainWriteResult:
     result = _write_transaction_inner(
         documents, source=source, session_id=session_id,
         expected_hashes=expected_hashes, commit=commit,
         post_write_validator=post_write_validator,
         failure_injection=failure_injection, require_absent=require_absent,
-        attribution=attribution, force_add=force_add,
+        attribution=attribution, force_add=force_add, deletions=deletions,
     )
     if result.commit:
         try:
@@ -447,6 +498,8 @@ def write_transaction(
                 import aos_entity_index, aos_indexer
             statuses = [aos_indexer.index_one(str(VAULT_ROOT / relative)).get("status")
                         for relative in result.changed_paths]
+            statuses += [aos_indexer.remove_one(str(VAULT_ROOT / relative)).get("status")
+                         for relative in result.deleted_paths]
             if any(status != "success" for status in statuses):
                 raise BrainMemoryError("search index skipped a committed record")
             aos_entity_index.ensure_current()

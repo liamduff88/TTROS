@@ -496,6 +496,31 @@ def index_one(path_text: str, db_path: Path | None = None, *, registry: ClientSc
     return {"status": "success", "path": doc["path"], "kind": doc["kind"], "token_usage_text": TOKEN_USAGE_TEXT}
 
 
+def remove_one(path_text: str, db_path: Path | None = None) -> dict:
+    """Drop the search row of a file that no longer exists (a deleted Brain note)."""
+    db_path = runtime_db_path(db_path)
+    path = Path(path_text)
+    if not path.is_absolute():
+        path = resolve_root_relative(path_text, root=LIVE_ROOT)
+    if path.exists():
+        return {"status": "refused", "reason": "file still exists", "path": str(path), "token_usage_text": TOKEN_USAGE_TEXT}
+    source, root = source_for_path(path)
+    if source == "external":
+        return {"status": "skipped", "path": str(path), "token_usage_text": TOKEN_USAGE_TEXT}
+    # The pointer helper requires an existing file, so project the (deleted) path directly.
+    pointer = f"{source}:{relative_to_root(path, root)}"
+    conn = connect(db_path)
+    try:
+        rows = [row["id"] for row in conn.execute("SELECT id FROM documents WHERE path = ?", (pointer,))]
+        for rowid in rows:
+            conn.execute("DELETE FROM documents_fts WHERE rowid=?", (rowid,))
+            conn.execute("DELETE FROM documents WHERE id=?", (rowid,))
+        conn.commit()
+    finally:
+        conn.close()
+    return {"status": "success", "path": pointer, "removed": len(rows), "token_usage_text": TOKEN_USAGE_TEXT}
+
+
 def quote_fts_query(query: str) -> str:
     terms = re.findall(r"[\w.-]+", query)
     return " OR ".join(f'"{term}"' for term in terms[:12])
