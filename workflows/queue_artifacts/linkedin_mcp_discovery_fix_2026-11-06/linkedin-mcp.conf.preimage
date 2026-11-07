@@ -1,0 +1,5 @@
+# LinkedIn read-only MCP (tools/linkedin_profile_mcp.py) at /api/brain/linkedin/ on the
+# brain.timetorevenue.com Access application. One tool, LINKEDIN_GET_MY_INFO only. Enabled 2026-11-06.
+[Service]
+Environment=TTROS_LINKEDIN_MCP_HTTP=1
+Environment=TTROS_LINKEDIN_MCP_IDENTITIES=liamduff88@gmail.com

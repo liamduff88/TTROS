@@ -1,0 +1,31 @@
+== PID 88547
+== live env
+TTROS_LINKEDIN_MCP_HTTP=1
+TTROS_LINKEDIN_MCP_IDENTITIES=liamduff88@gmail.com,liam@timetorevenue.com
+== mount lines since restart
+shared_brain mount surface=claude tools=search,read,entity,checkpoint,resume,submit
+shared_brain mount surface=chatgpt tools=search,read,entity,checkpoint,resume,submit
+linkedin_mcp mount path=/api/brain/linkedin tools=linkedin_get_my_profile
+== LOOPBACK no-JWT initialize /api/brain/linkedin/
+{"error":"unauthorized"}
+HTTP 401
+== LOOPBACK forged JWT /api/brain/linkedin/
+{"error":"unauthorized"}
+HTTP 401
+== LOOPBACK no-JWT /api/brain/claude/
+{"error":"unauthorized"}
+HTTP 401
+== LOOPBACK no-JWT /api/brain/chatgpt/
+{"error":"unauthorized"}
+HTTP 401
+== LOOPBACK /api/health
+
+HTTP 200
+== EDGE no-auth initialize /api/brain/linkedin/
+{"error":"invalid_token","error_description":"Missing or invalid access token","resource_metadata":"https://brain.timetorevenue.com/.well-known/cloudflare-access-protected-resource/api/brain/linkedin/"}
+HTTP 401
+== EDGE bogus bearer /api/brain/linkedin/
+{"error":"invalid_token","error_description":"Missing or invalid access token","resource_metadata":"https://brain.timetorevenue.com/.well-known/cloudflare-access-protected-resource/api/brain/linkedin/"}
+HTTP 401
+== linkedin_mcp call lines since restart (expect none)
+0

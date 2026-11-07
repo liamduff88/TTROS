@@ -1,0 +1,15 @@
+Predictions written 2026-11-06 before any change or check. Surface: aos-backend (loopback 127.0.0.1:8010) + edge brain.timetorevenue.com.
+Diagnosis (from journal, pre-change): 23:23:10 "linkedin_mcp refused identity=liam@timetorevenue.com" -> POST /api/brain/linkedin/ 403.
+  The Access JWT passed verify_access_jwt (sig/iss/aud/exp); only the identity allowlist (liamduff88@gmail.com) refused it.
+  So OAuth bearer, Access JWT propagation, redirect/trailing slash and path all worked; MCP initialize never ran.
+Fix: TTROS_LINKEDIN_MCP_IDENTITIES=liamduff88@gmail.com,liam@timetorevenue.com in linkedin-mcp.conf (same pair as TTROS_REMOTE_PC_IDENTITIES). No code change.
+P1 regression test, old allowlist (gmail only): work identity -> 403 (reproduces the failure).
+P2 regression test, new allowlist: work identity initialize + tools/list -> exactly [linkedin_get_my_profile]; 0 adapter calls.
+P3 regression test, new allowlist: someone@example.com -> 403; no JWT -> 401; forged -> 401.
+P4 targeted tests test_linkedin_profile_mcp + test_shared_brain_stage1: 0 failed.
+P5 after restart: journal mount line "tools=linkedin_get_my_profile"; shared_brain mounts claude+chatgpt unchanged tool lists.
+P6 live unit env shows TTROS_LINKEDIN_MCP_IDENTITIES with both identities.
+P7 loopback no-JWT /api/brain/linkedin/ 401; forged 401; claude/chatgpt 401 unauth; /api/health 200.
+P8 edge no-auth /api/brain/linkedin/ 401 invalid_token.
+P9 zero live LinkedIn/Composio provider calls in this task.
+Does NOT license (until Liam retries): a live ChatGPT tools/list with the work identity. That needs ChatGPT itself.

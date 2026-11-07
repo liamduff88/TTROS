@@ -32,7 +32,8 @@ for _name in set(sys.modules) - _PRE_IMPORT_MODULES:
 BASE = "https://brain.timetorevenue.com"
 URL = f"{BASE}/api/brain/linkedin/"
 PROFILE = {"data": {"name": "Liam Duff", "email": "liamduff88@gmail.com", "access_token": "should-not-leave"}, "successful": True}
-IDENTITIES = {"valid-liam": "liamduff88@gmail.com", "valid-other": "someone@example.com"}
+IDENTITIES = {"valid-liam": "liamduff88@gmail.com", "valid-work": "liam@timetorevenue.com", "valid-other": "someone@example.com"}
+LIVE_ALLOWLIST = "liamduff88@gmail.com,liam@timetorevenue.com"
 
 
 def _verify(value):
@@ -114,6 +115,48 @@ class HttpBoundaryTest(unittest.TestCase):
         self.assertTrue(result["success"])
         self.assertEqual(result["profile"]["data"]["access_token"], "[redacted]")
         self.assertNotIn("should-not-leave", str(injected))
+
+
+class DiscoveryIdentityTest(unittest.TestCase):
+    """ChatGPT authenticated through Access as liam@timetorevenue.com and got 403 before initialize."""
+
+    def _discover(self, allowlist: str, assertion: str):
+        runner = Mock()
+
+        async def run():
+            app = FastAPI()
+            with patch.dict(os.environ, {"TTROS_LINKEDIN_MCP_HTTP": "1", "TTROS_LINKEDIN_MCP_IDENTITIES": allowlist}):
+                self.assertTrue(linkedin_profile_mcp.install(app, runner))
+                with patch.object(shared_brain_http, "verify_access_jwt", side_effect=_verify):
+                    async with app.router.lifespan_context(app):
+                        transport = httpx2.ASGITransport(app=app)
+                        async with httpx2.AsyncClient(transport=transport, base_url=BASE) as http:
+                            statuses = {name: (await http.post(URL, json={}, headers=headers)).status_code
+                                        for name, headers in (("none", {}), ("forged", {"Cf-Access-Jwt-Assertion": "forged"}),
+                                                              ("other", {"Cf-Access-Jwt-Assertion": "valid-other"}),
+                                                              ("caller", {"Cf-Access-Jwt-Assertion": assertion}))}
+                            if statuses["caller"] == 403:
+                                return statuses, None
+                            http.headers["Cf-Access-Jwt-Assertion"] = assertion
+                            async with streamable_http_client(URL, http_client=http) as streams:
+                                async with ClientSession(*streams) as session:
+                                    await session.initialize()
+                                    return statuses, [tool.name for tool in (await session.list_tools()).tools]
+
+        result = asyncio.run(run())
+        runner.assert_not_called()
+        return result
+
+    def test_old_allowlist_refuses_work_identity(self):
+        statuses, tools = self._discover("liamduff88@gmail.com", "valid-work")
+        self.assertEqual(statuses["caller"], 403)
+        self.assertIsNone(tools)
+
+    def test_live_allowlist_discovers_exactly_one_tool_for_both_identities(self):
+        for assertion in ("valid-work", "valid-liam"):
+            statuses, tools = self._discover(LIVE_ALLOWLIST, assertion)
+            self.assertEqual(tools, ["linkedin_get_my_profile"], assertion)
+            self.assertEqual((statuses["none"], statuses["forged"], statuses["other"]), (401, 401, 403))
 
 
 if __name__ == "__main__":

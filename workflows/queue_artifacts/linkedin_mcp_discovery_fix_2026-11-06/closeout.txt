@@ -1,0 +1,15 @@
+LinkedIn MCP ChatGPT discovery fix closeout, 2026-11-06. Surface: aos-backend PID 88547 (restarted 23:33:09 MST) + edge brain.timetorevenue.com.
+Root cause: ChatGPT's Cloudflare Access OAuth login produced a valid Brain JWT for liam@timetorevenue.com. verify_access_jwt accepted it
+  (sig/iss/aud/exp), but TTROS_LINKEDIN_MCP_IDENTITIES held only liamduff88@gmail.com, so IdentityGate returned 403 before MCP
+  initialize ran (journal 23:23:10 "linkedin_mcp refused identity=liam@timetorevenue.com"). ChatGPT reports this as
+  "Authentication succeeded, action discovery failed". OAuth bearer, Access JWT propagation, redirects and path were all correct;
+  protocol negotiation was never reached.
+Fix: linkedin-mcp.conf identities = liamduff88@gmail.com,liam@timetorevenue.com (same pair as TTROS_REMOTE_PC_IDENTITIES). No code change.
+  Preimage/postimage beside this file. Regression test DiscoveryIdentityTest added.
+P1 PASS old allowlist -> work identity 403.  P2 PASS new allowlist -> initialize + tools/list == [linkedin_get_my_profile], both identities, 0 adapter calls.
+P3 PASS other identity 403, none 401, forged 401.  P4 PASS targeted tests 14 passed / 0 failed (targeted_tests.txt).
+P5 PASS mount lines: claude+chatgpt 6 tools each unchanged; linkedin 1 tool.  P6 PASS live env holds both identities.
+P7 PASS loopback linkedin no-JWT 401, forged 401; claude/chatgpt 401; health 200.  P8 PASS edge no-auth and bogus bearer 401 invalid_token.
+P9 PASS 0 linkedin_mcp call lines since restart; no Composio/LinkedIn provider call made.
+Licenses: the identity that was refused is now admitted at the origin; discovery for that identity works in-process through the real install()/IdentityGate.
+Does NOT license: a live ChatGPT tools/list. That needs Liam to retry the connector in ChatGPT. Full suite not re-run (only a test file and docs changed in repo).

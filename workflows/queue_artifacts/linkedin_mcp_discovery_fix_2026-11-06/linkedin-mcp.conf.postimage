@@ -1,0 +1,6 @@
+# LinkedIn read-only MCP (tools/linkedin_profile_mcp.py) at /api/brain/linkedin/ on the
+# brain.timetorevenue.com Access application. One tool, LINKEDIN_GET_MY_INFO only. Enabled 2026-11-06.
+# 2026-11-06: added liam@timetorevenue.com (ChatGPT authenticates via Access with the work identity; was 403).
+[Service]
+Environment=TTROS_LINKEDIN_MCP_HTTP=1
+Environment=TTROS_LINKEDIN_MCP_IDENTITIES=liamduff88@gmail.com,liam@timetorevenue.com
