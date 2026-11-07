@@ -178,11 +178,14 @@ def _searchable(item: SourceItem) -> str:
     return "\n".join(lines).strip() or "[No safely indexable UTF-8 text; exact bytes remain preserved below.]"
 
 
-def render_record(item: SourceItem, imported_at: str) -> str:
+def render_record(item: SourceItem, imported_at: str, *, source_path: str | None = None) -> str:
+    """``source_path`` overrides the recorded path with a logical one (the v3 importer passes
+    ``drive:04_IMPORTED/...``) so a host path never lands in the Brain."""
     y = lambda value: json.dumps(str(value), ensure_ascii=False)
     frontmatter = [
         "---", f"id: source-intake-{item.sha256}", "type: source", "status: historical-evidence",
-        f"title: {y(item.title)}", f"original_filename: {y(item.path.name)}", f"source_path: {y(item.path)}",
+        f"title: {y(item.title)}", f"original_filename: {y(item.path.name)}",
+        f"source_path: {y(item.path if source_path is None else source_path)}",
         f"imported_at: {y(imported_at)}", f"source_sha256: {item.sha256}", f"source_bytes: {len(item.raw)}",
         f"content_type: {y(item.content_type)}", "knowledge_state: raw-source-not-canonical-truth", "model_invocations: 0",
     ]

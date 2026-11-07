@@ -1,0 +1,84 @@
+{
+  "schema_version": "3.0",
+  "transport_mode": "directory-v1",
+  "status": "ready_for_ttros",
+  "package_id": "MI-jordan-ellis-intro-call-4bbd735bd750",
+  "created_at": "2026-11-07T01:16:19Z",
+  "source": {
+    "original_filename": "2026-10-14 Jordan Ellis intro call.txt",
+    "package_path": "source/original.txt",
+    "sha256": "4bbd735bd750c2a6cee5b5669f8a0ceb8a5b2e2dd9eb077a71ba698b55911111",
+    "size_bytes": 2332,
+    "conversion": "none"
+  },
+  "source_folder": "sources/historical_calls/2026-10-14-jordan-ellis-intro-call-4bbd735b/",
+  "outputs": [
+    {
+      "role": "source_index",
+      "package_path": "notes/INDEX.md",
+      "target_path": "sources/historical_calls/2026-10-14-jordan-ellis-intro-call-4bbd735b/INDEX.md",
+      "sha256": "845d750461cfa3e089a60a5b00380cd27eba7720c21293fe3117d0144eab5829",
+      "size_bytes": 3548
+    },
+    {
+      "role": "topic",
+      "package_path": "notes/call-tracker-feedback.md",
+      "target_path": "sources/historical_calls/2026-10-14-jordan-ellis-intro-call-4bbd735b/call-tracker-feedback.md",
+      "sha256": "b7e95574e4b39c28e74b6a0ea0001634751beb877d55d4d0c17fc8009d82d9a3",
+      "size_bytes": 1792
+    },
+    {
+      "role": "topic",
+      "package_path": "notes/free-trial-next-steps.md",
+      "target_path": "sources/historical_calls/2026-10-14-jordan-ellis-intro-call-4bbd735b/free-trial-next-steps.md",
+      "sha256": "977101d2f188f7a5d737b56562a10d0d87f630833277efae8b3f1ce252636683",
+      "size_bytes": 2205
+    },
+    {
+      "role": "topic",
+      "package_path": "notes/missed-calls-problem.md",
+      "target_path": "sources/historical_calls/2026-10-14-jordan-ellis-intro-call-4bbd735b/missed-calls-problem.md",
+      "sha256": "4269a41ca02e541f17a96a12e433622eeba929228c089af3269112965889517a",
+      "size_bytes": 1946
+    },
+    {
+      "role": "topic",
+      "package_path": "notes/referral-brother-in-law.md",
+      "target_path": "sources/historical_calls/2026-10-14-jordan-ellis-intro-call-4bbd735b/referral-brother-in-law.md",
+      "sha256": "161e98865ba51d21403860225c72bb94ecda61e0682eb3a2093ce285ca078348",
+      "size_bytes": 1616
+    }
+  ],
+  "package_files": [
+    {
+      "path": "source/original.txt",
+      "sha256": "4bbd735bd750c2a6cee5b5669f8a0ceb8a5b2e2dd9eb077a71ba698b55911111",
+      "size_bytes": 2332
+    },
+    {
+      "path": "notes/INDEX.md",
+      "sha256": "845d750461cfa3e089a60a5b00380cd27eba7720c21293fe3117d0144eab5829",
+      "size_bytes": 3548
+    },
+    {
+      "path": "notes/call-tracker-feedback.md",
+      "sha256": "b7e95574e4b39c28e74b6a0ea0001634751beb877d55d4d0c17fc8009d82d9a3",
+      "size_bytes": 1792
+    },
+    {
+      "path": "notes/free-trial-next-steps.md",
+      "sha256": "977101d2f188f7a5d737b56562a10d0d87f630833277efae8b3f1ce252636683",
+      "size_bytes": 2205
+    },
+    {
+      "path": "notes/missed-calls-problem.md",
+      "sha256": "4269a41ca02e541f17a96a12e433622eeba929228c089af3269112965889517a",
+      "size_bytes": 1946
+    },
+    {
+      "path": "notes/referral-brother-in-law.md",
+      "sha256": "161e98865ba51d21403860225c72bb94ecda61e0682eb3a2093ce285ca078348",
+      "size_bytes": 1616
+    }
+  ]
+}

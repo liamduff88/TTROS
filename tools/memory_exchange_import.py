@@ -9,7 +9,11 @@ Trailing whitespace Markdown ignores is stripped at the same render step, so
 the Brain's `git diff --check` gate cannot block an otherwise valid note; one
 package's failure never stops the rest of the READY queue.
 canonical_replace is refused unless TTROS_MEMORY_ALLOW_CANONICAL_REPLACE=1. Undeclared
-desktop.ini/Thumbs.db files are ignored, and skipped READY folders are reported.
+desktop.ini/Thumbs.db files (v3: also .DS_Store) are ignored, and skipped READY folders are reported.
+Memory Ingest v3 (schema_version "3.0", spec 0.2 §8) is a separate path, process_v3: one source per
+package, stored as its original record, a source INDEX and topic notes under
+sources/historical_calls/<folder>/, plus one grouped entry in the historical-calls INDEX, all in one
+Brain transaction. The v2 path is unchanged.
 A historical note without knowledge_type gets the manifest's first knowledge_types_present
 value at render time. After a successful import (transaction returned, refresh done) the notes
 are filed by tools/memory_filing.py (generated navigation only). It is on by default and off with
@@ -57,6 +61,8 @@ HISTORICAL_INDEX_EXEMPT = {"INDEX.md", "MANIFEST.md"}
 CANONICAL_REPLACE_FLAG = "TTROS_MEMORY_ALLOW_CANONICAL_REPLACE"
 # Files the Windows/Drive shell drops into folders. Undeclared copies are ignored, never read.
 IGNORED_JUNK_FILES = frozenset({"desktop.ini", "thumbs.db"})
+# v3 also ignores the macOS shell's .DS_Store. v2 keeps rejecting it, as its tests pin.
+V3_IGNORED_JUNK_FILES = IGNORED_JUNK_FILES | {".ds_store"}
 LEDGER = "queue/receipts/memory_exchange_import.jsonl"
 
 
@@ -64,10 +70,10 @@ def canonical_replace_allowed() -> bool:
     return os.environ.get(CANONICAL_REPLACE_FLAG, "").strip() == "1"
 
 
-def _ignorable_junk(package: Path, name: str) -> bool:
+def _ignorable_junk(package: Path, name: str, names=IGNORED_JUNK_FILES) -> bool:
     """An undeclared shell junk file: matched by name only, and never through a symlink."""
     path = package / name
-    return (path.name.lower() in IGNORED_JUNK_FILES and path.is_file()
+    return (path.name.lower() in names and path.is_file()
             and not any(p.is_symlink() for p in (path, *path.parents) if package in p.parents))
 
 
@@ -542,7 +548,8 @@ def process_submit_package(package: Path, *, brain: Path, dry_run: bool = False)
         return {"outcome": "rejected", "operation": "submit", "reason": str(exc)}
 
 
-def _refresh(paths: list[str], brain: Path, root: Path) -> tuple[dict, dict]:
+def _refresh(paths: list[str], brain: Path, root: Path, records=()) -> tuple[dict, dict]:
+    """Search + Graphify refresh. ``records`` (v3 original records) must also be found by exact search."""
     from tools import aos_indexer
     from tools.business_brain_scope import load_registry
     from dashboard.backend.business_brain_graph import BusinessBrainGraphService
@@ -555,6 +562,19 @@ def _refresh(paths: list[str], brain: Path, root: Path) -> tuple[dict, dict]:
               "results": indexed}
     if search["status"] != "success":
         return search, {"status": "pending", "reason": "search refresh failed"}
+    if records:
+        connection = aos_indexer.connect(root / "search/os_index.db", readonly=True)
+        try:
+            found = {row[0] for row in connection.execute(
+                "SELECT path FROM documents WHERE client_scope='global' AND path IN (%s)" % ",".join("?" for _ in records),
+                tuple(records))}
+        finally:
+            connection.close()
+        unsearchable = sorted(set(records) - found)
+        search["records_searchable"] = sorted(found & set(records))
+        if unsearchable:
+            search.update(status="failed", records_unsearchable=unsearchable)
+            return search, {"status": "pending", "reason": "original record is not searchable", "missing": unsearchable}
     graph = BusinessBrainGraphService(vault_root=brain, registry=registry)
     allowed, prefixes = graph._published_target_allowlist()
     missing = [pointer for pointer in paths
@@ -616,12 +636,378 @@ def _retry_filing(brain: Path, root: Path):
         return {"outcome": "filing_retry_error", "reason": f"{type(exc).__name__}: {exc}"[-2000:]}
 
 
+# ---------------------------------------------------------------- Memory Ingest v3 (spec 0.2 §8 items 1-5)
+
+V3_SCHEMA = "3.0"
+# One source folder per source; memory_filing imports this to read the same notes.
+V3_SOURCE_FOLDER = r"sources/historical_calls/(?:\d{4}-\d{2}-\d{2}|undated)-[a-z0-9]+(?:-[a-z0-9]+)*-[0-9a-f]{8}/"
+V3_FOLDER_RE = re.compile(V3_SOURCE_FOLDER + r"\Z")
+V3_SLUG_RE = re.compile(r"[a-z0-9-]{1,60}\Z")
+V3_REQUIRED = ("id", "type", "status", "canonical_truth", "title", "knowledge_type", "participants_text",
+               "entities", "source_sha256", "source_record", "source_date_text")
+V3_MAY_BE_EMPTY = {"participants_text", "entities"}
+V3_ROLE_TYPE = {"source_index": "source_index", "topic": "historical_record"}
+V3_INDEX_SECTION = "## Source packages"
+V3_ATTRIBUTION = {"authenticated_identity": "liam-drive-channel", "surface": "chatgpt",
+                  "actor_class": "authorised_client", "surface_source": "address"}
+
+
+def _is_v3(package: Path) -> bool:
+    try:
+        return _manifest(package)[0].get("schema_version") == V3_SCHEMA
+    except (ImportFailure, OSError):
+        return False
+
+
+def _declared_bytes(row: dict, file_map: dict, name: str) -> bytes:
+    path, sha, size = row.get("package_path"), row.get("sha256"), row.get("size_bytes")
+    if path not in file_map or sha != digest(file_map[path]) or size != len(file_map[path]) or isinstance(size, bool):
+        raise ImportFailure(f"{name} sha256/size_bytes do not match the package file: {path}")
+    return file_map[path]
+
+
+def validate_v3(package: Path, brain: Path) -> dict:
+    """The v3 checks (spec §8 item 2) and nothing else. Every problem is an ImportFailure."""
+    try:
+        return _validate_v3(package, brain)
+    except ImportFailure:
+        raise
+    except Exception as exc:  # malformed shapes are rejections, never crashes
+        raise ImportFailure(f"malformed v3 package: {type(exc).__name__}: {exc}") from exc
+
+
+def _validate_v3(package: Path, brain: Path) -> dict:
+    from tools import aos_indexer
+    from tools.source_intake import RECORDS_RELATIVE
+    manifest, fingerprint = _manifest(package)
+    for key, expected in (("schema_version", V3_SCHEMA), ("transport_mode", "directory-v1"),
+                          ("status", "ready_for_ttros")):
+        if manifest.get(key) != expected:
+            raise ImportFailure(f"unsupported {key}: {manifest.get(key)}")
+    if not isinstance(manifest.get("package_id"), str) or not IDENT.fullmatch(manifest["package_id"]):
+        raise ImportFailure("invalid package_id")
+    files, outputs = manifest.get("package_files"), manifest.get("outputs")
+    if not isinstance(files, list) or not files or not isinstance(outputs, list) or not outputs:
+        raise ImportFailure("package_files and outputs must be nonempty lists")
+    file_map = {}
+    for item in files:
+        row = required_dict(item, "package file")
+        name, size, sha = row.get("path"), row.get("size_bytes"), row.get("sha256")
+        if not isinstance(name, str) or not isinstance(size, int) or isinstance(size, bool) or size < 0 or not isinstance(sha, str) or not SHA.fullmatch(sha):
+            raise ImportFailure("invalid package file metadata")
+        relative(name)
+        if name in file_map:
+            raise ImportFailure("duplicate package file")
+        raw = safe_file(package, name).read_bytes()
+        if len(raw) != size:
+            raise ImportFailure(f"byte size mismatch: {name}")
+        if digest(raw) != sha:
+            raise ImportFailure(f"SHA-256 mismatch: {name}")
+        file_map[name] = raw
+    actual = {p.relative_to(package).as_posix() for p in package.rglob("*") if p.is_file() or p.is_symlink()}
+    declared = set(file_map) | {"INGEST_MANIFEST.json"}
+    ignored = sorted(name for name in actual - declared if _ignorable_junk(package, name, V3_IGNORED_JUNK_FILES))
+    if actual - set(ignored) != declared:
+        raise ImportFailure("unexpected or undeclared package file: " +", ".join(sorted(actual - set(ignored) - declared)))
+    source = required_dict(manifest.get("source"), "source")
+    source_sha = source.get("sha256")
+    if not isinstance(source_sha, str) or not SHA.fullmatch(source_sha):
+        raise ImportFailure("invalid source.sha256")
+    source_raw = _declared_bytes(source, file_map, "source")
+    folder = manifest.get("source_folder")
+    if not isinstance(folder, str) or not V3_FOLDER_RE.fullmatch(folder):
+        raise ImportFailure(f"invalid source_folder: {folder}")
+    if folder[-9:-1] != source_sha[:8]:
+        raise ImportFailure("source_folder does not end with source.sha256[:8]")
+    record_relative = f"{RECORDS_RELATIVE}/{source_sha}.md"
+    planned, seen, roles = [], set(), []
+    for item in outputs:
+        row = required_dict(item, "output")
+        role = row.get("role")
+        if role not in V3_ROLE_TYPE:
+            raise ImportFailure(f"unsupported output role: {role}")
+        roles.append(role)
+        raw = _declared_bytes(row, file_map, "output")
+        target = row.get("target_path")
+        if not isinstance(target, str) or not target.startswith(folder):
+            raise ImportFailure(f"target is not inside source_folder: {target}")
+        relative(target)
+        name = target[len(folder):]
+        if not name.endswith(".md"):
+            raise ImportFailure(f"target must be a Markdown file: {target}")
+        slug = name[:-3]
+        if role == "source_index":
+            if name != "INDEX.md":
+                raise ImportFailure("source_index target must be <source_folder>INDEX.md")
+        elif not V3_SLUG_RE.fullmatch(slug) or slug == "index":
+            raise ImportFailure(f"topic slug must be a-z0-9- and at most 60 characters: {slug}")
+        if aos_indexer.is_excluded(target):
+            raise ImportFailure(f"target path contains a word the search indexer excludes: {target}")
+        if target.lower() in seen:  # the Brain lives on a case-insensitive Windows drive
+            raise ImportFailure(f"duplicate output target: {target}")
+        seen.add(target.lower())
+        try:
+            text = raw.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise ImportFailure(f"note is not UTF-8: {row['package_path']}") from exc
+        fields, _body = parse_frontmatter(text)
+        missing = [key for key in V3_REQUIRED if key not in fields or (not fields[key] and key not in V3_MAY_BE_EMPTY)]
+        if missing:
+            raise ImportFailure(f"missing frontmatter in {row['package_path']}: {', '.join(missing)}")
+        if fields["canonical_truth"] != "false":
+            raise ImportFailure(f"canonical_truth must be false: {row['package_path']}")
+        if fields["type"] != V3_ROLE_TYPE[role]:
+            raise ImportFailure(f"{row['package_path']} type must be {V3_ROLE_TYPE[role]} for role {role}")
+        if fields["source_sha256"] != source_sha:
+            raise ImportFailure(f"source_sha256 does not match the original: {row['package_path']}")
+        if fields["source_record"] != f"business_brain:{record_relative}":
+            raise ImportFailure(f"source_record must be business_brain:{record_relative}: {row['package_path']}")
+        destination = brain / target
+        if not destination.resolve().is_relative_to(brain.resolve()) or any(
+                p.is_symlink() for p in (destination, *destination.parents) if p != brain and brain in p.parents):
+            raise ImportFailure("target escapes Business Brain")
+        planned.append({"role": role, "operation": "historical_record" if role == "topic" else "source_index",
+                        "source": row["package_path"], "target": str(destination), "pointer": f"business_brain:{target}",
+                        "sha256": row["sha256"], "title": fields["title"], "source_date_text": fields["source_date_text"]})
+    if roles.count("source_index") != 1:
+        raise ImportFailure(f"exactly one source_index output is required (found {roles.count('source_index')})")
+    return {"manifest": manifest, "fingerprint": fingerprint, "outputs": planned, "bytes": file_map,
+            "source_bytes": source_raw, "record_relative": record_relative, "ignored_files": ignored}
+
+
+def _v3_clean(text: str) -> str:
+    return " ".join(re.sub(r"[\[\]|]", " ", str(text or "")).split())
+
+
+def historical_index_v3_entry(folder: str, outputs: list[dict], record_relative: str) -> list[str]:
+    """One grouped entry: the source INDEX (title and date), each topic note, and the original record."""
+    index = next(o for o in outputs if o["role"] == "source_index")
+    date = index["source_date_text"] if re.fullmatch(r"\d{4}-\d{2}-\d{2}", index["source_date_text"]) else "undated"
+    lines = [f"- [[{folder}INDEX|{_v3_clean(index['title'])}]] · {date} · "
+             f"[[{record_relative.removesuffix('.md')}|Original record]]"]
+    for topic in sorted((o for o in outputs if o["role"] == "topic"), key=lambda o: o["pointer"]):
+        lines.append(f"  - [[{topic['pointer'].removeprefix('business_brain:').removesuffix('.md')}|{_v3_clean(topic['title'])}]]")
+    return lines
+
+
+def historical_index_v3_text(index_text: str, folder: str, entry: list[str]) -> str:
+    """Put one v3 grouped entry in the INDEX; the same source_folder replaces its own entry.
+
+    The section sits before the closing navigation line, like the v2 section, and the v2
+    "Memory Exchange imports" entries are never touched.
+    """
+    lines = index_text.rstrip("\n").split("\n")
+    head = f"- [[{folder}INDEX|"
+    if V3_INDEX_SECTION in lines:
+        start = lines.index(V3_INDEX_SECTION)
+        end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith(("#", "[[index/"))), len(lines))
+        while end > start + 1 and not lines[end - 1].strip():
+            end -= 1
+        at = next((i for i in range(start + 1, end) if lines[i].startswith(head)), None)
+        if at is None:
+            lines[end:end] = entry
+        else:
+            stop = at + 1
+            while stop < end and lines[stop].startswith("  "):
+                stop += 1
+            lines[at:stop] = entry
+    else:
+        at = len(lines) - 1 if lines[-1].startswith("[[index/") else len(lines)
+        lines[at:at] = [V3_INDEX_SECTION, "",
+                        "One entry per source ingested through Memory Ingest v3: its source index, topic notes "
+                        "and original record. Historical evidence; no statement here is canonical truth.",
+                        "", *entry, ""]
+    return "\n".join(lines) + "\n"
+
+
+def _v3_source_item(package: Path, plan: dict):
+    """The source_intake SourceItem for the original, named by its original filename, never a host path."""
+    from tools import source_intake
+    source = plan["manifest"]["source"]
+    filename = PurePosixPath(str(source.get("original_filename") or "")).name or "original.txt"
+    title, date = source_intake._metadata(PurePosixPath(filename), plan["source_bytes"], "text/plain")
+    index = next(o for o in plan["outputs"] if o["role"] == "source_index")
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", index["source_date_text"]):
+        date = index["source_date_text"]
+    item = source_intake.SourceItem(PurePosixPath(filename), plan["source_bytes"], source["sha256"], "text/plain", title, date)
+    return item, f"drive:04_IMPORTED/{package.name}/{source['package_path']}"
+
+
+def _v3_post_write(brain: Path, record_relative: str, raw: bytes, check_record: bool):
+    def check(changed) -> None:
+        from tools.source_intake import SourceIntakeError, extract_exact_bytes
+        if check_record:
+            try:
+                preserved = extract_exact_bytes((brain / record_relative).read_text(encoding="utf-8"))
+            except (OSError, UnicodeError, SourceIntakeError) as exc:
+                raise ImportFailure(f"original record unreadable after write: {exc}") from exc
+            if preserved != raw:
+                raise ImportFailure("original record failed exact-byte verification")
+        written = {r for r in changed if r.endswith(".md")}
+        result = analyze_vault(brain)
+        broken = sorted({row["source"] for row in result["broken_links"] if row["source"] in written})
+        unreachable = sorted(written & set(result["unreachable"]))
+        if broken or unreachable:
+            raise ImportFailure(f"v3 notes break the vault contract: broken links in {broken}; unreachable {unreachable}")
+    return check
+
+
+def _v3_public(outputs: list[dict]) -> list[dict]:
+    return [{k: v for k, v in o.items() if k not in {"title", "source_date_text"}} for o in outputs]
+
+
+def process_v3(package: Path, *, brain: Path, root: Path, dry_run: bool = False, refresh=None, filing=None) -> dict:
+    """Import one v3 package: notes, original record, both INDEX updates, in ONE Brain transaction."""
+    from tools import source_intake
+    ledger = root / LEDGER
+    with locked(root / "queue/locks/memory_exchange_import.lock") if not dry_run else _null_context():
+        try:
+            plan = validate_v3(package, brain)
+            manifest, fingerprint, outputs = plan["manifest"], plan["fingerprint"], plan["outputs"]
+            folder, record_relative = manifest["source_folder"], plan["record_relative"]
+            record_pointer = f"business_brain:{record_relative}"
+            rendered = {}
+            for output in outputs:  # the v2 render-time normalisation; the package hash stays in the receipt
+                text, normalised = strip_insignificant_whitespace(delink_intake(plan["bytes"][output["source"]].decode("utf-8")))
+                rendered[output["source"]] = text
+                if normalised:
+                    output["render_normalisation"] = normalised
+            rows = ledger_rows(ledger)
+            prior = [row for row in rows if row.get("package_id") == manifest["package_id"] and row.get("outcome") != "rejected"]
+            if any(row.get("fingerprint") != fingerprint for row in prior):
+                raise ImportFailure("package ID collision with different fingerprint")
+            previous = prior[-1] if prior else None
+            ours = bool(previous) and previous.get("outcome") in {"committed", "imported", "refresh_pending", "already_imported"}
+            written = {item.get("pointer"): item["written_sha256"] for row in prior
+                       for item in (row.get("outputs") or []) if item.get("written_sha256")}
+            for output in outputs:
+                target = Path(output["target"])
+                if target.is_symlink() or not target.resolve().is_relative_to(brain.resolve()):
+                    raise ImportFailure("unsafe target path")
+                if not target.exists():
+                    output["action"] = "write"
+                    continue
+                # The existing "previously imported" handling: only this package's own recorded write is
+                # accepted as already present; anything else is refused and never overwritten.
+                current = digest(target.read_bytes())
+                if ours and written.get(output["pointer"], current) == current:
+                    output["action"] = "already_present"
+                elif ours:
+                    raise ImportFailure(f"previously imported target changed: {output['pointer']}")
+                else:
+                    raise ImportFailure(f"target already exists in the Brain (previously imported): {output['pointer']}; not overwritten")
+            record_path = brain / record_relative
+            if record_path.is_symlink():
+                raise ImportFailure("unsafe original record path")
+            if record_path.exists():
+                try:
+                    preserved = source_intake.extract_exact_bytes(record_path.read_text(encoding="utf-8"))
+                except (UnicodeError, source_intake.SourceIntakeError) as exc:
+                    raise ImportFailure(f"existing original record is unreadable: {record_pointer}") from exc
+                if preserved != plan["source_bytes"]:
+                    raise ImportFailure(f"existing original record failed exact-byte verification: {record_pointer}")
+                record_action = "reused"
+            else:
+                record_action = "write"
+            item, logical_path = _v3_source_item(package, plan)
+            record = {"pointer": record_pointer, "sha256": manifest["source"]["sha256"], "action": record_action,
+                      "source_path": logical_path}
+            refreshed = sorted([o["pointer"] for o in outputs] + [record_pointer])
+            if (previous and previous.get("outcome") in {"imported", "already_imported"}
+                    and previous.get("search_refresh", {}).get("status") == "success"
+                    and previous.get("graphify_refresh", {}).get("status") == "success"
+                    and sorted(row.get("pointer") for row in previous.get("graphify_refresh", {}).get("coverage", [])) == refreshed
+                    and all(o["action"] == "already_present" for o in outputs)):
+                outcome = "already_imported"
+            else:
+                outcome = "validated" if dry_run else "committed"
+            receipt = {"schema_version": V3_SCHEMA, "package_id": manifest["package_id"], "source_folder": folder,
+                       "source": {k: manifest["source"].get(k) for k in ("original_filename", "sha256", "size_bytes", "conversion")},
+                       "fingerprint": fingerprint, "outcome": outcome, "outputs": _v3_public(outputs), "record": record,
+                       "validated": True, "search_refresh": {"status": "not_run"}, "graphify_refresh": {"status": "not_run"},
+                       "external_package_move": "pending", "token_usage": TOKEN_USAGE}
+            if plan["ignored_files"]:
+                receipt["ignored_package_files"] = plan["ignored_files"]
+            if outcome == "already_imported":
+                for key in ("search_refresh", "graphify_refresh", "commit", "sync_status", "record", "filing"):
+                    if key in previous:
+                        receipt[key] = previous[key]
+            if dry_run or outcome == "already_imported":
+                return receipt
+            from tools import brain_memory
+            if not ((brain / ".git").is_dir() and brain.resolve() == brain_memory.VAULT_ROOT):
+                raise ImportFailure("v3 packages are written only through the live Brain transaction")
+            if previous and all(o["action"] == "already_present" for o in outputs):
+                for key in ("commit", "sync_status"):
+                    if key in previous:
+                        receipt[key] = previous[key]
+            append(ledger, {**receipt, "outcome": "in_progress", "timestamp": dt.datetime.now(dt.timezone.utc).isoformat()})
+            documents = {Path(o["target"]).relative_to(brain).as_posix(): rendered[o["source"]]
+                         for o in outputs if o["action"] == "write"}
+            if record_action == "write":
+                documents[record_relative] = source_intake.render_record(item, source_intake._utc_now(), source_path=logical_path)
+                documents[source_intake.INDEX_RELATIVE] = source_intake.render_index(brain, [item])
+                main_index = brain / source_intake.MAIN_INDEX_RELATIVE
+                if main_index.is_file():
+                    existing_main = main_index.read_text(encoding="utf-8")
+                    if source_intake.INTAKE_LINK not in existing_main:
+                        documents[source_intake.MAIN_INDEX_RELATIVE] = (
+                            existing_main.rstrip() + f"\n\n## Historical source intake\n\n{source_intake.INTAKE_LINK}\n")
+            if (brain / HISTORICAL_INDEX).is_file():
+                index_text = (brain / HISTORICAL_INDEX).read_text(encoding="utf-8")
+                updated = historical_index_v3_text(index_text, folder, historical_index_v3_entry(folder, outputs, record_relative))
+                if updated != index_text:
+                    documents[HISTORICAL_INDEX] = updated
+            if documents:
+                try:
+                    write = brain_memory.write_transaction(
+                        documents, source="memory-exchange-import-v3", session_id=manifest["package_id"],
+                        expected_hashes={rel: digest((brain / rel).read_bytes()) if (brain / rel).is_file() else None
+                                         for rel in documents},
+                        attribution=V3_ATTRIBUTION,
+                        post_write_validator=_v3_post_write(brain, record_relative, plan["source_bytes"],
+                                                            record_action == "write"),
+                    )
+                except brain_memory.BrainContentCheckError as exc:
+                    raise ImportFailure(f"Brain content check failed: {exc}") from exc
+                receipt["commit"] = write.commit
+                receipt["sync_status"] = write.sync_status
+            for output in outputs:
+                output["written_sha256"] = digest(Path(output["target"]).read_bytes())
+            record["written_sha256"] = digest(record_path.read_bytes())
+            receipt["outputs"] = _v3_public(outputs)
+            receipt["timestamp"] = dt.datetime.now(dt.timezone.utc).isoformat()
+            append(ledger, receipt)
+            fn = refresh or (lambda pointers: _refresh(pointers, brain, root, records=[record_pointer]))
+            try:
+                search, graph = fn(refreshed)
+            except Exception as exc:
+                search, graph = {"status": "pending", "reason": str(exc)}, {"status": "pending"}
+            receipt["search_refresh"], receipt["graphify_refresh"] = search, graph
+            receipt["outcome"] = "imported" if search.get("status") == "success" and graph.get("status") in {"success", "not_applicable"} else "refresh_pending"
+            if receipt["outcome"] == "imported":
+                receipt["filing"] = _file_import(filing, receipt, brain, root)
+            append(ledger, receipt)
+            return receipt
+        except ImportFailure as exc:
+            receipt = {"schema_version": V3_SCHEMA, "outcome": "rejected", "reason": str(exc), "package": package.name,
+                       "timestamp": dt.datetime.now(dt.timezone.utc).isoformat(), "token_usage": TOKEN_USAGE}
+            if "plan" in locals():
+                receipt.update({"package_id": plan["manifest"]["package_id"], "fingerprint": plan["fingerprint"],
+                                "source_folder": plan["manifest"]["source_folder"], "outputs": _v3_public(plan["outputs"])})
+            if not dry_run:
+                append(ledger, receipt)
+            return receipt
+
+
 def process(package: Path, *, brain: Path = BUSINESS_BRAIN_ROOT, root: Path = ROOT,
             dry_run: bool = False, refresh=None, filing=None) -> dict:
     if (package / "CHECKPOINT.json").exists():
         return process_checkpoint_package(package, brain=brain, dry_run=dry_run)
     if (package / "SUBMIT.json").exists():
         return process_submit_package(package, brain=brain, dry_run=dry_run)
+    if _is_v3(package):
+        return process_v3(package, brain=brain, root=root, dry_run=dry_run, refresh=refresh, filing=filing)
     ledger = root / "queue/receipts/memory_exchange_import.jsonl"
     with locked(root / "queue/locks/memory_exchange_import.lock") if not dry_run else _null_context():
         try:

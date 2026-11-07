@@ -21,6 +21,11 @@ The importer calls file_imported() only after its own transaction has returned a
 is done. Filing is never nested in a Brain transaction and never blocks or undoes an import.
 TTROS_MEMORY_FILING=0 turns it off.
 
+Memory Ingest v3: notes one level deep in a v3 source folder (sources/historical_calls/<date>-<slug>-<sha8>/)
+are read too. A source INDEX (type: source_index) is navigation: never an evidence note, linked from a
+hub only as a topic note's "source", and its `## Needs identity` items are listed on NEEDS_IDENTITY
+with a link back to it.
+
 Revisit: when person/topic hub rules or the D1 navigation policy change. · Last touched: 2026-11-06.
 """
 from __future__ import annotations
@@ -45,7 +50,8 @@ from tools import aos_entity_index as entity_index
 from tools import aos_indexer, brain_memory
 from tools.business_brain import BUSINESS_BRAIN_ROOT
 from tools.memory_exchange_import import (
-    HISTORICAL_INDEX, TOKEN_USAGE, _historical_notes, append, digest, ledger_rows, locked,
+    HISTORICAL_INDEX, HISTORICAL_INDEX_EXEMPT, TOKEN_USAGE, V3_SOURCE_FOLDER, _historical_notes, append, digest,
+    ledger_rows, locked,
 )
 from tools.validate_business_brain import WIKI_LINK_RE, analyze_vault, resolve_wiki_target
 
@@ -68,6 +74,10 @@ SLUG_RE = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*\Z")
 HUB_RE = re.compile(r"people/[a-z0-9]+(?:-[a-z0-9]+)*\.md\Z")
 SAFE_KT = re.compile(r"[a-z][a-z0-9_]{0,63}\Z")
 MACHINE_BLOCK_RE = re.compile(r"<!-- TTROS:MACHINE:([^:>]+):BEGIN -->[\s\S]*?<!-- TTROS:MACHINE:\1:END -->")
+# Memory Ingest v3: one folder per source, one level beneath sources/historical_calls/.
+V3_NOTE_RE = re.compile(V3_SOURCE_FOLDER + r"[^/]+\.md\Z")
+SOURCE_INDEX_TYPE = "source_index"
+NEEDS_HEADING = "## Needs identity"
 OUTCOMES = ("filed", "unchanged", "filing_pending", "filing_failed")
 RETRY_OUTCOMES = {"filing_pending", "filing_failed"}
 ATTRIBUTION = {"authenticated_identity": "ttros-memory-filing", "surface": "ttros",
@@ -138,6 +148,48 @@ def _without_section(text: str) -> str:
 # ---------------------------------------------------------------- F1: identities
 
 
+def _filing_notes(relatives) -> list[str]:
+    """Historical notes filing reads: the top-level ones, plus v3 source folders one level deep.
+
+    A source folder's INDEX.md is navigation and is never one of them (nor is any note whose
+    type is source_index; build_plan drops those after reading the frontmatter).
+    """
+    relatives = list(relatives)
+    nested = {r for r in relatives if V3_NOTE_RE.fullmatch(r) and r.rsplit("/", 1)[1] not in HISTORICAL_INDEX_EXEMPT}
+    return sorted(set(_historical_notes(relatives)) | nested)
+
+
+def _source_index(relative: str) -> str | None:
+    """The v3 source INDEX of a note in a v3 source folder, else None."""
+    return relative.rsplit("/", 1)[0] + "/INDEX.md" if V3_NOTE_RE.fullmatch(relative) else None
+
+
+def _source_index_needs(brain: Path) -> list[dict]:
+    """Names each v3 source INDEX lists under `## Needs identity`, each with a link back to its INDEX."""
+    rows = []
+    for path in sorted((brain / "sources/historical_calls").glob("*/INDEX.md")):
+        relative = path.relative_to(brain).as_posix()
+        if not V3_NOTE_RE.fullmatch(relative):
+            continue
+        try:
+            fm, body = aos_indexer.parse_frontmatter(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError):
+            continue
+        if str(fm.get("type") or "") != SOURCE_INDEX_TYPE:
+            continue
+        lines = body.splitlines()
+        if NEEDS_HEADING not in (line.strip() for line in lines):
+            continue
+        start = next(i for i, line in enumerate(lines) if line.strip() == NEEDS_HEADING) + 1
+        title = _clean(fm.get("title") or relative)
+        for line in lines[start:]:
+            if line.startswith("#"):
+                break
+            if line.lstrip().startswith(("- ", "* ")) and _clean(line.lstrip()[2:]):
+                rows.append({"name": _clean(line.lstrip()[2:])[:200], "index": relative, "title": title})
+    return rows
+
+
 def _read_note(brain: Path, relative: str) -> dict:
     raw = (brain / relative).read_text(encoding="utf-8")
     fm, body = aos_indexer.parse_frontmatter(raw)
@@ -160,7 +212,8 @@ def _read_note(brain: Path, relative: str) -> dict:
             + entity_index._frontmatter_list(raw, "entity_keys") if key.strip()]
     participants = str(fm.get("participants") or fm.get("participants_text") or "")
     return {"relative": relative, "pointer": PREFIX + relative, "title": title, "date": date, "date_label": label,
-            "knowledge_type": ktype, "keys": keys, "participants": participants}
+            "knowledge_type": ktype, "keys": keys, "participants": participants,
+            "type": str(fm.get("type") or ""), "source_index": _source_index(relative)}
 
 
 def _hub_files(brain: Path) -> dict[str, dict]:
@@ -364,8 +417,11 @@ def _index_title(brain: Path, relative: str) -> str:
 def build_plan(brain: Path, *, db_path: Path | None = None, owners=None) -> dict:
     """Everything F2 would write, rendered deterministically from the vault as it is now."""
     brain = Path(brain)
-    relatives = [p.relative_to(brain).as_posix() for p in (brain / "sources/historical_calls").glob("*.md")]
-    notes = [_read_note(brain, relative) for relative in _historical_notes(relatives)]
+    folder = brain / "sources/historical_calls"
+    relatives = [p.relative_to(brain).as_posix() for pattern in ("*.md", "*/*.md") for p in folder.glob(pattern)]
+    # A source index is navigation, never a person's evidence note.
+    notes = [note for note in (_read_note(brain, relative) for relative in _filing_notes(relatives))
+             if note["type"] != SOURCE_INDEX_TYPE]
     hubs = _hub_files(brain)
     people = _entity_people(db_path)
     identity = resolve_identities(notes, hubs=hubs, people=people, owners=owners or owner_names())
@@ -384,6 +440,7 @@ def build_plan(brain: Path, *, db_path: Path | None = None, owners=None) -> dict
         title = _hub_title(entity_id, hubs, people, identity["aliases"].get(entity_id, set()))
         rows = sorted(members.get(entity_id, []), key=lambda n: (-int(n["date"].replace("-", "") or 0), n["relative"]))
         lines = [f"- [[{n['relative'].removesuffix('.md')}|{n['title']}]] · {n['date_label']} · {n['knowledge_type']}"
+                 + (f" · [[{n['source_index'].removesuffix('.md')}|source]]" if n["source_index"] else "")
                  for n in rows]
         pointers = {n["pointer"] for n in rows}
         cited = sorted((s for s in submits if s["refs"] & (pointers | {entity_id})), key=lambda s: s["pointer"])
@@ -402,17 +459,21 @@ def build_plan(brain: Path, *, db_path: Path | None = None, owners=None) -> dict
                          "notes": [n["pointer"] for n in rows], "count": len(rows), "latest": latest,
                          "submits": [s["pointer"] for s in cited]})
     needs = identity["needs"]
+    index_needs = _source_index_needs(brain)
+    unresolved = len(needs) + len(index_needs)
     people_lines = [f"- [[{h['relative'].removesuffix('.md')}|{h['title']}]] · {h['count']} "
                     f"record{'s' if h['count'] != 1 else ''} · latest {h['latest'] or 'undated'}"
                     for h in sorted(hub_rows, key=lambda h: (h["title"].lower(), h["entity_id"]))]
-    people_lines += ["", f"[[people/NEEDS_IDENTITY|Needs identity]] · {len(needs)} name"
-                     f"{'s' if len(needs) != 1 else ''} filing could not tie to one person"]
+    people_lines += ["", f"[[people/NEEDS_IDENTITY|Needs identity]] · {unresolved} name"
+                     f"{'s' if unresolved != 1 else ''} filing could not tie to one person"]
     existing = (brain / PEOPLE_INDEX).read_text(encoding="utf-8") if (brain / PEOPLE_INDEX).is_file() else _new_index(
         "people-index", "People",
         "Person hubs: generated navigation only. Each hub lists the historical evidence that names one "
         "person; no statement here is canonical truth.", "[[index/MEMORY_INDEX|Memory Index]]")
     documents[PEOPLE_INDEX] = _section(existing, "Person hubs", "\n".join(people_lines))
     need_lines = [f"- {n['name']} · {n['reason']} · " + ", ".join(f"`{p}`" for p in n["pointers"]) for n in needs]
+    need_lines += [f"- {n['name']} · listed under Needs identity in [[{n['index'].removesuffix('.md')}|{n['title']}]]"
+                   for n in index_needs]
     existing = (brain / NEEDS_IDENTITY).read_text(encoding="utf-8") if (brain / NEEDS_IDENTITY).is_file() else _new_index(
         "people-needs-identity", "Needs identity",
         "Names filing could not tie to exactly one person. Filing never guesses: each name stays here until "
@@ -421,7 +482,7 @@ def build_plan(brain: Path, *, db_path: Path | None = None, owners=None) -> dict
     # MEMORY_INDEX: links to the people index and every folder INDEX, with counts.
     paths = {p.relative_to(brain).as_posix() for p in brain.rglob("*.md")} | set(documents)
     nav = [f"- [[people/INDEX|People]] · {len(hub_rows)} person hub{'s' if len(hub_rows) != 1 else ''} · "
-           f"{len(needs)} name{'s' if len(needs) != 1 else ''} needing identity"]
+           f"{unresolved} name{'s' if unresolved != 1 else ''} needing identity"]
     for relative in _folder_indexes(brain):
         count = _linked_count(brain, relative, paths)
         nav.append(f"- [[{relative.removesuffix('.md')}|{_index_title(brain, relative)}]] · {count} linked note"
@@ -430,7 +491,7 @@ def build_plan(brain: Path, *, db_path: Path | None = None, owners=None) -> dict
     documents[MEMORY_INDEX] = _section(index_text, "Generated navigation", "\n".join(nav))
     changed = {rel: text for rel, text in documents.items()
                if not (brain / rel).is_file() or _strip_stamp((brain / rel).read_text(encoding="utf-8")) != _strip_stamp(text)}
-    return {"notes": notes, "identity": identity, "hubs": hub_rows, "needs": needs,
+    return {"notes": notes, "identity": identity, "hubs": hub_rows, "needs": needs, "source_index_needs": index_needs,
             "documents": documents, "changed": changed}
 
 
@@ -677,7 +738,7 @@ def _dry_run(brain: Path, plan: dict, before_index: str, selected: list[str]) ->
 def file_imported(pointers: list[str], *, brain: Path, root: Path, package_id: str, **kwargs) -> dict:
     """Importer hook: file the historical notes one import wrote. Returns the import receipt's `filing`."""
     relatives = [p.removeprefix(PREFIX) for p in pointers]
-    notes = [PREFIX + rel for rel in _historical_notes(relatives)]
+    notes = [PREFIX + rel for rel in _filing_notes(relatives)]
     if not notes:
         return {"status": "not_applicable", "reason": "no historical notes"}
     if not enabled():
