@@ -359,6 +359,15 @@ class V3ImportTests(V3Base):
         intake_index = (self.brain / "sources/intake/INDEX.md").read_text(encoding="utf-8")
         self.assertIn(f"[[sources/intake/records/{SHA}|", intake_index)
 
+    def test_record_is_titled_after_its_source_index(self):
+        row = self.run_import()
+        self.assertEqual("imported", row["outcome"], row.get("reason"))
+        expected = "Original: Jordan Ellis / Liam: Ellis Plumbing intro call (14 Oct 2026)"
+        self.assertEqual(expected, source_intake._frontmatter(self.brain / RECORD)["title"])
+        self.assertIn(f"\n# {expected}\n", (self.brain / RECORD).read_text(encoding="utf-8"))
+        intake_index = (self.brain / "sources/intake/INDEX.md").read_text(encoding="utf-8")
+        self.assertIn(f"[[sources/intake/records/{SHA}|{expected}]]", intake_index)
+
     def test_existing_record_is_reused_not_rewritten(self):
         item = source_intake.SourceItem(Path("earlier.txt"), (FIXTURE / "source/original.txt").read_bytes(), SHA,
                                         "text/plain", "Earlier capture", None)

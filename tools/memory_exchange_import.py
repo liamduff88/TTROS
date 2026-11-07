@@ -820,13 +820,20 @@ def historical_index_v3_text(index_text: str, folder: str, entry: list[str]) -> 
     return "\n".join(lines) + "\n"
 
 
+def v3_record_title(index_title: str) -> str:
+    """The original record's title: named after its source INDEX, not the transcript's first line."""
+    from tools import source_intake
+    return source_intake._one_line(f"Original: {_v3_clean(index_title)}", "Original")
+
+
 def _v3_source_item(package: Path, plan: dict):
     """The source_intake SourceItem for the original, named by its original filename, never a host path."""
     from tools import source_intake
     source = plan["manifest"]["source"]
     filename = PurePosixPath(str(source.get("original_filename") or "")).name or "original.txt"
-    title, date = source_intake._metadata(PurePosixPath(filename), plan["source_bytes"], "text/plain")
+    _first_line, date = source_intake._metadata(PurePosixPath(filename), plan["source_bytes"], "text/plain")
     index = next(o for o in plan["outputs"] if o["role"] == "source_index")
+    title = v3_record_title(index["title"])
     if re.fullmatch(r"\d{4}-\d{2}-\d{2}", index["source_date_text"]):
         date = index["source_date_text"]
     item = source_intake.SourceItem(PurePosixPath(filename), plan["source_bytes"], source["sha256"], "text/plain", title, date)

@@ -1,0 +1,2 @@
+INVARIANTS CHANGED: FAIL
+graph differs: {'nodes': 1557, 'edges': 1884, 'sha256': '94b25e13faa68d1dfa806e2ba11ef1c973bb1d00ba5928eab2dfddcaf5edab50'} != {'nodes': 1557, 'edges': 1885, 'sha256': '94b25e13faa68d1dfa806e2ba11ef1c973bb1d00ba5928eab2dfddcaf5edab50'}

@@ -1,0 +1,63 @@
+snapshot after (model calls: 0 of declared max 0)
+[queries] how to get my first paying customers
+   1. sources/historical_calls/undated-chris-donnelly-build-million-business-098e5a08/INDEX.md  |  Chris Donnelly: How to build a million-turnover business without selli
+   2. sources/historical_calls/undated-chris-donnelly-build-million-business-098e5a08/free-to-paid-conversion.md  |  Chris Donnelly: Converting initial users to paying customers
+   3. sources/historical_calls/undated-chris-donnelly-build-million-business-098e5a08/micro-plan-paying-customers.md  |  Chris Donnelly: Micro-plan and 100 paying customers
+[queries] how often should I post on LinkedIn
+   1. sources/historical_calls/2026-11-04-ryan-spencer-liam-first-meeting-491e7000/content-learning-and-capture.md  |  Ryan Spencer / Liam: Content learning and transcript capture (4 Nov 20
+   2. sources/historical_calls/undated-chris-donnelly-build-million-business-098e5a08/founder-brand-ideal-customers.md  |  Chris Donnelly: Founder marketing for ideal customers
+   3. sources/historical_calls/undated-lara-acosta-linkedin-content-strategy-2026-7ded0d7c/documenting-building-in-public.md  |  Lara Acosta: Documenting work in public
+[queries] lead magnet ideas to collect emails
+   1. sources/historical_calls/undated-lara-acosta-linkedin-content-strategy-2026-7ded0d7c/three-value-bridge-lead-magnets.md  |  Lara Acosta: Three value-bridge lead magnets
+   2. sources/historical_calls/undated-chris-donnelly-build-million-business-098e5a08/INDEX.md  |  Chris Donnelly: How to build a million-turnover business without selli
+   3. sources/historical_calls/undated-chris-donnelly-build-million-business-098e5a08/lead-magnets-email-nurture.md  |  Chris Donnelly: Lead magnets and email nurture
+[queries] who did I talk to about scheduler beta testing
+   1. sources/historical_calls/2026-11-04-ryan-spencer-liam-first-meeting-491e7000/scheduler-beta-testing.md  |  Ryan Spencer / Liam: Scheduler beta testing arrangement (4 Nov 2026)
+   2. sources/historical_calls/2026-11-04-ryan-spencer-liam-first-meeting-491e7000/INDEX.md  |  Ryan Spencer / Liam: first meeting on scheduler, marketing and collabo
+   3. sources/historical_calls/2026-11-04-ryan-spencer-liam-first-meeting-491e7000/ryan-directory-website.md  |  Ryan Spencer / Liam: Ryan's resource-directory website proposal (4 Nov
+[controls] Ryan Spencer
+   1. sources/historical_calls/2026-11-04-ryan-spencer-liam-first-meeting-491e7000/ryan-directory-website.md  |  Ryan Spencer / Liam: Ryan's resource-directory website proposal (4 Nov
+   2. sources/historical_calls/2026-11-04-ryan-spencer-liam-first-meeting-491e7000/coaching-services-exchange.md  |  Ryan Spencer / Liam: Coaching and mutual service exchange (4 Nov 2026)
+   3. sources/historical_calls/2026-11-04-ryan-spencer-liam-first-meeting-491e7000/recommended-people-resources.md  |  Ryan Spencer / Liam: Introductions and recommended resources (4 Nov 20
+[controls] Kenneth CCI
+   1. sources/historical_calls/cards/call-kenneth-after-first-cci.card.md  |  Kenneth and Liam discuss CCI AI pilot scope, BD workflow pain points, 
+   2. people/kenneth-moodley.md  |  Kenneth Moodley
+   3. sources/historical_calls/cards/call-dr-kenneth-after-second-cci.card.md  |  Call with Dr Kenneth Moodley on framing CCI pilot benefits, Lamb Westo
+[controls] Andrea Roberts
+   1. people/andrea-roberts.md  |  Andrea Roberts
+   2. people/INDEX.md  |  People
+   3. sources/historical_calls/cards/andrea-roberts-june-26.card.md  |  Meeting on Quin AI intros, Rascal compliance software, AI opportunitie
+[controls] What did Fred say about MLS
+   1. sources/intake/cards/d9cb4668fd766474278e414bb53223f944342004f34be23020c161fa4160dd74.card.md  |  Fred discusses realtor workflow tracking, MLS reports, dashboards, CRM
+   2. sources/historical_calls/2026-11-04-ryan-spencer-liam-first-meeting-491e7000/personal-vs-company-brand.md  |  Ryan Spencer / Liam: Personal versus company branding (4 Nov 2026)
+   3. sources/historical_calls/undated-lara-acosta-linkedin-content-strategy-2026-7ded0d7c/documenting-building-in-public.md  |  Lara Acosta: Documenting work in public
+[david search_calls] {
+ "who did I talk to about scheduler beta testing": [
+  "sources/historical_calls/2026-11-04-ryan-spencer-liam-first-meeting-491e7000/scheduler-beta-testing.md",
+  "sources/historical_calls/2026-11-04-ryan-spencer-liam-first-meeting-491e7000/INDEX.md",
+  "sources/historical_calls/2026-11-04-ryan-spencer-liam-first-meeting-491e7000/ryan-directory-website.md"
+ ]
+}
+[david card prefetch] {
+ "Ryan Spencer": [],
+ "Kenneth CCI": [
+  "business_brain:sources/historical_calls/cards/call-kenneth-after-first-cci.card.md",
+  "business_brain:sources/historical_calls/cards/call-dr-kenneth-after-second-cci.card.md",
+  "business_brain:sources/historical_calls/cards/kenneth-meeting-may-27.card.md"
+ ],
+ "Andrea Roberts": [
+  "business_brain:sources/historical_calls/cards/andrea-roberts-june-26.card.md"
+ ],
+ "What did Fred say about MLS": [
+  "business_brain:sources/intake/cards/d9cb4668fd766474278e414bb53223f944342004f34be23020c161fa4160dd74.card.md"
+ ],
+ "how to get my first paying customers": [],
+ "how often should I post on LinkedIn": [],
+ "lead magnet ideas to collect emails": [],
+ "who did I talk to about scheduler beta testing": []
+}
+[graph] {"nodes": 1557, "edges": 1884, "sha256": "94b25e13faa68d1dfa806e2ba11ef1c973bb1d00ba5928eab2dfddcaf5edab50"}
+[entities] {"person:ryan-spencer": {"knowledge": 12, "sources": 1}, "person:chris-donnelly": {"knowledge": 12, "sources": 1}}
+[entity_tables] {"documents": 5093, "entities": 308, "entity_aliases": 329, "entity_links": 490}
+[vault] {"status": "PASS", "canonical_note_count": 368, "broken_links": 0, "unreachable": 0, "failed_checks": []}
+[v3_record_titles] {"491e7000": "title: \"Original: Ryan Spencer / Liam: first meeting on scheduler, marketing and collaboration (4 Nov 2026)\"", "098e5a08": "title: \"Original: Chris Donnelly: How to build a million-turnover business without selling your time\"", "7ded0d7c": "title: \"Original: Lara Acosta: LinkedIn 4-3-2-1 strategy and audience conversion\"", "f44cccaa": "title: \"Original: Nick Saraev: AI consulting method for 2027\""}

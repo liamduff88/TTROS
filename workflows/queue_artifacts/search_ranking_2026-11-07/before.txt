@@ -1,0 +1,63 @@
+snapshot before (model calls: 0 of declared max 0)
+[queries] how to get my first paying customers
+   1. sources/intake/records/098e5a08d7aef17cdd9e87bb76fe5b6ead7c3719d4413bd5c48e37c67569335d.md  |  There has never been a better time to build a business. Americans are 
+   2. sources/intake/records/63b30df30a95630e2ebb8a16dc574e0a7cbe09e6ee20714776832b067096a28c.md  |  7 and 1/2 years ago, I started an AI business and made nothing for the
+   3. sources/historical_calls/undated-chris-donnelly-build-million-business-098e5a08/INDEX.md  |  Chris Donnelly: How to build a million-turnover business without selli
+[queries] how often should I post on LinkedIn
+   1. sources/intake/records/7ded0d7cd9d8447def32df46dec9e1d6ae965917508a787904003a54f2b9c13f.md  |  Last month marked four years of me posting on LinkedIn every single we
+   2. sources/intake/records/eee5588d94c5835d6400f7e683fc6a63fce4af296a0efb0190103713c54ad099.md  |  Weekly ideas — 2026-09-13
+   3. sources/historical_calls/cci-second-call-june-15.md  |  Historical source — Second call with CCI, Ollie and Kenneth
+[queries] lead magnet ideas to collect emails
+   1. sources/historical_calls/undated-lara-acosta-linkedin-content-strategy-2026-7ded0d7c/three-value-bridge-lead-magnets.md  |  Lara Acosta: Three value-bridge lead magnets
+   2. sources/historical_calls/undated-chris-donnelly-build-million-business-098e5a08/INDEX.md  |  Chris Donnelly: How to build a million-turnover business without selli
+   3. sources/historical_calls/undated-chris-donnelly-build-million-business-098e5a08/lead-magnets-email-nurture.md  |  Chris Donnelly: Lead magnets and email nurture
+[queries] who did I talk to about scheduler beta testing
+   1. sources/historical_calls/2026-11-04-ryan-spencer-liam-first-meeting-491e7000/scheduler-beta-testing.md  |  Ryan Spencer / Liam: Scheduler beta testing arrangement (4 Nov 2026)
+   2. sources/intake/records/491e7000399832dc31f7d3e507db9ab751e4155d997f51ca38af8c02ee121d29.md  |  Date: Nov 4
+   3. sources/historical_calls/2026-11-04-ryan-spencer-liam-first-meeting-491e7000/INDEX.md  |  Ryan Spencer / Liam: first meeting on scheduler, marketing and collabo
+[controls] Ryan Spencer
+   1. people/ryan-spencer.md  |  Ryan Spencer
+   2. people/NEEDS_IDENTITY.md  |  Needs identity
+   3. sources/historical_calls/2026-11-04-ryan-spencer-liam-first-meeting-491e7000/ryan-directory-website.md  |  Ryan Spencer / Liam: Ryan's resource-directory website proposal (4 Nov
+[controls] Kenneth CCI
+   1. sources/historical_calls/cards/call-kenneth-after-first-cci.card.md  |  Kenneth and Liam discuss CCI AI pilot scope, BD workflow pain points, 
+   2. people/kenneth-moodley.md  |  Kenneth Moodley
+   3. sources/historical_calls/cards/call-dr-kenneth-after-second-cci.card.md  |  Call with Dr Kenneth Moodley on framing CCI pilot benefits, Lamb Westo
+[controls] Andrea Roberts
+   1. people/andrea-roberts.md  |  Andrea Roberts
+   2. people/INDEX.md  |  People
+   3. sources/historical_calls/cards/andrea-roberts-june-26.card.md  |  Meeting on Quin AI intros, Rascal compliance software, AI opportunitie
+[controls] What did Fred say about MLS
+   1. sources/intake/records/e5966652b3cb4d4f7d39115fe3571734ff1cb17c47ad1ba32a654c6beb1a6d04.md  |  Meeting Title: Real estate workflow and document management setup with
+   2. sources/intake/records/d9cb4668fd766474278e414bb53223f944342004f34be23020c161fa4160dd74.md  |  Meeting Title: Real estate workflow automation and MLS market reportin
+   3. sources/intake/records/e6992b0d485d63187684730ed01a5812ed31f125a5133c8751a799d450bc1ace.md  |  Meeting Title: AI agent setup and real estate CMA automation with Fred
+[david search_calls] {
+ "who did I talk to about scheduler beta testing": [
+  "sources/historical_calls/2026-11-04-ryan-spencer-liam-first-meeting-491e7000/scheduler-beta-testing.md",
+  "sources/historical_calls/2026-11-04-ryan-spencer-liam-first-meeting-491e7000/INDEX.md",
+  "sources/historical_calls/andrea-roberts-june-26.md"
+ ]
+}
+[david card prefetch] {
+ "Ryan Spencer": [],
+ "Kenneth CCI": [
+  "business_brain:sources/historical_calls/cards/call-kenneth-after-first-cci.card.md",
+  "business_brain:sources/historical_calls/cards/call-dr-kenneth-after-second-cci.card.md",
+  "business_brain:sources/historical_calls/cards/kenneth-meeting-may-27.card.md"
+ ],
+ "Andrea Roberts": [
+  "business_brain:sources/historical_calls/cards/andrea-roberts-june-26.card.md"
+ ],
+ "What did Fred say about MLS": [
+  "business_brain:sources/intake/cards/d9cb4668fd766474278e414bb53223f944342004f34be23020c161fa4160dd74.card.md"
+ ],
+ "how to get my first paying customers": [],
+ "how often should I post on LinkedIn": [],
+ "lead magnet ideas to collect emails": [],
+ "who did I talk to about scheduler beta testing": []
+}
+[graph] {"nodes": 1557, "edges": 1884, "sha256": "94b25e13faa68d1dfa806e2ba11ef1c973bb1d00ba5928eab2dfddcaf5edab50"}
+[entities] {"person:ryan-spencer": {"knowledge": 12, "sources": 0}, "person:chris-donnelly": {"knowledge": 12, "sources": 0}}
+[entity_tables] {"documents": 5093, "entities": 308, "entity_aliases": 329, "entity_links": 485}
+[vault] {"status": "PASS", "canonical_note_count": 368, "broken_links": 0, "unreachable": 0, "failed_checks": []}
+[v3_record_titles] {"491e7000": "title: \"Date: Nov 4\"", "098e5a08": "title: \"There has never been a better time to build a business. Americans are opening more new businesses this year than last year, according to the Census Bureau.\"", "7ded0d7c": "title: \"Last month marked four years of me posting on LinkedIn every single week. In that time, I've helped over 5,000 people start posting on the platform. Many have g\"", "f44cccaa": "title: \"So AI is automating jobs faster than your kid's mobile game asks for your credit card.\""}

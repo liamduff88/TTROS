@@ -521,6 +521,24 @@ def remove_one(path_text: str, db_path: Path | None = None) -> dict:
     return {"status": "success", "path": pointer, "removed": len(rows), "token_usage_text": TOKEN_USAGE_TEXT}
 
 
+# Search ranking (2026-11-07). Memory Ingest v3 stores each source as topic notes and a
+# source INDEX in sources/historical_calls/<folder>/, plus the raw original in
+# sources/intake/records/. The original contains every word, so plain bm25 put it above the
+# notes that answer the question. Records sit in a lower tier (they are still returned, and
+# win only when nothing else matches); v3 notes and source indexes count double.
+# Ordering only: which documents match, and every scope rule, are unchanged.
+V3_NOTE_GLOB = "business_brain:sources/historical_calls/*/*.md"
+INTAKE_RECORD_GLOB = "business_brain:sources/intake/records/*"
+V3_NOTE_WEIGHT = 2.0
+RANK_TIER_SQL = f"(CASE WHEN d.path GLOB '{INTAKE_RECORD_GLOB}' THEN 1 ELSE 0 END)"
+RANK_WEIGHT_SQL = (
+    f"(CASE WHEN d.path GLOB '{V3_NOTE_GLOB}'"
+    " AND d.path NOT GLOB 'business_brain:sources/historical_calls/*/*/*'"
+    " AND d.path NOT GLOB 'business_brain:sources/historical_calls/cards/*'"
+    f" THEN {V3_NOTE_WEIGHT} ELSE 1.0 END)"
+)
+
+
 def quote_fts_query(query: str) -> str:
     terms = re.findall(r"[\w.-]+", query)
     return " OR ".join(f'"{term}"' for term in terms[:12])
@@ -575,7 +593,7 @@ def search(
         where.append("documents_fts MATCH ?")
         params.append(fts)
         select = ("d.path, d.kind, d.source, d.client_scope" if path_only else "d.*") + ", bm25(documents_fts) AS rank"
-        order = "rank, d.mtime DESC"
+        order = f"{RANK_TIER_SQL}, rank * {RANK_WEIGHT_SQL}, d.mtime DESC"
     else:
         order = "d.mtime DESC"
     if kind:
